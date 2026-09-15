@@ -1,5 +1,5 @@
-{{- if gt (int .Values.backend.replicaCount) 1 }}
-{{- fail "backend.replicaCount must be 1: the backend stores state in SQLite on a single ReadWriteOnce volume and does not support concurrent writers. Run one replica, or fork the app onto an external database first." }}
+{{- if and (not .Values.backend.database.existingSecret) (not .Values.backend.database.host) }}
+{{- fail "Set backend.database.existingSecret (a Secret with a DATABASE_URL key) or backend.database.host (plus user/name/passwordSecret) so the backend can reach Postgres." }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -9,8 +9,6 @@ metadata:
     {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.backend.replicaCount }}
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 6 }}
@@ -40,18 +38,42 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            - name: DATA_DIR
-              value: /data
             - name: AWS_REGION
               value: {{ .Values.backend.awsRegion | quote }}
             - name: AWS_DEFAULT_REGION
               value: {{ .Values.backend.awsRegion | quote }}
+            {{- if .Values.backend.database.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.existingSecret }}
+                  key: {{ .Values.backend.database.existingSecretKey }}
+            {{- else }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.backend.database.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.backend.database.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.backend.database.name | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.backend.database.user | quote }}
+            {{- if .Values.backend.database.sslMode }}
+            - name: POSTGRES_SSLMODE
+              value: {{ .Values.backend.database.sslMode | quote }}
+            {{- end }}
+            - name: POSTGRES_PASSWORD
+              {{- if .Values.backend.database.passwordSecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.passwordSecret.name }}
+                  key: {{ .Values.backend.database.passwordSecret.key }}
+              {{- else }}
+              value: {{ .Values.backend.database.password | quote }}
+              {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          volumeMounts:
-            - name: data
-              mountPath: /data
           {{- with .Values.backend.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -62,13 +84,3 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
-      volumes:
-        - name: data
-          {{- if .Values.backend.persistence.useEmptyDir }}
-          emptyDir: {}
-          {{- else if .Values.backend.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "cloudwatch-insights.backend.fullname" . }}-data
-          {{- else }}
-          emptyDir: {}
-          {{- end }}

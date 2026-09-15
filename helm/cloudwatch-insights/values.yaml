@@ -22,10 +22,7 @@ backend:
     tag: latest
     pullPolicy: IfNotPresent
 
-  # SQLite (the app's storage engine) does not support multiple concurrent
-  # writers, so this must stay 1 unless the app is changed to use an
-  # external database. Templates enforce this.
-  replicaCount: 1
+  replicaCount: 2
 
   service:
     type: ClusterIP
@@ -43,6 +40,47 @@ backend:
   # it does not restrict which regions you can query.
   awsRegion: us-east-1
 
+  # Postgres connection for the app's own storage (accounts, settings,
+  # saved queries). Bring your own Postgres -- this chart does not deploy
+  # one. Two ways to configure it:
+  #
+  # Option A (recommended): point at an existing Secret holding a full
+  # SQLAlchemy DATABASE_URL, e.g.
+  #   postgresql+psycopg2://user:password@host:5432/dbname?sslmode=require
+  #
+  #   database:
+  #     existingSecret: cloudwatch-insights-db
+  #     existingSecretKey: DATABASE_URL
+  #
+  # Option B: discrete fields, with the password pulled from a Secret (or,
+  # for quick testing only, given inline via `password`).
+  #
+  #   database:
+  #     host: my-postgres.example.internal
+  #     port: 5432
+  #     name: cloudwatch_insights
+  #     user: cloudwatch_insights
+  #     sslMode: require
+  #     passwordSecret:
+  #       name: cloudwatch-insights-db
+  #       key: password
+  database:
+    existingSecret: ""
+    existingSecretKey: DATABASE_URL
+
+    host: ""
+    port: 5432
+    name: cloudwatch_insights
+    user: cloudwatch_insights
+    sslMode: ""
+    passwordSecret:
+      name: ""
+      key: password
+    # Inline password, only used when passwordSecret.name is empty. Prefer
+    # passwordSecret (or existingSecret) so the password isn't stored in
+    # this values file / the release's plain-text values history.
+    password: ""
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []
@@ -53,16 +91,6 @@ backend:
   podAnnotations: {}
   podSecurityContext:
     runAsNonRoot: true
-    fsGroup: 1000
-
-  persistence:
-    enabled: true
-    size: 1Gi
-    storageClassName: ""
-    accessMode: ReadWriteOnce
-    # Set to true only if you'd rather lose saved queries/accounts on pod
-    # restart than manage a PVC (e.g. quick smoke test).
-    useEmptyDir: false
 
   livenessProbe:
     httpGet:

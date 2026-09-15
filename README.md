@@ -17,8 +17,8 @@ configure in each target account.
 ```
 backend/   FastAPI app. Holds ambient AWS credentials (the server's own
            identity) and uses sts:AssumeRole to reach into each configured
-           account/region. SQLite persists accounts, the default role name,
-           and saved queries.
+           account/region. Postgres persists accounts, the default role
+           name, and saved queries.
 frontend/  React + Vite SPA. Talks to the backend over /api/*.
 ```
 
@@ -27,6 +27,19 @@ the only thing that touches AWS credentials, using whatever ambient identity
 it's given (env vars, an EC2/ECS/Lambda instance role, or `~/.aws/credentials`).
 
 ## Running locally
+
+The backend needs a Postgres database. Either use the provided Compose file
+for everything (see [Run with Docker Compose](#run-with-docker-compose)
+below), or start just Postgres and run the app processes yourself for a
+faster edit loop:
+
+```bash
+docker run --rm -d --name cw-postgres \
+  -e POSTGRES_USER=cloudwatch_insights \
+  -e POSTGRES_PASSWORD=cloudwatch_insights \
+  -e POSTGRES_DB=cloudwatch_insights \
+  -p 5432:5432 postgres:16-alpine
+```
 
 ### 1. Backend
 
@@ -41,12 +54,23 @@ export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 # or AWS_PROFILE=..., or just run this on an instance/task with an IAM role.
 
+export DATABASE_URL=postgresql+psycopg2://cloudwatch_insights:cloudwatch_insights@localhost:5432/cloudwatch_insights
 uvicorn app.main:app --reload --port 8000
 ```
 
-The SQLite database is created at `backend/data/app.db` on first run.
+Tables are created automatically on first run. Instead of `DATABASE_URL`
+you can set `POSTGRES_HOST` (plus optionally `POSTGRES_PORT`, `POSTGRES_DB`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`) and the backend
+builds the connection string for you — see `backend/app/db.py`.
 
-Run the test suite with `pip install -r requirements-dev.txt && python -m pytest tests/ -v`.
+Run the test suite with:
+```bash
+pip install -r requirements-dev.txt
+docker run --rm -d --name cw-postgres-test -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=cloudwatch_insights_test -p 5432:5432 postgres:16-alpine
+python -m pytest tests/ -v
+```
+(`tests/conftest.py` defaults `DATABASE_URL` to that same test database if
+it isn't already set in the environment.)
 
 ### 2. Frontend
 
@@ -69,6 +93,19 @@ Serve the resulting `frontend/dist` as static files from anything (nginx,
 S3+CloudFront, or FastAPI's `StaticFiles`) and point it at the backend's
 `/api` — put both behind the same origin/reverse proxy so the frontend's
 relative `/api/*` calls reach the backend.
+
+### Run with Docker Compose
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...   # or AWS_PROFILE, see IAM setup below
+docker compose up --build
+```
+
+This starts Postgres, the backend (http://localhost:8000), and the frontend
+(http://localhost:8080) together, with the backend already pointed at
+Postgres. AWS env vars are forwarded from your shell into the backend
+container so it can assume roles.
 
 ### Containers & Kubernetes
 

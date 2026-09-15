@@ -9,9 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-ENV DATA_DIR=/data
-RUN mkdir -p /data && chown app:app /data
-
 USER app
 
 EXPOSE 8000

@@ -154,7 +154,23 @@ being an IRSA role instead of a plain server credential.
      --policy-document file://spoke-permissions.json
    ```
 
-5. **Helm 3** installed locally, and (if using the GitOps path) **Argo CD**
+5. **A Postgres database** the backend can reach from inside the cluster
+   (RDS, Cloud SQL, a self-hosted instance, whatever you already run) —
+   this chart does not deploy one for you. Create a database and a user
+   for the app, then store the connection info as a Secret:
+
+   ```bash
+   # Option A: a single DATABASE_URL
+   kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-db \
+     --from-literal=DATABASE_URL="postgresql+psycopg2://cloudwatch_insights:<PASSWORD>@<DB_HOST>:5432/cloudwatch_insights?sslmode=require"
+
+   # Option B: just the password, paired with discrete values.yaml fields
+   # (backend.database.host/user/name/sslMode) -- see values.yaml
+   kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-db \
+     --from-literal=password="<PASSWORD>"
+   ```
+
+6. **Helm 3** installed locally, and (if using the GitOps path) **Argo CD**
    installed on the cluster.
 
 ## Deploy with Helm directly
@@ -163,6 +179,7 @@ being an IRSA role instead of a plain server credential.
 helm upgrade --install cloudwatch-insights ./helm/cloudwatch-insights \
   --namespace cloudwatch-insights --create-namespace \
   --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::${HUB_ACCOUNT_ID}:role/${ROLE_NAME}" \
+  --set backend.database.existingSecret=cloudwatch-insights-db \
   --set backend.image.repository=ghcr.io/<owner>/cloudwatch-insights-backend \
   --set backend.image.tag=latest \
   --set frontend.image.repository=ghcr.io/<owner>/cloudwatch-insights-frontend \
@@ -171,17 +188,21 @@ helm upgrade --install cloudwatch-insights ./helm/cloudwatch-insights \
   --set ingress.host=cloudwatch-insights.example.com
 ```
 
-Check `helm/cloudwatch-insights/values.yaml` for every other knob (resource
-requests/limits, persistence size/storage class, ingress annotations/TLS,
-extra backend env vars). A few things worth knowing:
+(If you went with Option B for the database Secret above, use
+`--set backend.database.host=<DB_HOST> --set backend.database.passwordSecret.name=cloudwatch-insights-db`
+instead of `backend.database.existingSecret`.)
 
-- **`backend.replicaCount` must stay `1`.** The backend persists accounts,
-  settings, and saved queries in SQLite on a single PVC; the chart's
-  template refuses to render if you try to scale it past 1. The frontend
-  (stateless nginx) scales freely via `frontend.replicaCount`.
-- **`backend.persistence.enabled: true`** (the default) provisions a PVC so
-  that data survives pod restarts. Set `backend.persistence.useEmptyDir:
-  true` instead only for a disposable smoke-test deployment.
+Check `helm/cloudwatch-insights/values.yaml` for every other knob (resource
+requests/limits, ingress annotations/TLS, extra backend env vars). A few
+things worth knowing:
+
+- The backend refuses to render (a `helm template`/`helm install` error,
+  not a runtime crash) unless you've set either
+  `backend.database.existingSecret` or `backend.database.host`, so a
+  forgotten DB config fails fast.
+- Because state now lives in Postgres rather than SQLite-on-a-PVC, the
+  backend can run multiple replicas too — scale `backend.replicaCount`
+  freely, same as `frontend.replicaCount`.
 - The frontend container proxies `/api/*` to the backend Service at
   request time via `BACKEND_SERVICE_HOST`/`BACKEND_SERVICE_PORT`, which the
   chart wires up automatically to the backend Service it creates — you

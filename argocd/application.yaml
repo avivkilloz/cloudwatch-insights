@@ -6,6 +6,10 @@
 # Adjust repoURL/targetRevision, the destination cluster/namespace, and the
 # values overrides below (especially the IRSA role ARN and image tags)
 # before applying to a real environment.
+#
+# The `cloudwatch-insights-db` Secret referenced below (holding a Postgres
+# DATABASE_URL) is not managed by this Application -- create it in the
+# target namespace yourself (see DEPLOYMENT.md) before or after syncing.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -26,6 +30,8 @@ spec:
         backend:
           image:
             tag: latest
+          database:
+            existingSecret: cloudwatch-insights-db
         frontend:
           image:
             tag: latest
