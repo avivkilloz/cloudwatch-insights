@@ -1,0 +1,46 @@
+# Example Argo CD Application for the cloudwatch-insights Helm chart.
+#
+# Apply once Argo CD is installed and pointed at a cluster:
+#   kubectl apply -f argocd/application.yaml
+#
+# Adjust repoURL/targetRevision, the destination cluster/namespace, and the
+# values overrides below (especially the IRSA role ARN and image tags)
+# before applying to a real environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudwatch-insights
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/avivkilloz/cloudwatch-insights.git
+    targetRevision: main
+    path: helm/cloudwatch-insights
+    helm:
+      valuesObject:
+        serviceAccount:
+          annotations:
+            eks.amazonaws.com/role-arn: "arn:aws:iam::<HUB_ACCOUNT_ID>:role/cloudwatch-insights-hub-role"
+        backend:
+          image:
+            tag: latest
+        frontend:
+          image:
+            tag: latest
+        ingress:
+          enabled: true
+          className: alb
+          host: cloudwatch-insights.example.com
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudwatch-insights
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

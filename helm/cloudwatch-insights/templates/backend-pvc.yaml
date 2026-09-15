@@ -1,0 +1,17 @@
+{{- if and .Values.backend.persistence.enabled (not .Values.backend.persistence.useEmptyDir) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cloudwatch-insights.backend.fullname" . }}-data
+  labels:
+    {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.backend.persistence.accessMode }}
+  {{- if .Values.backend.persistence.storageClassName }}
+  storageClassName: {{ .Values.backend.persistence.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.size }}
+{{- end }}

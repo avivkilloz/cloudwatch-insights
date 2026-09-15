@@ -1,0 +1,23 @@
+CloudWatch Insights (Multi-Account) has been deployed.
+
+{{- if .Values.ingress.enabled }}
+Access it at: http://{{ .Values.ingress.host }}
+{{- else }}
+No Ingress is enabled. Reach the frontend Service directly, e.g.:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "cloudwatch-insights.frontend.fullname" . }} 8080:{{ .Values.frontend.service.port }}
+then open http://localhost:8080
+{{- end }}
+
+Before this app can assume roles in any target AWS account:
+  1. Make sure the ServiceAccount ({{ include "cloudwatch-insights.serviceAccountName" . }})
+     is annotated with a valid IRSA role ARN
+     (Values.serviceAccount.annotations."eks.amazonaws.com/role-arn").
+  2. That IAM role must be allowed to sts:AssumeRole into the role you plan
+     to configure per account (e.g. CloudWatchInsightsReadRole).
+  3. Each target account must have that role created, trusting this hub
+     role's ARN.
+See the top-level README's "Kubernetes / IRSA prerequisites" section for
+the full walkthrough and example policies.
+
+Once it's reachable, open the "Accounts & Settings" tab in the app to set
+the role name and add your accounts.

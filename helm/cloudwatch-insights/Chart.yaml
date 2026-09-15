@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cloudwatch-insights
+description: Multi-account CloudWatch Logs Insights web app (FastAPI backend + React frontend)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

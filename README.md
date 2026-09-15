@@ -46,6 +46,8 @@ uvicorn app.main:app --reload --port 8000
 
 The SQLite database is created at `backend/data/app.db` on first run.
 
+Run the test suite with `pip install -r requirements-dev.txt && python -m pytest tests/ -v`.
+
 ### 2. Frontend
 
 ```bash
@@ -67,6 +69,20 @@ Serve the resulting `frontend/dist` as static files from anything (nginx,
 S3+CloudFront, or FastAPI's `StaticFiles`) and point it at the backend's
 `/api` — put both behind the same origin/reverse proxy so the frontend's
 relative `/api/*` calls reach the backend.
+
+### Containers & Kubernetes
+
+- `backend/Dockerfile` and `frontend/Dockerfile` build each half as its own
+  image; `.github/workflows/{backend,frontend}-ci.yml` typecheck/test each
+  on every push and, on `main`, build and push images to
+  `ghcr.io/<owner>/cloudwatch-insights-{backend,frontend}`.
+- `helm/cloudwatch-insights/` is a Helm chart for both services, including
+  a ServiceAccount meant for IRSA. `argocd/application.yaml` is an example
+  Argo CD `Application` for the chart.
+- See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full Kubernetes/IRSA
+  walkthrough: OIDC provider setup, creating the hub IAM role the backend
+  runs as, wiring per-target-account trust policies, and deploying with
+  Helm or Argo CD.
 
 ## IAM setup
 

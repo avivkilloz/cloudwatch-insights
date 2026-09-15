@@ -1,0 +1,126 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+# ServiceAccount used by the BACKEND pod only (the frontend is static nginx
+# and never touches AWS). This is what IRSA binds to: annotate it with the
+# ARN of the "hub" IAM role the backend should run as, which must itself be
+# allowed to sts:AssumeRole into the CloudWatchInsightsReadRole (or whatever
+# you name it) role that exists in every target account. See the chart
+# README for the full IRSA + per-account trust policy walkthrough.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<HUB_ACCOUNT_ID>:role/cloudwatch-insights-hub-role
+
+backend:
+  image:
+    repository: ghcr.io/avivkilloz/cloudwatch-insights-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # SQLite (the app's storage engine) does not support multiple concurrent
+  # writers, so this must stay 1 unless the app is changed to use an
+  # external database. Templates enforce this.
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # AWS_REGION is only used by boto3's STS client for its own endpoint;
+  # it does not restrict which regions you can query.
+  awsRegion: us-east-1
+
+  # Extra environment variables merged into the backend container, e.g. to
+  # tune retries or point at a proxy.
+  extraEnv: []
+  # extraEnv:
+  #   - name: AWS_RETRY_MODE
+  #     value: adaptive
+
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    fsGroup: 1000
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+    accessMode: ReadWriteOnce
+    # Set to true only if you'd rather lose saved queries/accounts on pod
+    # restart than manage a PVC (e.g. quick smoke test).
+    useEmptyDir: false
+
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+frontend:
+  image:
+    repository: ghcr.io/avivkilloz/cloudwatch-insights-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+  podAnnotations: {}
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # annotations:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: cloudwatch-insights.example.com
+  tls: []
+  # tls:
+  #   - secretName: cloudwatch-insights-tls
+  #     hosts:
+  #       - cloudwatch-insights.example.com

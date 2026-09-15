@@ -1,0 +1,74 @@
+{{- if gt (int .Values.backend.replicaCount) 1 }}
+{{- fail "backend.replicaCount must be 1: the backend stores state in SQLite on a single ReadWriteOnce volume and does not support concurrent writers. Run one replica, or fork the app onto an external database first." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudwatch-insights.backend.fullname" . }}
+  labels:
+    {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 8 }}
+      {{- with .Values.backend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cloudwatch-insights.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: AWS_REGION
+              value: {{ .Values.backend.awsRegion | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.backend.awsRegion | quote }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.backend.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.backend.persistence.useEmptyDir }}
+          emptyDir: {}
+          {{- else if .Values.backend.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "cloudwatch-insights.backend.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
