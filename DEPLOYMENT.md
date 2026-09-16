@@ -15,17 +15,18 @@ real cluster.
 EKS pod (backend, ServiceAccount X)
   --IRSA-->  Hub IAM role (lives in the account that hosts the cluster)
   --sts:AssumeRole-->  CloudWatchInsightsReadRole (one per target account)
-  --logs:*-->  CloudWatch Logs in that target account/region
+  --logs:* / iot:*-->  CloudWatch Logs / IoT in that target account/region
 ```
 
 The **hub role** is the backend's actual runtime identity (swapped in via
 IRSA — no keys stored anywhere). It only needs permission to assume the
-per-account role; it does not need `logs:*` itself. Each **target account**
-gets its own role, trusting only the hub role, with the actual
-`logs:DescribeLogGroups` / `logs:StartQuery` / `logs:GetQueryResults` /
-`logs:StopQuery` permissions. This is the same two-policy shape described
-in the main README's "IAM setup" section, just with the hub role's identity
-being an IRSA role instead of a plain server credential.
+per-account role; it does not need `logs:*`/`iot:*` itself. Each **target
+account** gets its own role, trusting only the hub role, with the actual
+`logs:*` and `iot:*` read permissions. This is the same two-policy shape
+described in the main README's "IAM setup" section, just with the hub
+role's identity being an IRSA role instead of a plain server credential.
+(If you only use one of the two tabs, drop the other service's actions
+from the target-account policy below.)
 
 ## Prerequisites
 
@@ -141,7 +142,15 @@ being an IRSA role instead of a plain server credential.
            "logs:DescribeLogGroups",
            "logs:StartQuery",
            "logs:GetQueryResults",
-           "logs:StopQuery"
+           "logs:StopQuery",
+           "iot:SearchIndex",
+           "iot:DescribeThing",
+           "iot:DescribeEndpoint",
+           "iot:ListThingPrincipals",
+           "iot:DescribeCertificate",
+           "iot:ListNamedShadowsForThing",
+           "iot:GetThingShadow",
+           "iot:ListJobExecutionsForThing"
          ],
          "Resource": "*"
        }
@@ -150,9 +159,13 @@ being an IRSA role instead of a plain server credential.
    EOF
 
    aws iam put-role-policy --role-name "$TARGET_ROLE_NAME" \
-     --policy-name read-logs \
+     --policy-name read-logs-and-iot \
      --policy-document file://spoke-permissions.json
    ```
+
+   The IoT tab additionally needs **Fleet Indexing** enabled per target
+   account/region (`aws iot update-indexing-configuration`) — see the main
+   README's "IoT tab prerequisite" section for the exact command.
 
 5. **A Postgres database** the backend can reach from inside the cluster
    (RDS, Cloud SQL, a self-hosted instance, whatever you already run) —

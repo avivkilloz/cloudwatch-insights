@@ -60,6 +60,21 @@ def get_client(service: str, account_id: str, region: str, role_name: str):
     )
 
 
+def get_client_with_endpoint(service: str, account_id: str, region: str, role_name: str, endpoint_url: str):
+    """Like get_client, but against an explicit endpoint -- needed for
+    account-specific endpoints such as the IoT data plane (iot-data)."""
+    creds = _assume_role(account_id, role_name)
+    return boto3.client(
+        service,
+        region_name=region,
+        endpoint_url=endpoint_url,
+        aws_access_key_id=creds["access_key"],
+        aws_secret_access_key=creds["secret_key"],
+        aws_session_token=creds["session_token"],
+        config=BOTO_CONFIG,
+    )
+
+
 def list_log_groups(account_id: str, region: str, role_name: str) -> list[dict]:
     client = get_client("logs", account_id, region, role_name)
     log_groups = []

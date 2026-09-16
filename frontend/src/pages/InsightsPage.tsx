@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Environment, SavedQuery, QueryResultItem, StartedQuery } from "../api";
+import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView, { SortDirection } from "../components/ResultsView";
 
@@ -193,24 +194,11 @@ export default function InsightsPage() {
     <div>
       <div className="panel">
         <h2>1. Choose environments</h2>
-        {environments.length === 0 && (
-          <p className="muted">No environments configured yet — add some under "Environments &amp; Settings".</p>
-        )}
-        <div className="checkbox-list" style={{ maxHeight: 200 }}>
-          {environments.map((e) => (
-            <label key={e.id} className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={selectedEnvironmentIds.has(e.id)}
-                onChange={() => toggleEnvironment(e.id)}
-              />
-              {e.name} ({e.account_id} · {e.region})
-            </label>
-          ))}
-        </div>
-        <p className="muted" style={{ marginTop: 8 }}>
-          {selectedEnvironments.length} environment(s) selected.
-        </p>
+        <EnvironmentSelector
+          environments={environments}
+          selectedIds={selectedEnvironmentIds}
+          onToggle={toggleEnvironment}
+        />
       </div>
 
       <div className="panel">

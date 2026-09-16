@@ -1,18 +1,25 @@
 # CloudWatch Insights — Multi-Account
 
 A web app that mimics CloudWatch Logs Insights, but lets you query log groups
-across **multiple AWS accounts and regions** at once by assuming a role you
-configure in each target account.
+and browse IoT fleets across **multiple AWS accounts and regions** at once by
+assuming a role you configure in each target account.
 
 - Define **environments** — each one an AWS account paired with a single
   region — once, under Environments & Settings.
-- Pick one or more environments on the Insights page.
-- Browse and select the log groups available in each.
-- Write a CloudWatch Logs Insights query (same syntax as the AWS console).
-- Run it — the app fires one `StartQuery` per selected environment in
-  parallel and polls until every target finishes.
-- Results from all targets are merged into one list, shrunk to a single
-  summary line per row by default; click a row to expand every field.
+- **Insights tab**: pick one or more environments, browse/select their log
+  groups, write a CloudWatch Logs Insights query (same syntax as the AWS
+  console), and run it — the app fires one `StartQuery` per selected
+  environment in parallel and polls until every target finishes. Results
+  from all targets are merged into one list, shrunk to a single summary
+  line per row by default; click a row to expand every field.
+- **IoT tab**: pick one or more environments and search IoT things using the
+  same "Advanced search" syntax as the AWS console (by name, attributes,
+  connectivity, shadow values, group membership, and more). Expand a thing
+  to see its attributes, named/classic shadows (reported vs. desired, last
+  updated, version), attached certificates (with status), and job execution
+  history (with status). Read-only — nothing in this tab creates, updates,
+  or deletes anything in your AWS accounts.
+- Both tabs support **saved queries/searches**, stored per app instance.
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
   dropdown in the top bar — it's remembered per browser via `localStorage`.
 
@@ -22,7 +29,7 @@ configure in each target account.
 backend/   FastAPI app. Holds ambient AWS credentials (the server's own
            identity) and uses sts:AssumeRole to reach into each configured
            environment (account+region pair). Postgres persists
-           environments, the default role name, and saved queries.
+           environments, the default role name, and saved queries/searches.
 frontend/  React + Vite SPA. Talks to the backend over /api/*.
 ```
 
@@ -178,19 +185,48 @@ The app needs two things:
            "logs:DescribeLogGroups",
            "logs:StartQuery",
            "logs:GetQueryResults",
-           "logs:StopQuery"
+           "logs:StopQuery",
+           "iot:SearchIndex",
+           "iot:DescribeThing",
+           "iot:DescribeEndpoint",
+           "iot:ListThingPrincipals",
+           "iot:DescribeCertificate",
+           "iot:ListNamedShadowsForThing",
+           "iot:GetThingShadow",
+           "iot:ListJobExecutionsForThing"
          ],
          "Resource": "*"
        }
      ]
    }
    ```
+   (Drop the `iot:*` actions if you only need the Insights tab, or the
+   `logs:*` ones if you only need the IoT tab.)
 
 In the app's **Environments & Settings** tab, set the **global role name**
 (e.g. `CloudWatchInsightsReadRole`) once, then add an environment for each
 account/region combination you want to query — a name, the 12-digit account
 ID, and a region. An individual environment can override the role name if
 it uses a different one than the global default.
+
+### IoT tab prerequisite: Fleet Indexing
+
+The IoT tab's search is powered by [AWS IoT Fleet
+Indexing](https://docs.aws.amazon.com/iot/latest/developerguide/iot-indexing.html)
+(`iot:SearchIndex`) — the same mechanism behind the "Advanced search" box in
+the AWS IoT console. It must be enabled per account/region before searching
+will work there; if it isn't, the app surfaces a clear per-environment error
+rather than failing silently. Enable it once per target account/region:
+
+```bash
+aws iot update-indexing-configuration \
+  --thing-indexing-configuration '{"thingIndexingMode":"REGISTRY_AND_SHADOW","thingConnectivityIndexingMode":"STATUS"}' \
+  --region us-east-1
+```
+`REGISTRY_AND_SHADOW` makes attributes and shadow state searchable/visible
+in results; `thingConnectivityIndexingMode: STATUS` is what populates the
+Connected/Disconnected badge. Certificates and job executions are read
+directly (not via the index) and don't need this.
 
 ## Notes
 
@@ -221,3 +257,15 @@ it uses a different one than the global default.
   the merge step, so the default query keeps `| sort @timestamp desc` for
   that reason even though the UI's Sort control also defaults to the same
   thing for display.
+- The IoT tab's **Max results** is a per-environment cap on a single
+  `SearchIndex` call, like Insights' Limit — but unlike Insights there's no
+  client-side re-merge/truncation step, since fleet search results aren't
+  naturally comparable/sortable across environments the way log rows are by
+  timestamp. There's also no "load more"/pagination yet: raise Max results
+  (up to 500) if you need more than the default 50 per environment, or
+  narrow the query.
+- The IoT tab is entirely read-only: it never creates, updates, or deletes
+  a thing, certificate, shadow document, or job. A missing permission on
+  one part of a thing's detail (e.g. `iot:ListJobExecutionsForThing`)
+  shows a warning for just that section rather than hiding the rest of
+  the thing's detail.
