@@ -1,15 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Environment, SavedQuery, SavedSession, QueryResultItem, StartedQuery } from "../api";
+import {
+  api,
+  Environment,
+  LogsBackend,
+  OpenSearchResultItem,
+  OpenSearchTarget,
+  SavedQuery,
+  SavedSession,
+  QueryResultItem,
+  StartedQuery,
+} from "../api";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
-import ResultsView, { SortDirection } from "../components/ResultsView";
+import OpenSearchIndexSelector, { OpenSearchSelectionMap } from "../components/OpenSearchIndexSelector";
+import ResultsView, { ResultsViewItem, SortDirection } from "../components/ResultsView";
 
 /** Flattens every row across all queried targets into plain objects, in
  * their original (query-sorted) order and with no cap -- the AI widget
  * decides how much of this to actually send, per its sampled/all-results
  * toggle. */
-function flattenResults(items: QueryResultItem[]): Record<string, unknown>[] {
+function flattenResults(items: ResultsViewItem[]): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = [];
   for (const item of items) {
     for (const row of item.rows) {
@@ -23,11 +34,20 @@ function flattenResults(items: QueryResultItem[]): Record<string, unknown>[] {
 
 const SESSION_PAGE = "logs";
 
+interface SerializedOpenSearchSelection {
+  [environmentId: string]: {
+    [domainName: string]: { domain_endpoint: string; indices: string[] };
+  };
+}
+
 interface LogsSessionState {
+  backend: LogsBackend;
   environment_ids: number[];
   log_group_selection: Record<string, string[]>;
+  opensearch_selection: SerializedOpenSearchSelection;
   query_string: string;
   limit: number;
+  timestamp_field: string;
   sort_field: string;
   sort_direction: SortDirection;
   preset: number | "custom";
@@ -48,11 +68,15 @@ const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
   { label: "Last 7 days", seconds: 7 * 24 * 60 * 60 },
 ];
 
-const DEFAULT_QUERY = `fields @timestamp, @message
-| sort @timestamp desc`;
+const DEFAULT_QUERY: Record<LogsBackend, string> = {
+  cloudwatch: `fields @timestamp, @message
+| sort @timestamp desc`,
+  opensearch: "",
+};
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 10000;
+const DEFAULT_TIMESTAMP_FIELD = "@timestamp";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -62,13 +86,55 @@ function toLocalDatetimeInput(epochSeconds: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function serializeOpenSearchSelection(selection: OpenSearchSelectionMap): SerializedOpenSearchSelection {
+  const out: SerializedOpenSearchSelection = {};
+  for (const [envId, domains] of Object.entries(selection)) {
+    out[envId] = {};
+    for (const [domainName, entry] of Object.entries(domains)) {
+      out[envId][domainName] = { domain_endpoint: entry.domain_endpoint, indices: Array.from(entry.indices) };
+    }
+  }
+  return out;
+}
+
+function deserializeOpenSearchSelection(serialized: SerializedOpenSearchSelection): OpenSearchSelectionMap {
+  const out: OpenSearchSelectionMap = {};
+  for (const [envId, domains] of Object.entries(serialized ?? {})) {
+    out[Number(envId)] = {};
+    for (const [domainName, entry] of Object.entries(domains)) {
+      out[Number(envId)][domainName] = { domain_endpoint: entry.domain_endpoint, indices: new Set(entry.indices) };
+    }
+  }
+  return out;
+}
+
+function openSearchTargets(selection: OpenSearchSelectionMap): OpenSearchTarget[] {
+  const targets: OpenSearchTarget[] = [];
+  for (const [envId, domains] of Object.entries(selection)) {
+    for (const [domainName, entry] of Object.entries(domains)) {
+      if (entry.indices.size > 0) {
+        targets.push({
+          environment_id: Number(envId),
+          domain_name: domainName,
+          domain_endpoint: entry.domain_endpoint,
+          indices: Array.from(entry.indices),
+        });
+      }
+    }
+  }
+  return targets;
+}
+
 export default function InsightsPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<Set<number>>(new Set());
   const [logGroupSelection, setLogGroupSelection] = useState<SelectionMap>({});
+  const [openSearchSelection, setOpenSearchSelection] = useState<OpenSearchSelectionMap>({});
 
-  const [queryString, setQueryString] = useState(DEFAULT_QUERY);
+  const [backend, setBackend] = useState<LogsBackend>("cloudwatch");
+  const [queryString, setQueryString] = useState(DEFAULT_QUERY.cloudwatch);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [timestampField, setTimestampField] = useState(DEFAULT_TIMESTAMP_FIELD);
   const [sortField, setSortField] = useState("@timestamp");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [preset, setPreset] = useState<number | "custom">(15 * 60);
@@ -81,6 +147,7 @@ export default function InsightsPage() {
 
   const [startedQueries, setStartedQueries] = useState<StartedQuery[]>([]);
   const [results, setResults] = useState<QueryResultItem[]>([]);
+  const [osResults, setOsResults] = useState<OpenSearchResultItem[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -88,6 +155,8 @@ export default function InsightsPage() {
   // AI widget can drop a stale "About results" conversation that was talking
   // about a previous result set instead of quietly answering from old data.
   const [resultsVersion, setResultsVersion] = useState(0);
+
+  const activeResults: ResultsViewItem[] = backend === "opensearch" ? osResults : results;
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -97,6 +166,19 @@ export default function InsightsPage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  function switchBackend(next: LogsBackend) {
+    if (next === backend) return;
+    setBackend(next);
+    // Only replace the query text if it's still the other backend's default
+    // (or blank) -- a query the user actually wrote is left alone.
+    if (!queryString.trim() || queryString === DEFAULT_QUERY[backend]) {
+      setQueryString(DEFAULT_QUERY[next]);
+    }
+    setResults([]);
+    setOsResults([]);
+    setResultsVersion((v) => v + 1);
+  }
 
   function toggleEnvironment(id: number) {
     setSelectedEnvironmentIds((prev) => {
@@ -111,7 +193,7 @@ export default function InsightsPage() {
 
   const availableSortFields = (() => {
     const seen = new Set<string>(["@timestamp"]);
-    results.forEach((item) => item.rows.forEach((row) => row.forEach((f) => seen.add(f.field))));
+    activeResults.forEach((item) => item.rows.forEach((row) => row.forEach((f) => seen.add(f.field))));
     return Array.from(seen);
   })();
 
@@ -126,8 +208,7 @@ export default function InsightsPage() {
     return { start_time: end - preset, end_time: end };
   }
 
-  async function runQuery() {
-    setRunError(null);
+  async function runCloudWatchQuery() {
     const queryTargets = Object.entries(logGroupSelection)
       .filter(([, names]) => names.size > 0)
       .map(([environmentId, names]) => ({
@@ -145,8 +226,6 @@ export default function InsightsPage() {
     }
     const clampedLimit = Math.min(Math.max(Math.floor(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-    setResults([]);
-    setResultsVersion((v) => v + 1);
     setIsRunning(true);
     try {
       const resp = await api.startQueries({
@@ -185,6 +264,51 @@ export default function InsightsPage() {
     }
   }
 
+  async function runOpenSearchSearch() {
+    const targets = openSearchTargets(openSearchSelection);
+    if (targets.length === 0) {
+      setRunError("Select at least one index to search.");
+      return;
+    }
+    const { start_time, end_time } = computeTimeRange();
+    if (end_time <= start_time) {
+      setRunError("End time must be after start time.");
+      return;
+    }
+    const clampedLimit = Math.min(Math.max(Math.floor(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+
+    setIsRunning(true);
+    try {
+      // OpenSearch search is a single synchronous request/response -- no
+      // start/poll/stop like CloudWatch Logs Insights' async query API.
+      const resp = await api.searchOpenSearch({
+        targets,
+        query_string: queryString,
+        start_time,
+        end_time,
+        timestamp_field: timestampField || DEFAULT_TIMESTAMP_FIELD,
+        limit: clampedLimit,
+      });
+      setOsResults(resp.results);
+    } catch (e: any) {
+      setRunError(e.message);
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+  async function runQuery() {
+    setRunError(null);
+    setResults([]);
+    setOsResults([]);
+    setResultsVersion((v) => v + 1);
+    if (backend === "opensearch") {
+      await runOpenSearchSearch();
+    } else {
+      await runCloudWatchQuery();
+    }
+  }
+
   function poll(runnable: StartedQuery[], baseErrors: QueryResultItem[]) {
     if (pollRef.current) clearInterval(pollRef.current);
     const query = () => runnable.map((q) => ({ environment_id: q.environment_id, query_id: q.query_id! }));
@@ -219,18 +343,21 @@ export default function InsightsPage() {
   async function saveCurrentQuery() {
     const name = prompt("Save query as:");
     if (!name) return;
-    const saved = await api.createSavedQuery({ name, query_string: queryString });
+    const saved = await api.createSavedQuery({ name, query_string: queryString, backend });
     setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
   function captureSession(): LogsSessionState {
     return {
+      backend,
       environment_ids: Array.from(selectedEnvironmentIds),
       log_group_selection: Object.fromEntries(
         Object.entries(logGroupSelection).map(([envId, names]) => [envId, Array.from(names)])
       ),
+      opensearch_selection: serializeOpenSearchSelection(openSearchSelection),
       query_string: queryString,
       limit,
+      timestamp_field: timestampField,
       sort_field: sortField,
       sort_direction: sortDirection,
       preset,
@@ -240,19 +367,25 @@ export default function InsightsPage() {
   }
 
   function applySession(state: LogsSessionState) {
+    setBackend(state.backend ?? "cloudwatch");
     setSelectedEnvironmentIds(new Set(state.environment_ids));
     setLogGroupSelection(
       Object.fromEntries(
-        Object.entries(state.log_group_selection).map(([envId, names]) => [Number(envId), new Set(names)])
+        Object.entries(state.log_group_selection ?? {}).map(([envId, names]) => [Number(envId), new Set(names)])
       )
     );
+    setOpenSearchSelection(deserializeOpenSearchSelection(state.opensearch_selection));
     setQueryString(state.query_string);
     setLimit(state.limit);
+    setTimestampField(state.timestamp_field || DEFAULT_TIMESTAMP_FIELD);
     setSortField(state.sort_field);
     setSortDirection(state.sort_direction);
     setPreset(state.preset);
     setCustomStart(state.custom_start);
     setCustomEnd(state.custom_end);
+    setResults([]);
+    setOsResults([]);
+    setResultsVersion((v) => v + 1);
   }
 
   async function saveCurrentSession() {
@@ -266,14 +399,17 @@ export default function InsightsPage() {
     setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
+  const filteredSavedQueries = savedQueries.filter((q) => q.backend === backend);
+  const rowCount = activeResults.reduce((sum, item) => sum + item.rows.length, 0);
+
   return (
     <div>
       <div className="panel">
         <h2>Session</h2>
         <p className="muted">
           Unlike a saved query (just the query text), a saved session captures everything on this page — the
-          selected environments, log groups, query, time range, limit, and sort — so you can resume an investigation
-          later exactly where you left it.
+          backend, selected environments, log groups/indices, query, time range, limit, and sort — so you can resume
+          an investigation later exactly where you left it.
         </p>
         <div className="toolbar">
           <select
@@ -300,6 +436,23 @@ export default function InsightsPage() {
       </div>
 
       <div className="panel">
+        <h2>Backend</h2>
+        <div className="toolbar">
+          <button className={backend === "cloudwatch" ? "" : "secondary"} onClick={() => switchBackend("cloudwatch")}>
+            CloudWatch Logs Insights
+          </button>
+          <button className={backend === "opensearch" ? "" : "secondary"} onClick={() => switchBackend("opensearch")}>
+            OpenSearch
+          </button>
+        </div>
+        <p className="muted">
+          {backend === "cloudwatch"
+            ? "Search CloudWatch Logs Insights log groups using their pipe-based query syntax."
+            : "Search AWS-provisioned OpenSearch domains using Lucene query_string syntax (the same as OpenSearch Dashboards' search bar). Requires each domain's access policy to allow the app's assumed role and its endpoint to be reachable from the backend."}
+        </p>
+      </div>
+
+      <div className="panel">
         <h2>1. Choose environments</h2>
         <EnvironmentSelector
           environments={environments}
@@ -309,12 +462,20 @@ export default function InsightsPage() {
       </div>
 
       <div className="panel">
-        <h2>2. Choose log groups</h2>
-        <LogGroupSelector
-          environments={selectedEnvironments}
-          selection={logGroupSelection}
-          onSelectionChange={setLogGroupSelection}
-        />
+        <h2>2. Choose {backend === "opensearch" ? "indices" : "log groups"}</h2>
+        {backend === "opensearch" ? (
+          <OpenSearchIndexSelector
+            environments={selectedEnvironments}
+            selection={openSearchSelection}
+            onSelectionChange={setOpenSearchSelection}
+          />
+        ) : (
+          <LogGroupSelector
+            environments={selectedEnvironments}
+            selection={logGroupSelection}
+            onSelectionChange={setLogGroupSelection}
+          />
+        )}
       </div>
 
       <div className="panel">
@@ -350,6 +511,18 @@ export default function InsightsPage() {
               title="Max rows per environment (also applied to the merged, most-recent-first total)"
             />
           </label>
+          {backend === "opensearch" && (
+            <label className="row" style={{ gap: 6 }}>
+              <span className="muted">Timestamp field</span>
+              <input
+                type="text"
+                value={timestampField}
+                onChange={(e) => setTimestampField(e.target.value)}
+                style={{ width: 120 }}
+                title="The date field to filter/sort by, e.g. @timestamp"
+              />
+            </label>
+          )}
           <label className="row" style={{ gap: 6 }}>
             <span className="muted">Sort by</span>
             <select value={sortField} onChange={(e) => setSortField(e.target.value)}>
@@ -371,7 +544,7 @@ export default function InsightsPage() {
           </label>
           <select
             onChange={(e) => {
-              const sq = savedQueries.find((q) => String(q.id) === e.target.value);
+              const sq = filteredSavedQueries.find((q) => String(q.id) === e.target.value);
               if (sq) setQueryString(sq.query_string);
               e.target.value = "";
             }}
@@ -380,7 +553,7 @@ export default function InsightsPage() {
             <option value="" disabled>
               Load saved query…
             </option>
-            {savedQueries.map((q) => (
+            {filteredSavedQueries.map((q) => (
               <option key={q.id} value={q.id}>
                 {q.name}
               </option>
@@ -390,29 +563,41 @@ export default function InsightsPage() {
             Save query
           </button>
         </div>
-        <textarea rows={5} value={queryString} onChange={(e) => setQueryString(e.target.value)} />
+        <textarea
+          rows={5}
+          value={queryString}
+          onChange={(e) => setQueryString(e.target.value)}
+          placeholder={
+            backend === "opensearch"
+              ? 'e.g. level:ERROR AND service:checkout (blank matches everything in the time range)'
+              : undefined
+          }
+        />
         <div className="toolbar" style={{ marginTop: 10 }}>
           <button onClick={runQuery} disabled={isRunning}>
             {isRunning ? "Running…" : "Run query"}
           </button>
-          <button className="secondary" onClick={stopQuery} disabled={!isRunning}>
-            Stop
-          </button>
+          {backend === "cloudwatch" && (
+            <button className="secondary" onClick={stopQuery} disabled={!isRunning}>
+              Stop
+            </button>
+          )}
           {runError && <span className="error-text">{runError}</span>}
         </div>
       </div>
 
       <div className="panel">
         <h2>4. Results</h2>
-        <ResultsView items={results} limit={limit} sortField={sortField} sortDirection={sortDirection} />
+        <ResultsView items={activeResults} limit={limit} sortField={sortField} sortDirection={sortDirection} />
       </div>
 
       <AiAssistantWidget
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={flattenResults(results)}
-        rowCount={results.reduce((sum, item) => sum + item.rows.length, 0)}
+        sampleRows={flattenResults(activeResults)}
+        rowCount={rowCount}
         resultsVersion={resultsVersion}
+        backend={backend}
       />
     </div>
   );

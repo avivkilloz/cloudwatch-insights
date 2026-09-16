@@ -48,6 +48,13 @@ def _assume_role(account_id: str, role_name: str) -> dict:
     return entry
 
 
+def get_credentials(account_id: str, role_name: str) -> dict:
+    """Raw temporary credentials (access_key/secret_key/session_token) for
+    the assumed role -- needed to SigV4-sign requests made outside of boto3
+    itself, e.g. direct HTTP calls to an OpenSearch domain endpoint."""
+    return _assume_role(account_id, role_name)
+
+
 def get_client(service: str, account_id: str, region: str, role_name: str):
     creds = _assume_role(account_id, role_name)
     return boto3.client(

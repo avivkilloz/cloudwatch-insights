@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Environment, IotSavedSearch, IotSearchMode, SavedQuery, SavedSession, Settings } from "../api";
+import { api, Environment, IotSavedSearch, IotSearchMode, LogsBackend, SavedQuery, SavedSession, Settings } from "../api";
 import { AWS_REGIONS } from "../regions";
 import SavedItemsPanel from "../components/SavedItemsPanel";
 import SavedSessionsPanel from "../components/SavedSessionsPanel";
@@ -150,13 +150,13 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
     refresh();
   }
 
-  async function createSavedQuery(payload: { name: string; query_string: string }) {
-    const saved = await api.createSavedQuery(payload);
+  async function createSavedQuery(payload: { name: string; query_string: string; backend?: string }) {
+    const saved = await api.createSavedQuery({ ...payload, backend: payload.backend as LogsBackend | undefined });
     setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
-  async function updateSavedQueryItem(id: number, payload: { name: string; query_string: string }) {
-    const updated = await api.updateSavedQuery(id, payload);
+  async function updateSavedQueryItem(id: number, payload: { name: string; query_string: string; backend?: string }) {
+    const updated = await api.updateSavedQuery(id, { ...payload, backend: payload.backend as LogsBackend | undefined });
     setSavedQueries((prev) => prev.map((q) => (q.id === id ? updated : q)));
   }
 
@@ -377,12 +377,22 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
 
       <SavedItemsPanel
         title="Saved Insights queries"
-        description="Manage the Logs Insights queries available from the Logs page's &quot;Load saved query&quot; dropdown."
+        description="Manage the queries available from the Logs page's &quot;Load saved query&quot; dropdown. Each is tagged with the backend (CloudWatch or OpenSearch) it's written for, and the dropdown only offers queries matching whichever backend is currently selected."
         queryLabel="Query"
         items={savedQueries}
         onCreate={createSavedQuery}
         onUpdate={updateSavedQueryItem}
         onDelete={deleteSavedQueryItem}
+        extra={{
+          key: "backend",
+          label: "Backend",
+          options: [
+            { value: "cloudwatch", label: "CloudWatch Logs Insights" },
+            { value: "opensearch", label: "OpenSearch (Lucene)" },
+          ],
+          defaultValue: "cloudwatch",
+          getValue: (item) => item.backend,
+        }}
       />
 
       <SavedItemsPanel

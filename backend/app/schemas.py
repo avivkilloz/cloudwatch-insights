@@ -49,9 +49,17 @@ class SettingsUpdate(BaseModel):
     cognito_enabled: Optional[bool] = None
 
 
+LogsBackend = Literal["cloudwatch", "opensearch"]
+
+
 class SavedQueryBase(BaseModel):
     name: str
     query_string: str
+    # Which Logs-page backend this query is written for -- CloudWatch Logs
+    # Insights' pipe syntax and OpenSearch's Lucene query_string syntax are
+    # not interchangeable, so the "Load saved query" dropdown filters by
+    # whichever backend is currently selected.
+    backend: LogsBackend = "cloudwatch"
 
 
 class SavedQueryCreate(SavedQueryBase):
@@ -61,6 +69,7 @@ class SavedQueryCreate(SavedQueryBase):
 class SavedQueryUpdate(BaseModel):
     name: Optional[str] = None
     query_string: Optional[str] = None
+    backend: Optional[LogsBackend] = None
 
 
 class SavedQueryOut(SavedQueryBase):
@@ -428,6 +437,95 @@ class CognitoUserSearchResponse(BaseModel):
     pagination_token: Optional[str] = None
 
 
+# ---- OpenSearch (Logs tab: OpenSearch backend) ----
+#
+# AWS OpenSearch Service, provisioned domains. Mirrors the CloudWatch
+# log-groups/queries shape closely (multi-environment domain discovery, then
+# a multi-target search) so the frontend can reuse the same environment
+# selector, results table, and AI assistant -- but the search itself is a
+# single synchronous request/response (OpenSearch has no async query concept
+# like CloudWatch Logs Insights' StartQuery/GetQueryResults), so there's no
+# polling or stop endpoint.
+
+
+class OpenSearchDomainsRequest(BaseModel):
+    environment_ids: list[int]
+
+
+class OpenSearchDomainInfo(BaseModel):
+    domain_name: str
+    # The domain's HTTPS endpoint. The frontend carries this straight through
+    # into later /indices and /search calls instead of the backend
+    # re-resolving it from the domain name each time.
+    endpoint: Optional[str] = None
+    engine_version: Optional[str] = None
+
+
+class OpenSearchDomainsResultItem(BaseModel):
+    environment_id: int
+    environment_name: str
+    account_id: str
+    region: str
+    domains: list[OpenSearchDomainInfo] = []
+    error: Optional[str] = None
+
+
+class OpenSearchDomainsResponse(BaseModel):
+    results: list[OpenSearchDomainsResultItem]
+
+
+class OpenSearchIndicesRequest(BaseModel):
+    environment_id: int
+    domain_endpoint: str
+
+
+class OpenSearchIndexInfo(BaseModel):
+    index: str
+    docs_count: Optional[int] = None
+    store_size: Optional[str] = None
+
+
+class OpenSearchIndicesResponse(BaseModel):
+    indices: list[OpenSearchIndexInfo] = []
+
+
+class OpenSearchTarget(BaseModel):
+    environment_id: int
+    domain_name: str
+    domain_endpoint: str
+    indices: list[str]
+
+
+class OpenSearchSearchRequest(BaseModel):
+    targets: list[OpenSearchTarget]
+    # Lucene query_string syntax, e.g. `level:ERROR AND service:checkout` --
+    # blank matches everything in the time range.
+    query_string: str = ""
+    start_time: int  # epoch seconds
+    end_time: int  # epoch seconds
+    timestamp_field: str = Field(default="@timestamp", min_length=1)
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+class OpenSearchResultItem(BaseModel):
+    environment_id: int
+    environment_name: str
+    account_id: str
+    region: str
+    domain_name: str
+    indices: list[str]
+    # "Complete" | "Failed" -- kept aligned with QueryResultItem.status so
+    # both backends' results can be handled identically in the UI.
+    status: str
+    rows: list[list[ResultField]] = []
+    total_hits: Optional[int] = None
+    error: Optional[str] = None
+
+
+class OpenSearchSearchResponse(BaseModel):
+    results: list[OpenSearchResultItem]
+
+
 # ---- Saved sessions ----
 #
 # A full working-state snapshot for a page (selected environments, filters,
@@ -485,6 +583,12 @@ class AiAssistRequest(BaseModel):
     query_string: Optional[str] = None
     sample_rows: list[dict] = []
     row_count: Optional[int] = None
+    # Which Logs-page backend this request is for -- build_query mode uses it
+    # to teach the right query syntax (CloudWatch Logs Insights' pipe syntax
+    # vs. OpenSearch's Lucene query_string syntax); ask_results mode ignores
+    # it, since answering questions about a sample of rows doesn't depend on
+    # which backend produced them.
+    backend: LogsBackend = "cloudwatch"
 
 
 class AiAssistResponse(BaseModel):

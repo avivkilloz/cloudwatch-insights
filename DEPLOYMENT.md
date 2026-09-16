@@ -162,7 +162,11 @@ from the target-account policy below.)
            "s3:GetBucketLocation",
            "s3:ListBucket",
            "cognito-idp:ListUserPools",
-           "cognito-idp:ListUsers"
+           "cognito-idp:ListUsers",
+           "es:ListDomainNames",
+           "es:DescribeDomains",
+           "es:ESHttpGet",
+           "es:ESHttpPost"
          ],
          "Resource": "*"
        }
@@ -182,6 +186,14 @@ from the target-account policy below.)
    doesn't use Fleet Indexing and needs no extra setup beyond the
    permissions above — see the README's "IoT tab: Certificate search"
    section for how it works and its limitations.
+
+   The Logs tab's **OpenSearch** backend additionally needs each target
+   OpenSearch domain's own resource-based access policy to allow
+   `$TARGET_ROLE_NAME`, on top of the `es:*` IAM permissions above — the two
+   are checked independently. It also needs the domain's endpoint to be
+   reachable over HTTPS from inside this cluster (a public endpoint works
+   as-is; a VPC-only domain needs routing/peering into that VPC). See the
+   README's "Logs tab: OpenSearch backend" section for details.
 
 5. **A Postgres database** the backend can reach from inside the cluster
    (RDS, Cloud SQL, a self-hosted instance, whatever you already run) —

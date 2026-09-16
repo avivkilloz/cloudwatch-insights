@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { api, AiAssistMode, AiChatMessage } from "../api";
+import { api, AiAssistMode, AiChatMessage, LogsBackend } from "../api";
 import MarkdownLite from "./MarkdownLite";
 
 interface DisplayMessage extends AiChatMessage {
@@ -18,6 +18,9 @@ interface Props {
    * answering from a previous, no-longer-visible result set.
    */
   resultsVersion?: number;
+  /** Which Logs-page backend build_query should write for -- CloudWatch Logs
+   * Insights syntax vs. OpenSearch Lucene query_string syntax. */
+  backend?: LogsBackend;
 }
 
 const MODE_LABELS: Record<AiAssistMode, string> = {
@@ -107,7 +110,7 @@ function CheckIcon() {
   );
 }
 
-export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion }: Props) {
+export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion, backend }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<AiAssistMode>("build_query");
@@ -204,6 +207,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
         query_string: queryString,
         sample_rows: rowsToSend,
         row_count: mode === "ask_results" ? rowCount : undefined,
+        backend,
       });
       setThreads((prev) => ({
         ...prev,
