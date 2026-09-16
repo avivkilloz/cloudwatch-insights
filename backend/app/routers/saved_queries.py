@@ -21,6 +21,18 @@ def create_saved_query(payload: schemas.SavedQueryCreate, db: Session = Depends(
     return saved
 
 
+@router.put("/{saved_query_id}", response_model=schemas.SavedQueryOut)
+def update_saved_query(saved_query_id: int, payload: schemas.SavedQueryUpdate, db: Session = Depends(get_db)):
+    saved = db.get(models.SavedQuery, saved_query_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Saved query not found")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(saved, key, value)
+    db.commit()
+    db.refresh(saved)
+    return saved
+
+
 @router.delete("/{saved_query_id}", status_code=204)
 def delete_saved_query(saved_query_id: int, db: Session = Depends(get_db)):
     saved = db.get(models.SavedQuery, saved_query_id)

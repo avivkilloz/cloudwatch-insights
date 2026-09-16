@@ -5,7 +5,7 @@ from typing import Optional
 from . import aws_client
 
 # Read-only: this module never creates/updates/deletes things, certificates,
-# shadows, or jobs -- only search_index / describe_* / list_* / get_*.
+# policies, shadows, or jobs -- only search_index / describe_* / list_* / get_*.
 
 THINGS_INDEX = "AWS_Things"
 
@@ -93,6 +93,38 @@ def _get_connectivity(account_id: str, region: str, role_name: str, thing_name: 
     return {"connected": connectivity.get("connected"), "timestamp": connectivity.get("timestamp")}
 
 
+def _get_policy_document(client, policy_name: str) -> Optional[dict]:
+    try:
+        resp = client.get_policy(policyName=policy_name)
+        raw = resp.get("policyDocument")
+        return json.loads(raw) if raw else None
+    except Exception:  # noqa: BLE001 -- show the policy name/ARN even if the document can't be read
+        return None
+
+
+def _list_attached_policies(client, target_arn: str) -> list[dict]:
+    policies = []
+    marker = None
+    while True:
+        kwargs = {"target": target_arn, "pageSize": 50}
+        if marker:
+            kwargs["marker"] = marker
+        resp = client.list_attached_policies(**kwargs)
+        for p in resp.get("policies", []):
+            name = p.get("policyName")
+            policies.append(
+                {
+                    "policy_name": name,
+                    "policy_arn": p.get("policyArn"),
+                    "policy_document": _get_policy_document(client, name) if name else None,
+                }
+            )
+        marker = resp.get("nextMarker")
+        if not marker:
+            break
+    return policies
+
+
 def _list_certificates_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> list[dict]:
     client = aws_client.get_client("iot", account_id, region, role_name)
     resp = client.list_thing_principals(thingName=thing_name)
@@ -105,12 +137,18 @@ def _list_certificates_for_thing(account_id: str, region: str, role_name: str, t
             cert_resp = client.describe_certificate(certificateId=cert_id)
             desc = cert_resp.get("certificateDescription", {})
             creation_date = desc.get("creationDate")
+            cert_arn = desc.get("certificateArn", principal_arn)
+            try:
+                policies = _list_attached_policies(client, cert_arn)
+            except Exception:  # noqa: BLE001 -- still show the cert without its policies
+                policies = []
             certs.append(
                 {
                     "certificate_id": desc.get("certificateId", cert_id),
-                    "certificate_arn": desc.get("certificateArn", principal_arn),
+                    "certificate_arn": cert_arn,
                     "status": desc.get("status", "UNKNOWN"),
                     "creation_date": int(creation_date.timestamp()) if creation_date else None,
+                    "policies": policies,
                 }
             )
         except Exception:  # noqa: BLE001 -- one bad principal shouldn't drop the rest
@@ -120,6 +158,7 @@ def _list_certificates_for_thing(account_id: str, region: str, role_name: str, t
                     "certificate_arn": principal_arn,
                     "status": "UNKNOWN",
                     "creation_date": None,
+                    "policies": [],
                 }
             )
     return certs
@@ -148,14 +187,25 @@ def _extract_latest_timestamp(node) -> Optional[int]:
     return int(latest) if latest is not None else None
 
 
-def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> list[dict]:
+def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> tuple[list[dict], list[str]]:
     control_client = aws_client.get_client("iot", account_id, region, role_name)
     shadow_names: list[Optional[str]] = [None]  # classic/unnamed shadow, always attempted
-    try:
-        resp = control_client.list_named_shadows_for_thing(thingName=thing_name)
+    warnings: list[str] = []
+
+    next_token = None
+    while True:
+        try:
+            kwargs = {"thingName": thing_name}
+            if next_token:
+                kwargs["nextToken"] = next_token
+            resp = control_client.list_named_shadows_for_thing(**kwargs)
+        except Exception as e:  # noqa: BLE001 -- surface it instead of silently showing zero named shadows
+            warnings.append(f"named shadow list: {e}")
+            break
         shadow_names += resp.get("results", [])
-    except Exception:  # noqa: BLE001 -- fall back to just the classic shadow
-        pass
+        next_token = resp.get("nextToken")
+        if not next_token:
+            break
 
     data_client = _get_iot_data_client(account_id, region, role_name)
     shadows = []
@@ -179,9 +229,9 @@ def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_
             )
         except data_client.exceptions.ResourceNotFoundException:
             continue  # this shadow name doesn't actually have a document
-        except Exception:  # noqa: BLE001
-            continue
-    return shadows
+        except Exception as e:  # noqa: BLE001
+            warnings.append(f"shadow '{name or '(classic)'}': {e}")
+    return shadows, warnings
 
 
 def _list_job_executions_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> list[dict]:
@@ -242,7 +292,9 @@ def get_thing_detail(account_id: str, region: str, role_name: str, thing_name: s
         result["warnings"].append(f"certificates: {e}")
 
     try:
-        result["shadows"] = _list_shadows_for_thing(account_id, region, role_name, thing_name)
+        shadows, shadow_warnings = _list_shadows_for_thing(account_id, region, role_name, thing_name)
+        result["shadows"] = shadows
+        result["warnings"].extend(shadow_warnings)
     except Exception as e:  # noqa: BLE001
         result["warnings"].append(f"shadows: {e}")
 
@@ -250,5 +302,99 @@ def get_thing_detail(account_id: str, region: str, role_name: str, thing_name: s
         result["jobs"] = _list_job_executions_for_thing(account_id, region, role_name, thing_name)
     except Exception as e:  # noqa: BLE001
         result["warnings"].append(f"jobs: {e}")
+
+    return result
+
+
+# ---- Certificates ----
+#
+# AWS IoT Fleet Indexing (search_things above) only indexes things, not
+# certificates -- there's no equivalent "Advanced search" API for certs. So
+# certificate search is homegrown: `status:<VALUE>` and `certid:<VALUE>`
+# tokens are recognized as filters (case-insensitive keys), anything else in
+# the query is treated as a substring filter against the certificate ID.
+# A `certid:` match short-circuits to a direct describe_certificate lookup
+# instead of paginating every certificate in the account.
+
+
+def _parse_simple_query(query_string: str) -> dict:
+    filters: dict[str, str] = {}
+    freetext = []
+    for tok in query_string.split():
+        if ":" in tok:
+            key, _, value = tok.partition(":")
+            filters[key.lower()] = value
+        else:
+            freetext.append(tok)
+    filters["_text"] = " ".join(freetext)
+    return filters
+
+
+def _cert_summary(fields: dict, fallback_id: Optional[str] = None) -> dict:
+    """`certificateDescription` (from describe_certificate) and items from
+    list_certificates use the same field names, so both can go through this."""
+    creation_date = fields.get("creationDate")
+    return {
+        "certificate_id": fields.get("certificateId") or fallback_id,
+        "certificate_arn": fields.get("certificateArn"),
+        "status": fields.get("status", "UNKNOWN"),
+        "creation_date": int(creation_date.timestamp()) if creation_date else None,
+    }
+
+
+def search_certificates(account_id: str, region: str, role_name: str, query_string: str, max_results: int = 100) -> list[dict]:
+    client = aws_client.get_client("iot", account_id, region, role_name)
+    filters = _parse_simple_query(query_string)
+
+    cert_id_filter = filters.get("certid") or filters.get("certificateid")
+    if cert_id_filter:
+        try:
+            resp = client.describe_certificate(certificateId=cert_id_filter)
+        except client.exceptions.ResourceNotFoundException:
+            return []
+        desc = resp.get("certificateDescription", {})
+        return [_cert_summary(desc, fallback_id=cert_id_filter)]
+
+    status_filter = (filters.get("status") or "").upper() or None
+    text_filter = filters.get("_text", "").strip().lower()
+
+    certs = []
+    paginator = client.get_paginator("list_certificates")
+    for page in paginator.paginate(PaginationConfig={"PageSize": 100}):
+        for c in page.get("certificates", []):
+            if status_filter and c.get("status") != status_filter:
+                continue
+            if text_filter and text_filter not in (c.get("certificateId") or "").lower():
+                continue
+            certs.append(_cert_summary(c))
+            if len(certs) >= max_results:
+                return certs
+    return certs
+
+
+def get_certificate_detail(account_id: str, region: str, role_name: str, certificate_id: str) -> dict:
+    client = aws_client.get_client("iot", account_id, region, role_name)
+    resp = client.describe_certificate(certificateId=certificate_id)
+    desc = resp.get("certificateDescription", {})
+    cert_arn = desc.get("certificateArn")
+
+    result = {
+        **_cert_summary(desc, fallback_id=certificate_id),
+        "policies": [],
+        "thing_names": [],
+        "warnings": [],
+    }
+
+    if cert_arn:
+        try:
+            result["policies"] = _list_attached_policies(client, cert_arn)
+        except Exception as e:  # noqa: BLE001
+            result["warnings"].append(f"policies: {e}")
+
+        try:
+            things_resp = client.list_principal_things(principal=cert_arn)
+            result["thing_names"] = things_resp.get("things", [])
+        except Exception as e:  # noqa: BLE001
+            result["warnings"].append(f"attached things: {e}")
 
     return result

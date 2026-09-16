@@ -38,4 +38,7 @@ class IotSavedSearch(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     query_string = Column(Text, nullable=False)
+    # SQLAlchemy auto-quotes a plain string server_default as a SQL string
+    # literal -- do not wrap this in extra quotes, that would double-quote it.
+    search_mode = Column(String, nullable=False, server_default="things")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

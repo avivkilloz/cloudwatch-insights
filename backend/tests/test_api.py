@@ -80,6 +80,17 @@ def test_iot_saved_search_crud():
     assert resp.status_code == 201
     saved = resp.json()
     assert saved["query_string"] == "connectivity.connected:false"
+    assert saved["search_mode"] == "things"  # default when not specified
+
+    resp = client.put(
+        f"/api/iot/saved-searches/{saved['id']}",
+        json={"query_string": "status:ACTIVE", "search_mode": "certificates"},
+    )
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["query_string"] == "status:ACTIVE"
+    assert updated["search_mode"] == "certificates"
+    assert updated["name"] == "Disconnected prod devices"  # untouched field preserved
 
     resp = client.get("/api/iot/saved-searches")
     assert resp.status_code == 200
@@ -90,6 +101,24 @@ def test_iot_saved_search_crud():
 
     resp = client.delete(f"/api/iot/saved-searches/{saved['id']}")
     assert resp.status_code == 404
+
+    resp = client.put(f"/api/iot/saved-searches/{saved['id']}", json={"name": "x"})
+    assert resp.status_code == 404
+
+
+def test_saved_query_update():
+    resp = client.post("/api/saved-queries", json={"name": "Errors", "query_string": "fields @message"})
+    assert resp.status_code == 201
+    saved = resp.json()
+
+    resp = client.put(f"/api/saved-queries/{saved['id']}", json={"query_string": "fields @message | filter @message like /ERROR/"})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["query_string"] == "fields @message | filter @message like /ERROR/"
+    assert updated["name"] == "Errors"
+
+    resp = client.delete(f"/api/saved-queries/{saved['id']}")
+    assert resp.status_code == 204
 
 
 def test_iot_search_reports_error_for_unconfigured_environment():
@@ -108,5 +137,25 @@ def test_iot_thing_detail_rejects_unconfigured_environment():
     resp = client.post(
         "/api/iot/things/detail",
         json={"environment_id": 999999, "thing_name": "my-thing"},
+    )
+    assert resp.status_code == 400
+
+
+def test_iot_certificate_search_reports_error_for_unconfigured_environment():
+    resp = client.post(
+        "/api/iot/certificates/search",
+        json={"environment_ids": [999999], "query_string": "status:ACTIVE"},
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["error"] is not None
+    assert results[0]["certificates"] == []
+
+
+def test_iot_certificate_detail_rejects_unconfigured_environment():
+    resp = client.post(
+        "/api/iot/certificates/detail",
+        json={"environment_id": 999999, "certificate_id": "abc123"},
     )
     assert resp.status_code == 400

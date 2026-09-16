@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -40,6 +40,11 @@ class SavedQueryBase(BaseModel):
 
 class SavedQueryCreate(SavedQueryBase):
     pass
+
+
+class SavedQueryUpdate(BaseModel):
+    name: Optional[str] = None
+    query_string: Optional[str] = None
 
 
 class SavedQueryOut(SavedQueryBase):
@@ -139,13 +144,23 @@ class StopQueryRequest(BaseModel):
 # ---- IoT ----
 
 
+IotSearchMode = Literal["things", "certificates"]
+
+
 class IotSavedSearchBase(BaseModel):
     name: str
     query_string: str
+    search_mode: IotSearchMode = "things"
 
 
 class IotSavedSearchCreate(IotSavedSearchBase):
     pass
+
+
+class IotSavedSearchUpdate(BaseModel):
+    name: Optional[str] = None
+    query_string: Optional[str] = None
+    search_mode: Optional[IotSearchMode] = None
 
 
 class IotSavedSearchOut(IotSavedSearchBase):
@@ -191,11 +206,18 @@ class IotThingDetailRequest(BaseModel):
     thing_name: str
 
 
+class IotPolicyInfo(BaseModel):
+    policy_name: str
+    policy_arn: Optional[str] = None
+    policy_document: Optional[dict] = None
+
+
 class IotCertificateInfo(BaseModel):
     certificate_id: str
     certificate_arn: str
     status: str
     creation_date: Optional[int] = None
+    policies: list[IotPolicyInfo] = []
 
 
 class IotShadowInfo(BaseModel):
@@ -228,4 +250,44 @@ class IotThingDetail(BaseModel):
     jobs: list[IotJobExecutionInfo] = []
     # Non-fatal: one section (e.g. jobs) failing to load doesn't hide the
     # rest of the thing's detail.
+    warnings: list[str] = []
+
+
+class IotCertificateSearchRequest(BaseModel):
+    environment_ids: list[int]
+    # AWS IoT Fleet Indexing (used for thing search) doesn't cover
+    # certificates -- there's no equivalent "Advanced search" API for them.
+    # This is homegrown: `status:<VALUE>` and `certid:<VALUE>` tokens are
+    # recognized as filters, anything else is a substring match against the
+    # certificate ID. A `certid:` match does a direct lookup instead of
+    # paginating every certificate in the account.
+    query_string: str = ""
+    max_results: Optional[int] = Field(default=50, ge=1, le=500)
+
+
+class IotCertificateSearchResultItem(BaseModel):
+    environment_id: int
+    environment_name: str
+    account_id: str
+    region: str
+    certificates: list[IotCertificateInfo] = []
+    error: Optional[str] = None
+
+
+class IotCertificateSearchResponse(BaseModel):
+    results: list[IotCertificateSearchResultItem]
+
+
+class IotCertificateDetailRequest(BaseModel):
+    environment_id: int
+    certificate_id: str
+
+
+class IotCertificateDetail(BaseModel):
+    certificate_id: str
+    certificate_arn: Optional[str] = None
+    status: str
+    creation_date: Optional[int] = None
+    policies: list[IotPolicyInfo] = []
+    thing_names: list[str] = []
     warnings: list[str] = []

@@ -150,7 +150,11 @@ from the target-account policy below.)
            "iot:DescribeCertificate",
            "iot:ListNamedShadowsForThing",
            "iot:GetThingShadow",
-           "iot:ListJobExecutionsForThing"
+           "iot:ListJobExecutionsForThing",
+           "iot:ListAttachedPolicies",
+           "iot:GetPolicy",
+           "iot:ListCertificates",
+           "iot:ListPrincipalThings"
          ],
          "Resource": "*"
        }
@@ -163,9 +167,13 @@ from the target-account policy below.)
      --policy-document file://spoke-permissions.json
    ```
 
-   The IoT tab additionally needs **Fleet Indexing** enabled per target
-   account/region (`aws iot update-indexing-configuration`) — see the main
-   README's "IoT tab prerequisite" section for the exact command.
+   The IoT tab's **Things** search additionally needs **Fleet Indexing**
+   enabled per target account/region
+   (`aws iot update-indexing-configuration`) — see the main README's "IoT
+   tab prerequisite" section for the exact command. **Certificates** search
+   doesn't use Fleet Indexing and needs no extra setup beyond the
+   permissions above — see the README's "IoT tab: Certificate search"
+   section for how it works and its limitations.
 
 5. **A Postgres database** the backend can reach from inside the cluster
    (RDS, Cloud SQL, a self-hosted instance, whatever you already run) —

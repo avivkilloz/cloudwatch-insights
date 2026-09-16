@@ -12,14 +12,19 @@ assuming a role you configure in each target account.
   environment in parallel and polls until every target finishes. Results
   from all targets are merged into one list, shrunk to a single summary
   line per row by default; click a row to expand every field.
-- **IoT tab**: pick one or more environments and search IoT things using the
-  same "Advanced search" syntax as the AWS console (by name, attributes,
-  connectivity, shadow values, group membership, and more). Expand a thing
+- **IoT tab**: pick one or more environments, then search either **Things**
+  (the same "Advanced search" syntax as the AWS console — by name,
+  attributes, connectivity, shadow values, group membership, and more) or
+  **Certificates** (by status or certificate ID — see below). Expand a thing
   to see its attributes, named/classic shadows (reported vs. desired, last
-  updated, version), attached certificates (with status), and job execution
-  history (with status). Read-only — nothing in this tab creates, updates,
-  or deletes anything in your AWS accounts.
-- Both tabs support **saved queries/searches**, stored per app instance.
+  updated, version), attached certificates (with status and their attached
+  policies, document included), and job execution history (with status).
+  Expand a certificate to see its attached policies (document included) and
+  which things use it. Read-only — nothing in this tab creates, updates, or
+  deletes anything in your AWS accounts.
+- Saved queries/searches for both tabs are managed from the **Environments &
+  Settings** tab — view their content, edit, add new ones, or delete —
+  rather than from the Insights/IoT tabs themselves.
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
   dropdown in the top bar — it's remembered per browser via `localStorage`.
 
@@ -193,7 +198,11 @@ The app needs two things:
            "iot:DescribeCertificate",
            "iot:ListNamedShadowsForThing",
            "iot:GetThingShadow",
-           "iot:ListJobExecutionsForThing"
+           "iot:ListJobExecutionsForThing",
+           "iot:ListAttachedPolicies",
+           "iot:GetPolicy",
+           "iot:ListCertificates",
+           "iot:ListPrincipalThings"
          ],
          "Resource": "*"
        }
@@ -227,6 +236,21 @@ aws iot update-indexing-configuration \
 in results; `thingConnectivityIndexingMode: STATUS` is what populates the
 Connected/Disconnected badge. Certificates and job executions are read
 directly (not via the index) and don't need this.
+
+### IoT tab: Certificate search
+
+Fleet Indexing doesn't cover certificates, so **Certificates** mode doesn't
+use `iot:SearchIndex` at all — it's a small homegrown query parser against
+`iot:ListCertificates`/`iot:DescribeCertificate` instead, so it needs no
+indexing setup, but is more limited than Things search:
+- `status:ACTIVE` / `status:INACTIVE` / etc. filters by certificate status.
+- `certid:<certificate-id>` does an exact-match lookup via
+  `DescribeCertificate` (fast, works even with a huge number of
+  certificates).
+- Any other free text is matched as a substring against certificate IDs
+  only (not against metadata) client-side, after paginating through
+  `ListCertificates` — so it can be slow and the certificate ID is the only
+  thing you can free-text search on.
 
 ## Notes
 

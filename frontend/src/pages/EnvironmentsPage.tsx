@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
-import { api, Environment, Settings } from "../api";
+import { api, Environment, IotSavedSearch, IotSearchMode, SavedQuery, Settings } from "../api";
 import { AWS_REGIONS } from "../regions";
+import SavedItemsPanel from "../components/SavedItemsPanel";
 
 export default function EnvironmentsPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [settings, setSettingsState] = useState<Settings>({ default_role_name: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+  const [iotSavedSearches, setIotSavedSearches] = useState<IotSavedSearch[]>([]);
 
   const [newName, setNewName] = useState("");
   const [newAccountId, setNewAccountId] = useState("");
@@ -19,10 +23,17 @@ export default function EnvironmentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [envs, s] = await Promise.all([api.listEnvironments(), api.getSettings()]);
+      const [envs, s, queries, searches] = await Promise.all([
+        api.listEnvironments(),
+        api.getSettings(),
+        api.listSavedQueries(),
+        api.listIotSavedSearches(),
+      ]);
       setEnvironments(envs);
       setSettingsState(s);
       setRoleDraft(s.default_role_name ?? "");
+      setSavedQueries(queries);
+      setIotSavedSearches(searches);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -58,6 +69,44 @@ export default function EnvironmentsPage() {
     if (!confirm("Remove this environment from the list?")) return;
     await api.deleteEnvironment(id);
     refresh();
+  }
+
+  async function createSavedQuery(payload: { name: string; query_string: string }) {
+    const saved = await api.createSavedQuery(payload);
+    setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  async function updateSavedQueryItem(id: number, payload: { name: string; query_string: string }) {
+    const updated = await api.updateSavedQuery(id, payload);
+    setSavedQueries((prev) => prev.map((q) => (q.id === id ? updated : q)));
+  }
+
+  async function deleteSavedQueryItem(id: number) {
+    await api.deleteSavedQuery(id);
+    setSavedQueries((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  async function createIotSavedSearchItem(payload: { name: string; query_string: string; search_mode?: string }) {
+    const saved = await api.createIotSavedSearch({
+      name: payload.name,
+      query_string: payload.query_string,
+      search_mode: (payload.search_mode as IotSearchMode) || "things",
+    });
+    setIotSavedSearches((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  async function updateIotSavedSearchItem(id: number, payload: { name: string; query_string: string; search_mode?: string }) {
+    const updated = await api.updateIotSavedSearch(id, {
+      name: payload.name,
+      query_string: payload.query_string,
+      search_mode: payload.search_mode as IotSearchMode | undefined,
+    });
+    setIotSavedSearches((prev) => prev.map((s) => (s.id === id ? updated : s)));
+  }
+
+  async function deleteIotSavedSearchItem(id: number) {
+    await api.deleteIotSavedSearch(id);
+    setIotSavedSearches((prev) => prev.filter((s) => s.id !== id));
   }
 
   return (
@@ -168,6 +217,36 @@ export default function EnvironmentsPage() {
           </table>
         )}
       </div>
+
+      <SavedItemsPanel
+        title="Saved Insights queries"
+        description="Manage the Logs Insights queries available from the Insights page's &quot;Load saved query&quot; dropdown."
+        queryLabel="Query"
+        items={savedQueries}
+        onCreate={createSavedQuery}
+        onUpdate={updateSavedQueryItem}
+        onDelete={deleteSavedQueryItem}
+      />
+
+      <SavedItemsPanel
+        title="Saved IoT searches"
+        description="Manage the IoT searches available from the IoT page's &quot;Load saved search&quot; dropdown."
+        queryLabel="Search query"
+        items={iotSavedSearches}
+        onCreate={createIotSavedSearchItem}
+        onUpdate={updateIotSavedSearchItem}
+        onDelete={deleteIotSavedSearchItem}
+        extra={{
+          key: "search_mode",
+          label: "Search mode",
+          options: [
+            { value: "things", label: "Things" },
+            { value: "certificates", label: "Certificates" },
+          ],
+          defaultValue: "things",
+          getValue: (item) => item.search_mode,
+        }}
+      />
     </div>
   );
 }

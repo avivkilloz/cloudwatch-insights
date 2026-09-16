@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
-from .db import Base, engine
+from .db import Base, engine, ensure_columns
 from .routers import environments, iot, log_groups, queries, saved_queries, settings
 
 Base.metadata.create_all(bind=engine)
+ensure_columns()
 
 app = FastAPI(title="CloudWatch Insights (Multi-Account)")
 

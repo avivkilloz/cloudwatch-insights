@@ -1,4 +1,6 @@
-import { IotThingDetail } from "../api";
+import { useState } from "react";
+import { IotCertificateInfo, IotThingDetail } from "../api";
+import PolicyList from "./PolicyList";
 
 function formatTimestamp(epochSeconds: number | null): string {
   if (epochSeconds == null) return "—";
@@ -15,6 +17,26 @@ function jobStatusTagClass(status: string): string {
   if (status === "SUCCEEDED") return "tag ok";
   if (["FAILED", "TIMED_OUT", "REJECTED", "REMOVED", "CANCELED"].includes(status)) return "tag error";
   return "tag pending"; // QUEUED, IN_PROGRESS, CANCELING, etc.
+}
+
+function CertificateRow({ cert }: { cert: IotCertificateInfo }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="result-row" style={{ marginBottom: 8 }}>
+      <div className="result-row-summary" onClick={() => setOpen((v) => !v)}>
+        <span className={`chevron ${open ? "open" : ""}`}>▶</span>
+        <span className={certStatusTagClass(cert.status)}>{cert.status}</span>
+        <span className="msg">{cert.certificate_id}</span>
+        <span className="muted">created {formatTimestamp(cert.creation_date)}</span>
+      </div>
+      {open && (
+        <div className="result-row-detail">
+          <h3>Attached policies ({cert.policies.length})</h3>
+          <PolicyList policies={cert.policies} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function IotThingDetailPanel({ detail }: { detail: IotThingDetail }) {
@@ -83,26 +105,11 @@ export default function IotThingDetailPanel({ detail }: { detail: IotThingDetail
       {detail.certificates.length === 0 ? (
         <p className="muted">No certificates attached.</p>
       ) : (
-        <table style={{ marginBottom: 14 }}>
-          <thead>
-            <tr>
-              <th>Certificate ID</th>
-              <th>Status</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.certificates.map((c) => (
-              <tr key={c.certificate_id}>
-                <td>{c.certificate_id}</td>
-                <td>
-                  <span className={certStatusTagClass(c.status)}>{c.status}</span>
-                </td>
-                <td>{formatTimestamp(c.creation_date)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ marginBottom: 14 }}>
+          {detail.certificates.map((c) => (
+            <CertificateRow key={c.certificate_id} cert={c} />
+          ))}
+        </div>
       )}
 
       <h3>Jobs ({detail.jobs.length})</h3>
