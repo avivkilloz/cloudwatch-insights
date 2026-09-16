@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useRef, useState, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { api, AiAssistMode, AiChatMessage } from "../api";
 import MarkdownLite from "./MarkdownLite";
 
@@ -100,6 +100,8 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
   const [error, setError] = useState<string | null>(null);
   const [useFullResults, setUseFullResults] = useState(false);
   const [size, setSize] = useState(loadStoredSize);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     api
@@ -150,12 +152,30 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
     setUseFullResults(false);
   }, [resultsVersion]);
 
+  function handleInputKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
+  async function copyMessage(index: number, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 1500);
+    } catch {
+      // Clipboard access denied or unavailable (e.g. insecure context) -- nothing more we can do.
+    }
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
     const nextMessages: DisplayMessage[] = [...threads[mode], { role: "user", content: text }];
     setThreads((prev) => ({ ...prev, [mode]: nextMessages }));
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "";
     setLoading(true);
     setError(null);
     try {
@@ -247,7 +267,18 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
             {messages.map((m, i) => (
               <div className="result-row" key={i} style={{ marginBottom: 8 }}>
                 <div className="result-row-detail" style={{ borderTop: "none" }}>
-                  <span className={m.role === "user" ? "tag" : "tag ok"}>{m.role === "user" ? "You" : "AI"}</span>
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <span className={m.role === "user" ? "tag" : "tag ok"}>{m.role === "user" ? "You" : "AI"}</span>
+                    {m.role === "assistant" && (
+                      <button
+                        className="secondary"
+                        style={{ padding: "1px 8px", fontSize: 10 }}
+                        onClick={() => copyMessage(i, m.content)}
+                      >
+                        {copiedIndex === i ? "Copied" : "Copy"}
+                      </button>
+                    )}
+                  </div>
                   <div style={{ marginTop: 6 }}>
                     <MarkdownLite text={m.content} />
                   </div>
@@ -262,13 +293,19 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
           </div>
 
           <div className="ai-widget-input">
-            <input
-              type="text"
+            <textarea
+              ref={inputRef}
+              rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send()}
+              onChange={(e) => {
+                setInput(e.target.value);
+                const el = e.currentTarget;
+                el.style.height = "";
+                el.style.height = `${el.scrollHeight}px`;
+              }}
+              onKeyDown={handleInputKeyDown}
               placeholder={MODE_PLACEHOLDERS[mode]}
-              style={{ flex: 1 }}
+              className="ai-widget-textarea"
             />
             <button onClick={send} disabled={loading || !input.trim()} style={{ padding: "6px 12px" }}>
               {loading ? "…" : "Ask"}
