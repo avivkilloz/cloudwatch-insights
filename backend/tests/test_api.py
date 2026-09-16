@@ -41,6 +41,24 @@ def test_environment_and_settings_crud():
     assert resp.status_code == 200
     assert resp.json()["app_logo_url"] is None
 
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    defaults = resp.json()
+    # new tab toggles default to visible, same as logs/iot
+    assert defaults["tables_enabled"] is True
+    assert defaults["buckets_enabled"] is True
+    assert defaults["cognito_enabled"] is True
+
+    resp = client.put("/api/settings", json={"tables_enabled": False, "buckets_enabled": False})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["tables_enabled"] is False
+    assert updated["buckets_enabled"] is False
+    assert updated["cognito_enabled"] is True  # untouched field preserved
+
+    resp = client.put("/api/settings", json={"tables_enabled": True, "buckets_enabled": True})
+    assert resp.status_code == 200
+
     resp = client.post(
         "/api/environments",
         json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
@@ -230,3 +248,33 @@ def test_saved_session_crud():
 
     resp = client.put(f"/api/saved-sessions/{saved['id']}", json={"name": "x"})
     assert resp.status_code == 404
+
+
+def test_tables_endpoints_reject_unconfigured_environment():
+    resp = client.get("/api/tables/list", params={"environment_id": 999999})
+    assert resp.status_code == 400
+
+    resp = client.post("/api/tables/describe", json={"environment_id": 999999, "table_name": "orders"})
+    assert resp.status_code == 400
+
+    resp = client.post("/api/tables/scan", json={"environment_id": 999999, "table_name": "orders"})
+    assert resp.status_code == 400
+
+
+def test_buckets_endpoints_reject_unconfigured_environment():
+    resp = client.get("/api/buckets/list", params={"environment_id": 999999})
+    assert resp.status_code == 400
+
+    resp = client.post("/api/buckets/browse", json={"environment_id": 999999, "bucket": "my-bucket"})
+    assert resp.status_code == 400
+
+
+def test_cognito_endpoints_reject_unconfigured_environment():
+    resp = client.get("/api/cognito/user-pools", params={"environment_id": 999999})
+    assert resp.status_code == 400
+
+    resp = client.post(
+        "/api/cognito/users",
+        json={"environment_id": 999999, "user_pool_id": "us-east-1_abc123"},
+    )
+    assert resp.status_code == 400

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
+import BucketsPage from "./pages/BucketsPage";
+import CognitoPage from "./pages/CognitoPage";
 import EnvironmentsPage from "./pages/EnvironmentsPage";
 import InsightsPage from "./pages/InsightsPage";
 import IotPage from "./pages/IotPage";
+import TablesPage from "./pages/TablesPage";
 import { applyTheme, getInitialTheme, THEMES, ThemeId } from "./theme";
 
-type Tab = "insights" | "iot" | "environments";
+type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "environments";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = {
@@ -14,7 +17,18 @@ const DEFAULT_SETTINGS: Settings = {
   app_logo_url: null,
   logs_enabled: true,
   iot_enabled: true,
+  tables_enabled: true,
+  buckets_enabled: true,
+  cognito_enabled: true,
 };
+
+const TOGGLEABLE_TABS: { id: Tab; label: string; enabledKey: keyof Settings; render: () => JSX.Element }[] = [
+  { id: "insights", label: "Logs", enabledKey: "logs_enabled", render: () => <InsightsPage /> },
+  { id: "iot", label: "IoT", enabledKey: "iot_enabled", render: () => <IotPage /> },
+  { id: "tables", label: "Tables", enabledKey: "tables_enabled", render: () => <TablesPage /> },
+  { id: "buckets", label: "Buckets", enabledKey: "buckets_enabled", render: () => <BucketsPage /> },
+  { id: "cognito", label: "Cognito", enabledKey: "cognito_enabled", render: () => <CognitoPage /> },
+];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("insights");
@@ -38,9 +52,9 @@ export default function App() {
   // A tab that's just been disabled (e.g. from the Settings page itself)
   // shouldn't leave the user stranded on a page that's no longer reachable.
   useEffect(() => {
-    if (tab === "insights" && !settings.logs_enabled) setTab("environments");
-    if (tab === "iot" && !settings.iot_enabled) setTab("environments");
-  }, [tab, settings.logs_enabled, settings.iot_enabled]);
+    const current = TOGGLEABLE_TABS.find((t) => t.id === tab);
+    if (current && !settings[current.enabledKey]) setTab("environments");
+  }, [tab, settings]);
 
   return (
     <div className="app">
@@ -50,15 +64,13 @@ export default function App() {
           {appTitle}
         </div>
         <nav className="tabs">
-          {settings.logs_enabled && (
-            <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
-              Logs
-            </button>
-          )}
-          {settings.iot_enabled && (
-            <button className={tab === "iot" ? "tab active" : "tab"} onClick={() => setTab("iot")}>
-              IoT
-            </button>
+          {TOGGLEABLE_TABS.map(
+            (t) =>
+              settings[t.enabledKey] && (
+                <button key={t.id} className={tab === t.id ? "tab active" : "tab"} onClick={() => setTab(t.id)}>
+                  {t.label}
+                </button>
+              )
           )}
           <button
             className={tab === "environments" ? "tab active" : "tab"}
@@ -83,8 +95,7 @@ export default function App() {
         </div>
       </header>
       <main className="content">
-        {tab === "insights" && settings.logs_enabled && <InsightsPage />}
-        {tab === "iot" && settings.iot_enabled && <IotPage />}
+        {TOGGLEABLE_TABS.map((t) => tab === t.id && settings[t.enabledKey] && <div key={t.id}>{t.render()}</div>)}
         {tab === "environments" && <EnvironmentsPage onSettingsChange={setSettings} />}
       </main>
     </div>

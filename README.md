@@ -1,8 +1,8 @@
 # Cloud Insights
 
-A web app that mimics CloudWatch Logs Insights, but lets you query log groups
-and browse IoT fleets across **multiple AWS accounts and regions** at once by
-assuming a role you configure in each target account.
+A web app that mimics CloudWatch Logs Insights, browses IoT fleets, DynamoDB
+tables, S3 buckets, and Cognito user pools, across **multiple AWS accounts and
+regions** by assuming a role you configure in each target account.
 
 - Define **environments** — each one an AWS account paired with a single
   region — once, under Settings.
@@ -22,27 +22,53 @@ assuming a role you configure in each target account.
   Expand a certificate to see its attached policies (document included) and
   which things use it. Read-only — nothing in this tab creates, updates, or
   deletes anything in your AWS accounts.
-- Saved queries/searches for both tabs are managed from the **Settings**
-  tab — view their content, edit, add new ones, or delete — rather than
-  from the Logs/IoT tabs themselves.
-- **Saved sessions**, distinct from saved queries/searches: each of the
-  Logs and IoT tabs has its own "Save session" button that snapshots the
-  page's *entire* working state — selected environments, log groups, query
-  text, time range, limit, sort, search mode, and so on — not just the
-  query text, so you can resume an investigation later exactly where you
-  left it. Load one back via that page's "Load saved session" dropdown;
-  manage (rename/delete/inspect) all of them from the Settings tab. Any
-  future page can plug into the same mechanism — a saved session is just a
-  page name plus an opaque JSON blob that page defines for itself.
+- **Tables tab**: pick one environment (DynamoDB tables are inherently
+  single-account/region, so unlike Logs/IoT this page doesn't fan out
+  across several at once), load its table list, and pick a table to see
+  its key schema, status, and item count. Search/filter with
+  `field:value` tokens (exact match, ANDed) — this runs a `Scan` with a
+  `FilterExpression`, since there's no generic way to query an arbitrary,
+  schemaless table other than scanning; leave the query blank to browse
+  it unfiltered. Expand an item to see its full attributes as JSON. "Load
+  more" pages through the table via DynamoDB's own `LastEvaluatedKey`.
+- **Buckets tab**: pick one environment and a bucket (its actual region is
+  resolved automatically, which can differ from the environment's own
+  region), then navigate it like a file explorer — folders and files at
+  the current level, breadcrumbs to jump back up. The search box switches
+  to a recursive, filename-substring search under the current folder
+  instead. Read-only: no file content is ever fetched or previewed, only
+  metadata (size, last modified, storage class). Each file has "Copy S3
+  URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
+  HTTPS URL) buttons.
+- **Cognito tab**: pick one environment and a user pool, then search users
+  with a single `attribute:value` token (starts-with match, e.g.
+  `email:john`) — Cognito's `ListUsers` only supports filtering by one
+  attribute per call, unlike the Tables/IoT search boxes. Leave it blank
+  to list all users. Expand a user to see every attribute Cognito
+  returned for them, plus status/enabled/created/last-modified.
+- Saved queries/searches for the Logs/IoT tabs are managed from the
+  **Settings** tab — view their content, edit, add new ones, or delete —
+  rather than from the Logs/IoT tabs themselves. (Tables/Buckets/Cognito
+  have no saved-query concept of their own today.)
+- **Saved sessions**, distinct from saved queries/searches: the Logs and
+  IoT tabs each have a "Save session" button that snapshots the page's
+  *entire* working state — selected environments, log groups, query text,
+  time range, limit, sort, search mode, and so on — not just the query
+  text, so you can resume an investigation later exactly where you left
+  it. Load one back via that page's "Load saved session" dropdown; manage
+  (rename/delete/inspect) all of them from the Settings tab. Any future
+  page can plug into the same mechanism — a saved session is just a page
+  name plus an opaque JSON blob that page defines for itself. (Tables,
+  Buckets, and Cognito don't have this yet.)
 - **Settings tab** also lets you set a custom app title (shown in the top
   bar and browser tab, in place of the default "Cloud Insights"), upload a
-  logo shown right before that title, and toggle the Logs/IoT tabs on or
-  off — handy for temporarily hiding a tab you're not using, without
-  removing any of its configured data. An uploaded logo is capped at
-  300 KB and stored inline (as a data URL) alongside the rest of the app's
-  settings — no separate file storage needed — so keep it small; for a
-  larger image, host it yourself and note that this app has no URL field
-  for that today (only file upload).
+  logo shown right before that title, and toggle any tab (Logs, IoT,
+  Tables, Buckets, Cognito) on or off — handy for temporarily hiding a tab
+  you're not using, without removing any of its configured data. An
+  uploaded logo is capped at 300 KB and stored inline (as a data URL)
+  alongside the rest of the app's settings — no separate file storage
+  needed — so keep it small; for a larger image, host it yourself and
+  note that this app has no URL field for that today (only file upload).
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
   dropdown in the top bar — it's remembered per browser via `localStorage`.
 
@@ -220,15 +246,26 @@ The app needs two things:
            "iot:ListAttachedPolicies",
            "iot:GetPolicy",
            "iot:ListCertificates",
-           "iot:ListPrincipalThings"
+           "iot:ListPrincipalThings",
+           "dynamodb:ListTables",
+           "dynamodb:DescribeTable",
+           "dynamodb:Scan",
+           "s3:ListAllMyBuckets",
+           "s3:GetBucketLocation",
+           "s3:ListBucket",
+           "cognito-idp:ListUserPools",
+           "cognito-idp:ListUsers"
          ],
          "Resource": "*"
        }
      ]
    }
    ```
-   (Drop the `iot:*` actions if you only need the Logs tab, or the
-   `logs:*` ones if you only need the IoT tab.)
+   (Drop whichever service's actions you don't need — `logs:*` for Logs,
+   `iot:*` for IoT, `dynamodb:*` for Tables, `s3:*` for Buckets,
+   `cognito-idp:*` for Cognito. `s3:ListBucket` is normally scoped to
+   specific bucket ARNs rather than `*`; this simplified example grants it
+   account-wide the same way the rest of this policy does.)
 
 In the app's **Settings** tab, set the **global role name**
 (e.g. `CloudWatchInsightsReadRole`) once, then add an environment for each

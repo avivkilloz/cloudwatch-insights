@@ -154,7 +154,15 @@ from the target-account policy below.)
            "iot:ListAttachedPolicies",
            "iot:GetPolicy",
            "iot:ListCertificates",
-           "iot:ListPrincipalThings"
+           "iot:ListPrincipalThings",
+           "dynamodb:ListTables",
+           "dynamodb:DescribeTable",
+           "dynamodb:Scan",
+           "s3:ListAllMyBuckets",
+           "s3:GetBucketLocation",
+           "s3:ListBucket",
+           "cognito-idp:ListUserPools",
+           "cognito-idp:ListUsers"
          ],
          "Resource": "*"
        }

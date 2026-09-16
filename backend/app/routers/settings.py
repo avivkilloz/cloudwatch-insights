@@ -9,8 +9,15 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 DEFAULT_ROLE_NAME_KEY = "default_role_name"
 APP_TITLE_KEY = "app_title"
 APP_LOGO_URL_KEY = "app_logo_url"
-LOGS_ENABLED_KEY = "tab_logs_enabled"
-IOT_ENABLED_KEY = "tab_iot_enabled"
+
+# field name -> settings-table key, for every on/off tab toggle.
+TAB_ENABLED_KEYS = {
+    "logs_enabled": "tab_logs_enabled",
+    "iot_enabled": "tab_iot_enabled",
+    "tables_enabled": "tab_tables_enabled",
+    "buckets_enabled": "tab_buckets_enabled",
+    "cognito_enabled": "tab_cognito_enabled",
+}
 
 
 def _get_value(db: Session, key: str) -> str | None:
@@ -38,8 +45,7 @@ def _build_settings_out(db: Session) -> schemas.SettingsOut:
         app_logo_url=_get_value(db, APP_LOGO_URL_KEY),
         # Missing key (e.g. on first run, or upgrading from before this
         # setting existed) means "not turned off" -- tabs default to visible.
-        logs_enabled=_get_bool(db, LOGS_ENABLED_KEY, True),
-        iot_enabled=_get_bool(db, IOT_ENABLED_KEY, True),
+        **{field: _get_bool(db, key, True) for field, key in TAB_ENABLED_KEYS.items()},
     )
 
 
@@ -57,9 +63,8 @@ def update_settings(payload: schemas.SettingsUpdate, db: Session = Depends(get_d
         _set_value(db, APP_TITLE_KEY, data["app_title"])
     if "app_logo_url" in data:
         _set_value(db, APP_LOGO_URL_KEY, data["app_logo_url"])
-    if "logs_enabled" in data:
-        _set_value(db, LOGS_ENABLED_KEY, "true" if data["logs_enabled"] else "false")
-    if "iot_enabled" in data:
-        _set_value(db, IOT_ENABLED_KEY, "true" if data["iot_enabled"] else "false")
+    for field, key in TAB_ENABLED_KEYS.items():
+        if field in data:
+            _set_value(db, key, "true" if data[field] else "false")
     db.commit()
     return _build_settings_out(db)
