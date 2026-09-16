@@ -15,6 +15,21 @@ def test_environment_and_settings_crud():
     resp = client.put("/api/settings", json={"default_role_name": "TestRole"})
     assert resp.status_code == 200
     assert resp.json()["default_role_name"] == "TestRole"
+    # untouched fields keep their defaults/previous values
+    assert resp.json()["logs_enabled"] is True
+    assert resp.json()["iot_enabled"] is True
+
+    resp = client.put("/api/settings", json={"app_title": "My Org Insights", "iot_enabled": False})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["app_title"] == "My Org Insights"
+    assert updated["iot_enabled"] is False
+    assert updated["logs_enabled"] is True  # untouched field preserved
+    assert updated["default_role_name"] == "TestRole"  # untouched field preserved
+
+    resp = client.put("/api/settings", json={"iot_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["iot_enabled"] is True
 
     resp = client.post(
         "/api/environments",
@@ -159,3 +174,49 @@ def test_iot_certificate_detail_rejects_unconfigured_environment():
         json={"environment_id": 999999, "certificate_id": "abc123"},
     )
     assert resp.status_code == 400
+
+
+def test_saved_session_crud():
+    state = {
+        "environment_ids": [1, 2],
+        "log_group_selection": {"1": ["/aws/lambda/foo"]},
+        "query_string": "fields @message",
+        "limit": 500,
+        "sort_field": "@timestamp",
+        "sort_direction": "desc",
+    }
+    resp = client.post(
+        "/api/saved-sessions",
+        json={"page": "logs", "name": "Investigate outage", "state": state},
+    )
+    assert resp.status_code == 201
+    saved = resp.json()
+    assert saved["page"] == "logs"
+    assert saved["state"] == state
+
+    resp = client.get("/api/saved-sessions", params={"page": "logs"})
+    assert resp.status_code == 200
+    assert any(s["id"] == saved["id"] for s in resp.json())
+
+    resp = client.get("/api/saved-sessions", params={"page": "iot"})
+    assert resp.status_code == 200
+    assert not any(s["id"] == saved["id"] for s in resp.json())
+
+    new_state = {**state, "query_string": "fields @message | filter @message like /ERROR/"}
+    resp = client.put(
+        f"/api/saved-sessions/{saved['id']}",
+        json={"state": new_state},
+    )
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["state"]["query_string"] == "fields @message | filter @message like /ERROR/"
+    assert updated["name"] == "Investigate outage"  # untouched field preserved
+
+    resp = client.delete(f"/api/saved-sessions/{saved['id']}")
+    assert resp.status_code == 204
+
+    resp = client.delete(f"/api/saved-sessions/{saved['id']}")
+    assert resp.status_code == 404
+
+    resp = client.put(f"/api/saved-sessions/{saved['id']}", json={"name": "x"})
+    assert resp.status_code == 404

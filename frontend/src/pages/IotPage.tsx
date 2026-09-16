@@ -1,8 +1,25 @@
 import { useEffect, useState } from "react";
-import { api, Environment, IotCertificateSearchResultItem, IotSavedSearch, IotSearchMode, IotSearchResultItem } from "../api";
+import {
+  api,
+  Environment,
+  IotCertificateSearchResultItem,
+  IotSavedSearch,
+  IotSearchMode,
+  IotSearchResultItem,
+  SavedSession,
+} from "../api";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import IotResultsList from "../components/IotResultsList";
 import IotCertResultsList from "../components/IotCertResultsList";
+
+const SESSION_PAGE = "iot";
+
+interface IotSessionState {
+  environment_ids: number[];
+  search_mode: IotSearchMode;
+  query_string: string;
+  max_results: number;
+}
 
 const DEFAULT_QUERY: Record<IotSearchMode, string> = {
   things: "thingName:*",
@@ -32,6 +49,7 @@ export default function IotPage() {
   const [showExamples, setShowExamples] = useState(false);
 
   const [savedSearches, setSavedSearches] = useState<IotSavedSearch[]>([]);
+  const [savedSessions, setSavedSessions] = useState<SavedSession<IotSessionState>[]>([]);
 
   const [thingResults, setThingResults] = useState<IotSearchResultItem[]>([]);
   const [certResults, setCertResults] = useState<IotCertificateSearchResultItem[]>([]);
@@ -41,6 +59,7 @@ export default function IotPage() {
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
     api.listIotSavedSearches().then(setSavedSearches);
+    api.listSavedSessions<IotSessionState>(SESSION_PAGE).then(setSavedSessions);
   }, []);
 
   function toggleEnvironment(id: number) {
@@ -104,8 +123,65 @@ export default function IotPage() {
     setSavedSearches((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
+  function captureSession(): IotSessionState {
+    return {
+      environment_ids: Array.from(selectedEnvironmentIds),
+      search_mode: searchMode,
+      query_string: queryString,
+      max_results: maxResults,
+    };
+  }
+
+  function applySession(state: IotSessionState) {
+    setSelectedEnvironmentIds(new Set(state.environment_ids));
+    setSearchMode(state.search_mode);
+    setQueryString(state.query_string);
+    setMaxResults(state.max_results);
+  }
+
+  async function saveCurrentSession() {
+    const name = prompt("Save session as:");
+    if (!name) return;
+    const saved = await api.createSavedSession<IotSessionState>({
+      page: SESSION_PAGE,
+      name,
+      state: captureSession(),
+    });
+    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
   return (
     <div>
+      <div className="panel">
+        <h2>Session</h2>
+        <p className="muted">
+          Unlike a saved search (just the query text), a saved session also captures the selected environments,
+          search mode, and max results, so you can resume an investigation later exactly where you left it.
+        </p>
+        <div className="toolbar">
+          <select
+            onChange={(e) => {
+              const s = savedSessions.find((x) => String(x.id) === e.target.value);
+              if (s) applySession(s.state);
+              e.target.value = "";
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load saved session…
+            </option>
+            {savedSessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={saveCurrentSession}>
+            Save session
+          </button>
+        </div>
+      </div>
+
       <div className="panel">
         <h2>1. Choose environments</h2>
         <EnvironmentSelector

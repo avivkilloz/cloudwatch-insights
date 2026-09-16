@@ -1,8 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Environment, SavedQuery, QueryResultItem, StartedQuery } from "../api";
+import { api, Environment, SavedQuery, SavedSession, QueryResultItem, StartedQuery } from "../api";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView, { SortDirection } from "../components/ResultsView";
+
+const SESSION_PAGE = "logs";
+
+interface LogsSessionState {
+  environment_ids: number[];
+  log_group_selection: Record<string, string[]>;
+  query_string: string;
+  limit: number;
+  sort_field: string;
+  sort_direction: SortDirection;
+  preset: number | "custom";
+  custom_start: string;
+  custom_end: string;
+}
 
 const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
   { label: "Last 5 minutes", seconds: 5 * 60 },
@@ -46,6 +60,7 @@ export default function InsightsPage() {
   const [customEnd, setCustomEnd] = useState(toLocalDatetimeInput(now));
 
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+  const [savedSessions, setSavedSessions] = useState<SavedSession<LogsSessionState>[]>([]);
 
   const [startedQueries, setStartedQueries] = useState<StartedQuery[]>([]);
   const [results, setResults] = useState<QueryResultItem[]>([]);
@@ -56,6 +71,7 @@ export default function InsightsPage() {
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
     api.listSavedQueries().then(setSavedQueries);
+    api.listSavedSessions<LogsSessionState>(SESSION_PAGE).then(setSavedSessions);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -185,8 +201,82 @@ export default function InsightsPage() {
     setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
+  function captureSession(): LogsSessionState {
+    return {
+      environment_ids: Array.from(selectedEnvironmentIds),
+      log_group_selection: Object.fromEntries(
+        Object.entries(logGroupSelection).map(([envId, names]) => [envId, Array.from(names)])
+      ),
+      query_string: queryString,
+      limit,
+      sort_field: sortField,
+      sort_direction: sortDirection,
+      preset,
+      custom_start: customStart,
+      custom_end: customEnd,
+    };
+  }
+
+  function applySession(state: LogsSessionState) {
+    setSelectedEnvironmentIds(new Set(state.environment_ids));
+    setLogGroupSelection(
+      Object.fromEntries(
+        Object.entries(state.log_group_selection).map(([envId, names]) => [Number(envId), new Set(names)])
+      )
+    );
+    setQueryString(state.query_string);
+    setLimit(state.limit);
+    setSortField(state.sort_field);
+    setSortDirection(state.sort_direction);
+    setPreset(state.preset);
+    setCustomStart(state.custom_start);
+    setCustomEnd(state.custom_end);
+  }
+
+  async function saveCurrentSession() {
+    const name = prompt("Save session as:");
+    if (!name) return;
+    const saved = await api.createSavedSession<LogsSessionState>({
+      page: SESSION_PAGE,
+      name,
+      state: captureSession(),
+    });
+    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
   return (
     <div>
+      <div className="panel">
+        <h2>Session</h2>
+        <p className="muted">
+          Unlike a saved query (just the query text), a saved session captures everything on this page — the
+          selected environments, log groups, query, time range, limit, and sort — so you can resume an investigation
+          later exactly where you left it.
+        </p>
+        <div className="toolbar">
+          <select
+            onChange={(e) => {
+              const s = savedSessions.find((x) => String(x.id) === e.target.value);
+              if (s) applySession(s.state);
+              e.target.value = "";
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load saved session…
+            </option>
+            {savedSessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={saveCurrentSession}>
+            Save session
+          </button>
+        </div>
+      </div>
+
       <div className="panel">
         <h2>1. Choose environments</h2>
         <EnvironmentSelector

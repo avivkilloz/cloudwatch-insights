@@ -1,12 +1,12 @@
-# CloudWatch Insights — Multi-Account
+# Cloud Insights
 
 A web app that mimics CloudWatch Logs Insights, but lets you query log groups
 and browse IoT fleets across **multiple AWS accounts and regions** at once by
 assuming a role you configure in each target account.
 
 - Define **environments** — each one an AWS account paired with a single
-  region — once, under Environments & Settings.
-- **Insights tab**: pick one or more environments, browse/select their log
+  region — once, under Settings.
+- **Logs tab**: pick one or more environments, browse/select their log
   groups, write a CloudWatch Logs Insights query (same syntax as the AWS
   console), and run it — the app fires one `StartQuery` per selected
   environment in parallel and polls until every target finishes. Results
@@ -22,9 +22,22 @@ assuming a role you configure in each target account.
   Expand a certificate to see its attached policies (document included) and
   which things use it. Read-only — nothing in this tab creates, updates, or
   deletes anything in your AWS accounts.
-- Saved queries/searches for both tabs are managed from the **Environments &
-  Settings** tab — view their content, edit, add new ones, or delete —
-  rather than from the Insights/IoT tabs themselves.
+- Saved queries/searches for both tabs are managed from the **Settings**
+  tab — view their content, edit, add new ones, or delete — rather than
+  from the Logs/IoT tabs themselves.
+- **Saved sessions**, distinct from saved queries/searches: each of the
+  Logs and IoT tabs has its own "Save session" button that snapshots the
+  page's *entire* working state — selected environments, log groups, query
+  text, time range, limit, sort, search mode, and so on — not just the
+  query text, so you can resume an investigation later exactly where you
+  left it. Load one back via that page's "Load saved session" dropdown;
+  manage (rename/delete/inspect) all of them from the Settings tab. Any
+  future page can plug into the same mechanism — a saved session is just a
+  page name plus an opaque JSON blob that page defines for itself.
+- **Settings tab** also lets you set a custom app title (shown in the top
+  bar and browser tab, in place of the default "Cloud Insights") and
+  toggle the Logs/IoT tabs on or off — handy for temporarily hiding a tab
+  you're not using, without removing any of its configured data.
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
   dropdown in the top bar — it's remembered per browser via `localStorage`.
 
@@ -209,10 +222,10 @@ The app needs two things:
      ]
    }
    ```
-   (Drop the `iot:*` actions if you only need the Insights tab, or the
+   (Drop the `iot:*` actions if you only need the Logs tab, or the
    `logs:*` ones if you only need the IoT tab.)
 
-In the app's **Environments & Settings** tab, set the **global role name**
+In the app's **Settings** tab, set the **global role name**
 (e.g. `CloudWatchInsightsReadRole`) once, then add an environment for each
 account/region combination you want to query — a name, the 12-digit account
 ID, and a region. An individual environment can override the role name if
