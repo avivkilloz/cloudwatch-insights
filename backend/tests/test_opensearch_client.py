@@ -89,6 +89,30 @@ def test_list_indices_filters_hidden_indices_and_sorts(monkeypatch):
     assert indices[1]["store_size"] == "2.1mb"
 
 
+def test_list_indices_percent_encodes_commas_in_the_query_string(monkeypatch):
+    # SigV4Auth signs the query string as literal text off the URL (unlike
+    # the path, it does not re-percent-encode it), so an unescaped comma
+    # here gets signed as-is while AWS's own canonicalization of what it
+    # actually received escapes it -- a mismatch that surfaces as a 403
+    # "SignatureDoesNotMatch". The URL we actually send must already carry
+    # the escaped form.
+    monkeypatch.setattr(opensearch_client.aws_client, "get_credentials", _fake_credentials)
+    captured = {}
+
+    def fake_httpx_request(method, url, headers, content, timeout):
+        captured["url"] = url
+        return _FakeCatIndicesResponse([])
+
+    monkeypatch.setattr(opensearch_client.httpx, "request", fake_httpx_request)
+
+    opensearch_client.list_indices("111122223333", "us-east-1", "OpsRole", "search-x.us-east-1.es.amazonaws.com")
+
+    assert captured["url"] == (
+        "https://search-x.us-east-1.es.amazonaws.com/_cat/indices"
+        "?format=json&h=index%2Cdocs.count%2Cstore.size"
+    )
+
+
 def test_list_indices_handles_missing_docs_count(monkeypatch):
     monkeypatch.setattr(opensearch_client.aws_client, "get_credentials", _fake_credentials)
     monkeypatch.setattr(
