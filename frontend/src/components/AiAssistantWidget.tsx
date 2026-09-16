@@ -37,6 +37,38 @@ const MODE_EMPTY_HINTS: Record<AiAssistMode, string> = {
 
 const EMPTY_THREADS: Record<AiAssistMode, DisplayMessage[]> = { build_query: [], ask_results: [] };
 
+const SAMPLE_CAP = 40;
+
+/**
+ * Reorders rows so that distinct @log values interleave (row 0 from group A,
+ * row 1 from group B, row 2 from group A, ...) rather than staying grouped
+ * in their original order. A query spanning multiple log groups can have one
+ * far higher-volume than another, so any prefix taken from a plain
+ * chronological list can end up entirely from the dominant group. Once
+ * interleaved, ANY prefix -- whether the capped sample or the full list
+ * truncated later by the backend's context-size budget -- keeps every
+ * represented log group fairly included.
+ */
+function interleaveByLogGroup(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const key = String(row["@log"] ?? "");
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
+  }
+  if (groups.size <= 1) return rows;
+
+  const groupLists = Array.from(groups.values());
+  const interleaved: Record<string, unknown>[] = [];
+  for (let i = 0; interleaved.length < rows.length; i++) {
+    for (const list of groupLists) {
+      if (i < list.length) interleaved.push(list[i]);
+    }
+  }
+  return interleaved;
+}
+
 export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
@@ -45,6 +77,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useFullResults, setUseFullResults] = useState(false);
 
   useEffect(() => {
     api
@@ -58,6 +91,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
     if (resultsVersion === undefined || resultsVersion === lastResultsVersion.current) return;
     lastResultsVersion.current = resultsVersion;
     setThreads((prev) => ({ ...prev, ask_results: [] }));
+    setUseFullResults(false);
   }, [resultsVersion]);
 
   async function send() {
@@ -69,11 +103,13 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
     setLoading(true);
     setError(null);
     try {
+      const interleaved = mode === "ask_results" ? interleaveByLogGroup(sampleRows ?? []) : undefined;
+      const rowsToSend = interleaved && !useFullResults ? interleaved.slice(0, SAMPLE_CAP) : interleaved;
       const resp = await api.aiAssist({
         mode,
         messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         query_string: queryString,
-        sample_rows: mode === "ask_results" ? sampleRows : undefined,
+        sample_rows: rowsToSend,
         row_count: mode === "ask_results" ? rowCount : undefined,
       });
       setThreads((prev) => ({
@@ -90,6 +126,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
   if (!configured) return null;
 
   const messages = threads[mode];
+  const totalAvailableRows = sampleRows?.length ?? 0;
 
   return (
     <>
@@ -115,6 +152,33 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
               ✕
             </button>
           </div>
+
+          {mode === "ask_results" && totalAvailableRows > SAMPLE_CAP && (
+            <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
+              <div className="ai-widget-tabs">
+                <button
+                  className={!useFullResults ? "tab active" : "tab"}
+                  onClick={() => setUseFullResults(false)}
+                  style={{ fontSize: 11, padding: "3px 8px" }}
+                >
+                  Sampled ({SAMPLE_CAP})
+                </button>
+                <button
+                  className={useFullResults ? "tab active" : "tab"}
+                  onClick={() => setUseFullResults(true)}
+                  style={{ fontSize: 11, padding: "3px 8px" }}
+                >
+                  All results ({totalAvailableRows})
+                </button>
+              </div>
+            </div>
+          )}
+          {mode === "ask_results" && totalAvailableRows > SAMPLE_CAP && useFullResults && (
+            <p className="muted" style={{ padding: "4px 12px 0" }}>
+              Sending all {totalAvailableRows} rows -- large result sets are automatically trimmed to fit the AI's
+              context window, so the assistant will say if it only saw part of it.
+            </p>
+          )}
 
           <div className="ai-widget-messages">
             {messages.length === 0 && <p className="muted">{MODE_EMPTY_HINTS[mode]}</p>}

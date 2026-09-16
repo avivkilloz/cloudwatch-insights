@@ -14,6 +14,13 @@ import httpx
 REQUEST_TIMEOUT_SECONDS = 60.0
 MAX_RESPONSE_TOKENS = 800
 
+# Character budget for the serialized sample_rows JSON embedded in the
+# prompt. Applied incrementally, row by row, so the row count we report to
+# the model always matches what's actually in the prompt text -- unlike a
+# naive slice of the fully-serialized JSON string, which can cut off
+# mid-object while still claiming the pre-slice row count.
+MAX_SAMPLE_CONTEXT_CHARS = 12000
+
 BUILD_QUERY_SYSTEM_PROMPT = """\
 You are an expert at writing AWS CloudWatch Logs Insights queries. The user \
 will describe, in plain English, what they want to find in their logs. \
@@ -67,6 +74,28 @@ def extract_code_block(text: str) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
+def _build_sample_context(sample_rows: list[dict], row_count: Optional[int]) -> str:
+    total = row_count if row_count is not None else len(sample_rows)
+
+    included: list[dict] = []
+    serialized_len = 2  # opening/closing brackets of the JSON array
+    for row in sample_rows:
+        addition = len(json.dumps(row, default=str)) + 2  # plus separator/newline
+        if included and serialized_len + addition > MAX_SAMPLE_CONTEXT_CHARS:
+            break
+        included.append(row)
+        serialized_len += addition
+
+    note = ""
+    if len(included) < len(sample_rows):
+        note = f" (further truncated to the first {len(included)} to fit the assistant's context budget)"
+
+    return (
+        f"Sample of {len(included)} result row(s) out of {total} total{note}:\n"
+        f"{json.dumps(included, indent=2, default=str)}"
+    )
+
+
 def chat(
     mode: str,
     messages: list[dict],
@@ -82,11 +111,7 @@ def chat(
         label = "Current query (refine this)" if mode == "build_query" else "Query that produced these results"
         context_parts.append(f"{label}:\n{query_string}")
     if sample_rows:
-        total = row_count if row_count is not None else len(sample_rows)
-        context_parts.append(
-            f"Sample of {len(sample_rows)} result row(s) out of {total} total:\n"
-            f"{json.dumps(sample_rows, indent=2, default=str)[:8000]}"
-        )
+        context_parts.append(_build_sample_context(sample_rows, row_count))
 
     full_messages = [{"role": "system", "content": system_prompt}]
     if context_parts:

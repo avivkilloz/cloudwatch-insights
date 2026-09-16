@@ -5,10 +5,14 @@ from .. import ai_assistant, schemas
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# Cap how many result rows go into a request to keep the payload (and the
-# resulting token cost) bounded -- the frontend already caps this before
-# sending, this is a second, authoritative limit on the backend.
-MAX_SAMPLE_ROWS = 50
+# Cap how many result rows go into a request to keep the payload bounded --
+# the frontend already caps this (either to a small default sample or, if
+# the user opts in, to every row currently loaded on the page), this is a
+# second, authoritative limit on the backend. ai_assistant.chat() applies its
+# own, tighter character budget on top of this when building the actual
+# prompt text, so this mainly bounds worst-case request size/latency rather
+# than being the limit that decides what the model actually sees.
+MAX_SAMPLE_ROWS = 500
 
 
 @router.get("/status", response_model=schemas.AiStatus)
