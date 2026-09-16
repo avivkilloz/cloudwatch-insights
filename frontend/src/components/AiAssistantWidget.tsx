@@ -90,6 +90,23 @@ function interleaveByLogGroup(rows: Record<string, unknown>[]): Record<string, u
   return interleaved;
 }
 
+function CopyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" />
+      <path d="M3.5 10.5H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 8.5l3.2 3.2L13 4.5" />
+    </svg>
+  );
+}
+
 export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
@@ -230,7 +247,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
                 </button>
               ))}
             </div>
-            <button className="secondary" style={{ padding: "2px 8px" }} onClick={() => setOpen(false)} aria-label="Close">
+            <button className="ai-widget-icon-btn" onClick={() => setOpen(false)} aria-label="Close">
               ✕
             </button>
           </div>
@@ -271,11 +288,13 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
                     <span className={m.role === "user" ? "tag" : "tag ok"}>{m.role === "user" ? "You" : "AI"}</span>
                     {m.role === "assistant" && (
                       <button
-                        className="secondary"
-                        style={{ padding: "1px 8px", fontSize: 10 }}
+                        className="ai-widget-icon-btn"
+                        style={copiedIndex === i ? { color: "var(--ok)" } : undefined}
                         onClick={() => copyMessage(i, m.content)}
+                        aria-label={copiedIndex === i ? "Copied" : "Copy reply"}
+                        title={copiedIndex === i ? "Copied" : "Copy reply"}
                       >
-                        {copiedIndex === i ? "Copied" : "Copy"}
+                        {copiedIndex === i ? <CheckIcon /> : <CopyIcon />}
                       </button>
                     )}
                   </div>
