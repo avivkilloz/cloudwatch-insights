@@ -31,6 +31,16 @@ def test_environment_and_settings_crud():
     assert resp.status_code == 200
     assert resp.json()["iot_enabled"] is True
 
+    resp = client.put("/api/settings", json={"app_logo_url": "data:image/png;base64,abc123"})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["app_logo_url"] == "data:image/png;base64,abc123"
+    assert updated["app_title"] == "My Org Insights"  # untouched field preserved
+
+    resp = client.put("/api/settings", json={"app_logo_url": None})
+    assert resp.status_code == 200
+    assert resp.json()["app_logo_url"] is None
+
     resp = client.post(
         "/api/environments",
         json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},

@@ -35,9 +35,14 @@ assuming a role you configure in each target account.
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself.
 - **Settings tab** also lets you set a custom app title (shown in the top
-  bar and browser tab, in place of the default "Cloud Insights") and
-  toggle the Logs/IoT tabs on or off — handy for temporarily hiding a tab
-  you're not using, without removing any of its configured data.
+  bar and browser tab, in place of the default "Cloud Insights"), upload a
+  logo shown right before that title, and toggle the Logs/IoT tabs on or
+  off — handy for temporarily hiding a tab you're not using, without
+  removing any of its configured data. An uploaded logo is capped at
+  300 KB and stored inline (as a data URL) alongside the rest of the app's
+  settings — no separate file storage needed — so keep it small; for a
+  larger image, host it yourself and note that this app has no URL field
+  for that today (only file upload).
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
   dropdown in the top bar — it's remembered per browser via `localStorage`.
 

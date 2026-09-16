@@ -28,6 +28,9 @@ class EnvironmentOut(EnvironmentBase):
 class SettingsOut(BaseModel):
     default_role_name: Optional[str] = None
     app_title: Optional[str] = None
+    # A URL (including a data: URL for an uploaded image, stored inline) shown
+    # right before the app title in the top bar.
+    app_logo_url: Optional[str] = None
     logs_enabled: bool = True
     iot_enabled: bool = True
 
@@ -35,6 +38,7 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     default_role_name: Optional[str] = None
     app_title: Optional[str] = None
+    app_logo_url: Optional[str] = None
     logs_enabled: Optional[bool] = None
     iot_enabled: Optional[bool] = None
 

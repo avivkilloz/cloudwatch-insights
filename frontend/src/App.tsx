@@ -8,7 +8,13 @@ import { applyTheme, getInitialTheme, THEMES, ThemeId } from "./theme";
 type Tab = "insights" | "iot" | "environments";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
-const DEFAULT_SETTINGS: Settings = { default_role_name: null, app_title: null, logs_enabled: true, iot_enabled: true };
+const DEFAULT_SETTINGS: Settings = {
+  default_role_name: null,
+  app_title: null,
+  app_logo_url: null,
+  logs_enabled: true,
+  iot_enabled: true,
+};
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("insights");
@@ -39,7 +45,10 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">{appTitle}</div>
+        <div className="brand">
+          {settings.app_logo_url && <img className="brand-logo" src={settings.app_logo_url} alt="" />}
+          {appTitle}
+        </div>
         <nav className="tabs">
           {settings.logs_enabled && (
             <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
