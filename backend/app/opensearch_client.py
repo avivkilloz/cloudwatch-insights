@@ -1,5 +1,6 @@
 import json
 from typing import Optional
+from urllib.parse import quote, urlencode
 
 import httpx
 from botocore.auth import SigV4Auth
@@ -93,7 +94,14 @@ def list_domains(account_id: str, region: str, role_name: str) -> list[dict]:
 
 
 def list_indices(account_id: str, region: str, role_name: str, domain_endpoint: str) -> list[dict]:
-    url = f"https://{domain_endpoint}/_cat/indices?format=json&h=index,docs.count,store.size"
+    # SigV4Auth signs a query string it reads verbatim off the URL -- unlike
+    # the request path, it does NOT re-percent-encode it, so reserved
+    # characters (the commas in `h=`) must already be escaped here. Otherwise
+    # the client signs the raw, under-encoded text while the receiving
+    # service canonicalizes (and verifies against) the properly-escaped
+    # form, and the two signatures never match ("SignatureDoesNotMatch").
+    query = urlencode({"format": "json", "h": "index,docs.count,store.size"}, quote_via=quote)
+    url = f"https://{domain_endpoint}/_cat/indices?{query}"
     data = _request(account_id, region, role_name, "GET", url)
     indices = []
     for entry in data:
