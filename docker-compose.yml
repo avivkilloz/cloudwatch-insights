@@ -26,6 +26,12 @@ services:
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Optional: the AI assistant (Logs page) stays hidden in the UI unless
+      # all three of these are set. Forwarded from the host the same way as
+      # the AWS_* vars above.
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      LITELLM_MODEL: ${LITELLM_MODEL:-}
     ports:
       - "8000:8000"
     depends_on:

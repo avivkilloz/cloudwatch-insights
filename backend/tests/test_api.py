@@ -278,3 +278,18 @@ def test_cognito_endpoints_reject_unconfigured_environment():
         json={"environment_id": 999999, "user_pool_id": "us-east-1_abc123"},
     )
     assert resp.status_code == 400
+
+
+def test_ai_status_reports_unconfigured_by_default():
+    # The test environment never sets LITELLM_API_KEY/BASE_URL/MODEL.
+    resp = client.get("/api/ai/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"configured": False}
+
+
+def test_ai_assist_returns_503_when_unconfigured():
+    resp = client.post(
+        "/api/ai/assist",
+        json={"mode": "build_query", "messages": [{"role": "user", "content": "show errors"}]},
+    )
+    assert resp.status_code == 503

@@ -81,6 +81,30 @@ backend:
     # this values file / the release's plain-text values history.
     password: ""
 
+  # AI assistant (build-a-query and ask-about-results, on the Logs page).
+  # Optional -- when baseUrl is empty the feature stays hidden in the UI, and
+  # no LITELLM_* env vars are set at all. Backed by a LiteLLM proxy (or
+  # anything else exposing an OpenAI-compatible /chat/completions endpoint),
+  # so this works the same regardless of which model provider you actually
+  # run behind it. Two ways to supply the API key, same shape as `database`
+  # above:
+  #
+  # Option A: an existing Secret.
+  #   ai:
+  #     baseUrl: https://litellm.example.com
+  #     model: gpt-4o-mini
+  #     existingSecret: cloudwatch-insights-litellm
+  #     existingSecretKey: LITELLM_API_KEY
+  #
+  # Option B (quick testing only): inline apiKey, stored in this values file
+  # / the release's plain-text values history.
+  ai:
+    baseUrl: ""
+    model: ""
+    existingSecret: ""
+    existingSecretKey: LITELLM_API_KEY
+    apiKey: ""
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []
