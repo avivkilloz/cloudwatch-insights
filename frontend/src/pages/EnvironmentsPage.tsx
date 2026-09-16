@@ -134,7 +134,7 @@ export default function EnvironmentsPage() {
       <div className="panel">
         <h2>Add environment</h2>
         <p className="muted">
-          An environment is one AWS account paired with one region — the unit you'll pick from on the Insights page.
+          An environment is one AWS account paired with one region — the unit you'll pick from on the Logs page.
         </p>
         <div className="row" style={{ marginBottom: 10 }}>
           <div>
@@ -220,7 +220,7 @@ export default function EnvironmentsPage() {
 
       <SavedItemsPanel
         title="Saved Insights queries"
-        description="Manage the Logs Insights queries available from the Insights page's &quot;Load saved query&quot; dropdown."
+        description="Manage the Logs Insights queries available from the Logs page's &quot;Load saved query&quot; dropdown."
         queryLabel="Query"
         items={savedQueries}
         onCreate={createSavedQuery}

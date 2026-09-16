@@ -188,7 +188,9 @@ def _extract_latest_timestamp(node) -> Optional[int]:
 
 
 def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> tuple[list[dict], list[str]]:
-    control_client = aws_client.get_client("iot", account_id, region, role_name)
+    # ListNamedShadowsForThing is a data-plane operation (like GetThingShadow),
+    # not a control-plane one -- it lives on the iot-data client, not iot.
+    data_client = _get_iot_data_client(account_id, region, role_name)
     shadow_names: list[Optional[str]] = [None]  # classic/unnamed shadow, always attempted
     warnings: list[str] = []
 
@@ -198,7 +200,7 @@ def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_
             kwargs = {"thingName": thing_name}
             if next_token:
                 kwargs["nextToken"] = next_token
-            resp = control_client.list_named_shadows_for_thing(**kwargs)
+            resp = data_client.list_named_shadows_for_thing(**kwargs)
         except Exception as e:  # noqa: BLE001 -- surface it instead of silently showing zero named shadows
             warnings.append(f"named shadow list: {e}")
             break
@@ -207,7 +209,6 @@ def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_
         if not next_token:
             break
 
-    data_client = _get_iot_data_client(account_id, region, role_name)
     shadows = []
     for name in shadow_names:
         try:

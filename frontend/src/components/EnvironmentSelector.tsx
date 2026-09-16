@@ -10,7 +10,7 @@ export default function EnvironmentSelector({ environments, selectedIds, onToggl
   return (
     <div>
       {environments.length === 0 && (
-        <p className="muted">No environments configured yet — add some under "Environments &amp; Settings".</p>
+        <p className="muted">No environments configured yet — add some under "Settings".</p>
       )}
       <div className="checkbox-list" style={{ maxHeight: 200 }}>
         {environments.map((e) => (
