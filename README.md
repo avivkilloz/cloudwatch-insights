@@ -364,6 +364,19 @@ Two things need to line up for the OpenSearch backend to reach a domain:
    peering/routing), while a public-endpoint domain works with just the
    IAM/access-policy setup above.
 
+If you get a `403 Forbidden` when listing indices or searching despite 1 and
+2 above looking right, the domain almost certainly has **fine-grained
+access control (FGAC)** enabled. FGAC adds a second, independent
+authorization layer on top of the domain's IAM access policy: even a role
+the access policy explicitly allows still gets `403` unless that same role
+is also mapped to an internal OpenSearch role with the needed index
+permissions (in OpenSearch Dashboards: **Security → Roles** → pick a role
+with the access you need, e.g. `all_access`, → **Mapped users** → **Manage
+mapping** → add the assumed role's ARN under **Backend roles**). The error
+message surfaced by the app includes AWS's response body, which for an FGAC
+domain typically names the missing mapping explicitly — check that before
+assuming it's an IAM/access-policy problem.
+
 There's no async query concept for OpenSearch the way CloudWatch Logs
 Insights has `StartQuery`/`GetQueryResults` — a search is a single
 synchronous request, so there's no "Stop" button or polling for that

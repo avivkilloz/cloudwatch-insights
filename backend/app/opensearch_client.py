@@ -23,6 +23,24 @@ SIGNING_SERVICE = "es"
 # config, security config, etc.) -- never useful as a log search target.
 _HIDDEN_INDEX_PREFIXES = (".",)
 
+# Cap how much of an error response body gets echoed back -- AWS error
+# bodies are normally small JSON, but this guards against something
+# unexpected (e.g. a proxy's HTML error page) blowing up the error message.
+MAX_ERROR_BODY_CHARS = 2000
+
+
+class OpenSearchRequestError(Exception):
+    """Raised when a signed request to a domain's REST endpoint fails.
+
+    A 403 here almost always comes from something other than "IAM
+    permissions are missing on the caller's own policy" -- resp.text carries
+    AWS's actual reason (e.g. the domain's access policy doesn't mention
+    this role, or fine-grained access control is enabled and the role isn't
+    mapped to an internal OpenSearch role), which a bare HTTP status line
+    doesn't, so it's included here rather than just raise_for_status()'s
+    generic "403 Forbidden for url ...".
+    """
+
 
 def _request(
     account_id: str, region: str, role_name: str, method: str, url: str, body: Optional[dict] = None
@@ -40,7 +58,11 @@ def _request(
     resp = httpx.request(
         method, url, headers=dict(aws_request.headers), content=payload, timeout=REQUEST_TIMEOUT_SECONDS
     )
-    resp.raise_for_status()
+    if resp.is_error:
+        detail = resp.text.strip()[:MAX_ERROR_BODY_CHARS]
+        raise OpenSearchRequestError(
+            f"{resp.status_code} {resp.reason_phrase} for {url}" + (f" -- {detail}" if detail else "")
+        )
     return resp.json()
 
 
