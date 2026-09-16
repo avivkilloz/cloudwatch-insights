@@ -206,8 +206,18 @@ it uses a different one than the global default.
 - The **Limit** field in the Query section is applied per environment via
   CloudWatch's own `StartQuery` `limit` parameter — with N environments
   selected, up to `N × limit` rows can come back from AWS in total. The
-  merged view re-sorts everything by `@timestamp` (most recent first) and
-  caps the *displayed* total to the same limit, so what you see always
-  matches what you asked for regardless of how many environments you
-  selected. A `| limit` command inside the query text itself is left
-  untouched and applies on top of this, same as in the AWS console.
+  merged view re-sorts everything (see **Sort by**, next) and caps the
+  *displayed* total to the same limit, so what you see always matches what
+  you asked for regardless of how many environments you selected. A
+  `| limit` command inside the query text itself is left untouched and
+  applies on top of this, same as in the AWS console.
+- The **Sort by** field/direction next to it control how the *merged*
+  results from every environment are ordered and displayed — pick any
+  field present in the results (it's populated from your actual query
+  output after running it), or "Original order" to leave the merge order
+  alone. This is separate from a `sort` command inside the query text
+  itself: that one still runs on AWS's side per environment and determines
+  *which* rows survive that environment's `limit` before they ever reach
+  the merge step, so the default query keeps `| sort @timestamp desc` for
+  that reason even though the UI's Sort control also defaults to the same
+  thing for display.

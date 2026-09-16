@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { QueryResultItem } from "../api";
 
+export type SortDirection = "asc" | "desc";
+
 interface FlatRow {
   key: string;
   environment_name: string;
   environment_id: number;
   fields: { field: string; value: string }[];
+}
+
+function pickField(fields: { field: string; value: string }[], name: string): string | null {
+  const f = fields.find((x) => x.field === name);
+  return f ? f.value : null;
 }
 
 function pickSummaryField(fields: { field: string; value: string }[]): string {
@@ -14,26 +21,41 @@ function pickSummaryField(fields: { field: string; value: string }[]): string {
   return fields.map((f) => `${f.field}=${f.value}`).join(" ");
 }
 
-function pickTimestamp(fields: { field: string; value: string }[]): string | null {
-  const ts = fields.find((f) => f.field === "@timestamp");
-  return ts ? ts.value : null;
+// CloudWatch's @timestamp ("YYYY-MM-DD HH:MM:SS.mmm") sorts correctly as a
+// plain string; other fields might hold numbers (e.g. @duration, a count
+// from a `stats` query), which need numeric comparison to sort correctly
+// once they have different digit counts ("10" < "9" lexicographically).
+function compareValues(a: string, b: string): number {
+  const na = Number(a);
+  const nb = Number(b);
+  if (a.trim() !== "" && b.trim() !== "" && !Number.isNaN(na) && !Number.isNaN(nb)) {
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
-// CloudWatch's @timestamp ("YYYY-MM-DD HH:MM:SS.mmm") sorts correctly as a
-// plain string. Rows without a timestamp (e.g. stats-only queries) sort
-// after timestamped ones rather than being interleaved arbitrarily.
-function sortByTimestampDesc(rows: FlatRow[]): FlatRow[] {
+// Rows missing the sort field (e.g. a stats-only query has no @timestamp)
+// always sort last, regardless of direction.
+function sortRows(rows: FlatRow[], field: string, direction: SortDirection): FlatRow[] {
+  const sign = direction === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const tsA = pickTimestamp(a.fields);
-    const tsB = pickTimestamp(b.fields);
-    if (tsA && tsB) return tsA < tsB ? 1 : tsA > tsB ? -1 : 0;
-    if (tsA) return -1;
-    if (tsB) return 1;
-    return 0;
+    const va = pickField(a.fields, field);
+    const vb = pickField(b.fields, field);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return compareValues(va, vb) * sign;
   });
 }
 
-export default function ResultsView({ items, limit }: { items: QueryResultItem[]; limit?: number }) {
+interface Props {
+  items: QueryResultItem[];
+  limit?: number;
+  sortField?: string; // empty/undefined = keep the order results arrived in
+  sortDirection?: SortDirection;
+}
+
+export default function ResultsView({ items, limit, sortField, sortDirection = "desc" }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupByTarget, setGroupByTarget] = useState(false);
 
@@ -52,10 +74,10 @@ export default function ResultsView({ items, limit }: { items: QueryResultItem[]
 
   // Each target is independently capped at `limit` rows by the backend, so
   // with multiple environments selected the merged set can add up to more
-  // than `limit` overall. Re-sort the merged set by recency and cap it to
-  // the same limit so what's on screen matches what was asked for.
+  // than `limit` overall. Re-sort the merged set and cap it to the same
+  // limit so what's on screen matches what was asked for.
   const totalBeforeTruncation = flatRows.length;
-  const sortedRows = sortByTimestampDesc(flatRows);
+  const sortedRows = sortField ? sortRows(flatRows, sortField, sortDirection) : flatRows;
   const truncated = limit != null && sortedRows.length > limit;
   const displayRows = truncated ? sortedRows.slice(0, limit) : sortedRows;
 
@@ -108,7 +130,7 @@ export default function ResultsView({ items, limit }: { items: QueryResultItem[]
           {rows.length === 0 && <p className="muted">No results.</p>}
           {rows.map((row) => {
             const isOpen = expanded.has(row.key);
-            const ts = pickTimestamp(row.fields);
+            const ts = pickField(row.fields, "@timestamp");
             return (
               <div className="result-row" key={row.key}>
                 <div className="result-row-summary" onClick={() => toggle(row.key)}>
