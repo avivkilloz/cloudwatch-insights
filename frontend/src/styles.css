@@ -4,7 +4,7 @@
   --bg: #0f1115;
   --panel: #171a21;
   --panel-alt: #1e222b;
-  --border: #2a2f3a;
+  --border: #606a87;
   --text: #e6e8eb;
   --text-dim: #9aa2b1;
   --accent: #4da3ff;
@@ -20,7 +20,7 @@
   --bg: #f5f6f8;
   --panel: #ffffff;
   --panel-alt: #eef0f3;
-  --border: #dde1e7;
+  --border: #8290a3;
   --text: #1a1d23;
   --text-dim: #5b6472;
   --accent: #1c6fd6;
@@ -36,7 +36,7 @@
   --bg: #282a36;
   --panel: #21222c;
   --panel-alt: #343746;
-  --border: #44475a;
+  --border: #7b87b3;
   --text: #f8f8f2;
   --text-dim: #b3b6c7;
   --accent: #bd93f9;
@@ -52,7 +52,7 @@
   --bg: #2e3440;
   --panel: #3b4252;
   --panel-alt: #434c5e;
-  --border: #4c566a;
+  --border: #8b98b8;
   --text: #eceff4;
   --text-dim: #b7c1d1;
   --accent: #88c0d0;
@@ -68,7 +68,7 @@
   --bg: #fdf6e3;
   --panel: #ffffff;
   --panel-alt: #eee8d5;
-  --border: #d3cbb4;
+  --border: #839496;
   --text: #073642;
   --text-dim: #657b83;
   --accent: #268bd2;
@@ -77,6 +77,73 @@
   --error: #dc322f;
   --ok: #859900;
   --warn: #b58900;
+}
+
+/* Catppuccin (https://catppuccin.com) -- official palette tokens mapped onto
+   our bg/panel/panel-alt/border/text scale, picking surface steps far enough
+   apart in lightness to keep panel and input outlines clearly legible. */
+:root[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+  --bg: #dce0e8;
+  --panel: #eff1f5;
+  --panel-alt: #e6e9ef;
+  --border: #7c7f93;
+  --text: #4c4f69;
+  --text-dim: #6c6f85;
+  --accent: #7287fd;
+  --accent-dim: #8839ef;
+  --accent-text: #ffffff;
+  --error: #d20f39;
+  --ok: #40a02b;
+  --warn: #df8e1d;
+}
+
+:root[data-theme="catppuccin-frappe"] {
+  color-scheme: dark;
+  --bg: #232634;
+  --panel: #303446;
+  --panel-alt: #414559;
+  --border: #838ba7;
+  --text: #c6d0f5;
+  --text-dim: #a5adce;
+  --accent: #babbf1;
+  --accent-dim: #ca9ee6;
+  --accent-text: #232634;
+  --error: #e78284;
+  --ok: #a6d189;
+  --warn: #e5c890;
+}
+
+:root[data-theme="catppuccin-macchiato"] {
+  color-scheme: dark;
+  --bg: #181926;
+  --panel: #24273a;
+  --panel-alt: #363a4f;
+  --border: #8087a2;
+  --text: #cad3f5;
+  --text-dim: #a5adcb;
+  --accent: #b7bdf8;
+  --accent-dim: #c6a0f6;
+  --accent-text: #181926;
+  --error: #ed8796;
+  --ok: #a6da95;
+  --warn: #eed49f;
+}
+
+:root[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+  --bg: #11111b;
+  --panel: #1e1e2e;
+  --panel-alt: #313244;
+  --border: #7f849c;
+  --text: #cdd6f4;
+  --text-dim: #a6adc8;
+  --accent: #b4befe;
+  --accent-dim: #cba6f7;
+  --accent-text: #11111b;
+  --error: #f38ba8;
+  --ok: #a6e3a1;
+  --warn: #f9e2af;
 }
 
 :root {
@@ -239,6 +306,17 @@ button.danger {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+input[type="text"]:focus-visible,
+input[type="number"]:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+.tab:focus-visible,
+.checkbox-item input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 table {
