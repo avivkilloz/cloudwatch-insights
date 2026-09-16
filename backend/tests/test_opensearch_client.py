@@ -1,14 +1,17 @@
 import json
 
+import pytest
+
 from app import opensearch_client
 
 
 class _FakeCatIndicesResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200, text=""):
         self._payload = payload
-
-    def raise_for_status(self):
-        pass
+        self.status_code = status_code
+        self.is_error = status_code >= 400
+        self.reason_phrase = "Forbidden" if status_code == 403 else "Error"
+        self.text = text
 
     def json(self):
         return self._payload
@@ -159,3 +162,40 @@ def test_search_omits_query_string_clause_when_blank(monkeypatch):
     assert all("query_string" not in c for c in must_clauses)
     assert result["total"] == 0
     assert result["hits"] == []
+
+
+def test_request_surfaces_response_body_on_error(monkeypatch):
+    # A bare "403 Forbidden" tells a user nothing actionable -- AWS's actual
+    # reason (missing access-policy entry, fine-grained access control
+    # blocking the role, etc.) lives in the response body, so it must be
+    # included rather than swallowed like requests.raise_for_status() would.
+    monkeypatch.setattr(opensearch_client.aws_client, "get_credentials", _fake_credentials)
+    error_body = '{"Message":"User: arn:aws:sts::111122223333:assumed-role/OpsRole/x is not authorized"}'
+
+    def fake_httpx_request(method, url, headers, content, timeout):
+        return _FakeCatIndicesResponse(None, status_code=403, text=error_body)
+
+    monkeypatch.setattr(opensearch_client.httpx, "request", fake_httpx_request)
+
+    with pytest.raises(opensearch_client.OpenSearchRequestError) as exc_info:
+        opensearch_client.list_indices("111122223333", "us-east-1", "OpsRole", "search-x.us-east-1.es.amazonaws.com")
+
+    message = str(exc_info.value)
+    assert "403" in message
+    assert error_body in message
+
+
+def test_request_caps_error_body_length(monkeypatch):
+    monkeypatch.setattr(opensearch_client.aws_client, "get_credentials", _fake_credentials)
+    huge_body = "x" * 10000
+
+    monkeypatch.setattr(
+        opensearch_client.httpx,
+        "request",
+        lambda method, url, headers, content, timeout: _FakeCatIndicesResponse(None, status_code=500, text=huge_body),
+    )
+
+    with pytest.raises(opensearch_client.OpenSearchRequestError) as exc_info:
+        opensearch_client.list_indices("111122223333", "us-east-1", "OpsRole", "search-x.us-east-1.es.amazonaws.com")
+
+    assert len(str(exc_info.value)) < len(huge_body)
