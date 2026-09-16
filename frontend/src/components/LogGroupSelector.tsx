@@ -1,36 +1,26 @@
 import { useState } from "react";
-import { api, LogGroupsResultItem } from "../api";
+import { api, Environment, LogGroupsResultItem } from "../api";
 
-export interface TargetKey {
-  account_id: string;
-  account_name: string;
-  region: string;
-}
-
-export type SelectionMap = Record<string, Set<string>>; // key: `${account_id}|${region}` -> set of log group names
-
-export function targetKey(account_id: string, region: string) {
-  return `${account_id}|${region}`;
-}
+export type SelectionMap = Record<number, Set<string>>; // key: environment_id -> set of log group names
 
 interface Props {
-  targets: TargetKey[];
+  environments: Environment[];
   selection: SelectionMap;
   onSelectionChange: (next: SelectionMap) => void;
 }
 
-export default function LogGroupSelector({ targets, selection, onSelectionChange }: Props) {
+export default function LogGroupSelector({ environments, selection, onSelectionChange }: Props) {
   const [results, setResults] = useState<LogGroupsResultItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
   async function loadLogGroups() {
-    if (targets.length === 0) return;
+    if (environments.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const resp = await api.getLogGroups(targets.map((t) => ({ account_id: t.account_id, region: t.region })));
+      const resp = await api.getLogGroups(environments.map((e) => e.id));
       setResults(resp.results);
     } catch (e: any) {
       setError(e.message);
@@ -39,20 +29,18 @@ export default function LogGroupSelector({ targets, selection, onSelectionChange
     }
   }
 
-  function toggleGroup(accountId: string, region: string, name: string) {
-    const key = targetKey(accountId, region);
+  function toggleGroup(environmentId: number, name: string) {
     const next: SelectionMap = { ...selection };
-    const current = new Set(next[key] ?? []);
+    const current = new Set(next[environmentId] ?? []);
     if (current.has(name)) current.delete(name);
     else current.add(name);
-    next[key] = current;
+    next[environmentId] = current;
     onSelectionChange(next);
   }
 
-  function toggleAllInGroup(accountId: string, region: string, names: string[], checked: boolean) {
-    const key = targetKey(accountId, region);
+  function toggleAllInGroup(environmentId: number, names: string[], checked: boolean) {
     const next: SelectionMap = { ...selection };
-    next[key] = new Set(checked ? names : []);
+    next[environmentId] = new Set(checked ? names : []);
     onSelectionChange(next);
   }
 
@@ -61,7 +49,7 @@ export default function LogGroupSelector({ targets, selection, onSelectionChange
   return (
     <div>
       <div className="toolbar">
-        <button onClick={loadLogGroups} disabled={targets.length === 0 || loading}>
+        <button onClick={loadLogGroups} disabled={environments.length === 0 || loading}>
           {loading ? "Loading log groups…" : "Load log groups"}
         </button>
         <input
@@ -74,15 +62,16 @@ export default function LogGroupSelector({ targets, selection, onSelectionChange
         <span className="muted">{totalSelected} log group(s) selected</span>
       </div>
       {error && <p className="error-text">{error}</p>}
-      {results.length === 0 && !loading && <p className="muted">Select accounts/regions above, then load log groups.</p>}
+      {results.length === 0 && !loading && (
+        <p className="muted">Select environments above, then load log groups.</p>
+      )}
       <div className="checkbox-list">
         {results.map((r) => {
-          const key = targetKey(r.account_id, r.region);
           const filtered = r.log_groups.filter((lg) => lg.name.toLowerCase().includes(filter.toLowerCase()));
-          const selectedSet = selection[key] ?? new Set<string>();
+          const selectedSet = selection[r.environment_id] ?? new Set<string>();
           const allChecked = filtered.length > 0 && filtered.every((lg) => selectedSet.has(lg.name));
           return (
-            <div key={key}>
+            <div key={r.environment_id}>
               <div className="group-heading">
                 {r.error ? (
                   <span className="tag error">error</span>
@@ -90,11 +79,11 @@ export default function LogGroupSelector({ targets, selection, onSelectionChange
                   <input
                     type="checkbox"
                     checked={allChecked}
-                    onChange={(e) => toggleAllInGroup(r.account_id, r.region, filtered.map((lg) => lg.name), e.target.checked)}
+                    onChange={(e) => toggleAllInGroup(r.environment_id, filtered.map((lg) => lg.name), e.target.checked)}
                   />
                 )}
                 <span>
-                  {r.account_name} ({r.account_id}) · {r.region}
+                  {r.environment_name} ({r.account_id} · {r.region})
                 </span>
                 {!r.error && <span className="muted">{filtered.length} log group(s)</span>}
               </div>
@@ -104,7 +93,7 @@ export default function LogGroupSelector({ targets, selection, onSelectionChange
                   <input
                     type="checkbox"
                     checked={selectedSet.has(lg.name)}
-                    onChange={() => toggleGroup(r.account_id, r.region, lg.name)}
+                    onChange={() => toggleGroup(r.environment_id, lg.name)}
                   />
                   {lg.name}
                 </label>

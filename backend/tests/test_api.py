@@ -11,29 +11,30 @@ def test_health():
     assert resp.json() == {"status": "ok"}
 
 
-def test_account_and_settings_crud():
+def test_environment_and_settings_crud():
     resp = client.put("/api/settings", json={"default_role_name": "TestRole"})
     assert resp.status_code == 200
     assert resp.json()["default_role_name"] == "TestRole"
 
     resp = client.post(
-        "/api/accounts",
-        json={"account_id": "111122223333", "name": "Test", "regions": ["us-east-1"]},
+        "/api/environments",
+        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
     )
     assert resp.status_code == 201
-    account = resp.json()
-    assert account["account_id"] == "111122223333"
+    environment = resp.json()
+    assert environment["account_id"] == "111122223333"
+    assert environment["region"] == "us-east-1"
 
-    resp = client.get("/api/accounts")
+    resp = client.get("/api/environments")
     assert resp.status_code == 200
-    assert any(a["id"] == account["id"] for a in resp.json())
+    assert any(e["id"] == environment["id"] for e in resp.json())
 
-    resp = client.delete(f"/api/accounts/{account['id']}")
+    resp = client.delete(f"/api/environments/{environment['id']}")
     assert resp.status_code == 204
 
 
-def test_log_groups_reports_error_for_unconfigured_account():
-    resp = client.post("/api/log-groups", json={"targets": [{"account_id": "999999999999", "region": "us-east-1"}]})
+def test_log_groups_reports_error_for_unconfigured_environment():
+    resp = client.post("/api/log-groups", json={"environment_ids": [999999]})
     assert resp.status_code == 200
     results = resp.json()["results"]
     assert len(results) == 1

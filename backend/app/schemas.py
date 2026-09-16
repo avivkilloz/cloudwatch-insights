@@ -2,25 +2,25 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
 
-class AccountBase(BaseModel):
-    account_id: str
+class EnvironmentBase(BaseModel):
     name: str
-    regions: list[str] = []
+    account_id: str
+    region: str
     role_name: Optional[str] = None
 
 
-class AccountCreate(AccountBase):
+class EnvironmentCreate(EnvironmentBase):
     pass
 
 
-class AccountUpdate(BaseModel):
-    account_id: Optional[str] = None
+class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
-    regions: Optional[list[str]] = None
+    account_id: Optional[str] = None
+    region: Optional[str] = None
     role_name: Optional[str] = None
 
 
-class AccountOut(AccountBase):
+class EnvironmentOut(EnvironmentBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
 
@@ -47,13 +47,8 @@ class SavedQueryOut(SavedQueryBase):
     id: int
 
 
-class Target(BaseModel):
-    account_id: str
-    region: str
-
-
 class LogGroupsRequest(BaseModel):
-    targets: list[Target]
+    environment_ids: list[int]
 
 
 class LogGroupInfo(BaseModel):
@@ -63,8 +58,9 @@ class LogGroupInfo(BaseModel):
 
 
 class LogGroupsResultItem(BaseModel):
+    environment_id: int
+    environment_name: str
     account_id: str
-    account_name: str
     region: str
     log_groups: list[LogGroupInfo] = []
     error: Optional[str] = None
@@ -75,8 +71,7 @@ class LogGroupsResponse(BaseModel):
 
 
 class QueryTarget(BaseModel):
-    account_id: str
-    region: str
+    environment_id: int
     log_group_names: list[str]
 
 
@@ -89,8 +84,9 @@ class StartQueryRequest(BaseModel):
 
 
 class StartedQuery(BaseModel):
+    environment_id: int
+    environment_name: str
     account_id: str
-    account_name: str
     region: str
     query_id: Optional[str] = None
     error: Optional[str] = None
@@ -105,16 +101,8 @@ class ResultField(BaseModel):
     value: str
 
 
-class QueryResultRow(BaseModel):
-    account_id: str
-    account_name: str
-    region: str
-    fields: list[ResultField]
-
-
 class QueryStatusRequest(BaseModel):
-    account_id: str
-    region: str
+    environment_id: int
     query_id: str
 
 
@@ -123,8 +111,9 @@ class QueryResultsRequest(BaseModel):
 
 
 class QueryResultItem(BaseModel):
+    environment_id: int
+    environment_name: str
     account_id: str
-    account_name: str
     region: str
     query_id: str
     status: str

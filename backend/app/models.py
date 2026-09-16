@@ -1,17 +1,17 @@
 import datetime
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime
 
 from .db import Base
 
 
-class Account(Base):
-    __tablename__ = "accounts"
+class Environment(Base):
+    __tablename__ = "environments"
 
     id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
-    regions = Column(JSON, nullable=False, default=list)
+    account_id = Column(String, nullable=False, index=True)
+    region = Column(String, nullable=False)
     role_name = Column(String, nullable=True)  # overrides global default role name if set
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

@@ -1,8 +1,8 @@
-export interface Account {
+export interface Environment {
   id: number;
-  account_id: string;
   name: string;
-  regions: string[];
+  account_id: string;
+  region: string;
   role_name: string | null;
 }
 
@@ -23,16 +23,18 @@ export interface LogGroupInfo {
 }
 
 export interface LogGroupsResultItem {
+  environment_id: number;
+  environment_name: string;
   account_id: string;
-  account_name: string;
   region: string;
   log_groups: LogGroupInfo[];
   error: string | null;
 }
 
 export interface StartedQuery {
+  environment_id: number;
+  environment_name: string;
   account_id: string;
-  account_name: string;
   region: string;
   query_id: string | null;
   error: string | null;
@@ -44,8 +46,9 @@ export interface ResultField {
 }
 
 export interface QueryResultItem {
+  environment_id: number;
+  environment_name: string;
   account_id: string;
-  account_name: string;
   region: string;
   query_id: string;
   status: string;
@@ -70,12 +73,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listAccounts: () => req<Account[]>("/accounts"),
-  createAccount: (payload: Omit<Account, "id">) =>
-    req<Account>("/accounts", { method: "POST", body: JSON.stringify(payload) }),
-  updateAccount: (id: number, payload: Partial<Omit<Account, "id">>) =>
-    req<Account>(`/accounts/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteAccount: (id: number) => req<void>(`/accounts/${id}`, { method: "DELETE" }),
+  listEnvironments: () => req<Environment[]>("/environments"),
+  createEnvironment: (payload: Omit<Environment, "id">) =>
+    req<Environment>("/environments", { method: "POST", body: JSON.stringify(payload) }),
+  updateEnvironment: (id: number, payload: Partial<Omit<Environment, "id">>) =>
+    req<Environment>(`/environments/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteEnvironment: (id: number) => req<void>(`/environments/${id}`, { method: "DELETE" }),
 
   getSettings: () => req<Settings>("/settings"),
   updateSettings: (payload: Settings) =>
@@ -86,14 +89,14 @@ export const api = {
     req<SavedQuery>("/saved-queries", { method: "POST", body: JSON.stringify(payload) }),
   deleteSavedQuery: (id: number) => req<void>(`/saved-queries/${id}`, { method: "DELETE" }),
 
-  getLogGroups: (targets: { account_id: string; region: string }[]) =>
+  getLogGroups: (environmentIds: number[]) =>
     req<{ results: LogGroupsResultItem[] }>("/log-groups", {
       method: "POST",
-      body: JSON.stringify({ targets }),
+      body: JSON.stringify({ environment_ids: environmentIds }),
     }),
 
   startQueries: (payload: {
-    targets: { account_id: string; region: string; log_group_names: string[] }[];
+    targets: { environment_id: number; log_group_names: string[] }[];
     query_string: string;
     start_time: number;
     end_time: number;
@@ -104,12 +107,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  getQueryResults: (queries: { account_id: string; region: string; query_id: string }[]) =>
+  getQueryResults: (queries: { environment_id: number; query_id: string }[]) =>
     req<{ results: QueryResultItem[]; all_done: boolean }>("/queries/results", {
       method: "POST",
       body: JSON.stringify({ queries }),
     }),
 
-  stopQueries: (queries: { account_id: string; region: string; query_id: string }[]) =>
+  stopQueries: (queries: { environment_id: number; query_id: string }[]) =>
     req<void>("/queries/stop", { method: "POST", body: JSON.stringify({ queries }) }),
 };

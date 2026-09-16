@@ -1,8 +1,8 @@
 import { useState } from "react";
-import AccountsPage from "./pages/AccountsPage";
+import EnvironmentsPage from "./pages/EnvironmentsPage";
 import InsightsPage from "./pages/InsightsPage";
 
-type Tab = "insights" | "accounts";
+type Tab = "insights" | "environments";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("insights");
@@ -15,12 +15,12 @@ export default function App() {
           <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
             Insights
           </button>
-          <button className={tab === "accounts" ? "tab active" : "tab"} onClick={() => setTab("accounts")}>
-            Accounts &amp; Settings
+          <button className={tab === "environments" ? "tab active" : "tab"} onClick={() => setTab("environments")}>
+            Environments &amp; Settings
           </button>
         </nav>
       </header>
-      <main className="content">{tab === "insights" ? <InsightsPage /> : <AccountsPage />}</main>
+      <main className="content">{tab === "insights" ? <InsightsPage /> : <EnvironmentsPage />}</main>
     </div>
   );
 }
