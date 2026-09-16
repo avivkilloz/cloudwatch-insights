@@ -501,9 +501,14 @@ th {
   right: 24px;
   bottom: 88px;
   z-index: 1000;
+  /* Actual width/height are set inline by AiAssistantWidget (resizable,
+     persisted per browser) -- these are just the pre-hydration fallback. */
   width: 380px;
+  height: 480px;
+  min-width: 320px;
+  min-height: 280px;
   max-width: calc(100vw - 32px);
-  max-height: min(70vh, 640px);
+  max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -511,6 +516,32 @@ th {
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+}
+
+.ai-widget-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 1;
+}
+
+.ai-widget-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid var(--text-dim);
+  border-left: 2px solid var(--text-dim);
+  border-radius: 2px 0 0 0;
+}
+
+.ai-widget-resize-handle:hover::before {
+  border-color: var(--accent);
 }
 
 .ai-widget-header {

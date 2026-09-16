@@ -51,13 +51,18 @@ regions** by assuming a role you configure in each target account.
   bloating the page with always-visible panels. "Build query" turns a
   plain-English description into a CloudWatch Logs Insights query you can
   drop straight into the editor with one click; "About results" answers
-  questions about the current result set (it sees the query and a bounded
-  sample of the actual rows, not the full result set). Each tab keeps its
-  own conversation — switching tabs doesn't lose either thread, and you
-  can go back and forth, not just one shot. Backed by a
-  [LiteLLM](https://www.litellm.ai/) proxy (or anything else exposing an
-  OpenAI-compatible `/chat/completions` endpoint), configured purely via
-  the `LITELLM_API_KEY`/`LITELLM_BASE_URL`/`LITELLM_MODEL` environment
+  questions about the current result set. By default it sees a sample of
+  the rows spread fairly across every log group in the results (so a
+  low-volume log group querying alongside a high-volume one isn't crowded
+  out); when there are more rows than that, a "Sampled / All results"
+  toggle lets you opt into sending everything currently loaded on the
+  page instead. Each tab keeps its own conversation — switching tabs
+  doesn't lose either thread, and you can go back and forth, not just one
+  shot. Drag the panel's top-left corner to resize it; the size is
+  remembered per browser. Backed by a [LiteLLM](https://www.litellm.ai/)
+  proxy (or anything else exposing an OpenAI-compatible
+  `/chat/completions` endpoint), configured purely via the
+  `LITELLM_API_KEY`/`LITELLM_BASE_URL`/`LITELLM_MODEL` environment
   variables at deploy time — never through the Settings page, since these
   are deployment secrets rather than app data. Entirely optional: the
   floating button stays hidden until all three variables are set. See
