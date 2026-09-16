@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Account, SavedQuery, QueryResultItem, StartedQuery } from "../api";
-import { AWS_REGIONS } from "../regions";
-import LogGroupSelector, { SelectionMap, TargetKey, targetKey } from "../components/LogGroupSelector";
+import { api, Environment, SavedQuery, QueryResultItem, StartedQuery } from "../api";
+import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView from "../components/ResultsView";
 
 const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
@@ -30,9 +29,8 @@ function toLocalDatetimeInput(epochSeconds: number): string {
 }
 
 export default function InsightsPage() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
-  const [selectedRegions, setSelectedRegions] = useState<Set<string>>(new Set());
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<Set<number>>(new Set());
   const [logGroupSelection, setLogGroupSelection] = useState<SelectionMap>({});
 
   const [queryString, setQueryString] = useState(DEFAULT_QUERY);
@@ -50,15 +48,15 @@ export default function InsightsPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    api.listAccounts().then(setAccounts);
+    api.listEnvironments().then(setEnvironments);
     api.listSavedQueries().then(setSavedQueries);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
 
-  function toggleAccount(id: string) {
-    setSelectedAccountIds((prev) => {
+  function toggleEnvironment(id: number) {
+    setSelectedEnvironmentIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -66,22 +64,7 @@ export default function InsightsPage() {
     });
   }
 
-  function toggleRegion(region: string) {
-    setSelectedRegions((prev) => {
-      const next = new Set(prev);
-      if (next.has(region)) next.delete(region);
-      else next.add(region);
-      return next;
-    });
-  }
-
-  const selectedAccounts = accounts.filter((a) => selectedAccountIds.has(a.account_id));
-  const targets: TargetKey[] = [];
-  selectedAccounts.forEach((a) => {
-    selectedRegions.forEach((r) => {
-      targets.push({ account_id: a.account_id, account_name: a.name, region: r });
-    });
-  });
+  const selectedEnvironments = environments.filter((e) => selectedEnvironmentIds.has(e.id));
 
   function computeTimeRange(): { start_time: number; end_time: number } {
     if (preset === "custom") {
@@ -98,10 +81,10 @@ export default function InsightsPage() {
     setRunError(null);
     const queryTargets = Object.entries(logGroupSelection)
       .filter(([, names]) => names.size > 0)
-      .map(([key, names]) => {
-        const [account_id, region] = key.split("|");
-        return { account_id, region, log_group_names: Array.from(names) };
-      });
+      .map(([environmentId, names]) => ({
+        environment_id: Number(environmentId),
+        log_group_names: Array.from(names),
+      }));
     if (queryTargets.length === 0) {
       setRunError("Select at least one log group to query.");
       return;
@@ -121,8 +104,9 @@ export default function InsightsPage() {
       const immediateErrors: QueryResultItem[] = resp.queries
         .filter((q) => q.error)
         .map((q) => ({
+          environment_id: q.environment_id,
+          environment_name: q.environment_name,
           account_id: q.account_id,
-          account_name: q.account_name,
           region: q.region,
           query_id: "",
           status: "Failed",
@@ -146,8 +130,7 @@ export default function InsightsPage() {
 
   function poll(runnable: StartedQuery[], baseErrors: QueryResultItem[]) {
     if (pollRef.current) clearInterval(pollRef.current);
-    const query = () =>
-      runnable.map((q) => ({ account_id: q.account_id, region: q.region, query_id: q.query_id! }));
+    const query = () => runnable.map((q) => ({ environment_id: q.environment_id, query_id: q.query_id! }));
 
     const tick = async () => {
       try {
@@ -171,7 +154,7 @@ export default function InsightsPage() {
     if (pollRef.current) clearInterval(pollRef.current);
     const runnable = startedQueries.filter((q) => q.query_id);
     if (runnable.length > 0) {
-      await api.stopQueries(runnable.map((q) => ({ account_id: q.account_id, region: q.region, query_id: q.query_id! })));
+      await api.stopQueries(runnable.map((q) => ({ environment_id: q.environment_id, query_id: q.query_id! })));
     }
     setIsRunning(false);
   }
@@ -191,44 +174,34 @@ export default function InsightsPage() {
   return (
     <div>
       <div className="panel">
-        <h2>1. Choose accounts &amp; regions</h2>
-        {accounts.length === 0 && <p className="muted">No accounts configured yet — add some under "Accounts &amp; Settings".</p>}
-        <div className="grid-2">
-          <div>
-            <h3>Accounts</h3>
-            <div className="checkbox-list" style={{ maxHeight: 160 }}>
-              {accounts.map((a) => (
-                <label key={a.id} className="checkbox-item">
-                  <input
-                    type="checkbox"
-                    checked={selectedAccountIds.has(a.account_id)}
-                    onChange={() => toggleAccount(a.account_id)}
-                  />
-                  {a.name} ({a.account_id})
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <h3>Regions</h3>
-            <div className="checkbox-list" style={{ maxHeight: 160 }}>
-              {AWS_REGIONS.map((r) => (
-                <label key={r} className="checkbox-item">
-                  <input type="checkbox" checked={selectedRegions.has(r)} onChange={() => toggleRegion(r)} />
-                  {r}
-                </label>
-              ))}
-            </div>
-          </div>
+        <h2>1. Choose environments</h2>
+        {environments.length === 0 && (
+          <p className="muted">No environments configured yet — add some under "Environments &amp; Settings".</p>
+        )}
+        <div className="checkbox-list" style={{ maxHeight: 200 }}>
+          {environments.map((e) => (
+            <label key={e.id} className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={selectedEnvironmentIds.has(e.id)}
+                onChange={() => toggleEnvironment(e.id)}
+              />
+              {e.name} ({e.account_id} · {e.region})
+            </label>
+          ))}
         </div>
         <p className="muted" style={{ marginTop: 8 }}>
-          {targets.length} account/region target(s) selected.
+          {selectedEnvironments.length} environment(s) selected.
         </p>
       </div>
 
       <div className="panel">
         <h2>2. Choose log groups</h2>
-        <LogGroupSelector targets={targets} selection={logGroupSelection} onSelectionChange={setLogGroupSelection} />
+        <LogGroupSelector
+          environments={selectedEnvironments}
+          selection={logGroupSelection}
+          onSelectionChange={setLogGroupSelection}
+        />
       </div>
 
       <div className="panel">

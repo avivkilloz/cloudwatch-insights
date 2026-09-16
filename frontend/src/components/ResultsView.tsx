@@ -3,9 +3,8 @@ import { QueryResultItem } from "../api";
 
 interface FlatRow {
   key: string;
-  account_name: string;
-  account_id: string;
-  region: string;
+  environment_name: string;
+  environment_id: number;
   fields: { field: string; value: string }[];
 }
 
@@ -29,10 +28,9 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
     item.rows.forEach((row, rowIdx) => {
       const ptr = row.find((f) => f.field === "@ptr")?.value;
       flatRows.push({
-        key: ptr ? `${item.account_id}|${item.region}|${ptr}` : `${itemIdx}-${rowIdx}`,
-        account_name: item.account_name,
-        account_id: item.account_id,
-        region: item.region,
+        key: ptr ? `${item.environment_id}|${ptr}` : `${itemIdx}-${rowIdx}`,
+        environment_name: item.environment_name,
+        environment_id: item.environment_id,
         fields: row,
       });
     });
@@ -53,8 +51,7 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
   const groups = groupByTarget
     ? Object.entries(
         flatRows.reduce<Record<string, FlatRow[]>>((acc, row) => {
-          const k = `${row.account_name} (${row.account_id}) · ${row.region}`;
-          (acc[k] ??= []).push(row);
+          (acc[row.environment_name] ??= []).push(row);
           return acc;
         }, {})
       )
@@ -66,7 +63,7 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
         <span className="muted">{totalRows} row(s) across {items.length} target(s)</span>
         <label className="checkbox-item">
           <input type="checkbox" checked={groupByTarget} onChange={(e) => setGroupByTarget(e.target.checked)} />
-          Group by account/region
+          Group by environment
         </label>
       </div>
       {errors.length > 0 && (
@@ -74,7 +71,7 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
           <h3>Target errors</h3>
           {errors.map((e, i) => (
             <div key={i} className="error-text">
-              {e.account_name} ({e.account_id}) · {e.region}: {e.error}
+              {e.environment_name}: {e.error}
             </div>
           ))}
         </div>
@@ -91,11 +88,7 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
                 <div className="result-row-summary" onClick={() => toggle(row.key)}>
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
                   {ts && <span className="tag">{ts}</span>}
-                  {!groupByTarget && (
-                    <span className="tag">
-                      {row.account_name}/{row.region}
-                    </span>
-                  )}
+                  {!groupByTarget && <span className="tag">{row.environment_name}</span>}
                   <span className="msg">{pickSummaryField(row.fields)}</span>
                 </div>
                 {isOpen && (

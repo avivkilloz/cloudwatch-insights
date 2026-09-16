@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import aws_client, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_account, resolve_role_name
+from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/queries", tags=["queries"])
 
@@ -15,16 +15,37 @@ _executor = ThreadPoolExecutor(max_workers=16)
 TERMINAL_STATUSES = {"Complete", "Failed", "Cancelled", "Timeout"}
 
 
-def _start_one(account_id, account_name, region, role_name, log_group_names, query_string, start_time, end_time, limit):
+def _start_one(
+    environment_id,
+    environment_name,
+    account_id,
+    region,
+    role_name,
+    log_group_names,
+    query_string,
+    start_time,
+    end_time,
+    limit,
+):
     try:
         query_id = aws_client.start_query(
             account_id, region, role_name, log_group_names, query_string, start_time, end_time, limit
         )
         return schemas.StartedQuery(
-            account_id=account_id, account_name=account_name, region=region, query_id=query_id
+            environment_id=environment_id,
+            environment_name=environment_name,
+            account_id=account_id,
+            region=region,
+            query_id=query_id,
         )
     except Exception as e:  # noqa: BLE001
-        return schemas.StartedQuery(account_id=account_id, account_name=account_name, region=region, error=str(e))
+        return schemas.StartedQuery(
+            environment_id=environment_id,
+            environment_name=environment_name,
+            account_id=account_id,
+            region=region,
+            error=str(e),
+        )
 
 
 @router.post("/start", response_model=schemas.StartQueryResponse)
@@ -33,18 +54,43 @@ async def start_queries(payload: schemas.StartQueryRequest, db: Session = Depend
     tasks = []
     for target in payload.targets:
         try:
-            account = resolve_account(db, target.account_id)
-            role_name = resolve_role_name(db, account)
+            environment = resolve_environment(db, target.environment_id)
         except ResolveError as e:
-            tasks.append(_wrap(schemas.StartedQuery(account_id=target.account_id, account_name=target.account_id, region=target.region, error=str(e))))
+            tasks.append(
+                _wrap(
+                    schemas.StartedQuery(
+                        environment_id=target.environment_id,
+                        environment_name=str(target.environment_id),
+                        account_id="",
+                        region="",
+                        error=str(e),
+                    )
+                )
+            )
+            continue
+        try:
+            role_name = resolve_role_name(db, environment)
+        except ResolveError as e:
+            tasks.append(
+                _wrap(
+                    schemas.StartedQuery(
+                        environment_id=target.environment_id,
+                        environment_name=environment.name,
+                        account_id=environment.account_id,
+                        region=environment.region,
+                        error=str(e),
+                    )
+                )
+            )
             continue
         tasks.append(
             loop.run_in_executor(
                 _executor,
                 _start_one,
-                target.account_id,
-                account.name,
-                target.region,
+                target.environment_id,
+                environment.name,
+                environment.account_id,
+                environment.region,
                 role_name,
                 target.log_group_names,
                 payload.query_string,
@@ -57,7 +103,7 @@ async def start_queries(payload: schemas.StartQueryRequest, db: Session = Depend
     return schemas.StartQueryResponse(queries=list(results))
 
 
-def _results_one(account_id, account_name, region, role_name, query_id) -> schemas.QueryResultItem:
+def _results_one(environment_id, environment_name, account_id, region, role_name, query_id) -> schemas.QueryResultItem:
     try:
         data = aws_client.get_query_results(account_id, region, role_name, query_id)
         rows = [
@@ -65,8 +111,9 @@ def _results_one(account_id, account_name, region, role_name, query_id) -> schem
             for row in data["results"]
         ]
         return schemas.QueryResultItem(
+            environment_id=environment_id,
+            environment_name=environment_name,
             account_id=account_id,
-            account_name=account_name,
             region=region,
             query_id=query_id,
             status=data["status"],
@@ -75,8 +122,9 @@ def _results_one(account_id, account_name, region, role_name, query_id) -> schem
         )
     except Exception as e:  # noqa: BLE001
         return schemas.QueryResultItem(
+            environment_id=environment_id,
+            environment_name=environment_name,
             account_id=account_id,
-            account_name=account_name,
             region=region,
             query_id=query_id,
             status="Failed",
@@ -90,15 +138,32 @@ async def get_results(payload: schemas.QueryResultsRequest, db: Session = Depend
     tasks = []
     for q in payload.queries:
         try:
-            account = resolve_account(db, q.account_id)
-            role_name = resolve_role_name(db, account)
+            environment = resolve_environment(db, q.environment_id)
         except ResolveError as e:
             tasks.append(
                 _wrap(
                     schemas.QueryResultItem(
-                        account_id=q.account_id,
-                        account_name=q.account_id,
-                        region=q.region,
+                        environment_id=q.environment_id,
+                        environment_name=str(q.environment_id),
+                        account_id="",
+                        region="",
+                        query_id=q.query_id,
+                        status="Failed",
+                        error=str(e),
+                    )
+                )
+            )
+            continue
+        try:
+            role_name = resolve_role_name(db, environment)
+        except ResolveError as e:
+            tasks.append(
+                _wrap(
+                    schemas.QueryResultItem(
+                        environment_id=q.environment_id,
+                        environment_name=environment.name,
+                        account_id=environment.account_id,
+                        region=environment.region,
                         query_id=q.query_id,
                         status="Failed",
                         error=str(e),
@@ -107,7 +172,16 @@ async def get_results(payload: schemas.QueryResultsRequest, db: Session = Depend
             )
             continue
         tasks.append(
-            loop.run_in_executor(_executor, _results_one, q.account_id, account.name, q.region, role_name, q.query_id)
+            loop.run_in_executor(
+                _executor,
+                _results_one,
+                q.environment_id,
+                environment.name,
+                environment.account_id,
+                environment.region,
+                role_name,
+                q.query_id,
+            )
         )
     results = await asyncio.gather(*tasks)
     all_done = all(r.status in TERMINAL_STATUSES for r in results)
@@ -127,11 +201,15 @@ async def stop_queries(payload: schemas.StopQueryRequest, db: Session = Depends(
     tasks = []
     for q in payload.queries:
         try:
-            account = resolve_account(db, q.account_id)
-            role_name = resolve_role_name(db, account)
+            environment = resolve_environment(db, q.environment_id)
+            role_name = resolve_role_name(db, environment)
         except ResolveError:
             continue
-        tasks.append(loop.run_in_executor(_executor, _stop_one, q.account_id, q.region, role_name, q.query_id))
+        tasks.append(
+            loop.run_in_executor(
+                _executor, _stop_one, environment.account_id, environment.region, role_name, q.query_id
+            )
+        )
     if tasks:
         await asyncio.gather(*tasks)
     return None

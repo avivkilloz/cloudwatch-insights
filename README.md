@@ -4,10 +4,12 @@ A web app that mimics CloudWatch Logs Insights, but lets you query log groups
 across **multiple AWS accounts and regions** at once by assuming a role you
 configure in each target account.
 
-- Pick one or more AWS accounts + regions.
+- Define **environments** — each one an AWS account paired with a single
+  region — once, under Environments & Settings.
+- Pick one or more environments on the Insights page.
 - Browse and select the log groups available in each.
 - Write a CloudWatch Logs Insights query (same syntax as the AWS console).
-- Run it — the app fires one `StartQuery` per account/region target in
+- Run it — the app fires one `StartQuery` per selected environment in
   parallel and polls until every target finishes.
 - Results from all targets are merged into one list, shrunk to a single
   summary line per row by default; click a row to expand every field.
@@ -17,8 +19,8 @@ configure in each target account.
 ```
 backend/   FastAPI app. Holds ambient AWS credentials (the server's own
            identity) and uses sts:AssumeRole to reach into each configured
-           account/region. Postgres persists accounts, the default role
-           name, and saved queries.
+           environment (account+region pair). Postgres persists
+           environments, the default role name, and saved queries.
 frontend/  React + Vite SPA. Talks to the backend over /api/*.
 ```
 
@@ -182,18 +184,20 @@ The app needs two things:
    }
    ```
 
-In the app's **Accounts & Settings** tab, set the **global role name**
-(e.g. `CloudWatchInsightsReadRole`) once, then add each account by its
-12-digit account ID and a friendly name. An individual account can override
-the role name if it uses a different one than the global default.
+In the app's **Environments & Settings** tab, set the **global role name**
+(e.g. `CloudWatchInsightsReadRole`) once, then add an environment for each
+account/region combination you want to query — a name, the 12-digit account
+ID, and a region. An individual environment can override the role name if
+it uses a different one than the global default.
 
 ## Notes
 
 - Log group listing and query execution both fan out across every selected
-  account/region target concurrently; a failure in one target (bad role,
-  missing permissions, wrong region) is shown inline next to that target
+  environment concurrently; a failure in one (bad role, missing
+  permissions, wrong region) is shown inline next to that environment
   without blocking the others.
 - CloudWatch Logs Insights only supports querying log groups that live in
-  the same account/region as each other, so under the hood the app issues
-  one `StartQuery` per account/region combination (using whichever log
-  groups you selected within that target) and merges the results client-side.
+  the same account/region as each other, which is exactly what an
+  environment pins down — so under the hood the app issues one `StartQuery`
+  per selected environment (using whichever log groups you selected within
+  it) and merges the results client-side.
