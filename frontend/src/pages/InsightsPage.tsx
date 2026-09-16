@@ -17,8 +17,10 @@ const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
 ];
 
 const DEFAULT_QUERY = `fields @timestamp, @message
-| sort @timestamp desc
-| limit 100`;
+| sort @timestamp desc`;
+
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 10000;
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -34,6 +36,7 @@ export default function InsightsPage() {
   const [logGroupSelection, setLogGroupSelection] = useState<SelectionMap>({});
 
   const [queryString, setQueryString] = useState(DEFAULT_QUERY);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [preset, setPreset] = useState<number | "custom">(15 * 60);
   const now = Math.floor(Date.now() / 1000);
   const [customStart, setCustomStart] = useState(toLocalDatetimeInput(now - 15 * 60));
@@ -94,11 +97,18 @@ export default function InsightsPage() {
       setRunError("End time must be after start time.");
       return;
     }
+    const clampedLimit = Math.min(Math.max(Math.floor(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
     setResults([]);
     setIsRunning(true);
     try {
-      const resp = await api.startQueries({ targets: queryTargets, query_string: queryString, start_time, end_time });
+      const resp = await api.startQueries({
+        targets: queryTargets,
+        query_string: queryString,
+        start_time,
+        end_time,
+        limit: clampedLimit,
+      });
       setStartedQueries(resp.queries);
 
       const immediateErrors: QueryResultItem[] = resp.queries
@@ -225,6 +235,18 @@ export default function InsightsPage() {
               <input type="text" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} placeholder="YYYY-MM-DDTHH:mm" style={{ width: 170 }} />
             </>
           )}
+          <label className="row" style={{ gap: 6 }}>
+            <span className="muted">Limit</span>
+            <input
+              type="number"
+              min={1}
+              max={MAX_LIMIT}
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              style={{ width: 90 }}
+              title="Max rows per environment (also applied to the merged, most-recent-first total)"
+            />
+          </label>
           <select
             onChange={(e) => {
               const sq = savedQueries.find((q) => String(q.id) === e.target.value);
@@ -276,7 +298,7 @@ export default function InsightsPage() {
 
       <div className="panel">
         <h2>4. Results</h2>
-        <ResultsView items={results} />
+        <ResultsView items={results} limit={limit} />
       </div>
     </div>
   );

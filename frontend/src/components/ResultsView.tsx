@@ -19,7 +19,21 @@ function pickTimestamp(fields: { field: string; value: string }[]): string | nul
   return ts ? ts.value : null;
 }
 
-export default function ResultsView({ items }: { items: QueryResultItem[] }) {
+// CloudWatch's @timestamp ("YYYY-MM-DD HH:MM:SS.mmm") sorts correctly as a
+// plain string. Rows without a timestamp (e.g. stats-only queries) sort
+// after timestamped ones rather than being interleaved arbitrarily.
+function sortByTimestampDesc(rows: FlatRow[]): FlatRow[] {
+  return [...rows].sort((a, b) => {
+    const tsA = pickTimestamp(a.fields);
+    const tsB = pickTimestamp(b.fields);
+    if (tsA && tsB) return tsA < tsB ? 1 : tsA > tsB ? -1 : 0;
+    if (tsA) return -1;
+    if (tsB) return 1;
+    return 0;
+  });
+}
+
+export default function ResultsView({ items, limit }: { items: QueryResultItem[]; limit?: number }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupByTarget, setGroupByTarget] = useState(false);
 
@@ -36,6 +50,15 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
     });
   });
 
+  // Each target is independently capped at `limit` rows by the backend, so
+  // with multiple environments selected the merged set can add up to more
+  // than `limit` overall. Re-sort the merged set by recency and cap it to
+  // the same limit so what's on screen matches what was asked for.
+  const totalBeforeTruncation = flatRows.length;
+  const sortedRows = sortByTimestampDesc(flatRows);
+  const truncated = limit != null && sortedRows.length > limit;
+  const displayRows = truncated ? sortedRows.slice(0, limit) : sortedRows;
+
   function toggle(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -46,21 +69,24 @@ export default function ResultsView({ items }: { items: QueryResultItem[] }) {
   }
 
   const errors = items.filter((i) => i.error);
-  const totalRows = flatRows.length;
 
   const groups = groupByTarget
     ? Object.entries(
-        flatRows.reduce<Record<string, FlatRow[]>>((acc, row) => {
+        displayRows.reduce<Record<string, FlatRow[]>>((acc, row) => {
           (acc[row.environment_name] ??= []).push(row);
           return acc;
         }, {})
       )
-    : [["All results", flatRows] as [string, FlatRow[]]];
+    : [["All results", displayRows] as [string, FlatRow[]]];
 
   return (
     <div>
       <div className="toolbar">
-        <span className="muted">{totalRows} row(s) across {items.length} target(s)</span>
+        <span className="muted">
+          {truncated
+            ? `Showing most recent ${displayRows.length} of ${totalBeforeTruncation} row(s) across ${items.length} target(s)`
+            : `${displayRows.length} row(s) across ${items.length} target(s)`}
+        </span>
         <label className="checkbox-item">
           <input type="checkbox" checked={groupByTarget} onChange={(e) => setGroupByTarget(e.target.checked)} />
           Group by environment

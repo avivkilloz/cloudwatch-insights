@@ -203,3 +203,11 @@ it uses a different one than the global default.
   environment pins down — so under the hood the app issues one `StartQuery`
   per selected environment (using whichever log groups you selected within
   it) and merges the results client-side.
+- The **Limit** field in the Query section is applied per environment via
+  CloudWatch's own `StartQuery` `limit` parameter — with N environments
+  selected, up to `N × limit` rows can come back from AWS in total. The
+  merged view re-sorts everything by `@timestamp` (most recent first) and
+  caps the *displayed* total to the same limit, so what you see always
+  matches what you asked for regardless of how many environments you
+  selected. A `| limit` command inside the query text itself is left
+  untouched and applies on top of this, same as in the AWS console.

@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EnvironmentBase(BaseModel):
@@ -80,7 +80,12 @@ class StartQueryRequest(BaseModel):
     query_string: str
     start_time: int  # epoch seconds
     end_time: int  # epoch seconds
-    limit: Optional[int] = 1000
+    # Applied per target via CloudWatch Logs Insights' own StartQuery `limit`
+    # parameter -- with N targets selected, up to N * limit rows can come
+    # back from AWS. The frontend re-sorts and truncates the merged set to
+    # this same value before display so what the user sees matches what
+    # they asked for.
+    limit: Optional[int] = Field(default=1000, ge=1, le=10000)
 
 
 class StartedQuery(BaseModel):
