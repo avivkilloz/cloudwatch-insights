@@ -101,9 +101,9 @@ body {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 10px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -112,11 +112,22 @@ body {
 .brand {
   font-weight: 600;
   font-size: 15px;
+  justify-self: start;
 }
 
 .tabs {
   display: flex;
   gap: 6px;
+  justify-self: center;
+}
+
+.topbar-right {
+  justify-self: end;
+}
+
+.tab,
+.theme-select {
+  height: 31px;
 }
 
 .tab {

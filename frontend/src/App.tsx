@@ -17,29 +17,34 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">CloudWatch Insights — Multi-Account</div>
-        <div className="row" style={{ gap: 10 }}>
-          <select value={theme} onChange={(e) => setTheme(e.target.value as ThemeId)} aria-label="Theme">
+        <div className="brand">Cloud Insights</div>
+        <nav className="tabs">
+          <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
+            Logs
+          </button>
+          <button className={tab === "iot" ? "tab active" : "tab"} onClick={() => setTab("iot")}>
+            IoT
+          </button>
+          <button
+            className={tab === "environments" ? "tab active" : "tab"}
+            onClick={() => setTab("environments")}
+          >
+            Settings
+          </button>
+        </nav>
+        <div className="topbar-right">
+          <select
+            className="theme-select"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as ThemeId)}
+            aria-label="Theme"
+          >
             {THEMES.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.label}
               </option>
             ))}
           </select>
-          <nav className="tabs">
-            <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
-              Insights
-            </button>
-            <button className={tab === "iot" ? "tab active" : "tab"} onClick={() => setTab("iot")}>
-              IoT
-            </button>
-            <button
-              className={tab === "environments" ? "tab active" : "tab"}
-              onClick={() => setTab("environments")}
-            >
-              Environments &amp; Settings
-            </button>
-          </nav>
         </div>
       </header>
       <main className="content">
