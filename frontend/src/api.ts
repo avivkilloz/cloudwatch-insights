@@ -25,10 +25,16 @@ export interface SavedSession<T = Record<string, unknown>> {
   state: T;
 }
 
+/** Which Logs-page backend a saved query/search is written for -- CloudWatch
+ * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
+ * aren't interchangeable. */
+export type LogsBackend = "cloudwatch" | "opensearch";
+
 export interface SavedQuery {
   id: number;
   name: string;
   query_string: string;
+  backend: LogsBackend;
 }
 
 export interface LogGroupInfo {
@@ -232,6 +238,49 @@ export interface CognitoUserSearchResult {
   pagination_token: string | null;
 }
 
+// ---- OpenSearch (Logs tab: OpenSearch backend) ----
+
+export interface OpenSearchDomainInfo {
+  domain_name: string;
+  endpoint: string | null;
+  engine_version: string | null;
+}
+
+export interface OpenSearchDomainsResultItem {
+  environment_id: number;
+  environment_name: string;
+  account_id: string;
+  region: string;
+  domains: OpenSearchDomainInfo[];
+  error: string | null;
+}
+
+export interface OpenSearchIndexInfo {
+  index: string;
+  docs_count: number | null;
+  store_size: string | null;
+}
+
+export interface OpenSearchTarget {
+  environment_id: number;
+  domain_name: string;
+  domain_endpoint: string;
+  indices: string[];
+}
+
+export interface OpenSearchResultItem {
+  environment_id: number;
+  environment_name: string;
+  account_id: string;
+  region: string;
+  domain_name: string;
+  indices: string[];
+  status: string;
+  rows: ResultField[][];
+  total_hits: number | null;
+  error: string | null;
+}
+
 // ---- AI assistant ----
 
 export type AiChatRole = "user" | "assistant";
@@ -276,9 +325,9 @@ export const api = {
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
   listSavedQueries: () => req<SavedQuery[]>("/saved-queries"),
-  createSavedQuery: (payload: { name: string; query_string: string }) =>
+  createSavedQuery: (payload: { name: string; query_string: string; backend?: LogsBackend }) =>
     req<SavedQuery>("/saved-queries", { method: "POST", body: JSON.stringify(payload) }),
-  updateSavedQuery: (id: number, payload: Partial<{ name: string; query_string: string }>) =>
+  updateSavedQuery: (id: number, payload: Partial<{ name: string; query_string: string; backend: LogsBackend }>) =>
     req<SavedQuery>(`/saved-queries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSavedQuery: (id: number) => req<void>(`/saved-queries/${id}`, { method: "DELETE" }),
 
@@ -384,5 +433,31 @@ export const api = {
     query_string?: string;
     sample_rows?: Record<string, unknown>[];
     row_count?: number;
+    backend?: LogsBackend;
   }) => req<AiAssistResponse>("/ai/assist", { method: "POST", body: JSON.stringify(payload) }),
+
+  getOpenSearchDomains: (environmentIds: number[]) =>
+    req<{ results: OpenSearchDomainsResultItem[] }>("/opensearch/domains", {
+      method: "POST",
+      body: JSON.stringify({ environment_ids: environmentIds }),
+    }),
+
+  getOpenSearchIndices: (payload: { environment_id: number; domain_endpoint: string }) =>
+    req<{ indices: OpenSearchIndexInfo[] }>("/opensearch/indices", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  searchOpenSearch: (payload: {
+    targets: OpenSearchTarget[];
+    query_string?: string;
+    start_time: number;
+    end_time: number;
+    timestamp_field?: string;
+    limit?: number;
+  }) =>
+    req<{ results: OpenSearchResultItem[] }>("/opensearch/search", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

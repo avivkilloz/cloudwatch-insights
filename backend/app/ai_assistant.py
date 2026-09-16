@@ -21,19 +21,35 @@ MAX_RESPONSE_TOKENS = 800
 # mid-object while still claiming the pre-slice row count.
 MAX_SAMPLE_CONTEXT_CHARS = 12000
 
-BUILD_QUERY_SYSTEM_PROMPT = """\
+BUILD_QUERY_SYSTEM_PROMPTS = {
+    "cloudwatch": """\
 You are an expert at writing AWS CloudWatch Logs Insights queries. The user \
 will describe, in plain English, what they want to find in their logs. \
 Respond with a brief one- or two-sentence explanation of the query, then a \
 single fenced code block containing ONLY the CloudWatch Logs Insights query \
 itself (no comments, no alternatives, nothing else in the block). If the \
 user's request is ambiguous, make a reasonable assumption, state it briefly, \
-and still provide a best-effort query."""
+and still provide a best-effort query.""",
+    "opensearch": """\
+You are an expert at writing AWS OpenSearch Lucene query_string queries \
+(the same syntax as OpenSearch Dashboards' search bar -- e.g. \
+`level:ERROR AND service:checkout`, `message:"connection refused"`, \
+`status:[500 TO 599]`). The user will describe, in plain English, what they \
+want to find in their logs. Respond with a brief one- or two-sentence \
+explanation of the query, then a single fenced code block containing ONLY \
+the Lucene query_string itself (no comments, no alternatives, no leading \
+`GET /_search`, nothing else in the block -- just the query string as it \
+would be typed into the search bar). A time range is applied separately by \
+the app, so never include one in the query. If the user's request is \
+ambiguous, make a reasonable assumption, state it briefly, and still \
+provide a best-effort query.""",
+}
 
 ASK_RESULTS_SYSTEM_PROMPT = """\
-You are helping a user understand the results of a CloudWatch Logs Insights \
-query they just ran. You'll be given the query that produced the results and \
-a sample of the resulting rows (it may be truncated if there were many). \
+You are helping a user understand the results of a log search query they \
+just ran (either a CloudWatch Logs Insights query or an OpenSearch Lucene \
+query_string search). You'll be given the query that produced the results \
+and a sample of the resulting rows (it may be truncated if there were many). \
 Answer the user's question concisely and specifically, referencing actual \
 values from the sample where relevant. If the sample is truncated, say so \
 rather than asserting something is true of the full result set that you \
@@ -102,9 +118,13 @@ def chat(
     query_string: Optional[str] = None,
     sample_rows: Optional[list[dict]] = None,
     row_count: Optional[int] = None,
+    backend: str = "cloudwatch",
 ) -> str:
     api_key, base_url, model = _get_config()
-    system_prompt = BUILD_QUERY_SYSTEM_PROMPT if mode == "build_query" else ASK_RESULTS_SYSTEM_PROMPT
+    if mode == "build_query":
+        system_prompt = BUILD_QUERY_SYSTEM_PROMPTS.get(backend, BUILD_QUERY_SYSTEM_PROMPTS["cloudwatch"])
+    else:
+        system_prompt = ASK_RESULTS_SYSTEM_PROMPT
 
     context_parts = []
     if query_string:

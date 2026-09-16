@@ -277,18 +277,23 @@ The app needs two things:
            "s3:GetBucketLocation",
            "s3:ListBucket",
            "cognito-idp:ListUserPools",
-           "cognito-idp:ListUsers"
+           "cognito-idp:ListUsers",
+           "es:ListDomainNames",
+           "es:DescribeDomains",
+           "es:ESHttpGet",
+           "es:ESHttpPost"
          ],
          "Resource": "*"
        }
      ]
    }
    ```
-   (Drop whichever service's actions you don't need — `logs:*` for Logs,
-   `iot:*` for IoT, `dynamodb:*` for Tables, `s3:*` for Buckets,
-   `cognito-idp:*` for Cognito. `s3:ListBucket` is normally scoped to
-   specific bucket ARNs rather than `*`; this simplified example grants it
-   account-wide the same way the rest of this policy does.)
+   (Drop whichever service's actions you don't need — `logs:*` for Logs
+   (CloudWatch backend), `iot:*` for IoT, `dynamodb:*` for Tables, `s3:*`
+   for Buckets, `cognito-idp:*` for Cognito, `es:*` for Logs (OpenSearch
+   backend). `s3:ListBucket` is normally scoped to specific bucket ARNs
+   rather than `*`; this simplified example grants it account-wide the same
+   way the rest of this policy does.)
 
 In the app's **Settings** tab, set the **global role name**
 (e.g. `CloudWatchInsightsReadRole`) once, then add an environment for each
@@ -329,6 +334,40 @@ indexing setup, but is more limited than Things search:
   only (not against metadata) client-side, after paginating through
   `ListCertificates` — so it can be slow and the certificate ID is the only
   thing you can free-text search on.
+
+### Logs tab: OpenSearch backend
+
+The Logs page can search either CloudWatch Logs Insights (the default) or an
+AWS-provisioned OpenSearch domain — pick one with the backend toggle at the
+top of the page. Both share the same environment picker, results table, and
+AI assistant; only the second step (choosing what to search) and the query
+syntax (Lucene `query_string`, e.g. `level:ERROR AND service:checkout`,
+instead of CloudWatch's pipe syntax) differ.
+
+Two things need to line up for the OpenSearch backend to reach a domain:
+
+1. **IAM permissions** — the assumed role needs `es:ListDomainNames` and
+   `es:DescribeDomains` to discover domains, plus `es:ESHttpGet`/
+   `es:ESHttpPost` to actually search them (see the permissions policy
+   above). Listing indices and running searches go straight to the domain's
+   own REST endpoint (`_cat/indices`, `_search`) with a SigV4-signed
+   request using the same assumed-role credentials as every other call in
+   this app — there's no query API for OpenSearch in the AWS SDK itself.
+2. **The domain's own access policy** must separately allow that same role
+   — an OpenSearch domain's resource-based access policy is checked in
+   addition to the caller's IAM permissions, so `es:ESHttpGet`/
+   `es:ESHttpPost` in the IAM policy alone isn't enough if the domain's
+   access policy denies or doesn't mention the role.
+3. **Network reachability** — this backend makes plain HTTPS requests to
+   the domain's endpoint from wherever the app's backend runs, so a
+   VPC-only domain needs to be reachable from there (e.g. via VPC
+   peering/routing), while a public-endpoint domain works with just the
+   IAM/access-policy setup above.
+
+There's no async query concept for OpenSearch the way CloudWatch Logs
+Insights has `StartQuery`/`GetQueryResults` — a search is a single
+synchronous request, so there's no "Stop" button or polling for that
+backend.
 
 ## Notes
 

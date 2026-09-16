@@ -153,12 +153,37 @@ def test_saved_query_update():
     resp = client.post("/api/saved-queries", json={"name": "Errors", "query_string": "fields @message"})
     assert resp.status_code == 201
     saved = resp.json()
+    assert saved["backend"] == "cloudwatch"  # default when not specified
 
     resp = client.put(f"/api/saved-queries/{saved['id']}", json={"query_string": "fields @message | filter @message like /ERROR/"})
     assert resp.status_code == 200
     updated = resp.json()
     assert updated["query_string"] == "fields @message | filter @message like /ERROR/"
     assert updated["name"] == "Errors"
+    assert updated["backend"] == "cloudwatch"  # untouched field preserved
+
+    resp = client.delete(f"/api/saved-queries/{saved['id']}")
+    assert resp.status_code == 204
+
+
+def test_saved_query_backend_field_persists_and_filters():
+    resp = client.post(
+        "/api/saved-queries",
+        json={"name": "OS Errors", "query_string": "level:ERROR", "backend": "opensearch"},
+    )
+    assert resp.status_code == 201
+    saved = resp.json()
+    assert saved["backend"] == "opensearch"
+
+    resp = client.get("/api/saved-queries")
+    assert resp.status_code == 200
+    matching = next(q for q in resp.json() if q["id"] == saved["id"])
+    assert matching["backend"] == "opensearch"
+
+    resp = client.put(f"/api/saved-queries/{saved['id']}", json={"backend": "cloudwatch"})
+    assert resp.status_code == 200
+    assert resp.json()["backend"] == "cloudwatch"
+    assert resp.json()["query_string"] == "level:ERROR"  # untouched field preserved
 
     resp = client.delete(f"/api/saved-queries/{saved['id']}")
     assert resp.status_code == 204
@@ -278,6 +303,68 @@ def test_cognito_endpoints_reject_unconfigured_environment():
         json={"environment_id": 999999, "user_pool_id": "us-east-1_abc123"},
     )
     assert resp.status_code == 400
+
+
+def test_opensearch_domains_reports_error_for_unconfigured_environment():
+    resp = client.post("/api/opensearch/domains", json={"environment_ids": [999999]})
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["error"] is not None
+    assert results[0]["domains"] == []
+
+
+def test_opensearch_indices_rejects_unconfigured_environment():
+    resp = client.post(
+        "/api/opensearch/indices",
+        json={"environment_id": 999999, "domain_endpoint": "search-x.us-east-1.es.amazonaws.com"},
+    )
+    assert resp.status_code == 400
+
+
+def test_opensearch_search_reports_error_for_unconfigured_environment():
+    resp = client.post(
+        "/api/opensearch/search",
+        json={
+            "targets": [
+                {
+                    "environment_id": 999999,
+                    "domain_name": "logs",
+                    "domain_endpoint": "search-x.us-east-1.es.amazonaws.com",
+                    "indices": ["app-logs"],
+                }
+            ],
+            "query_string": "level:ERROR",
+            "start_time": 0,
+            "end_time": 3600,
+        },
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["status"] == "Failed"
+    assert results[0]["error"] is not None
+
+
+def test_opensearch_search_rejects_out_of_range_limit():
+    resp = client.post(
+        "/api/opensearch/search",
+        json={
+            "targets": [
+                {
+                    "environment_id": 1,
+                    "domain_name": "logs",
+                    "domain_endpoint": "search-x.us-east-1.es.amazonaws.com",
+                    "indices": ["app-logs"],
+                }
+            ],
+            "query_string": "level:ERROR",
+            "start_time": 0,
+            "end_time": 3600,
+            "limit": 50000,
+        },
+    )
+    assert resp.status_code == 422
 
 
 def test_ai_status_reports_unconfigured_by_default():

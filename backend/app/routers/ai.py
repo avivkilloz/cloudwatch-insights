@@ -29,6 +29,7 @@ def assist(payload: schemas.AiAssistRequest):
             query_string=payload.query_string,
             sample_rows=payload.sample_rows[:MAX_SAMPLE_ROWS],
             row_count=payload.row_count,
+            backend=payload.backend,
         )
     except ai_assistant.AiNotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e

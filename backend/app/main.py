@@ -10,6 +10,7 @@ from .routers import (
     environments,
     iot,
     log_groups,
+    opensearch,
     queries,
     saved_queries,
     saved_sessions,
@@ -34,6 +35,7 @@ app.include_router(environments.router)
 app.include_router(settings.router)
 app.include_router(log_groups.router)
 app.include_router(queries.router)
+app.include_router(opensearch.router)
 app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
 app.include_router(iot.router)

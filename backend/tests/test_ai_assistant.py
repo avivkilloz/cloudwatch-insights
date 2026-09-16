@@ -141,6 +141,70 @@ def test_build_sample_context_truncates_oversized_rows_and_says_so():
     assert context.count('"message"') == reported_count
 
 
+def test_chat_uses_opensearch_system_prompt_when_backend_is_opensearch(monkeypatch):
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
+    monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
+
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured["json"] = json
+        return _FakeResponse({"choices": [{"message": {"content": "level:ERROR"}}]})
+
+    monkeypatch.setattr(ai_assistant.httpx, "post", fake_post)
+
+    ai_assistant.chat(
+        "build_query",
+        [{"role": "user", "content": "show errors"}],
+        backend="opensearch",
+    )
+
+    system_prompt = captured["json"]["messages"][0]["content"]
+    assert system_prompt == ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS["opensearch"]
+    assert "Lucene" in system_prompt
+
+
+def test_chat_defaults_to_cloudwatch_system_prompt_when_backend_omitted(monkeypatch):
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
+    monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
+
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured["json"] = json
+        return _FakeResponse({"choices": [{"message": {"content": "fields @message"}}]})
+
+    monkeypatch.setattr(ai_assistant.httpx, "post", fake_post)
+
+    ai_assistant.chat("build_query", [{"role": "user", "content": "show errors"}])
+
+    assert captured["json"]["messages"][0]["content"] == ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS["cloudwatch"]
+
+
+def test_chat_ask_results_prompt_is_backend_agnostic(monkeypatch):
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
+    monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
+
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured["json"] = json
+        return _FakeResponse({"choices": [{"message": {"content": "there are 2 errors"}}]})
+
+    monkeypatch.setattr(ai_assistant.httpx, "post", fake_post)
+
+    ai_assistant.chat(
+        "ask_results",
+        [{"role": "user", "content": "how many errors?"}],
+        backend="opensearch",
+    )
+
+    assert captured["json"]["messages"][0]["content"] == ai_assistant.ASK_RESULTS_SYSTEM_PROMPT
+
+
 def test_build_sample_context_always_includes_at_least_one_row_even_if_oversized():
     huge_row = {"message": "x" * 50000}
     context = ai_assistant._build_sample_context([huge_row], row_count=1)

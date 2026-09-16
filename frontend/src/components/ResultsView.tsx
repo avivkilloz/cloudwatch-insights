@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { QueryResultItem } from "../api";
+import { ResultField } from "../api";
+
+// Loosened to the fields this component actually renders, rather than the
+// CloudWatch-specific QueryResultItem shape -- so it also accepts
+// OpenSearchResultItem (which has no query_id/statistics) with no mapping.
+export interface ResultsViewItem {
+  environment_id: number;
+  environment_name: string;
+  rows: ResultField[][];
+  error: string | null;
+}
 
 export type SortDirection = "asc" | "desc";
 
@@ -49,7 +59,7 @@ function sortRows(rows: FlatRow[], field: string, direction: SortDirection): Fla
 }
 
 interface Props {
-  items: QueryResultItem[];
+  items: ResultsViewItem[];
   limit?: number;
   sortField?: string; // empty/undefined = keep the order results arrived in
   sortDirection?: SortDirection;
