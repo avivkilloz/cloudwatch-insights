@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Environment, SavedQuery, SavedSession, QueryResultItem, StartedQuery } from "../api";
-import AiChatPanel from "../components/AiChatPanel";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView, { SortDirection } from "../components/ResultsView";
@@ -396,26 +396,14 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      <AiChatPanel
-        mode="build_query"
-        title="Ask AI to build a query"
-        description="Describe what you're looking for in plain English and get a CloudWatch Logs Insights query back."
-        placeholder="e.g. show errors from the last hour grouped by service"
-        queryString={queryString}
-        onUseQuery={setQueryString}
-      />
-
       <div className="panel">
         <h2>4. Results</h2>
         <ResultsView items={results} limit={limit} sortField={sortField} sortDirection={sortDirection} />
       </div>
 
-      <AiChatPanel
-        mode="ask_results"
-        title="Ask AI about these results"
-        description="Ask a question about the rows above — the AI sees the query and a sample of the results."
-        placeholder="e.g. what's the most common error?"
+      <AiAssistantWidget
         queryString={queryString}
+        onUseQuery={setQueryString}
         sampleRows={resultsToSampleRows(results)}
         rowCount={results.reduce((sum, item) => sum + item.rows.length, 0)}
       />

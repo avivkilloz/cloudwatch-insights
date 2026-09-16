@@ -46,19 +46,22 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
-- **AI assistant** (Logs tab, optional): "Ask AI to build a query" turns a
+- **AI assistant** (Logs tab, optional): a floating "✦ Ask AI" button in
+  the bottom-right corner opens a compact panel with two tabs instead of
+  bloating the page with always-visible panels. "Build query" turns a
   plain-English description into a CloudWatch Logs Insights query you can
-  drop straight into the editor with one click; "Ask AI about these
-  results" answers questions about the current result set (it sees the
-  query and a bounded sample of the actual rows, not the full result set).
-  Both are small chat panels — you can go back and forth, not just one
-  shot. Backed by a [LiteLLM](https://www.litellm.ai/) proxy (or anything
-  else exposing an OpenAI-compatible `/chat/completions` endpoint),
-  configured purely via the `LITELLM_API_KEY`/`LITELLM_BASE_URL`/
-  `LITELLM_MODEL` environment variables at deploy time — never through the
-  Settings page, since these are deployment secrets rather than app data.
-  Entirely optional: both panels stay hidden in the UI until all three
-  variables are set. See `DEPLOYMENT.md` for wiring this up via Helm.
+  drop straight into the editor with one click; "About results" answers
+  questions about the current result set (it sees the query and a bounded
+  sample of the actual rows, not the full result set). Each tab keeps its
+  own conversation — switching tabs doesn't lose either thread, and you
+  can go back and forth, not just one shot. Backed by a
+  [LiteLLM](https://www.litellm.ai/) proxy (or anything else exposing an
+  OpenAI-compatible `/chat/completions` endpoint), configured purely via
+  the `LITELLM_API_KEY`/`LITELLM_BASE_URL`/`LITELLM_MODEL` environment
+  variables at deploy time — never through the Settings page, since these
+  are deployment secrets rather than app data. Entirely optional: the
+  floating button stays hidden until all three variables are set. See
+  `DEPLOYMENT.md` for wiring this up via Helm.
 - Saved queries/searches for the Logs/IoT tabs are managed from the
   **Settings** tab — view their content, edit, add new ones, or delete —
   rather than from the Logs/IoT tabs themselves. (Tables/Buckets/Cognito
