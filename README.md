@@ -13,6 +13,8 @@ configure in each target account.
   parallel and polls until every target finishes.
 - Results from all targets are merged into one list, shrunk to a single
   summary line per row by default; click a row to expand every field.
+- Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
+  dropdown in the top bar — it's remembered per browser via `localStorage`.
 
 ## Architecture
 
