@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, MouseEvent as ReactMouseEvent } from "react";
 import { api, AiAssistMode, AiChatMessage } from "../api";
 import MarkdownLite from "./MarkdownLite";
 
@@ -39,6 +39,27 @@ const EMPTY_THREADS: Record<AiAssistMode, DisplayMessage[]> = { build_query: [],
 
 const SAMPLE_CAP = 40;
 
+const DEFAULT_SIZE = { width: 380, height: 480 };
+const MIN_SIZE = { width: 320, height: 280 };
+const SIZE_STORAGE_KEY = "cw-ai-widget-size";
+const VIEWPORT_MARGIN = { width: 48, height: 140 };
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function loadStoredSize(): { width: number; height: number } {
+  try {
+    const raw = window.localStorage.getItem(SIZE_STORAGE_KEY);
+    if (!raw) return DEFAULT_SIZE;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.width === "number" && typeof parsed.height === "number") return parsed;
+  } catch {
+    // localStorage unavailable, or a bad/stale value -- fall back to the default size.
+  }
+  return DEFAULT_SIZE;
+}
+
 /**
  * Reorders rows so that distinct @log values interleave (row 0 from group A,
  * row 1 from group B, row 2 from group A, ...) rather than staying grouped
@@ -78,6 +99,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useFullResults, setUseFullResults] = useState(false);
+  const [size, setSize] = useState(loadStoredSize);
 
   useEffect(() => {
     api
@@ -85,6 +107,40 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
       .then((s) => setConfigured(s.configured))
       .catch(() => setConfigured(false));
   }, []);
+
+  function startResize(e: ReactMouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startSize = size;
+    const maxWidth = window.innerWidth - VIEWPORT_MARGIN.width;
+    const maxHeight = window.innerHeight - VIEWPORT_MARGIN.height;
+
+    function onMove(ev: MouseEvent) {
+      // The panel is anchored to the bottom-right corner, so dragging the
+      // top-left handle up/left (a shrinking clientX/clientY) is what grows
+      // it -- the delta is inverted relative to a normal bottom-right handle.
+      const next = {
+        width: clamp(startSize.width + (startX - ev.clientX), MIN_SIZE.width, maxWidth),
+        height: clamp(startSize.height + (startY - ev.clientY), MIN_SIZE.height, maxHeight),
+      };
+      setSize(next);
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setSize((current) => {
+        try {
+          window.localStorage.setItem(SIZE_STORAGE_KEY, JSON.stringify(current));
+        } catch {
+          // best-effort persistence only
+        }
+        return current;
+      });
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 
   const lastResultsVersion = useRef(resultsVersion);
   useEffect(() => {
@@ -134,7 +190,13 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
         {open ? "Close AI assistant" : "✦ Ask AI"}
       </button>
       {open && (
-        <div className="ai-widget-panel">
+        <div className="ai-widget-panel" style={{ width: size.width, height: size.height }}>
+          <div
+            className="ai-widget-resize-handle"
+            onMouseDown={startResize}
+            title="Drag to resize"
+            aria-hidden="true"
+          />
           <div className="ai-widget-header">
             <div className="ai-widget-tabs">
               {(Object.keys(MODE_LABELS) as AiAssistMode[]).map((m) => (
