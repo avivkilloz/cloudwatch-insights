@@ -39,3 +39,34 @@ def test_log_groups_reports_error_for_unconfigured_environment():
     results = resp.json()["results"]
     assert len(results) == 1
     assert results[0]["error"] is not None
+
+
+def test_start_query_reports_error_for_unconfigured_environment():
+    resp = client.post(
+        "/api/queries/start",
+        json={
+            "targets": [{"environment_id": 999999, "log_group_names": ["/aws/lambda/foo"]}],
+            "query_string": "fields @timestamp, @message",
+            "start_time": 0,
+            "end_time": 3600,
+            "limit": 100,
+        },
+    )
+    assert resp.status_code == 200
+    queries = resp.json()["queries"]
+    assert len(queries) == 1
+    assert queries[0]["error"] is not None
+
+
+def test_start_query_rejects_out_of_range_limit():
+    resp = client.post(
+        "/api/queries/start",
+        json={
+            "targets": [{"environment_id": 1, "log_group_names": ["/aws/lambda/foo"]}],
+            "query_string": "fields @timestamp",
+            "start_time": 0,
+            "end_time": 3600,
+            "limit": 50000,
+        },
+    )
+    assert resp.status_code == 422
