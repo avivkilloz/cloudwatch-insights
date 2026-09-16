@@ -185,11 +185,6 @@ export default function InsightsPage() {
     setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
-  async function deleteSaved(id: number) {
-    await api.deleteSavedQuery(id);
-    setSavedQueries((prev) => prev.filter((q) => q.id !== id));
-  }
-
   return (
     <div>
       <div className="panel">
@@ -283,22 +278,6 @@ export default function InsightsPage() {
             Save query
           </button>
         </div>
-        {savedQueries.length > 0 && (
-          <div className="row" style={{ marginBottom: 10 }}>
-            {savedQueries.map((q) => (
-              <span key={q.id} className="tag">
-                {q.name}{" "}
-                <button
-                  className="danger"
-                  style={{ padding: "0 6px", marginLeft: 4, fontSize: 10 }}
-                  onClick={() => deleteSaved(q.id)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <textarea rows={5} value={queryString} onChange={(e) => setQueryString(e.target.value)} />
         <div className="toolbar" style={{ marginTop: 10 }}>
           <button onClick={runQuery} disabled={isRunning}>

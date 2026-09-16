@@ -57,10 +57,13 @@ export interface QueryResultItem {
   error: string | null;
 }
 
+export type IotSearchMode = "things" | "certificates";
+
 export interface IotSavedSearch {
   id: number;
   name: string;
   query_string: string;
+  search_mode: IotSearchMode;
 }
 
 export interface IotThingSummary {
@@ -82,11 +85,37 @@ export interface IotSearchResultItem {
   error: string | null;
 }
 
+export interface IotPolicyInfo {
+  policy_name: string;
+  policy_arn: string | null;
+  policy_document: Record<string, unknown> | null;
+}
+
 export interface IotCertificateInfo {
   certificate_id: string;
   certificate_arn: string;
   status: string;
   creation_date: number | null;
+  policies: IotPolicyInfo[];
+}
+
+export interface IotCertificateSearchResultItem {
+  environment_id: number;
+  environment_name: string;
+  account_id: string;
+  region: string;
+  certificates: IotCertificateInfo[];
+  error: string | null;
+}
+
+export interface IotCertificateDetail {
+  certificate_id: string;
+  certificate_arn: string | null;
+  status: string;
+  creation_date: number | null;
+  policies: IotPolicyInfo[];
+  thing_names: string[];
+  warnings: string[];
 }
 
 export interface IotShadowInfo {
@@ -150,6 +179,8 @@ export const api = {
   listSavedQueries: () => req<SavedQuery[]>("/saved-queries"),
   createSavedQuery: (payload: { name: string; query_string: string }) =>
     req<SavedQuery>("/saved-queries", { method: "POST", body: JSON.stringify(payload) }),
+  updateSavedQuery: (id: number, payload: Partial<{ name: string; query_string: string }>) =>
+    req<SavedQuery>(`/saved-queries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSavedQuery: (id: number) => req<void>(`/saved-queries/${id}`, { method: "DELETE" }),
 
   getLogGroups: (environmentIds: number[]) =>
@@ -189,7 +220,20 @@ export const api = {
     req<IotThingDetail>("/iot/things/detail", { method: "POST", body: JSON.stringify(payload) }),
 
   listIotSavedSearches: () => req<IotSavedSearch[]>("/iot/saved-searches"),
-  createIotSavedSearch: (payload: { name: string; query_string: string }) =>
+  createIotSavedSearch: (payload: { name: string; query_string: string; search_mode: IotSearchMode }) =>
     req<IotSavedSearch>("/iot/saved-searches", { method: "POST", body: JSON.stringify(payload) }),
+  updateIotSavedSearch: (
+    id: number,
+    payload: Partial<{ name: string; query_string: string; search_mode: IotSearchMode }>
+  ) => req<IotSavedSearch>(`/iot/saved-searches/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteIotSavedSearch: (id: number) => req<void>(`/iot/saved-searches/${id}`, { method: "DELETE" }),
+
+  searchIotCertificates: (payload: { environment_ids: number[]; query_string: string; max_results?: number }) =>
+    req<{ results: IotCertificateSearchResultItem[] }>("/iot/certificates/search", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getIotCertificateDetail: (payload: { environment_id: number; certificate_id: string }) =>
+    req<IotCertificateDetail>("/iot/certificates/detail", { method: "POST", body: JSON.stringify(payload) }),
 };

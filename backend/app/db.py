@@ -1,7 +1,7 @@
 import os
 from urllib.parse import quote_plus
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
@@ -49,3 +49,42 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_columns():
+    """Lightweight, additive schema-evolution helper: this project has no
+    migration framework, and Base.metadata.create_all() only creates
+    missing TABLES -- a column added to an existing model never reaches a
+    database that already has that table without this. Only adds columns
+    that are safe to backfill on existing rows (nullable, or carrying a
+    server_default); anything else is skipped rather than risking a failed
+    ALTER TABLE on a table that already has rows.
+    """
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue  # brand new table -- create_all already made it with every column
+            existing_columns = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing_columns:
+                    continue
+                if not column.nullable and column.server_default is None:
+                    continue
+                ddl_type = column.type.compile(dialect=engine.dialect)
+                clause = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl_type}'
+                if column.server_default is not None:
+                    default_arg = column.server_default.arg
+                    if hasattr(default_arg, "text"):
+                        # an explicit text()/SQL-expression default -- already raw SQL
+                        default_sql = default_arg.text
+                    else:
+                        # a plain Python value (SQLAlchemy's own server_default
+                        # convention): quote it as a SQL string literal ourselves,
+                        # the same way SQLAlchemy's own DDL compiler would.
+                        default_sql = "'" + str(default_arg).replace("'", "''") + "'"
+                    clause += f" DEFAULT {default_sql}"
+                if not column.nullable:
+                    clause += " NOT NULL"
+                conn.execute(text(clause))

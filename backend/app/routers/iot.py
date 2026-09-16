@@ -118,6 +118,18 @@ def create_saved_search(payload: schemas.IotSavedSearchCreate, db: Session = Dep
     return saved
 
 
+@router.put("/saved-searches/{saved_search_id}", response_model=schemas.IotSavedSearchOut)
+def update_saved_search(saved_search_id: int, payload: schemas.IotSavedSearchUpdate, db: Session = Depends(get_db)):
+    saved = db.get(models.IotSavedSearch, saved_search_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Saved search not found")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(saved, key, value)
+    db.commit()
+    db.refresh(saved)
+    return saved
+
+
 @router.delete("/saved-searches/{saved_search_id}", status_code=204)
 def delete_saved_search(saved_search_id: int, db: Session = Depends(get_db)):
     saved = db.get(models.IotSavedSearch, saved_search_id)
@@ -126,3 +138,100 @@ def delete_saved_search(saved_search_id: int, db: Session = Depends(get_db)):
     db.delete(saved)
     db.commit()
     return None
+
+
+def _search_certs_one(
+    environment_id: int,
+    environment_name: str,
+    account_id: str,
+    region: str,
+    role_name: str,
+    query_string: str,
+    max_results: int,
+) -> schemas.IotCertificateSearchResultItem:
+    try:
+        raw = iot_client.search_certificates(account_id, region, role_name, query_string, max_results)
+        return schemas.IotCertificateSearchResultItem(
+            environment_id=environment_id,
+            environment_name=environment_name,
+            account_id=account_id,
+            region=region,
+            certificates=[schemas.IotCertificateInfo(**c) for c in raw],
+        )
+    except Exception as e:  # noqa: BLE001 - surface per-environment error rather than failing whole request
+        return schemas.IotCertificateSearchResultItem(
+            environment_id=environment_id,
+            environment_name=environment_name,
+            account_id=account_id,
+            region=region,
+            certificates=[],
+            error=str(e),
+        )
+
+
+@router.post("/certificates/search", response_model=schemas.IotCertificateSearchResponse)
+async def search_certificates(payload: schemas.IotCertificateSearchRequest, db: Session = Depends(get_db)):
+    loop = asyncio.get_event_loop()
+    futures = []
+    for environment_id in payload.environment_ids:
+        try:
+            environment = resolve_environment(db, environment_id)
+        except ResolveError as e:
+            futures.append(_immediate_cert_error(environment_id, str(environment_id), "", "", str(e)))
+            continue
+        try:
+            role_name = resolve_role_name(db, environment)
+        except ResolveError as e:
+            futures.append(
+                _immediate_cert_error(
+                    environment_id, environment.name, environment.account_id, environment.region, str(e)
+                )
+            )
+            continue
+        futures.append(
+            loop.run_in_executor(
+                _executor,
+                _search_certs_one,
+                environment_id,
+                environment.name,
+                environment.account_id,
+                environment.region,
+                role_name,
+                payload.query_string,
+                payload.max_results or 50,
+            )
+        )
+
+    results = await asyncio.gather(*futures)
+    return schemas.IotCertificateSearchResponse(results=list(results))
+
+
+async def _immediate_cert_error(environment_id: int, environment_name: str, account_id: str, region: str, error: str):
+    return schemas.IotCertificateSearchResultItem(
+        environment_id=environment_id,
+        environment_name=environment_name,
+        account_id=account_id,
+        region=region,
+        certificates=[],
+        error=error,
+    )
+
+
+@router.post("/certificates/detail", response_model=schemas.IotCertificateDetail)
+def get_certificate_detail(payload: schemas.IotCertificateDetailRequest, db: Session = Depends(get_db)):
+    try:
+        environment = resolve_environment(db, payload.environment_id)
+        role_name = resolve_role_name(db, environment)
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    try:
+        detail = iot_client.get_certificate_detail(
+            environment.account_id, environment.region, role_name, payload.certificate_id
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Failed to load certificate '{payload.certificate_id}': {e}"
+        ) from e
+
+    return schemas.IotCertificateDetail(**detail)
