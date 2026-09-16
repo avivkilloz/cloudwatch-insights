@@ -70,3 +70,43 @@ def test_start_query_rejects_out_of_range_limit():
         },
     )
     assert resp.status_code == 422
+
+
+def test_iot_saved_search_crud():
+    resp = client.post(
+        "/api/iot/saved-searches",
+        json={"name": "Disconnected prod devices", "query_string": "connectivity.connected:false"},
+    )
+    assert resp.status_code == 201
+    saved = resp.json()
+    assert saved["query_string"] == "connectivity.connected:false"
+
+    resp = client.get("/api/iot/saved-searches")
+    assert resp.status_code == 200
+    assert any(s["id"] == saved["id"] for s in resp.json())
+
+    resp = client.delete(f"/api/iot/saved-searches/{saved['id']}")
+    assert resp.status_code == 204
+
+    resp = client.delete(f"/api/iot/saved-searches/{saved['id']}")
+    assert resp.status_code == 404
+
+
+def test_iot_search_reports_error_for_unconfigured_environment():
+    resp = client.post(
+        "/api/iot/search",
+        json={"environment_ids": [999999], "query_string": "connectivity.connected:true"},
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["error"] is not None
+    assert results[0]["things"] == []
+
+
+def test_iot_thing_detail_rejects_unconfigured_environment():
+    resp = client.post(
+        "/api/iot/things/detail",
+        json={"environment_id": 999999, "thing_name": "my-thing"},
+    )
+    assert resp.status_code == 400

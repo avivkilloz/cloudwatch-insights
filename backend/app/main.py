@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
 from .db import Base, engine
-from .routers import environments, log_groups, queries, saved_queries, settings
+from .routers import environments, iot, log_groups, queries, saved_queries, settings
 
 Base.metadata.create_all(bind=engine)
 
@@ -22,6 +22,7 @@ app.include_router(settings.router)
 app.include_router(log_groups.router)
 app.include_router(queries.router)
 app.include_router(saved_queries.router)
+app.include_router(iot.router)
 
 
 @app.get("/api/health")

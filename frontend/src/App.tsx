@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import EnvironmentsPage from "./pages/EnvironmentsPage";
 import InsightsPage from "./pages/InsightsPage";
+import IotPage from "./pages/IotPage";
 import { applyTheme, getInitialTheme, THEMES, ThemeId } from "./theme";
 
-type Tab = "insights" | "environments";
+type Tab = "insights" | "iot" | "environments";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("insights");
@@ -29,6 +30,9 @@ export default function App() {
             <button className={tab === "insights" ? "tab active" : "tab"} onClick={() => setTab("insights")}>
               Insights
             </button>
+            <button className={tab === "iot" ? "tab active" : "tab"} onClick={() => setTab("iot")}>
+              IoT
+            </button>
             <button
               className={tab === "environments" ? "tab active" : "tab"}
               onClick={() => setTab("environments")}
@@ -38,7 +42,11 @@ export default function App() {
           </nav>
         </div>
       </header>
-      <main className="content">{tab === "insights" ? <InsightsPage /> : <EnvironmentsPage />}</main>
+      <main className="content">
+        {tab === "insights" && <InsightsPage />}
+        {tab === "iot" && <IotPage />}
+        {tab === "environments" && <EnvironmentsPage />}
+      </main>
     </div>
   );
 }

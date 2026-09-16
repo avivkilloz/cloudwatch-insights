@@ -30,3 +30,12 @@ class SavedQuery(Base):
     name = Column(String, nullable=False)
     query_string = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class IotSavedSearch(Base):
+    __tablename__ = "iot_saved_searches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    query_string = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

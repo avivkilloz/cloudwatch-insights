@@ -57,6 +57,69 @@ export interface QueryResultItem {
   error: string | null;
 }
 
+export interface IotSavedSearch {
+  id: number;
+  name: string;
+  query_string: string;
+}
+
+export interface IotThingSummary {
+  thing_name: string;
+  thing_id: string | null;
+  thing_type_name: string | null;
+  thing_group_names: string[];
+  attributes: Record<string, string>;
+  connected: boolean | null;
+  connectivity_timestamp: number | null;
+}
+
+export interface IotSearchResultItem {
+  environment_id: number;
+  environment_name: string;
+  account_id: string;
+  region: string;
+  things: IotThingSummary[];
+  error: string | null;
+}
+
+export interface IotCertificateInfo {
+  certificate_id: string;
+  certificate_arn: string;
+  status: string;
+  creation_date: number | null;
+}
+
+export interface IotShadowInfo {
+  name: string;
+  reported: Record<string, unknown>;
+  desired: Record<string, unknown>;
+  version: number | null;
+  last_updated: number | null;
+}
+
+export interface IotJobExecutionInfo {
+  job_id: string;
+  status: string;
+  queued_at: number | null;
+  started_at: number | null;
+  last_updated_at: number | null;
+}
+
+export interface IotThingDetail {
+  thing_name: string;
+  thing_id: string | null;
+  thing_arn: string | null;
+  thing_type_name: string | null;
+  attributes: Record<string, string>;
+  version: number | null;
+  connected: boolean | null;
+  connectivity_timestamp: number | null;
+  certificates: IotCertificateInfo[];
+  shadows: IotShadowInfo[];
+  jobs: IotJobExecutionInfo[];
+  warnings: string[];
+}
+
 const BASE = "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -115,4 +178,18 @@ export const api = {
 
   stopQueries: (queries: { environment_id: number; query_id: string }[]) =>
     req<void>("/queries/stop", { method: "POST", body: JSON.stringify({ queries }) }),
+
+  searchIotThings: (payload: { environment_ids: number[]; query_string: string; max_results?: number }) =>
+    req<{ results: IotSearchResultItem[] }>("/iot/search", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getIotThingDetail: (payload: { environment_id: number; thing_name: string }) =>
+    req<IotThingDetail>("/iot/things/detail", { method: "POST", body: JSON.stringify(payload) }),
+
+  listIotSavedSearches: () => req<IotSavedSearch[]>("/iot/saved-searches"),
+  createIotSavedSearch: (payload: { name: string; query_string: string }) =>
+    req<IotSavedSearch>("/iot/saved-searches", { method: "POST", body: JSON.stringify(payload) }),
+  deleteIotSavedSearch: (id: number) => req<void>(`/iot/saved-searches/${id}`, { method: "DELETE" }),
 };
