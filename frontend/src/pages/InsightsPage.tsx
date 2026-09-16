@@ -5,16 +5,17 @@ import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView, { SortDirection } from "../components/ResultsView";
 
-const AI_SAMPLE_ROW_CAP = 30;
-
-function resultsToSampleRows(items: QueryResultItem[]): Record<string, unknown>[] {
+/** Flattens every row across all queried targets into plain objects, in
+ * their original (query-sorted) order and with no cap -- the AI widget
+ * decides how much of this to actually send, per its sampled/all-results
+ * toggle. */
+function flattenResults(items: QueryResultItem[]): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = [];
   for (const item of items) {
     for (const row of item.rows) {
       const obj: Record<string, unknown> = { environment: item.environment_name };
       for (const f of row) obj[f.field] = f.value;
       rows.push(obj);
-      if (rows.length >= AI_SAMPLE_ROW_CAP) return rows;
     }
   }
   return rows;
@@ -409,7 +410,7 @@ export default function InsightsPage() {
       <AiAssistantWidget
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={resultsToSampleRows(results)}
+        sampleRows={flattenResults(results)}
         rowCount={results.reduce((sum, item) => sum + item.rows.length, 0)}
         resultsVersion={resultsVersion}
       />

@@ -113,3 +113,36 @@ def test_chat_includes_sample_rows_in_context(monkeypatch):
     context_message = captured["json"]["messages"][1]["content"]
     assert "ERROR: boom" in context_message
     assert "2 result row(s) out of 2 total" in context_message
+
+
+def test_build_sample_context_reports_the_count_it_actually_includes():
+    # A handful of small rows fit comfortably within the budget -- no truncation note.
+    small_rows = [{"message": f"row {i}"} for i in range(5)]
+    context = ai_assistant._build_sample_context(small_rows, row_count=5)
+    assert "5 result row(s) out of 5 total:" in context
+    assert "further truncated" not in context
+    for row in small_rows:
+        assert row["message"] in context
+
+
+def test_build_sample_context_truncates_oversized_rows_and_says_so():
+    # Each row is ~1000 chars; with a budget of MAX_SAMPLE_CONTEXT_CHARS this
+    # must stop well before including all of them.
+    big_rows = [{"message": "x" * 1000} for _ in range(50)]
+    context = ai_assistant._build_sample_context(big_rows, row_count=426)
+
+    assert len(context) < len(str(big_rows)) + 200  # sanity: we did NOT include everything
+    header = context.splitlines()[0]
+    assert "out of 426 total" in header
+    assert "further truncated to the first" in header
+
+    # The reported count must match what's actually present in the JSON body.
+    reported_count = int(header.split("Sample of ")[1].split(" result")[0])
+    assert context.count('"message"') == reported_count
+
+
+def test_build_sample_context_always_includes_at_least_one_row_even_if_oversized():
+    huge_row = {"message": "x" * 50000}
+    context = ai_assistant._build_sample_context([huge_row], row_count=1)
+    assert "1 result row(s) out of 1 total" in context
+    assert huge_row["message"] in context
