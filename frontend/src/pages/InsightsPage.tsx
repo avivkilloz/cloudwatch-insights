@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Environment, SavedQuery, QueryResultItem, StartedQuery } from "../api";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
-import ResultsView from "../components/ResultsView";
+import ResultsView, { SortDirection } from "../components/ResultsView";
 
 const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
   { label: "Last 5 minutes", seconds: 5 * 60 },
@@ -37,6 +37,8 @@ export default function InsightsPage() {
 
   const [queryString, setQueryString] = useState(DEFAULT_QUERY);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [sortField, setSortField] = useState("@timestamp");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [preset, setPreset] = useState<number | "custom">(15 * 60);
   const now = Math.floor(Date.now() / 1000);
   const [customStart, setCustomStart] = useState(toLocalDatetimeInput(now - 15 * 60));
@@ -68,6 +70,12 @@ export default function InsightsPage() {
   }
 
   const selectedEnvironments = environments.filter((e) => selectedEnvironmentIds.has(e.id));
+
+  const availableSortFields = (() => {
+    const seen = new Set<string>(["@timestamp"]);
+    results.forEach((item) => item.rows.forEach((row) => row.forEach((f) => seen.add(f.field))));
+    return Array.from(seen);
+  })();
 
   function computeTimeRange(): { start_time: number; end_time: number } {
     if (preset === "custom") {
@@ -247,6 +255,25 @@ export default function InsightsPage() {
               title="Max rows per environment (also applied to the merged, most-recent-first total)"
             />
           </label>
+          <label className="row" style={{ gap: 6 }}>
+            <span className="muted">Sort by</span>
+            <select value={sortField} onChange={(e) => setSortField(e.target.value)}>
+              <option value="">Original order</option>
+              {availableSortFields.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <select
+              value={sortDirection}
+              onChange={(e) => setSortDirection(e.target.value as SortDirection)}
+              disabled={!sortField}
+            >
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </select>
+          </label>
           <select
             onChange={(e) => {
               const sq = savedQueries.find((q) => String(q.id) === e.target.value);
@@ -298,7 +325,7 @@ export default function InsightsPage() {
 
       <div className="panel">
         <h2>4. Results</h2>
-        <ResultsView items={results} limit={limit} />
+        <ResultsView items={results} limit={limit} sortField={sortField} sortDirection={sortDirection} />
       </div>
     </div>
   );
