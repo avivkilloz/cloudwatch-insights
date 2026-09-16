@@ -264,10 +264,10 @@ riding `latest`, so a deploy is always traceable back to a commit.
 
 ## After deploying
 
-Open the app and go to **Environments & Settings**:
+Open the app and go to **Settings**:
 1. Set the global role name to `$TARGET_ROLE_NAME` (default in the examples
    above: `CloudWatchInsightsReadRole`).
 2. Add an environment for each account/region combination you want to
    query — a name, the 12-digit account ID, and a region.
 
-Then use the **Insights** tab as described in the main README.
+Then use the **Logs** tab as described in the main README.

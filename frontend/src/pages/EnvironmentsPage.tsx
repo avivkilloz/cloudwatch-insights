@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
-import { api, Environment, IotSavedSearch, IotSearchMode, SavedQuery, Settings } from "../api";
+import { api, Environment, IotSavedSearch, IotSearchMode, SavedQuery, SavedSession, Settings } from "../api";
 import { AWS_REGIONS } from "../regions";
 import SavedItemsPanel from "../components/SavedItemsPanel";
+import SavedSessionsPanel from "../components/SavedSessionsPanel";
 
-export default function EnvironmentsPage() {
+interface Props {
+  /** Notified whenever settings change here, so App.tsx (title, tab
+   * visibility) stays in sync without re-fetching. */
+  onSettingsChange?: (settings: Settings) => void;
+}
+
+const EMPTY_SETTINGS: Settings = { default_role_name: null, app_title: null, logs_enabled: true, iot_enabled: true };
+
+export default function EnvironmentsPage({ onSettingsChange }: Props) {
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [settings, setSettingsState] = useState<Settings>({ default_role_name: null });
+  const [settings, setSettingsState] = useState<Settings>(EMPTY_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
   const [iotSavedSearches, setIotSavedSearches] = useState<IotSavedSearch[]>([]);
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
 
   const [newName, setNewName] = useState("");
   const [newAccountId, setNewAccountId] = useState("");
@@ -18,22 +28,26 @@ export default function EnvironmentsPage() {
   const [newRoleOverride, setNewRoleOverride] = useState("");
 
   const [roleDraft, setRoleDraft] = useState("");
+  const [appTitleDraft, setAppTitleDraft] = useState("");
 
   async function refresh() {
     setLoading(true);
     setError(null);
     try {
-      const [envs, s, queries, searches] = await Promise.all([
+      const [envs, s, queries, searches, sessions] = await Promise.all([
         api.listEnvironments(),
         api.getSettings(),
         api.listSavedQueries(),
         api.listIotSavedSearches(),
+        api.listSavedSessions(),
       ]);
       setEnvironments(envs);
       setSettingsState(s);
       setRoleDraft(s.default_role_name ?? "");
+      setAppTitleDraft(s.app_title ?? "");
       setSavedQueries(queries);
       setIotSavedSearches(searches);
+      setSavedSessions(sessions);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -45,9 +59,21 @@ export default function EnvironmentsPage() {
     refresh();
   }, []);
 
-  async function saveRoleName() {
-    const updated = await api.updateSettings({ default_role_name: roleDraft || null });
+  function applySettings(updated: Settings) {
     setSettingsState(updated);
+    onSettingsChange?.(updated);
+  }
+
+  async function saveRoleName() {
+    applySettings(await api.updateSettings({ default_role_name: roleDraft || null }));
+  }
+
+  async function saveAppTitle() {
+    applySettings(await api.updateSettings({ app_title: appTitleDraft.trim() || null }));
+  }
+
+  async function toggleTab(key: "logs_enabled" | "iot_enabled", value: boolean) {
+    applySettings(await api.updateSettings({ [key]: value }));
   }
 
   async function addEnvironment() {
@@ -109,8 +135,56 @@ export default function EnvironmentsPage() {
     setIotSavedSearches((prev) => prev.filter((s) => s.id !== id));
   }
 
+  async function renameSavedSession(id: number, name: string) {
+    const updated = await api.updateSavedSession(id, { name });
+    setSavedSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
+  }
+
+  async function deleteSavedSession(id: number) {
+    await api.deleteSavedSession(id);
+    setSavedSessions((prev) => prev.filter((s) => s.id !== id));
+  }
+
   return (
     <div>
+      <div className="panel">
+        <h2>App settings</h2>
+        <div className="row" style={{ marginBottom: 14, alignItems: "flex-start" }}>
+          <div>
+            <span className="field-label">App title</span>
+            <input
+              type="text"
+              placeholder="Cloud Insights"
+              value={appTitleDraft}
+              onChange={(e) => setAppTitleDraft(e.target.value)}
+              style={{ width: 260 }}
+            />
+          </div>
+          <button onClick={saveAppTitle} style={{ marginTop: 18 }}>
+            Save
+          </button>
+        </div>
+        <span className="field-label">Visible tabs</span>
+        <div className="row">
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={settings.logs_enabled}
+              onChange={(e) => toggleTab("logs_enabled", e.target.checked)}
+            />
+            Logs
+          </label>
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={settings.iot_enabled}
+              onChange={(e) => toggleTab("iot_enabled", e.target.checked)}
+            />
+            IoT
+          </label>
+        </div>
+      </div>
+
       <div className="panel">
         <h2>Global role name</h2>
         <p className="muted">
@@ -247,6 +321,8 @@ export default function EnvironmentsPage() {
           getValue: (item) => item.search_mode,
         }}
       />
+
+      <SavedSessionsPanel items={savedSessions} onRename={renameSavedSession} onDelete={deleteSavedSession} />
     </div>
   );
 }

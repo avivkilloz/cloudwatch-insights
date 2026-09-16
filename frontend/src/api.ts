@@ -8,6 +8,16 @@ export interface Environment {
 
 export interface Settings {
   default_role_name: string | null;
+  app_title: string | null;
+  logs_enabled: boolean;
+  iot_enabled: boolean;
+}
+
+export interface SavedSession<T = Record<string, unknown>> {
+  id: number;
+  page: string;
+  name: string;
+  state: T;
 }
 
 export interface SavedQuery {
@@ -173,7 +183,7 @@ export const api = {
   deleteEnvironment: (id: number) => req<void>(`/environments/${id}`, { method: "DELETE" }),
 
   getSettings: () => req<Settings>("/settings"),
-  updateSettings: (payload: Settings) =>
+  updateSettings: (payload: Partial<Settings>) =>
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
   listSavedQueries: () => req<SavedQuery[]>("/saved-queries"),
@@ -236,4 +246,12 @@ export const api = {
 
   getIotCertificateDetail: (payload: { environment_id: number; certificate_id: string }) =>
     req<IotCertificateDetail>("/iot/certificates/detail", { method: "POST", body: JSON.stringify(payload) }),
+
+  listSavedSessions: <T = Record<string, unknown>>(page?: string) =>
+    req<SavedSession<T>[]>(`/saved-sessions${page ? `?page=${encodeURIComponent(page)}` : ""}`),
+  createSavedSession: <T = Record<string, unknown>>(payload: { page: string; name: string; state: T }) =>
+    req<SavedSession<T>>("/saved-sessions", { method: "POST", body: JSON.stringify(payload) }),
+  updateSavedSession: <T = Record<string, unknown>>(id: number, payload: Partial<{ name: string; state: T }>) =>
+    req<SavedSession<T>>(`/saved-sessions/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteSavedSession: (id: number) => req<void>(`/saved-sessions/${id}`, { method: "DELETE" }),
 };

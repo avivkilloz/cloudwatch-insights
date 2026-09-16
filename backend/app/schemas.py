@@ -27,10 +27,16 @@ class EnvironmentOut(EnvironmentBase):
 
 class SettingsOut(BaseModel):
     default_role_name: Optional[str] = None
+    app_title: Optional[str] = None
+    logs_enabled: bool = True
+    iot_enabled: bool = True
 
 
 class SettingsUpdate(BaseModel):
     default_role_name: Optional[str] = None
+    app_title: Optional[str] = None
+    logs_enabled: Optional[bool] = None
+    iot_enabled: Optional[bool] = None
 
 
 class SavedQueryBase(BaseModel):
@@ -291,3 +297,32 @@ class IotCertificateDetail(BaseModel):
     policies: list[IotPolicyInfo] = []
     thing_names: list[str] = []
     warnings: list[str] = []
+
+
+# ---- Saved sessions ----
+#
+# A full working-state snapshot for a page (selected environments, filters,
+# query text, sort, time range, etc.), as opposed to a SavedQuery/
+# IotSavedSearch which only remembers the query text. `page` identifies which
+# page the session is for (e.g. "logs", "iot"); `state` is that page's own
+# free-form JSON shape, opaque to the backend.
+
+
+class SavedSessionBase(BaseModel):
+    page: str
+    name: str
+    state: dict
+
+
+class SavedSessionCreate(SavedSessionBase):
+    pass
+
+
+class SavedSessionUpdate(BaseModel):
+    name: Optional[str] = None
+    state: Optional[dict] = None
+
+
+class SavedSessionOut(SavedSessionBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
