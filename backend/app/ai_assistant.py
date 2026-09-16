@@ -30,7 +30,12 @@ a sample of the resulting rows (it may be truncated if there were many). \
 Answer the user's question concisely and specifically, referencing actual \
 values from the sample where relevant. If the sample is truncated, say so \
 rather than asserting something is true of the full result set that you \
-can't actually confirm from the sample."""
+can't actually confirm from the sample. When the query spans multiple log \
+groups (an @log field with different values), the sample is built to \
+include rows from every distinct @log value rather than a plain chronological \
+slice, so a sparser log group isn't crowded out -- don't treat the relative \
+counts of each @log value in the sample as reflecting their true relative \
+frequency in the full result set."""
 
 _CODE_BLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
 

@@ -5,7 +5,7 @@ import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import ResultsView, { SortDirection } from "../components/ResultsView";
 
-const AI_SAMPLE_ROW_CAP = 30;
+const AI_SAMPLE_ROW_CAP = 40;
 
 function resultsToSampleRows(items: QueryResultItem[]): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = [];
@@ -14,10 +14,35 @@ function resultsToSampleRows(items: QueryResultItem[]): Record<string, unknown>[
       const obj: Record<string, unknown> = { environment: item.environment_name };
       for (const f of row) obj[f.field] = f.value;
       rows.push(obj);
-      if (rows.length >= AI_SAMPLE_ROW_CAP) return rows;
     }
   }
-  return rows;
+  if (rows.length <= AI_SAMPLE_ROW_CAP) return rows;
+
+  // A single query can span multiple log groups (e.g. correlating two
+  // Lambdas via @log), and one of them can be far higher-volume than the
+  // other. Taking a flat first-N slice of results sorted by @timestamp
+  // would then silently starve the sparser log group out of the AI
+  // assistant's sample. Round-robin across distinct @log values instead so
+  // every represented source gets a fair share of the capped sample.
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const key = String(row["@log"] ?? "");
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
+  }
+  const groupLists = Array.from(groups.values());
+  const sample: Record<string, unknown>[] = [];
+  for (let i = 0; sample.length < AI_SAMPLE_ROW_CAP; i++) {
+    const before = sample.length;
+    for (const list of groupLists) {
+      if (i >= list.length) continue;
+      sample.push(list[i]);
+      if (sample.length >= AI_SAMPLE_ROW_CAP) break;
+    }
+    if (sample.length === before) break;
+  }
+  return sample;
 }
 
 const SESSION_PAGE = "logs";
