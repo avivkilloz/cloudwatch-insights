@@ -84,8 +84,16 @@ def test_chat_posts_to_chat_completions_with_system_prompt_and_context(monkeypat
     assert captured["json"]["model"] == "gpt-4o-mini"
     roles = [m["role"] for m in captured["json"]["messages"]]
     assert roles[0] == "system"  # the mode's base system prompt
+    assert "Current query (refine this)" in captured["json"]["messages"][1]["content"]
     assert "fields @message" in captured["json"]["messages"][1]["content"]  # query context
     assert captured["json"]["messages"][-1] == {"role": "user", "content": "show errors"}
+
+
+def test_build_query_system_prompts_instruct_refining_the_current_query():
+    for backend in ("cloudwatch", "opensearch"):
+        prompt = ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS[backend]
+        assert "Current query" in prompt
+        assert "starting point" in prompt
 
 
 def test_chat_includes_sample_rows_in_context(monkeypatch):
