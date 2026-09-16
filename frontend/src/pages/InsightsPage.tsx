@@ -83,6 +83,10 @@ export default function InsightsPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Bumped each time a new query run supersedes the displayed results, so the
+  // AI widget can drop a stale "About results" conversation that was talking
+  // about a previous result set instead of quietly answering from old data.
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -141,6 +145,7 @@ export default function InsightsPage() {
     const clampedLimit = Math.min(Math.max(Math.floor(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
     setResults([]);
+    setResultsVersion((v) => v + 1);
     setIsRunning(true);
     try {
       const resp = await api.startQueries({
@@ -406,6 +411,7 @@ export default function InsightsPage() {
         onUseQuery={setQueryString}
         sampleRows={resultsToSampleRows(results)}
         rowCount={results.reduce((sum, item) => sum + item.rows.length, 0)}
+        resultsVersion={resultsVersion}
       />
     </div>
   );

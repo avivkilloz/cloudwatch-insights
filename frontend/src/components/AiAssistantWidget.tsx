@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, AiAssistMode, AiChatMessage } from "../api";
 import MarkdownLite from "./MarkdownLite";
 
@@ -12,6 +12,12 @@ interface Props {
   rowCount?: number;
   /** Wires up the "Use this query" button in the build_query thread. */
   onUseQuery?: (query: string) => void;
+  /**
+   * Bumped by the parent each time a new query run supersedes the displayed
+   * results. Used to drop the "About results" thread so it doesn't keep
+   * answering from a previous, no-longer-visible result set.
+   */
+  resultsVersion?: number;
 }
 
 const MODE_LABELS: Record<AiAssistMode, string> = {
@@ -31,7 +37,7 @@ const MODE_EMPTY_HINTS: Record<AiAssistMode, string> = {
 
 const EMPTY_THREADS: Record<AiAssistMode, DisplayMessage[]> = { build_query: [], ask_results: [] };
 
-export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery }: Props) {
+export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<AiAssistMode>("build_query");
@@ -46,6 +52,13 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
       .then((s) => setConfigured(s.configured))
       .catch(() => setConfigured(false));
   }, []);
+
+  const lastResultsVersion = useRef(resultsVersion);
+  useEffect(() => {
+    if (resultsVersion === undefined || resultsVersion === lastResultsVersion.current) return;
+    lastResultsVersion.current = resultsVersion;
+    setThreads((prev) => ({ ...prev, ask_results: [] }));
+  }, [resultsVersion]);
 
   async function send() {
     const text = input.trim();
