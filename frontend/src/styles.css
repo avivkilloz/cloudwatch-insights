@@ -1,4 +1,6 @@
-:root {
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0f1115;
   --panel: #171a21;
   --panel-alt: #1e222b;
@@ -7,9 +9,77 @@
   --text-dim: #9aa2b1;
   --accent: #4da3ff;
   --accent-dim: #2b6cb0;
+  --accent-text: #ffffff;
   --error: #ff6b6b;
   --ok: #4dd08a;
   --warn: #f5c26b;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --panel-alt: #eef0f3;
+  --border: #dde1e7;
+  --text: #1a1d23;
+  --text-dim: #5b6472;
+  --accent: #1c6fd6;
+  --accent-dim: #1a5fb4;
+  --accent-text: #ffffff;
+  --error: #cf3131;
+  --ok: #16824f;
+  --warn: #a3690a;
+}
+
+:root[data-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #282a36;
+  --panel: #21222c;
+  --panel-alt: #343746;
+  --border: #44475a;
+  --text: #f8f8f2;
+  --text-dim: #b3b6c7;
+  --accent: #bd93f9;
+  --accent-dim: #6272a4;
+  --accent-text: #ffffff;
+  --error: #ff5555;
+  --ok: #50fa7b;
+  --warn: #f1fa8c;
+}
+
+:root[data-theme="nord"] {
+  color-scheme: dark;
+  --bg: #2e3440;
+  --panel: #3b4252;
+  --panel-alt: #434c5e;
+  --border: #4c566a;
+  --text: #eceff4;
+  --text-dim: #b7c1d1;
+  --accent: #88c0d0;
+  --accent-dim: #5e81ac;
+  --accent-text: #ffffff;
+  --error: #bf616a;
+  --ok: #a3be8c;
+  --warn: #ebcb8b;
+}
+
+:root[data-theme="solarized-light"] {
+  color-scheme: light;
+  --bg: #fdf6e3;
+  --panel: #ffffff;
+  --panel-alt: #eee8d5;
+  --border: #d3cbb4;
+  --text: #073642;
+  --text-dim: #657b83;
+  --accent: #268bd2;
+  --accent-dim: #1a6091;
+  --accent-text: #ffffff;
+  --error: #dc322f;
+  --ok: #859900;
+  --warn: #b58900;
+}
+
+:root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -21,6 +91,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .app {
@@ -60,7 +131,7 @@ body {
 
 .tab.active {
   background: var(--accent-dim);
-  color: white;
+  color: var(--accent-text);
   border-color: var(--accent-dim);
 }
 
@@ -120,7 +191,7 @@ textarea {
 button {
   background: var(--accent-dim);
   border: 1px solid var(--accent-dim);
-  color: white;
+  color: var(--accent-text);
   border-radius: 6px;
   padding: 7px 14px;
   cursor: pointer;
