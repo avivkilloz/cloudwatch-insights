@@ -9,6 +9,8 @@ export interface Environment {
 export interface Settings {
   default_role_name: string | null;
   app_title: string | null;
+  /** A URL, including a data: URL for an uploaded image, shown right before the app title in the top bar. */
+  app_logo_url: string | null;
   logs_enabled: boolean;
   iot_enabled: boolean;
 }

@@ -10,7 +10,17 @@ interface Props {
   onSettingsChange?: (settings: Settings) => void;
 }
 
-const EMPTY_SETTINGS: Settings = { default_role_name: null, app_title: null, logs_enabled: true, iot_enabled: true };
+const EMPTY_SETTINGS: Settings = {
+  default_role_name: null,
+  app_title: null,
+  app_logo_url: null,
+  logs_enabled: true,
+  iot_enabled: true,
+};
+
+// Logos are stored inline as a data: URL in the settings table, which is
+// fetched on every page load -- keep uploads small so that stays cheap.
+const MAX_LOGO_BYTES = 300 * 1024;
 
 export default function EnvironmentsPage({ onSettingsChange }: Props) {
   const [environments, setEnvironments] = useState<Environment[]>([]);
@@ -29,6 +39,8 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
 
   const [roleDraft, setRoleDraft] = useState("");
   const [appTitleDraft, setAppTitleDraft] = useState("");
+  const [logoDraft, setLogoDraft] = useState("");
+  const [logoError, setLogoError] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -45,6 +57,7 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
       setSettingsState(s);
       setRoleDraft(s.default_role_name ?? "");
       setAppTitleDraft(s.app_title ?? "");
+      setLogoDraft(s.app_logo_url ?? "");
       setSavedQueries(queries);
       setIotSavedSearches(searches);
       setSavedSessions(sessions);
@@ -70,6 +83,35 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
 
   async function saveAppTitle() {
     applySettings(await api.updateSettings({ app_title: appTitleDraft.trim() || null }));
+  }
+
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file again later
+    if (!file) return;
+    setLogoError(null);
+    if (!file.type.startsWith("image/")) {
+      setLogoError("Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setLogoError(`Image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)} KB).`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setLogoDraft(String(reader.result));
+    reader.onerror = () => setLogoError("Could not read that file.");
+    reader.readAsDataURL(file);
+  }
+
+  async function saveLogo() {
+    applySettings(await api.updateSettings({ app_logo_url: logoDraft || null }));
+  }
+
+  async function removeLogo() {
+    setLogoDraft("");
+    setLogoError(null);
+    applySettings(await api.updateSettings({ app_logo_url: null }));
   }
 
   async function toggleTab(key: "logs_enabled" | "iot_enabled", value: boolean) {
@@ -164,6 +206,42 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
             Save
           </button>
         </div>
+
+        <div className="row" style={{ marginBottom: 14, alignItems: "flex-start" }}>
+          <div>
+            <span className="field-label">Logo (shown before the title, top bar)</span>
+            <div className="row" style={{ gap: 10 }}>
+              {logoDraft && (
+                <img
+                  src={logoDraft}
+                  alt=""
+                  style={{
+                    height: 32,
+                    width: 32,
+                    objectFit: "contain",
+                    borderRadius: 4,
+                    border: "1px solid var(--border)",
+                  }}
+                />
+              )}
+              <input type="file" accept="image/*" onChange={handleLogoFile} />
+            </div>
+            {logoError && (
+              <p className="error-text" style={{ marginTop: 4 }}>
+                {logoError}
+              </p>
+            )}
+          </div>
+          <button onClick={saveLogo} style={{ marginTop: 18 }}>
+            Save
+          </button>
+          {settings.app_logo_url && (
+            <button className="danger" onClick={removeLogo} style={{ marginTop: 18 }}>
+              Remove
+            </button>
+          )}
+        </div>
+
         <span className="field-label">Visible tabs</span>
         <div className="row">
           <label className="checkbox-item">
