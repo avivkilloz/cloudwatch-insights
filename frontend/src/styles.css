@@ -125,11 +125,6 @@ body {
   justify-self: end;
 }
 
-.tab,
-.theme-select {
-  height: 31px;
-}
-
 .tab {
   background: transparent;
   border: 1px solid var(--border);
@@ -138,6 +133,16 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
+  line-height: 1.4;
+}
+
+.theme-select {
+  /* Match .tab's box model exactly (same padding/border/font-size/line-height)
+     so the two land on the same rendered height without forcing an explicit
+     height -- forcing one made native <select> vertically misalign its text,
+     which sat noticeably closer to the bottom of the box. */
+  padding: 6px 14px;
+  line-height: 1.4;
 }
 
 .tab.active {
