@@ -71,6 +71,21 @@ spec:
               value: {{ .Values.backend.database.password | quote }}
               {{- end }}
             {{- end }}
+            {{- if .Values.backend.ai.baseUrl }}
+            - name: LITELLM_BASE_URL
+              value: {{ .Values.backend.ai.baseUrl | quote }}
+            - name: LITELLM_MODEL
+              value: {{ .Values.backend.ai.model | quote }}
+            - name: LITELLM_API_KEY
+              {{- if .Values.backend.ai.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.ai.existingSecret }}
+                  key: {{ .Values.backend.ai.existingSecretKey }}
+              {{- else }}
+              value: {{ .Values.backend.ai.apiKey | quote }}
+              {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -232,6 +232,22 @@ export interface CognitoUserSearchResult {
   pagination_token: string | null;
 }
 
+// ---- AI assistant ----
+
+export type AiChatRole = "user" | "assistant";
+
+export interface AiChatMessage {
+  role: AiChatRole;
+  content: string;
+}
+
+export type AiAssistMode = "build_query" | "ask_results";
+
+export interface AiAssistResponse {
+  reply: string;
+  suggested_query: string | null;
+}
+
 const BASE = "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -360,4 +376,13 @@ export const api = {
     limit?: number;
     pagination_token?: string | null;
   }) => req<CognitoUserSearchResult>("/cognito/users", { method: "POST", body: JSON.stringify(payload) }),
+
+  getAiStatus: () => req<{ configured: boolean }>("/ai/status"),
+  aiAssist: (payload: {
+    mode: AiAssistMode;
+    messages: AiChatMessage[];
+    query_string?: string;
+    sample_rows?: Record<string, unknown>[];
+    row_count?: number;
+  }) => req<AiAssistResponse>("/ai/assist", { method: "POST", body: JSON.stringify(payload) }),
 };

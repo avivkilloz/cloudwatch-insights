@@ -202,6 +202,17 @@ from the target-account policy below.)
 6. **Helm 3** installed locally, and (if using the GitOps path) **Argo CD**
    installed on the cluster.
 
+7. **(Optional) A LiteLLM proxy** (or anything else exposing an
+   OpenAI-compatible `/chat/completions` endpoint), if you want the AI
+   assistant on the Logs tab (build-a-query, ask-about-results). Skip this
+   entirely and the feature just stays hidden in the UI. When you do want
+   it, store the API key as a Secret the same way as the database password:
+
+   ```bash
+   kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-litellm \
+     --from-literal=LITELLM_API_KEY="<LITELLM_API_KEY>"
+   ```
+
 ## Deploy with Helm directly
 
 ```bash
@@ -220,6 +231,15 @@ helm upgrade --install cloudwatch-insights ./helm/cloudwatch-insights \
 (If you went with Option B for the database Secret above, use
 `--set backend.database.host=<DB_HOST> --set backend.database.passwordSecret.name=cloudwatch-insights-db`
 instead of `backend.database.existingSecret`.)
+
+To enable the optional AI assistant, add:
+```bash
+  --set backend.ai.baseUrl=https://litellm.example.com \
+  --set backend.ai.model=gpt-4o-mini \
+  --set backend.ai.existingSecret=cloudwatch-insights-litellm
+```
+Leaving `backend.ai.baseUrl` unset (the default) means no `LITELLM_*`
+env vars are set on the backend at all, and the feature stays hidden.
 
 Check `helm/cloudwatch-insights/values.yaml` for every other knob (resource
 requests/limits, ingress annotations/TLS, extra backend env vars). A few

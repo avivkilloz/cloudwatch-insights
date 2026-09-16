@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models
 from .db import Base, engine, ensure_columns
 from .routers import (
+    ai,
     buckets,
     cognito,
     environments,
@@ -39,6 +40,7 @@ app.include_router(iot.router)
 app.include_router(tables.router)
 app.include_router(buckets.router)
 app.include_router(cognito.router)
+app.include_router(ai.router)
 
 
 @app.get("/api/health")

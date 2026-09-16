@@ -455,3 +455,40 @@ class SavedSessionUpdate(BaseModel):
 class SavedSessionOut(SavedSessionBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
+
+
+# ---- AI assistant ----
+#
+# Backed by a LiteLLM proxy (or anything OpenAI-compatible), configured
+# entirely via env vars (LITELLM_API_KEY/BASE_URL/MODEL) -- never through the
+# Settings page, since these are deployment-time secrets/config, not
+# app data. Currently used by the Logs page only: building a query from a
+# plain-English description, and answering questions about a query's results.
+
+
+class AiStatus(BaseModel):
+    configured: bool
+
+
+AiChatRole = Literal["user", "assistant"]
+
+
+class AiChatMessage(BaseModel):
+    role: AiChatRole
+    content: str
+
+
+class AiAssistRequest(BaseModel):
+    mode: Literal["build_query", "ask_results"]
+    # The conversation so far, ending with the new user message.
+    messages: list[AiChatMessage]
+    query_string: Optional[str] = None
+    sample_rows: list[dict] = []
+    row_count: Optional[int] = None
+
+
+class AiAssistResponse(BaseModel):
+    reply: str
+    # build_query mode only: the query text extracted from the reply's code
+    # block, ready to drop straight into the query editor.
+    suggested_query: Optional[str] = None
