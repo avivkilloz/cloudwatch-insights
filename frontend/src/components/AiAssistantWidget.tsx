@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, AiAssistMode, AiChatMessage } from "../api";
+import MarkdownLite from "./MarkdownLite";
 
 interface DisplayMessage extends AiChatMessage {
   suggestedQuery?: string | null;
@@ -108,30 +109,13 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
               <div className="result-row" key={i} style={{ marginBottom: 8 }}>
                 <div className="result-row-detail" style={{ borderTop: "none" }}>
                   <span className={m.role === "user" ? "tag" : "tag ok"}>{m.role === "user" ? "You" : "AI"}</span>
-                  <p style={{ whiteSpace: "pre-wrap", marginTop: 6, marginBottom: m.suggestedQuery ? 6 : 0 }}>
-                    {m.content}
-                  </p>
-                  {m.suggestedQuery && (
-                    <>
-                      <pre
-                        style={{
-                          margin: "6px 0",
-                          background: "var(--panel-alt)",
-                          padding: 8,
-                          borderRadius: 6,
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                          fontSize: 12,
-                        }}
-                      >
-                        {m.suggestedQuery}
-                      </pre>
-                      {onUseQuery && (
-                        <button className="secondary" style={{ padding: "3px 10px" }} onClick={() => onUseQuery(m.suggestedQuery!)}>
-                          Use this query
-                        </button>
-                      )}
-                    </>
+                  <div style={{ marginTop: 6 }}>
+                    <MarkdownLite text={m.content} />
+                  </div>
+                  {m.suggestedQuery && onUseQuery && (
+                    <button className="secondary" style={{ padding: "3px 10px" }} onClick={() => onUseQuery(m.suggestedQuery!)}>
+                      Use this query
+                    </button>
                   )}
                 </div>
               </div>
