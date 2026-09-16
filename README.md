@@ -85,8 +85,10 @@ regions** by assuming a role you configure in each target account.
   alongside the rest of the app's settings — no separate file storage
   needed — so keep it small; for a larger image, host it yourself and
   note that this app has no URL field for that today (only file upload).
-- Pick a theme (Dark, Light, Dracula, Nord, Solarized Light) from the
-  dropdown in the top bar — it's remembered per browser via `localStorage`.
+- Pick a theme (Dark, Light, Dracula, Nord, Solarized Light, or one of the
+  four [Catppuccin](https://catppuccin.com/) flavors — Latte, Frappé,
+  Macchiato, Mocha) from the dropdown in the top bar — it's remembered per
+  browser via `localStorage`.
 
 ## Architecture
 

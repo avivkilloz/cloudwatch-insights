@@ -4,6 +4,10 @@ export const THEMES = [
   { id: "dracula", label: "Dracula" },
   { id: "nord", label: "Nord" },
   { id: "solarized-light", label: "Solarized Light" },
+  { id: "catppuccin-latte", label: "Catppuccin Latte" },
+  { id: "catppuccin-frappe", label: "Catppuccin Frappé" },
+  { id: "catppuccin-macchiato", label: "Catppuccin Macchiato" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
