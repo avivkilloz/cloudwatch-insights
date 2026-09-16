@@ -33,6 +33,9 @@ class SettingsOut(BaseModel):
     app_logo_url: Optional[str] = None
     logs_enabled: bool = True
     iot_enabled: bool = True
+    tables_enabled: bool = True
+    buckets_enabled: bool = True
+    cognito_enabled: bool = True
 
 
 class SettingsUpdate(BaseModel):
@@ -41,6 +44,9 @@ class SettingsUpdate(BaseModel):
     app_logo_url: Optional[str] = None
     logs_enabled: Optional[bool] = None
     iot_enabled: Optional[bool] = None
+    tables_enabled: Optional[bool] = None
+    buckets_enabled: Optional[bool] = None
+    cognito_enabled: Optional[bool] = None
 
 
 class SavedQueryBase(BaseModel):
@@ -301,6 +307,125 @@ class IotCertificateDetail(BaseModel):
     policies: list[IotPolicyInfo] = []
     thing_names: list[str] = []
     warnings: list[str] = []
+
+
+# ---- DynamoDB (Tables tab) ----
+
+
+class DynamoTablesResponse(BaseModel):
+    tables: list[str]
+
+
+class DynamoTableDescribeRequest(BaseModel):
+    environment_id: int
+    table_name: str
+
+
+class DynamoTableInfo(BaseModel):
+    table_name: str
+    status: Optional[str] = None
+    item_count: Optional[int] = None
+    size_bytes: Optional[int] = None
+    partition_key: Optional[str] = None
+    sort_key: Optional[str] = None
+
+
+class DynamoScanRequest(BaseModel):
+    environment_id: int
+    table_name: str
+    # `field:value` tokens, ANDed as an equality FilterExpression -- there's
+    # no generic way to "search" an arbitrary schemaless table beyond that.
+    query_string: str = ""
+    limit: int = Field(default=25, ge=1, le=200)
+    exclusive_start_key: Optional[str] = None
+
+
+class DynamoScanResponse(BaseModel):
+    items: list[dict] = []
+    scanned_count: int = 0
+    count: int = 0
+    last_evaluated_key: Optional[str] = None
+
+
+# ---- S3 (Buckets tab) ----
+
+
+class S3BucketInfo(BaseModel):
+    name: str
+    creation_date: Optional[int] = None
+
+
+class S3BucketsResponse(BaseModel):
+    buckets: list[S3BucketInfo]
+
+
+class S3BrowseRequest(BaseModel):
+    environment_id: int
+    bucket: str
+    prefix: str = ""
+    # When set, switches from a single-folder listing to a recursive,
+    # substring-filtered filename search under `prefix` (see s3_client.browse_bucket).
+    search: str = ""
+    max_results: int = Field(default=200, ge=1, le=1000)
+    continuation_token: Optional[str] = None
+
+
+class S3FolderInfo(BaseModel):
+    name: str
+    prefix: str
+
+
+class S3FileInfo(BaseModel):
+    key: str
+    name: str
+    size: Optional[int] = None
+    last_modified: Optional[int] = None
+    storage_class: Optional[str] = None
+
+
+class S3BrowseResponse(BaseModel):
+    bucket: str
+    bucket_region: str
+    prefix: str
+    folders: list[S3FolderInfo] = []
+    files: list[S3FileInfo] = []
+    continuation_token: Optional[str] = None
+
+
+# ---- Cognito tab ----
+
+
+class CognitoUserPoolInfo(BaseModel):
+    id: str
+    name: Optional[str] = None
+
+
+class CognitoUserPoolsResponse(BaseModel):
+    user_pools: list[CognitoUserPoolInfo]
+
+
+class CognitoUserSearchRequest(BaseModel):
+    environment_id: int
+    user_pool_id: str
+    # A single `attribute:value` token (starts-with match) -- Cognito's
+    # ListUsers Filter only supports one attribute per call.
+    query_string: str = ""
+    limit: int = Field(default=30, ge=1, le=60)
+    pagination_token: Optional[str] = None
+
+
+class CognitoUserInfo(BaseModel):
+    username: Optional[str] = None
+    status: Optional[str] = None
+    enabled: Optional[bool] = None
+    created: Optional[int] = None
+    last_modified: Optional[int] = None
+    attributes: dict[str, Optional[str]] = {}
+
+
+class CognitoUserSearchResponse(BaseModel):
+    users: list[CognitoUserInfo] = []
+    pagination_token: Optional[str] = None
 
 
 # ---- Saved sessions ----

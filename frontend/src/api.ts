@@ -13,6 +13,9 @@ export interface Settings {
   app_logo_url: string | null;
   logs_enabled: boolean;
   iot_enabled: boolean;
+  tables_enabled: boolean;
+  buckets_enabled: boolean;
+  cognito_enabled: boolean;
 }
 
 export interface SavedSession<T = Record<string, unknown>> {
@@ -161,6 +164,74 @@ export interface IotThingDetail {
   warnings: string[];
 }
 
+// ---- Tables (DynamoDB) ----
+
+export interface DynamoTableInfo {
+  table_name: string;
+  status: string | null;
+  item_count: number | null;
+  size_bytes: number | null;
+  partition_key: string | null;
+  sort_key: string | null;
+}
+
+export interface DynamoScanResult {
+  items: Record<string, unknown>[];
+  scanned_count: number;
+  count: number;
+  last_evaluated_key: string | null;
+}
+
+// ---- Buckets (S3) ----
+
+export interface S3BucketInfo {
+  name: string;
+  creation_date: number | null;
+}
+
+export interface S3FolderInfo {
+  name: string;
+  prefix: string;
+}
+
+export interface S3FileInfo {
+  key: string;
+  name: string;
+  size: number | null;
+  last_modified: number | null;
+  storage_class: string | null;
+}
+
+export interface S3BrowseResult {
+  bucket: string;
+  bucket_region: string;
+  prefix: string;
+  folders: S3FolderInfo[];
+  files: S3FileInfo[];
+  continuation_token: string | null;
+}
+
+// ---- Cognito ----
+
+export interface CognitoUserPoolInfo {
+  id: string;
+  name: string | null;
+}
+
+export interface CognitoUserInfo {
+  username: string | null;
+  status: string | null;
+  enabled: boolean | null;
+  created: number | null;
+  last_modified: number | null;
+  attributes: Record<string, string | null>;
+}
+
+export interface CognitoUserSearchResult {
+  users: CognitoUserInfo[];
+  pagination_token: string | null;
+}
+
 const BASE = "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -256,4 +327,37 @@ export const api = {
   updateSavedSession: <T = Record<string, unknown>>(id: number, payload: Partial<{ name: string; state: T }>) =>
     req<SavedSession<T>>(`/saved-sessions/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSavedSession: (id: number) => req<void>(`/saved-sessions/${id}`, { method: "DELETE" }),
+
+  listTables: (environmentId: number) =>
+    req<{ tables: string[] }>(`/tables/list?environment_id=${environmentId}`),
+  describeTable: (payload: { environment_id: number; table_name: string }) =>
+    req<DynamoTableInfo>("/tables/describe", { method: "POST", body: JSON.stringify(payload) }),
+  scanTable: (payload: {
+    environment_id: number;
+    table_name: string;
+    query_string?: string;
+    limit?: number;
+    exclusive_start_key?: string | null;
+  }) => req<DynamoScanResult>("/tables/scan", { method: "POST", body: JSON.stringify(payload) }),
+
+  listBuckets: (environmentId: number) =>
+    req<{ buckets: S3BucketInfo[] }>(`/buckets/list?environment_id=${environmentId}`),
+  browseBucket: (payload: {
+    environment_id: number;
+    bucket: string;
+    prefix?: string;
+    search?: string;
+    max_results?: number;
+    continuation_token?: string | null;
+  }) => req<S3BrowseResult>("/buckets/browse", { method: "POST", body: JSON.stringify(payload) }),
+
+  listUserPools: (environmentId: number) =>
+    req<{ user_pools: CognitoUserPoolInfo[] }>(`/cognito/user-pools?environment_id=${environmentId}`),
+  searchCognitoUsers: (payload: {
+    environment_id: number;
+    user_pool_id: string;
+    query_string?: string;
+    limit?: number;
+    pagination_token?: string | null;
+  }) => req<CognitoUserSearchResult>("/cognito/users", { method: "POST", body: JSON.stringify(payload) }),
 };

@@ -3,7 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
 from .db import Base, engine, ensure_columns
-from .routers import environments, iot, log_groups, queries, saved_queries, saved_sessions, settings
+from .routers import (
+    buckets,
+    cognito,
+    environments,
+    iot,
+    log_groups,
+    queries,
+    saved_queries,
+    saved_sessions,
+    settings,
+    tables,
+)
 
 Base.metadata.create_all(bind=engine)
 ensure_columns()
@@ -25,6 +36,9 @@ app.include_router(queries.router)
 app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
 app.include_router(iot.router)
+app.include_router(tables.router)
+app.include_router(buckets.router)
+app.include_router(cognito.router)
 
 
 @app.get("/api/health")
