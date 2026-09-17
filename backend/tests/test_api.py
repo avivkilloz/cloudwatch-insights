@@ -380,3 +380,34 @@ def test_ai_assist_returns_503_when_unconfigured():
         json={"mode": "build_query", "messages": [{"role": "user", "content": "show errors"}]},
     )
     assert resp.status_code == 503
+
+
+def test_tools_http_request_rejects_blocked_address():
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "http://169.254.169.254/latest/meta-data/"})
+    assert resp.status_code == 400
+    assert "169.254.169.254" in resp.json()["detail"]
+
+
+def test_tools_http_request_rejects_non_http_scheme():
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "ftp://example.com/file"})
+    assert resp.status_code == 400
+
+
+def test_tools_mqtt_presigned_url_rejects_unconfigured_environment():
+    resp = client.post("/api/tools/mqtt/presigned-url", json={"environment_id": 999999})
+    assert resp.status_code == 400
+
+
+def test_settings_tools_enabled_defaults_true_and_persists():
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    assert resp.json()["tools_enabled"] is True
+
+    resp = client.put("/api/settings", json={"tools_enabled": False})
+    assert resp.status_code == 200
+    assert resp.json()["tools_enabled"] is False
+    assert resp.json()["logs_enabled"] is True  # untouched field preserved
+
+    resp = client.put("/api/settings", json={"tools_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["tools_enabled"] is True

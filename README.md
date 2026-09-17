@@ -270,6 +270,10 @@ The app needs two things:
            "iot:GetPolicy",
            "iot:ListCertificates",
            "iot:ListPrincipalThings",
+           "iot:Connect",
+           "iot:Publish",
+           "iot:Subscribe",
+           "iot:Receive",
            "dynamodb:ListTables",
            "dynamodb:DescribeTable",
            "dynamodb:Scan",
@@ -381,6 +385,45 @@ There's no async query concept for OpenSearch the way CloudWatch Logs
 Insights has `StartQuery`/`GetQueryResults` — a search is a single
 synchronous request, so there's no "Stop" button or polling for that
 backend.
+
+## Tools tab
+
+A grid of small, independent developer utilities, each a card you click to
+expand in place:
+
+- **JWT Decoder / Encoder** — decode any JWT's header and payload, or build
+  and sign a new one. Runs entirely in your browser (via the Web Crypto
+  API) — the token, secret, and payload never reach the backend. Only
+  symmetric algorithms (HS256/384/512) are supported for signing and
+  verification; RS/ES-signed tokens can still be decoded, just not verified.
+- **Base64 Encode / Decode** — plain and URL-safe, UTF-8 safe. Client-side
+  only.
+- **Diff Checker** — line-by-line comparison of two blocks of text.
+  Client-side only.
+- **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
+  set headers/body, and see the status, headers, and body that come back.
+  Requests are sent **from the backend**, not the browser, so they aren't
+  subject to CORS — but for that same reason, the backend refuses to reach
+  loopback, private, and link-local address ranges (which also covers
+  every major cloud's instance metadata endpoint, e.g. `169.254.169.254`),
+  so this can't be turned into a way to probe internal infrastructure or
+  steal the backend's own AWS credentials. This check resolves the
+  hostname once before connecting; it isn't proof against a DNS answer
+  that changes between that check and the actual connection (DNS
+  rebinding). Redirects are returned as-is rather than followed
+  automatically, so a redirect can't be used to reach a blocked address
+  either.
+- **MQTT Tester** — pick one of your configured environments, then
+  subscribe and publish to topics on that account's AWS IoT Core endpoint,
+  the same way the AWS IoT console's own "MQTT test client" works.
+  Connecting mints a short-lived (5 minute), SigV4-signed WebSocket URL
+  server-side using that environment's assumed role, then connects
+  straight from your browser to the endpoint — the MQTT session itself
+  never passes through this app's backend. The assumed role needs
+  `iot:DescribeEndpoint`, `iot:Connect`, `iot:Publish`, `iot:Subscribe`,
+  and `iot:Receive` (see the permissions policy above), and the IoT Core
+  endpoint must be reachable over HTTPS/WSS from wherever your browser is
+  (it's public by default unless the account restricts it to a VPC).
 
 ## Notes
 

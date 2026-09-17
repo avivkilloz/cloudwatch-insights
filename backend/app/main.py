@@ -16,6 +16,7 @@ from .routers import (
     saved_sessions,
     settings,
     tables,
+    tools,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -43,6 +44,7 @@ app.include_router(tables.router)
 app.include_router(buckets.router)
 app.include_router(cognito.router)
 app.include_router(ai.router)
+app.include_router(tools.router)
 
 
 @app.get("/api/health")

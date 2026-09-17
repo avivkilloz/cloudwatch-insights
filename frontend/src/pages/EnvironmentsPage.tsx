@@ -19,14 +19,19 @@ const EMPTY_SETTINGS: Settings = {
   tables_enabled: true,
   buckets_enabled: true,
   cognito_enabled: true,
+  tools_enabled: true,
 };
 
-const TAB_TOGGLES: { key: "logs_enabled" | "iot_enabled" | "tables_enabled" | "buckets_enabled" | "cognito_enabled"; label: string }[] = [
+const TAB_TOGGLES: {
+  key: "logs_enabled" | "iot_enabled" | "tables_enabled" | "buckets_enabled" | "cognito_enabled" | "tools_enabled";
+  label: string;
+}[] = [
   { key: "logs_enabled", label: "Logs" },
   { key: "iot_enabled", label: "IoT" },
   { key: "tables_enabled", label: "Tables" },
   { key: "buckets_enabled", label: "Buckets" },
   { key: "cognito_enabled", label: "Cognito" },
+  { key: "tools_enabled", label: "Tools" },
 ];
 
 // Logos are stored inline as a data: URL in the settings table, which is

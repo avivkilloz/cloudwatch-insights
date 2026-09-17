@@ -17,6 +17,7 @@ TAB_ENABLED_KEYS = {
     "tables_enabled": "tab_tables_enabled",
     "buckets_enabled": "tab_buckets_enabled",
     "cognito_enabled": "tab_cognito_enabled",
+    "tools_enabled": "tab_tools_enabled",
 }
 
 

@@ -6,9 +6,10 @@ import EnvironmentsPage from "./pages/EnvironmentsPage";
 import InsightsPage from "./pages/InsightsPage";
 import IotPage from "./pages/IotPage";
 import TablesPage from "./pages/TablesPage";
+import ToolsPage from "./pages/ToolsPage";
 import { applyTheme, getInitialTheme, THEMES, ThemeId } from "./theme";
 
-type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "environments";
+type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "tools" | "environments";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   tables_enabled: true,
   buckets_enabled: true,
   cognito_enabled: true,
+  tools_enabled: true,
 };
 
 const TOGGLEABLE_TABS: { id: Tab; label: string; enabledKey: keyof Settings; render: () => JSX.Element }[] = [
@@ -28,6 +30,7 @@ const TOGGLEABLE_TABS: { id: Tab; label: string; enabledKey: keyof Settings; ren
   { id: "tables", label: "Tables", enabledKey: "tables_enabled", render: () => <TablesPage /> },
   { id: "buckets", label: "Buckets", enabledKey: "buckets_enabled", render: () => <BucketsPage /> },
   { id: "cognito", label: "Cognito", enabledKey: "cognito_enabled", render: () => <CognitoPage /> },
+  { id: "tools", label: "Tools", enabledKey: "tools_enabled", render: () => <ToolsPage /> },
 ];
 
 export default function App() {
