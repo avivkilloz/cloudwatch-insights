@@ -3,17 +3,16 @@ import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
 import BucketsPage from "./pages/BucketsPage";
 import CognitoPage from "./pages/CognitoPage";
-import AdminPage from "./pages/AdminPage";
+import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
 import IotPage from "./pages/IotPage";
 import LoginPage from "./pages/LoginPage";
-import SavedItemsPage from "./pages/SavedItemsPage";
 import TablesPage from "./pages/TablesPage";
 import ToolsPage from "./pages/ToolsPage";
-import ThemePicker from "./components/ThemePicker";
+import UserMenu from "./components/UserMenu";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
 
-type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "tools" | "saved" | "admin";
+type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "tools" | "settings";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -63,7 +62,6 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
     { id: "buckets", label: "Buckets", enabled: !!user?.buckets_enabled, render: () => <BucketsPage /> },
     { id: "cognito", label: "Cognito", enabled: !!user?.cognito_enabled, render: () => <CognitoPage /> },
     { id: "tools", label: "Tools", enabled: !!user?.tools_enabled, render: () => <ToolsPage /> },
-    { id: "saved", label: "Saved", enabled: true, render: () => <SavedItemsPage /> },
   ];
 
   // A tab that's just been disabled (e.g. by an admin changing this user's
@@ -71,8 +69,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
   // reachable.
   useEffect(() => {
     const current = TOGGLEABLE_TABS.find((t) => t.id === tab);
-    if (current && !current.enabled) setTab("saved");
-    if (tab === "admin" && !user?.is_admin) setTab("saved");
+    if (current && !current.enabled) setTab("settings");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, user]);
 
@@ -97,28 +94,21 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
               )
           )}
         </nav>
-        <div className="topbar-right header-icons">
-          <span className="user-badge">{user?.username}</span>
-          <ThemePicker theme={theme} onChange={onThemeChange} />
-          {user?.is_admin && (
-            <button
-              type="button"
-              className={`icon-btn ${tab === "admin" ? "active" : ""}`}
-              title="Settings"
-              aria-label="Settings"
-              onClick={() => setTab("admin")}
-            >
-              ⚙️
-            </button>
+        <div className="topbar-right">
+          {user && (
+            <UserMenu
+              user={user}
+              theme={theme}
+              onThemeChange={onThemeChange}
+              onOpenSettings={() => setTab("settings")}
+              onLogout={handleLogout}
+            />
           )}
-          <button type="button" className="icon-btn" title="Log out" aria-label="Log out" onClick={handleLogout}>
-            ⏻
-          </button>
         </div>
       </header>
       <main className="content">
         {TOGGLEABLE_TABS.map((t) => tab === t.id && t.enabled && <div key={t.id}>{t.render()}</div>)}
-        {tab === "admin" && user?.is_admin && <AdminPage />}
+        {tab === "settings" && <SettingsPage />}
       </main>
     </div>
   );

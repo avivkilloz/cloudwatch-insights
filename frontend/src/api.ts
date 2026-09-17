@@ -36,6 +36,7 @@ export interface User {
   group_id: number;
   group_name: string;
   is_admin: boolean;
+  avatar_url: string | null;
   logs_enabled: boolean;
   iot_enabled: boolean;
   tables_enabled: boolean;
@@ -391,6 +392,8 @@ export const api = {
   me: () => req<User>("/auth/me"),
   changeOwnPassword: (current_password: string, new_password: string) =>
     req<User>("/auth/password", { method: "PUT", body: JSON.stringify({ current_password, new_password }) }),
+  updateOwnProfile: (avatar_url: string | null) =>
+    req<User>("/auth/profile", { method: "PUT", body: JSON.stringify({ avatar_url }) }),
 
   listUsers: () => req<User[]>("/users"),
   createUser: (payload: { username: string; password: string; group_id: number }) =>

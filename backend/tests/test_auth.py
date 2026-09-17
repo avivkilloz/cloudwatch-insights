@@ -74,3 +74,26 @@ def test_change_own_password_then_login_with_new_password():
         "/api/auth/login", json={"username": ADMIN_USERNAME, "password": "a-new-password-123"}
     )
     assert resp.status_code == 200
+
+
+def test_update_own_profile_sets_and_clears_avatar():
+    resp = client.put("/api/auth/profile", json={"avatar_url": "data:image/png;base64,abc123"})
+    assert resp.status_code == 200
+    assert resp.json()["avatar_url"] == "data:image/png;base64,abc123"
+
+    resp = client.get("/api/auth/me")
+    assert resp.json()["avatar_url"] == "data:image/png;base64,abc123"
+
+    resp = client.put("/api/auth/profile", json={"avatar_url": None})
+    assert resp.status_code == 200
+    assert resp.json()["avatar_url"] is None
+
+
+def test_update_own_profile_rejects_oversized_avatar():
+    resp = client.put("/api/auth/profile", json={"avatar_url": "x" * 300_001})
+    assert resp.status_code == 400
+
+
+def test_update_own_profile_requires_login():
+    resp = _fresh_client().put("/api/auth/profile", json={"avatar_url": "data:image/png;base64,abc"})
+    assert resp.status_code == 401
