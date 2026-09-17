@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import cognito_client, schemas
+from .. import auth, cognito_client, models, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -9,10 +9,14 @@ router = APIRouter(prefix="/api/cognito", tags=["cognito"])
 
 
 @router.get("/user-pools", response_model=schemas.CognitoUserPoolsResponse)
-def list_user_pools(environment_id: int, db: Session = Depends(get_db)):
+def list_user_pools(
+    environment_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -25,10 +29,14 @@ def list_user_pools(environment_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/users", response_model=schemas.CognitoUserSearchResponse)
-def search_users(payload: schemas.CognitoUserSearchRequest, db: Session = Depends(get_db)):
+def search_users(
+    payload: schemas.CognitoUserSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, payload.environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

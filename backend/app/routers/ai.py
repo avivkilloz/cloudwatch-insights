@@ -1,7 +1,7 @@
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from .. import ai_assistant, schemas
+from .. import ai_assistant, auth, models, schemas
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -16,12 +16,12 @@ MAX_SAMPLE_ROWS = 500
 
 
 @router.get("/status", response_model=schemas.AiStatus)
-def get_status():
+def get_status(_current_user: models.User = Depends(auth.get_current_user)):
     return schemas.AiStatus(configured=ai_assistant.is_configured())
 
 
 @router.post("/assist", response_model=schemas.AiAssistResponse)
-def assist(payload: schemas.AiAssistRequest):
+def assist(payload: schemas.AiAssistRequest, _current_user: models.User = Depends(auth.get_current_user)):
     try:
         reply = ai_assistant.chat(
             payload.mode,

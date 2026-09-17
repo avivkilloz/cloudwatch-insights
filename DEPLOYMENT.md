@@ -66,7 +66,7 @@ from the target-account policy below.)
    export NAMESPACE=cloudwatch-insights
    export SERVICE_ACCOUNT=cloudwatch-insights-backend
    export ROLE_NAME=cloudwatch-insights-hub-role
-   export TARGET_ROLE_NAME=CloudWatchInsightsReadRole   # the role name you'll enter in the app's Settings tab
+   export TARGET_ROLE_NAME=CloudWatchInsightsReadRole   # the role name you'll set on the Admin group in the app's Settings
 
    cat > trust-policy.json <<EOF
    {
@@ -229,6 +229,18 @@ from the target-account policy below.)
      --from-literal=LITELLM_API_KEY="<LITELLM_API_KEY>"
    ```
 
+8. **(Optional, but recommended) A password for the initial `admin` user**,
+   created automatically the first time the backend starts with no users
+   yet. Skip this and the backend generates a random one itself, logging it
+   once to the pod's startup logs (`kubectl logs` the backend pod) — fine
+   for a quick try-out, but for a real deployment set it explicitly so the
+   password isn't only ever recoverable from a log line:
+
+   ```bash
+   kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-admin \
+     --from-literal=ADMIN_PASSWORD="<ADMIN_PASSWORD>"
+   ```
+
 ## Deploy with Helm directly
 
 ```bash
@@ -256,6 +268,16 @@ To enable the optional AI assistant, add:
 ```
 Leaving `backend.ai.baseUrl` unset (the default) means no `LITELLM_*`
 env vars are set on the backend at all, and the feature stays hidden.
+
+To set the initial admin password explicitly (recommended), add:
+```bash
+  --set backend.auth.existingSecret=cloudwatch-insights-admin
+```
+Leaving `backend.auth.existingSecret`/`backend.auth.adminPassword` both
+unset means the backend generates and logs a random password on first
+startup instead (see prerequisite 8 above). `backend.auth.cookieSecure`
+defaults to `true` (the session cookie requires HTTPS); only set it to
+`false` for a deliberately HTTP-only deployment.
 
 Check `helm/cloudwatch-insights/values.yaml` for every other knob (resource
 requests/limits, ingress annotations/TLS, extra backend env vars). A few
@@ -308,10 +330,18 @@ riding `latest`, so a deploy is always traceable back to a commit.
 
 ## After deploying
 
-Open the app and go to **Settings**:
-1. Set the global role name to `$TARGET_ROLE_NAME` (default in the examples
-   above: `CloudWatchInsightsReadRole`).
-2. Add an environment for each account/region combination you want to
-   query — a name, the 12-digit account ID, and a region.
+Sign in as `admin` (the password is whatever you set via `backend.auth` in
+Helm — see below — or, if you didn't set one, whatever the backend logged on
+first startup; `kubectl logs` the backend pod to find it). Then open the
+gear-icon **Settings**:
+1. Under **Environments**, add an environment for each account/region
+   combination you want to query — a name, the 12-digit account ID, and a
+   region.
+2. Under **User groups**, set the Admin group's **IAM role name** to
+   `$TARGET_ROLE_NAME` (default in the examples above:
+   `CloudWatchInsightsReadRole`), and create any other groups/users you
+   need — each group gets its own role name, its own visible tabs, and its
+   own visible environments (the Admin group always sees every
+   environment).
 
 Then use the **Logs** tab as described in the main README.

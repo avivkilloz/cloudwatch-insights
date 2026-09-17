@@ -105,6 +105,27 @@ backend:
     existingSecretKey: LITELLM_API_KEY
     apiKey: ""
 
+  # Initial admin user, created once on first startup (when no users exist
+  # yet). If left empty, the backend generates a random password itself and
+  # logs it once to the pod's startup logs -- fine for a quick try-out, but
+  # set this explicitly for any real deployment so the password doesn't only
+  # ever live in a log line. Same two-way shape as `database`/`ai` above:
+  #
+  # Option A: an existing Secret.
+  #   auth:
+  #     existingSecret: cloudwatch-insights-admin
+  #     existingSecretKey: ADMIN_PASSWORD
+  #
+  # Option B (quick testing only): inline password, stored in this values
+  # file / the release's plain-text values history.
+  auth:
+    existingSecret: ""
+    existingSecretKey: ADMIN_PASSWORD
+    adminPassword: ""
+    # Set to false only for local/HTTP-only deployments -- it controls the
+    # session cookie's `Secure` flag, which browsers require HTTPS for.
+    cookieSecure: true
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []

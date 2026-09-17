@@ -58,7 +58,10 @@ def ensure_columns():
     database that already has that table without this. Only adds columns
     that are safe to backfill on existing rows (nullable, or carrying a
     server_default); anything else is skipped rather than risking a failed
-    ALTER TABLE on a table that already has rows.
+    ALTER TABLE on a table that already has rows. A foreign-key column adds
+    its REFERENCES constraint as a separate ALTER TABLE right after --
+    create_all() sets this up natively for brand-new tables, but an ADD
+    COLUMN here never carries one implicitly.
     """
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
@@ -88,3 +91,12 @@ def ensure_columns():
                 if not column.nullable:
                     clause += " NOT NULL"
                 conn.execute(text(clause))
+                for fk in column.foreign_keys:
+                    constraint_name = f"{table.name}_{column.name}_fkey"
+                    fk_clause = (
+                        f'ALTER TABLE "{table.name}" ADD CONSTRAINT "{constraint_name}" '
+                        f'FOREIGN KEY ("{column.name}") REFERENCES "{fk.column.table.name}" ("{fk.column.name}")'
+                    )
+                    if fk.ondelete:
+                        fk_clause += f" ON DELETE {fk.ondelete}"
+                    conn.execute(text(fk_clause))

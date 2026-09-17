@@ -1,20 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import auth, models, schemas
 from ..db import get_db
 
 router = APIRouter(prefix="/api/saved-queries", tags=["saved-queries"])
 
 
 @router.get("", response_model=list[schemas.SavedQueryOut])
-def list_saved_queries(db: Session = Depends(get_db)):
-    return db.query(models.SavedQuery).order_by(models.SavedQuery.name).all()
+def list_saved_queries(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return (
+        db.query(models.SavedQuery)
+        .filter(models.SavedQuery.user_id == current_user.id)
+        .order_by(models.SavedQuery.name)
+        .all()
+    )
 
 
 @router.post("", response_model=schemas.SavedQueryOut, status_code=201)
-def create_saved_query(payload: schemas.SavedQueryCreate, db: Session = Depends(get_db)):
-    saved = models.SavedQuery(**payload.model_dump())
+def create_saved_query(
+    payload: schemas.SavedQueryCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    saved = models.SavedQuery(**payload.model_dump(), user_id=current_user.id)
     db.add(saved)
     db.commit()
     db.refresh(saved)
@@ -22,9 +31,14 @@ def create_saved_query(payload: schemas.SavedQueryCreate, db: Session = Depends(
 
 
 @router.put("/{saved_query_id}", response_model=schemas.SavedQueryOut)
-def update_saved_query(saved_query_id: int, payload: schemas.SavedQueryUpdate, db: Session = Depends(get_db)):
+def update_saved_query(
+    saved_query_id: int,
+    payload: schemas.SavedQueryUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     saved = db.get(models.SavedQuery, saved_query_id)
-    if not saved:
+    if not saved or saved.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Saved query not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(saved, key, value)
@@ -34,9 +48,13 @@ def update_saved_query(saved_query_id: int, payload: schemas.SavedQueryUpdate, d
 
 
 @router.delete("/{saved_query_id}", status_code=204)
-def delete_saved_query(saved_query_id: int, db: Session = Depends(get_db)):
+def delete_saved_query(
+    saved_query_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     saved = db.get(models.SavedQuery, saved_query_id)
-    if not saved:
+    if not saved or saved.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Saved query not found")
     db.delete(saved)
     db.commit()

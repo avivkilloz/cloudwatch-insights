@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import aws_client, schemas
+from .. import aws_client, auth, models, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -49,12 +49,16 @@ def _start_one(
 
 
 @router.post("/start", response_model=schemas.StartQueryResponse)
-async def start_queries(payload: schemas.StartQueryRequest, db: Session = Depends(get_db)):
+async def start_queries(
+    payload: schemas.StartQueryRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     tasks = []
     for target in payload.targets:
         try:
-            environment = resolve_environment(db, target.environment_id)
+            environment = resolve_environment(db, target.environment_id, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -69,7 +73,7 @@ async def start_queries(payload: schemas.StartQueryRequest, db: Session = Depend
             )
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -133,12 +137,16 @@ def _results_one(environment_id, environment_name, account_id, region, role_name
 
 
 @router.post("/results", response_model=schemas.QueryResultsResponse)
-async def get_results(payload: schemas.QueryResultsRequest, db: Session = Depends(get_db)):
+async def get_results(
+    payload: schemas.QueryResultsRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     tasks = []
     for q in payload.queries:
         try:
-            environment = resolve_environment(db, q.environment_id)
+            environment = resolve_environment(db, q.environment_id, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -155,7 +163,7 @@ async def get_results(payload: schemas.QueryResultsRequest, db: Session = Depend
             )
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -196,13 +204,17 @@ def _stop_one(account_id, region, role_name, query_id):
 
 
 @router.post("/stop", status_code=204)
-async def stop_queries(payload: schemas.StopQueryRequest, db: Session = Depends(get_db)):
+async def stop_queries(
+    payload: schemas.StopQueryRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     tasks = []
     for q in payload.queries:
         try:
-            environment = resolve_environment(db, q.environment_id)
-            role_name = resolve_role_name(db, environment)
+            environment = resolve_environment(db, q.environment_id, current_user)
+            role_name = resolve_role_name(current_user)
         except ResolveError:
             continue
         tasks.append(

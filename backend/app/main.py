@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import models
-from .db import Base, engine, ensure_columns
+from . import bootstrap, models
+from .db import Base, SessionLocal, engine, ensure_columns
 from .routers import (
     ai,
+    auth,
     buckets,
     cognito,
     environments,
@@ -17,10 +18,18 @@ from .routers import (
     settings,
     tables,
     tools,
+    user_groups,
+    users,
 )
 
 Base.metadata.create_all(bind=engine)
 ensure_columns()
+
+_bootstrap_db = SessionLocal()
+try:
+    bootstrap.ensure_admin_exists(_bootstrap_db)
+finally:
+    _bootstrap_db.close()
 
 app = FastAPI(title="CloudWatch Insights (Multi-Account)")
 
@@ -32,6 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(user_groups.router)
 app.include_router(environments.router)
 app.include_router(settings.router)
 app.include_router(log_groups.router)
