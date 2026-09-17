@@ -15,7 +15,6 @@ export interface ExtraSelectField<T> {
 }
 
 interface Props<T extends SavedItem> {
-  title: string;
   description: string;
   queryLabel: string;
   items: T[];
@@ -27,7 +26,6 @@ interface Props<T extends SavedItem> {
 }
 
 export default function SavedItemsPanel<T extends SavedItem>({
-  title,
   description,
   queryLabel,
   items,
@@ -98,8 +96,7 @@ export default function SavedItemsPanel<T extends SavedItem>({
   }
 
   return (
-    <div className="panel">
-      <h2>{title}</h2>
+    <div>
       <p className="muted">{description}</p>
 
       <div className="row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
