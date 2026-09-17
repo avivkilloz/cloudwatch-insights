@@ -264,6 +264,7 @@ h3 {
 }
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 select,
 textarea {
@@ -310,6 +311,7 @@ button:disabled {
 }
 
 input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
 input[type="number"]:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
