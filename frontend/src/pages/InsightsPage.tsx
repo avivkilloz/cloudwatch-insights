@@ -439,7 +439,7 @@ export default function InsightsPage() {
         <h2>Backend</h2>
         <div className="toolbar">
           <button className={backend === "cloudwatch" ? "" : "secondary"} onClick={() => switchBackend("cloudwatch")}>
-            CloudWatch Logs Insights
+            CloudWatch
           </button>
           <button className={backend === "opensearch" ? "" : "secondary"} onClick={() => switchBackend("opensearch")}>
             OpenSearch

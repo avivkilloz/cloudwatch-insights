@@ -387,7 +387,7 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
           key: "backend",
           label: "Backend",
           options: [
-            { value: "cloudwatch", label: "CloudWatch Logs Insights" },
+            { value: "cloudwatch", label: "CloudWatch" },
             { value: "opensearch", label: "OpenSearch (Lucene)" },
           ],
           defaultValue: "cloudwatch",
