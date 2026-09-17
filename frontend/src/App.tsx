@@ -36,11 +36,39 @@ export default function App() {
     document.title = appTitle;
   }, [appTitle]);
 
+  useEffect(() => {
+    // Reuses the same logo shown next to the app title as the browser tab's
+    // favicon. There's no bundled default to fall back to -- removing the
+    // link on logo removal just leaves the browser's own default, same as
+    // before any logo was ever set.
+    const FAVICON_ID = "app-favicon";
+    let link = document.getElementById(FAVICON_ID) as HTMLLinkElement | null;
+    if (settings.app_logo_url) {
+      if (!link) {
+        link = document.createElement("link");
+        link.id = FAVICON_ID;
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      const mime = settings.app_logo_url.match(/^data:([^;,]+)/);
+      if (mime) link.type = mime[1];
+      link.href = settings.app_logo_url;
+    } else if (link) {
+      link.remove();
+    }
+  }, [settings.app_logo_url]);
+
   if (loading) return null;
   if (!user) return <LoginPage />;
 
   return (
-    <AppShell appTitle={appTitle} appLogoUrl={settings.app_logo_url} theme={theme} onThemeChange={setTheme} />
+    <AppShell
+      appTitle={appTitle}
+      appLogoUrl={settings.app_logo_url}
+      theme={theme}
+      onThemeChange={setTheme}
+      onSettingsChange={setSettings}
+    />
   );
 }
 
@@ -49,9 +77,10 @@ interface ShellProps {
   appLogoUrl: string | null;
   theme: ThemeId;
   onThemeChange: (theme: ThemeId) => void;
+  onSettingsChange: (settings: Settings) => void;
 }
 
-function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
+function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>("insights");
 
@@ -100,7 +129,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
       </header>
       <main className="content">
         {TOGGLEABLE_TABS.map((t) => tab === t.id && t.enabled && <div key={t.id}>{t.render()}</div>)}
-        {tab === "settings" && <SettingsPage theme={theme} onThemeChange={onThemeChange} />}
+        {tab === "settings" && (
+          <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
+        )}
       </main>
     </div>
   );

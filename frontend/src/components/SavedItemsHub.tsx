@@ -21,13 +21,23 @@ interface Props {
   onDeleteSession: (id: number) => Promise<void>;
 }
 
-type TabId = "logs-queries" | "iot-searches" | "logs-sessions" | "iot-sessions" | "http-requests" | "mqtt-topics";
+type TabId =
+  | "logs-queries"
+  | "iot-searches"
+  | "logs-sessions"
+  | "iot-sessions"
+  | "buckets"
+  | "tables"
+  | "http-requests"
+  | "mqtt-topics";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "logs-queries", label: "Log Queries" },
   { id: "iot-searches", label: "IoT Searches" },
   { id: "logs-sessions", label: "Logs Sessions" },
   { id: "iot-sessions", label: "IoT Sessions" },
+  { id: "buckets", label: "Buckets" },
+  { id: "tables", label: "Tables" },
   { id: "http-requests", label: "HTTP Requests" },
   { id: "mqtt-topics", label: "MQTT Topics" },
 ];
@@ -105,6 +115,28 @@ export default function SavedItemsHub(props: Props) {
           kind="json"
           items={props.savedSessions.filter((s) => s.page === "iot")}
           onCreate={(name, state) => props.onCreateSession("iot", name, state)}
+          onUpdate={props.onUpdateSession}
+          onDelete={props.onDeleteSession}
+        />
+      )}
+
+      {tab === "buckets" && (
+        <SavedSessionEditorPanel
+          description="Available from the Buckets page's &quot;Load saved bucket…&quot; dropdown, created via its &quot;Save current bucket&quot; button."
+          kind="json"
+          items={props.savedSessions.filter((s) => s.page === "buckets")}
+          onCreate={(name, state) => props.onCreateSession("buckets", name, state)}
+          onUpdate={props.onUpdateSession}
+          onDelete={props.onDeleteSession}
+        />
+      )}
+
+      {tab === "tables" && (
+        <SavedSessionEditorPanel
+          description="Available from the Tables page's &quot;Load saved table…&quot; dropdown, created via its &quot;Save current table&quot; button."
+          kind="json"
+          items={props.savedSessions.filter((s) => s.page === "tables")}
+          onCreate={(name, state) => props.onCreateSession("tables", name, state)}
           onUpdate={props.onUpdateSession}
           onDelete={props.onDeleteSession}
         />

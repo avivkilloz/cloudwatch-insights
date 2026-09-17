@@ -81,9 +81,12 @@ function groupToDraft(g: UserGroup): GroupDraft {
 interface Props {
   theme: ThemeId;
   onThemeChange: (theme: ThemeId) => void;
+  /** Lets the header (title, logo, favicon) update live as soon as an admin
+   * saves app settings here, instead of only after a page reload. */
+  onSettingsChange: (settings: Settings) => void;
 }
 
-export default function SettingsPage({ theme, onThemeChange }: Props) {
+export default function SettingsPage({ theme, onThemeChange, onSettingsChange }: Props) {
   const { user: currentUser, refresh: refreshAuth } = useAuth();
   const isAdmin = !!currentUser?.is_admin;
   const sections = isAdmin ? [...BASE_SECTIONS, ...ADMIN_SECTIONS] : BASE_SECTIONS;
@@ -128,7 +131,7 @@ export default function SettingsPage({ theme, onThemeChange }: Props) {
         api.listUsers(),
       ]);
       setEnvironments(envs);
-      setSettingsState(s);
+      applySettings(s);
       setAppTitleDraft(s.app_title ?? "");
       setLogoDraft(s.app_logo_url ?? "");
       setGroups(g);
@@ -155,8 +158,13 @@ export default function SettingsPage({ theme, onThemeChange }: Props) {
     }
   }
 
+  function applySettings(updated: Settings) {
+    setSettingsState(updated);
+    onSettingsChange(updated);
+  }
+
   async function saveAppTitle() {
-    await withActionError(async () => setSettingsState(await api.updateSettings({ app_title: appTitleDraft.trim() || null })));
+    await withActionError(async () => applySettings(await api.updateSettings({ app_title: appTitleDraft.trim() || null })));
   }
 
   function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -180,14 +188,14 @@ export default function SettingsPage({ theme, onThemeChange }: Props) {
   }
 
   async function saveLogo() {
-    await withActionError(async () => setSettingsState(await api.updateSettings({ app_logo_url: logoDraft || null })));
+    await withActionError(async () => applySettings(await api.updateSettings({ app_logo_url: logoDraft || null })));
   }
 
   async function removeLogo() {
     setLogoDraft("");
     setLogoFileName(null);
     setLogoError(null);
-    await withActionError(async () => setSettingsState(await api.updateSettings({ app_logo_url: null })));
+    await withActionError(async () => applySettings(await api.updateSettings({ app_logo_url: null })));
   }
 
   async function addEnvironment() {

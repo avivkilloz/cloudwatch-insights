@@ -893,6 +893,12 @@ th {
   width: 100%;
   padding: 0;
   background: var(--panel);
+  /* Without this, the label would inherit the generic `button` rule's
+     `color: var(--accent-text)` -- chosen to contrast with a solid
+     `--accent-dim` fill, not with this card's `--panel` background. For
+     themes where both happen to be dark (the Catppuccin dark variants),
+     that made the label nearly invisible against the panel. */
+  color: var(--text);
   border: 2px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
