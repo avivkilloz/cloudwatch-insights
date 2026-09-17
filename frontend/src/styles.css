@@ -486,8 +486,13 @@ th {
 
 .tool-card-desc {
   font-size: 12px;
+  line-height: 1.4;
   color: var(--text-dim);
   margin-top: 2px;
+  /* Reserves room for 2 lines regardless of how long this particular card's
+     description actually is, so collapsed cards are a uniform height
+     instead of shrink-wrapping to whichever description is shortest. */
+  min-height: 2.8em;
 }
 
 .tool-card-body {
