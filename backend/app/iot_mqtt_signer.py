@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from botocore.auth import SigV4QueryAuth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
@@ -30,11 +32,24 @@ def build_presigned_ws_url(
 ) -> dict:
     endpoint = iot_client.get_iot_data_endpoint(account_id, region, role_name)
     creds = aws_client.get_credentials(account_id, role_name)
-    credentials = Credentials(creds["access_key"], creds["secret_key"], creds["session_token"])
+
+    # AWS IoT Core's device gateway recomputes the expected signature
+    # *without* the session token and compares -- unlike SigV4Query auth's
+    # usual behavior (e.g. for S3 presigned URLs), where the token is part
+    # of the signed canonical request. Signing it here (what botocore's
+    # SigV4QueryAuth does by default when the credentials carry a token) is
+    # a well-known gotcha that IoT Core rejects with
+    # SECURITY_TOKEN_SIGNATURE_MISMATCH, since its own signature calculation
+    # excludes the token. AWS's own reference WebSocket-URL builders (e.g.
+    # aws-iot-device-sdk-js's browserBuilder) work around this the same way:
+    # sign without the token, then append it afterward, unsigned.
+    credentials = Credentials(creds["access_key"], creds["secret_key"])
 
     request = AWSRequest(method="GET", url=f"https://{endpoint}/mqtt")
     SigV4QueryAuth(credentials, SIGNING_SERVICE, region, expires=expires).add_auth(request)
-    return {"endpoint": endpoint, "url": request.url.replace("https://", "wss://", 1)}
+
+    url = f"{request.url}&X-Amz-Security-Token={quote(creds['session_token'], safe='')}"
+    return {"endpoint": endpoint, "url": url.replace("https://", "wss://", 1)}
 
 
 def probe_presigned_url(url: str) -> dict:

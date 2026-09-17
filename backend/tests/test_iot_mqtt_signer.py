@@ -49,6 +49,45 @@ def test_build_presigned_ws_url_respects_custom_expiry(monkeypatch):
     assert qs["X-Amz-Expires"][0] == "60"
 
 
+def test_build_presigned_ws_url_signs_without_the_security_token(monkeypatch):
+    """AWS IoT Core's device gateway recomputes the expected signature
+    *without* the session token and compares -- signing it in (the default
+    behavior of botocore's SigV4QueryAuth when given a token-bearing
+    Credentials object) produces a URL IoT Core rejects with
+    SECURITY_TOKEN_SIGNATURE_MISMATCH. The signing Credentials object must
+    therefore carry no token, even though the token still needs to end up
+    in the URL for the connection itself to authenticate.
+    """
+    monkeypatch.setattr(
+        iot_mqtt_signer.iot_client, "get_iot_data_endpoint", lambda account_id, region, role_name: "x.iot.us-east-1.amazonaws.com"
+    )
+    monkeypatch.setattr(
+        iot_mqtt_signer.aws_client,
+        "get_credentials",
+        lambda account_id, role_name: {
+            "access_key": "AKIA...",
+            "secret_key": "secret",
+            "session_token": "token/with+special=chars",
+        },
+    )
+
+    captured = {}
+    original_init = iot_mqtt_signer.Credentials.__init__
+
+    def spy_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured["token"] = self.token
+
+    monkeypatch.setattr(iot_mqtt_signer.Credentials, "__init__", spy_init)
+
+    result = iot_mqtt_signer.build_presigned_ws_url("111122223333", "us-east-1", "OpsRole")
+
+    assert captured["token"] is None
+
+    qs = parse_qs(urlsplit(result["url"]).query)
+    assert qs["X-Amz-Security-Token"][0] == "token/with+special=chars"
+
+
 def test_probe_presigned_url_reports_rejection_status_body_and_headers(monkeypatch):
     captured = {}
     response = Response(
