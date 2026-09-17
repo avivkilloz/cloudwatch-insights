@@ -10,6 +10,8 @@ interface Props {
 const PAGE_LABELS: Record<string, string> = {
   logs: "Logs",
   iot: "IoT",
+  "tools-http": "HTTP Client",
+  "tools-mqtt-topics": "MQTT Topics",
 };
 
 export default function SavedSessionsPanel({ items, onRename, onDelete }: Props) {
@@ -46,9 +48,10 @@ export default function SavedSessionsPanel({ items, onRename, onDelete }: Props)
     <div className="panel">
       <h2>Saved sessions</h2>
       <p className="muted">
-        A full working-state snapshot from the Logs or IoT page — environments, filters, query, and so on — saved
-        via each page's "Save session" button. Rename or delete them here; to change what a session actually
-        contains, load it on its page, adjust it, and save it again.
+        Saved state from a page or tool — a Logs/IoT working session (environments, filters, query, and so on), a
+        saved HTTP request, or a saved MQTT topic — created via that page or tool's own "Save" button. Rename or
+        delete them here; to change what one actually contains, load it where it was saved, adjust it, and save it
+        again.
       </p>
 
       {items.length === 0 && <p className="muted">None saved yet.</p>}

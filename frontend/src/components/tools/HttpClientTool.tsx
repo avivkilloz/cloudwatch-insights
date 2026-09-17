@@ -1,13 +1,21 @@
-import { useState } from "react";
-import { api, HttpMethod, HttpToolResponse, ToolHeader } from "../../api";
+import { useEffect, useState } from "react";
+import { api, HttpMethod, HttpToolResponse, SavedSession, ToolHeader } from "../../api";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const SAVED_REQUESTS_PAGE = "tools-http";
 
 let nextHeaderId = 1;
 interface HeaderRow {
   id: number;
   key: string;
   value: string;
+}
+
+interface SavedHttpRequestState {
+  method: HttpMethod;
+  url: string;
+  headers: ToolHeader[];
+  body: string;
 }
 
 function prettyBody(body: string): string {
@@ -33,6 +41,37 @@ export default function HttpClientTool() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<HttpToolResponse | null>(null);
+
+  const [savedRequests, setSavedRequests] = useState<SavedSession<SavedHttpRequestState>[]>([]);
+
+  useEffect(() => {
+    api.listSavedSessions<SavedHttpRequestState>(SAVED_REQUESTS_PAGE).then(setSavedRequests);
+  }, []);
+
+  async function saveCurrentRequest() {
+    const name = prompt("Save request as:");
+    if (!name) return;
+    const headers: ToolHeader[] = headerRows.filter((r) => r.key.trim()).map((r) => ({ key: r.key, value: r.value }));
+    const saved = await api.createSavedSession<SavedHttpRequestState>({
+      page: SAVED_REQUESTS_PAGE,
+      name,
+      state: { method, url, headers, body },
+    });
+    setSavedRequests((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  function loadSavedRequest(id: number) {
+    const saved = savedRequests.find((r) => r.id === id);
+    if (!saved) return;
+    setMethod(saved.state.method);
+    setUrl(saved.state.url);
+    setHeaderRows(
+      saved.state.headers.length > 0
+        ? saved.state.headers.map((h) => ({ id: nextHeaderId++, key: h.key, value: h.value }))
+        : [{ id: nextHeaderId++, key: "", value: "" }]
+    );
+    setBody(saved.state.body);
+  }
 
   function updateHeader(id: number, field: "key" | "value", value: string) {
     setHeaderRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -89,6 +128,28 @@ export default function HttpClientTool() {
         />
         <button onClick={send} disabled={sending}>
           {sending ? "Sending…" : "Send"}
+        </button>
+      </div>
+
+      <div className="row" style={{ marginBottom: 10 }}>
+        <select
+          onChange={(e) => {
+            if (e.target.value) loadSavedRequest(Number(e.target.value));
+            e.target.value = "";
+          }}
+          defaultValue=""
+        >
+          <option value="" disabled>
+            Load saved request…
+          </option>
+          {savedRequests.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <button className="secondary" onClick={saveCurrentRequest}>
+          Save request
         </button>
       </div>
 

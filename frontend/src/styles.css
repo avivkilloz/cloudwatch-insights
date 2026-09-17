@@ -526,6 +526,50 @@ th {
   text-decoration: line-through;
 }
 
+.diff-row {
+  display: flex;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.diff-gutter {
+  flex: none;
+  width: 14px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.diff-line-remove {
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.diff-line-add {
+  background: rgba(46, 160, 67, 0.08);
+}
+
+.diff-split-row {
+  display: flex;
+  gap: 8px;
+}
+
+.diff-split-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.diff-collapsed-row {
+  padding: 3px 6px;
+  color: var(--text-dim);
+  font-style: italic;
+  cursor: pointer;
+}
+
+.diff-collapsed-row:hover {
+  color: var(--text);
+}
+
 .error-text {
   color: var(--error);
   font-size: 12px;

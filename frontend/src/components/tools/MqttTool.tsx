@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MqttClient } from "mqtt";
-import { api, Environment } from "../../api";
+import { api, Environment, SavedSession } from "../../api";
 
 interface ReceivedMessage {
   id: number;
@@ -9,9 +9,14 @@ interface ReceivedMessage {
   timestamp: number;
 }
 
+interface SavedTopicState {
+  topic: string;
+}
+
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 const MAX_MESSAGES = 200;
+const SAVED_TOPICS_PAGE = "tools-mqtt-topics";
 let nextMessageId = 1;
 
 function randomClientId(): string {
@@ -40,14 +45,30 @@ export default function MqttTool() {
 
   const [messages, setMessages] = useState<ReceivedMessage[]>([]);
 
+  const [savedTopics, setSavedTopics] = useState<SavedSession<SavedTopicState>[]>([]);
+
   const clientRef = useRef<MqttClient | null>(null);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
+    api.listSavedSessions<SavedTopicState>(SAVED_TOPICS_PAGE).then(setSavedTopics);
     return () => {
       clientRef.current?.end(true);
     };
   }, []);
+
+  async function saveTopic(topic: string) {
+    const trimmed = topic.trim();
+    if (!trimmed) return;
+    const name = prompt("Save topic as:", trimmed);
+    if (!name) return;
+    const saved = await api.createSavedSession<SavedTopicState>({
+      page: SAVED_TOPICS_PAGE,
+      name,
+      state: { topic: trimmed },
+    });
+    setSavedTopics((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
 
   async function connect() {
     if (!environmentId) {
@@ -235,11 +256,38 @@ export default function MqttTool() {
               placeholder="topic/#"
               value={subscribeTopic}
               onChange={(e) => setSubscribeTopic(e.target.value)}
-              disabled={!connected}
               style={{ flex: 1 }}
             />
             <button className="secondary" onClick={subscribe} disabled={!connected || !subscribeTopic.trim()}>
               Subscribe
+            </button>
+          </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <select
+              onChange={(e) => {
+                const saved = savedTopics.find((t) => String(t.id) === e.target.value);
+                if (saved) setSubscribeTopic(saved.state.topic);
+                e.target.value = "";
+              }}
+              defaultValue=""
+              style={{ flex: 1 }}
+            >
+              <option value="" disabled>
+                Load saved topic…
+              </option>
+              {savedTopics.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="secondary"
+              onClick={() => saveTopic(subscribeTopic)}
+              disabled={!subscribeTopic.trim()}
+              title="Save this topic"
+            >
+              Save topic
             </button>
           </div>
           {subscriptions.length > 0 && (
@@ -268,15 +316,41 @@ export default function MqttTool() {
             placeholder="topic"
             value={publishTopic}
             onChange={(e) => setPublishTopic(e.target.value)}
-            disabled={!connected}
             style={{ width: "100%", marginBottom: 6 }}
           />
+          <div className="row" style={{ marginBottom: 6 }}>
+            <select
+              onChange={(e) => {
+                const saved = savedTopics.find((t) => String(t.id) === e.target.value);
+                if (saved) setPublishTopic(saved.state.topic);
+                e.target.value = "";
+              }}
+              defaultValue=""
+              style={{ flex: 1 }}
+            >
+              <option value="" disabled>
+                Load saved topic…
+              </option>
+              {savedTopics.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="secondary"
+              onClick={() => saveTopic(publishTopic)}
+              disabled={!publishTopic.trim()}
+              title="Save this topic"
+            >
+              Save topic
+            </button>
+          </div>
           <textarea
             rows={3}
             placeholder="Message payload"
             value={publishPayload}
             onChange={(e) => setPublishPayload(e.target.value)}
-            disabled={!connected}
           />
           <button onClick={publish} disabled={!connected || !publishTopic.trim()} style={{ marginTop: 6 }}>
             Publish

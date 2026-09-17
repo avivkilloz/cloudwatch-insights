@@ -398,11 +398,21 @@ expand in place:
   verification; RS/ES-signed tokens can still be decoded, just not verified.
 - **Base64 Encode / Decode** — plain and URL-safe, UTF-8 safe. Client-side
   only.
-- **Diff Checker** — line-by-line comparison of two blocks of text.
-  Client-side only.
+- **Diff Checker** — character-level comparison of two blocks of text
+  (word- and line-level boundaries alone wouldn't highlight, say, a couple
+  of changed characters inside one long unbroken token), with a view-mode
+  selector: **Unified** (inline, one line under the other), **Split**
+  (side-by-side columns), and **Compact** (unified, but collapsing long runs
+  of unchanged lines into a clickable "N unchanged lines" placeholder so a
+  small change in a large text doesn't require scrolling past pages of
+  context). Client-side only.
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
-  Requests are sent **from the backend**, not the browser, so they aren't
+  Requests can be saved and reloaded by name (**Save request** / **Load
+  saved request…**) — stored the same way a Logs/IoT saved session is (see
+  **Saved sessions** in Settings), just keyed under its own page so it
+  doesn't mix with those. Requests are sent **from the backend**, not the
+  browser, so they aren't
   subject to CORS — but for that same reason, the backend refuses to reach
   loopback, private, and link-local address ranges (which also covers
   every major cloud's instance metadata endpoint, e.g. `169.254.169.254`),
@@ -424,6 +434,10 @@ expand in place:
   and `iot:Receive` (see the permissions policy above), and the IoT Core
   endpoint must be reachable over HTTPS/WSS from wherever your browser is
   (it's public by default unless the account restricts it to a VPC).
+  Frequently-used topics can be saved by name (**Save topic**, next to
+  either the subscribe or publish topic field) and reloaded from either
+  field's **Load saved topic…** dropdown — topic fields aren't gated on
+  being connected, so these can be prepared ahead of time.
 
   If it connects and then disconnects immediately, the browser itself can't
   tell you why: rejecting a WebSocket handshake never surfaces an HTTP
