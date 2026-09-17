@@ -49,4 +49,5 @@ def get_mqtt_presigned_url(payload: schemas.MqttPresignedUrlRequest, db: Session
         expires_in=iot_mqtt_signer.DEFAULT_EXPIRES_SECONDS,
         diagnostic_status_code=diagnostic["status_code"],
         diagnostic_body=diagnostic["body"],
+        diagnostic_headers=diagnostic["headers"],
     )

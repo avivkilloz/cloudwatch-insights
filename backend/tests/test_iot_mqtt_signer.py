@@ -1,7 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
 from websockets.exceptions import InvalidStatus
-from websockets.http11 import Response
+from websockets.http11 import Headers, Response
 
 from app import iot_mqtt_signer
 
@@ -49,9 +49,14 @@ def test_build_presigned_ws_url_respects_custom_expiry(monkeypatch):
     assert qs["X-Amz-Expires"][0] == "60"
 
 
-def test_probe_presigned_url_reports_rejection_status_and_body(monkeypatch):
+def test_probe_presigned_url_reports_rejection_status_body_and_headers(monkeypatch):
     captured = {}
-    response = Response(403, "Forbidden", headers={}, body=b'{"message":"Forbidden"}')
+    response = Response(
+        403,
+        "Forbidden",
+        headers=Headers([("Content-Type", "application/json"), ("X-Amzn-Requestid", "abc123")]),
+        body=b'{"message":"Forbidden"}',
+    )
 
     def fake_ws_connect(url, subprotocols, open_timeout, proxy):
         captured["url"] = url
@@ -66,12 +71,16 @@ def test_probe_presigned_url_reports_rejection_status_and_body(monkeypatch):
     assert captured["url"] == "wss://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x"
     assert captured["subprotocols"] == ["mqtt"]
     assert captured["proxy"] is None
-    assert result == {"status_code": 403, "body": '{"message":"Forbidden"}'}
+    assert result == {
+        "status_code": 403,
+        "body": '{"message":"Forbidden"}',
+        "headers": ["Content-Type: application/json", "X-Amzn-Requestid: abc123"],
+    }
 
 
 def test_probe_presigned_url_caps_body_length(monkeypatch):
     huge_body = b"x" * 5000
-    response = Response(400, "Bad Request", headers={}, body=huge_body)
+    response = Response(400, "Bad Request", headers=Headers(), body=huge_body)
     monkeypatch.setattr(
         iot_mqtt_signer,
         "ws_connect",
@@ -94,6 +103,7 @@ def test_probe_presigned_url_reports_network_errors_without_raising(monkeypatch)
 
     assert result["status_code"] is None
     assert "timed out" in result["body"]
+    assert result["headers"] == []
 
 
 def test_probe_presigned_url_reports_success_when_upgrade_accepted(monkeypatch):
@@ -109,3 +119,4 @@ def test_probe_presigned_url_reports_success_when_upgrade_accepted(monkeypatch):
     result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
 
     assert result["status_code"] == 101
+    assert result["headers"] == []

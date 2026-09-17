@@ -306,6 +306,7 @@ export interface MqttPresignedUrlResponse {
   expires_in: number;
   diagnostic_status_code: number | null;
   diagnostic_body: string | null;
+  diagnostic_headers: string[];
 }
 
 // ---- AI assistant ----
