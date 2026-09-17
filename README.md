@@ -67,20 +67,33 @@ regions** by assuming a role you configure in each target account.
   are deployment secrets rather than app data. Entirely optional: the
   floating button stays hidden until all three variables are set. See
   `DEPLOYMENT.md` for wiring this up via Helm.
-- Saved queries/searches for the Logs/IoT tabs are managed from the
-  **Settings** tab — view their content, edit, add new ones, or delete —
-  rather than from the Logs/IoT tabs themselves. (Tables/Buckets/Cognito
-  have no saved-query concept of their own today.)
+- Everything saved anywhere in the app — Logs/IoT saved queries and
+  searches, Logs/IoT saved sessions, saved HTTP requests, and saved MQTT
+  topics — is managed from one **Saved items** panel on the **Settings**
+  tab, with a tab for each kind (Log Queries, IoT Searches, Logs Sessions,
+  IoT Sessions, HTTP Requests, MQTT Topics). Every kind supports full
+  editing there, not just rename/delete: saved queries/searches edit their
+  query text and extra fields (backend, search mode) directly; saved HTTP
+  requests edit method/URL/headers/body through the same form the HTTP
+  Client tool itself uses; saved MQTT topics edit the topic string; saved
+  Logs/IoT sessions (see below) edit their underlying JSON state directly,
+  since their shape is page-defined and too open-ended for a bespoke form.
+  Only the query/search and HTTP-request/MQTT-topic tabs support adding a
+  new item directly from Settings — a session snapshot is still created
+  from its own page's "Save session" button, since that's what captures
+  its state in the first place. (Tables/Buckets/Cognito have no saved-item
+  concept of their own today.)
 - **Saved sessions**, distinct from saved queries/searches: the Logs and
   IoT tabs each have a "Save session" button that snapshots the page's
   *entire* working state — selected environments, log groups, query text,
   time range, limit, sort, search mode, and so on — not just the query
   text, so you can resume an investigation later exactly where you left
-  it. Load one back via that page's "Load saved session" dropdown; manage
-  (rename/delete/inspect) all of them from the Settings tab. Any future
-  page can plug into the same mechanism — a saved session is just a page
-  name plus an opaque JSON blob that page defines for itself. (Tables,
-  Buckets, and Cognito don't have this yet.)
+  it. Load one back via that page's "Load saved session" dropdown. Any
+  future page can plug into the same mechanism — a saved session is just a
+  page name plus an opaque JSON blob that page defines for itself, which
+  is also what the Tools page's saved HTTP requests and saved MQTT topics
+  are built on (each just its own page name under the same mechanism).
+  (Tables, Buckets, and Cognito don't have this yet.)
 - **Settings tab** also lets you set a custom app title (shown in the top
   bar and browser tab, in place of the default "Cloud Insights"), upload a
   logo shown right before that title, and toggle any tab (Logs, IoT,
@@ -409,9 +422,9 @@ expand in place:
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
   Requests can be saved and reloaded by name (**Save request** / **Load
-  saved request…**) — stored the same way a Logs/IoT saved session is (see
-  **Saved sessions** in Settings), just keyed under its own page so it
-  doesn't mix with those. Requests are sent **from the backend**, not the
+  saved request…**) — manageable, including full editing, from the
+  **Saved items** panel's "HTTP Requests" tab in Settings. Requests are
+  sent **from the backend**, not the
   browser, so they aren't
   subject to CORS — but for that same reason, the backend refuses to reach
   loopback, private, and link-local address ranges (which also covers

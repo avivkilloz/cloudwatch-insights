@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, Environment, IotSavedSearch, IotSearchMode, LogsBackend, SavedQuery, SavedSession, Settings } from "../api";
 import { AWS_REGIONS } from "../regions";
-import SavedItemsPanel from "../components/SavedItemsPanel";
-import SavedSessionsPanel from "../components/SavedSessionsPanel";
+import SavedItemsHub from "../components/SavedItemsHub";
 
 interface Props {
   /** Notified whenever settings change here, so App.tsx (title, tab
@@ -193,12 +192,17 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
     setIotSavedSearches((prev) => prev.filter((s) => s.id !== id));
   }
 
-  async function renameSavedSession(id: number, name: string) {
-    const updated = await api.updateSavedSession(id, { name });
+  async function createSavedSessionItem(page: string, name: string, state: Record<string, unknown>) {
+    const saved = await api.createSavedSession({ page, name, state });
+    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  async function updateSavedSessionItem(id: number, payload: { name?: string; state?: Record<string, unknown> }) {
+    const updated = await api.updateSavedSession(id, payload);
     setSavedSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
   }
 
-  async function deleteSavedSession(id: number) {
+  async function deleteSavedSessionItem(id: number) {
     await api.deleteSavedSession(id);
     setSavedSessions((prev) => prev.filter((s) => s.id !== id));
   }
@@ -380,47 +384,20 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
         )}
       </div>
 
-      <SavedItemsPanel
-        title="Saved Insights queries"
-        description="Manage the queries available from the Logs page's &quot;Load saved query&quot; dropdown. Each is tagged with the backend (CloudWatch or OpenSearch) it's written for, and the dropdown only offers queries matching whichever backend is currently selected."
-        queryLabel="Query"
-        items={savedQueries}
-        onCreate={createSavedQuery}
-        onUpdate={updateSavedQueryItem}
-        onDelete={deleteSavedQueryItem}
-        extra={{
-          key: "backend",
-          label: "Backend",
-          options: [
-            { value: "cloudwatch", label: "CloudWatch" },
-            { value: "opensearch", label: "OpenSearch (Lucene)" },
-          ],
-          defaultValue: "cloudwatch",
-          getValue: (item) => item.backend,
-        }}
+      <SavedItemsHub
+        savedQueries={savedQueries}
+        onCreateSavedQuery={createSavedQuery}
+        onUpdateSavedQuery={updateSavedQueryItem}
+        onDeleteSavedQuery={deleteSavedQueryItem}
+        iotSavedSearches={iotSavedSearches}
+        onCreateIotSearch={createIotSavedSearchItem}
+        onUpdateIotSearch={updateIotSavedSearchItem}
+        onDeleteIotSearch={deleteIotSavedSearchItem}
+        savedSessions={savedSessions}
+        onCreateSession={createSavedSessionItem}
+        onUpdateSession={updateSavedSessionItem}
+        onDeleteSession={deleteSavedSessionItem}
       />
-
-      <SavedItemsPanel
-        title="Saved IoT searches"
-        description="Manage the IoT searches available from the IoT page's &quot;Load saved search&quot; dropdown."
-        queryLabel="Search query"
-        items={iotSavedSearches}
-        onCreate={createIotSavedSearchItem}
-        onUpdate={updateIotSavedSearchItem}
-        onDelete={deleteIotSavedSearchItem}
-        extra={{
-          key: "search_mode",
-          label: "Search mode",
-          options: [
-            { value: "things", label: "Things" },
-            { value: "certificates", label: "Certificates" },
-          ],
-          defaultValue: "things",
-          getValue: (item) => item.search_mode,
-        }}
-      />
-
-      <SavedSessionsPanel items={savedSessions} onRename={renameSavedSession} onDelete={deleteSavedSession} />
     </div>
   );
 }
