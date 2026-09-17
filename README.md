@@ -436,11 +436,23 @@ expand in place:
     valid, so a subsequent immediate disconnect in the browser itself points
     at something environment-specific (network reachability from your
     browser, a proxy, etc.) rather than IAM/signing.
-  - `HTTP 403`/`401` almost always means the assumed role is missing one of
-    the `iot:*` data-plane permissions above, or an IoT policy/custom
-    authorizer is scoping `iot:Connect` to a specific client ID rather than
-    allowing any (this tool generates a random one per connection, e.g.
-    `cloudwatch-insights-<random>`).
+  - `HTTP 403`/`401` means the assumed role's identity-based policy doesn't
+    grant this connection, and it's checked purely on the IAM principal at
+    this stage -- the MQTT client ID isn't sent until *after* a successful
+    WebSocket upgrade, so a client-ID-scoped condition can't be the cause of
+    a rejection this early. If the role's own policy already has
+    `iot:Connect`/`iot:Publish`/`iot:Subscribe`/`iot:Receive` on
+    `Resource: "*"` and it's still rejected, check for an SCP or permission
+    boundary that might also apply, and check the backend's system clock
+    (`date -u` in the pod) for skew, since SigV4 signatures are time-bound
+    and IoT Core reports a skew-caused rejection with the same generic
+    `Forbidden` body. **This action doesn't show up in CloudTrail** -- it's
+    an MQTT-level authorization decision inside the IoT device gateway, a
+    separate system. To see the actual reason, enable AWS IoT Core's own
+    logging (IoT Console → Settings → Logs → set the log level to `DEBUG`),
+    reconnect, and look for the entry matching the client ID shown under
+    the connection status (`cloudwatch-insights-<random>`) in the
+    CloudWatch Logs group it writes to.
   - `HTTP 404` means the endpoint itself doesn't recognize `/mqtt` as a
     route at all — double check the discovered endpoint is actually this
     account's ATS IoT data endpoint.
