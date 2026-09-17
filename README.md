@@ -54,6 +54,18 @@ regions** by assuming a role you configure in each target account.
   than just leaving a gap. Selection also feeds the AI assistant below —
   see "About results" and "Build query". A new query run, or deselecting
   everything, clears the selection.
+- **Grouping and the `@log` field** (Logs tab, CloudWatch backend): the
+  default query includes `@log` alongside `@timestamp`/`@message`, so when
+  a query spans multiple log groups, each row shows a tag naming which one
+  it came from (CloudWatch returns this as `<account_id>:<log_group_name>`;
+  the account id — redundant with the environment tag right next to it —
+  is stripped for display). The results view's **Group by** control (was a
+  plain "Group by environment" checkbox) is now a dropdown: **None**,
+  **Environment**, or **Log group** — the last one buckets rows under a
+  header per log group instead of per environment, useful once a query
+  spans several. Removing `@log` from a query (or switching to OpenSearch,
+  which has no equivalent field) just makes "Log group" grouping and the
+  per-row tag a no-op.
 - **AI assistant** (Logs tab, optional): a floating "✦ Ask AI" button in
   the bottom-right corner opens a compact panel with two tabs instead of
   bloating the page with always-visible panels. "Build query" turns a
