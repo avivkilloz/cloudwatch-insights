@@ -30,7 +30,11 @@ export default function MqttTool() {
   const [publishTopic, setPublishTopic] = useState("");
   const [publishPayload, setPublishPayload] = useState("");
 
-  const [diagnostic, setDiagnostic] = useState<{ statusCode: number | null; body: string | null } | null>(null);
+  const [diagnostic, setDiagnostic] = useState<{
+    statusCode: number | null;
+    body: string | null;
+    headers: string[];
+  } | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const everConnectedRef = useRef(false);
 
@@ -56,7 +60,11 @@ export default function MqttTool() {
     everConnectedRef.current = false;
     try {
       const conn = await api.getMqttPresignedUrl(Number(environmentId));
-      setDiagnostic({ statusCode: conn.diagnostic_status_code, body: conn.diagnostic_body });
+      setDiagnostic({
+        statusCode: conn.diagnostic_status_code,
+        body: conn.diagnostic_body,
+        headers: conn.diagnostic_headers,
+      });
       // Loaded on demand -- mqtt.js is a sizeable dependency this page
       // shouldn't pay for until this specific tool is actually used. Which
       // export actually holds the `connect` function varies by bundler/dev
@@ -182,11 +190,33 @@ export default function MqttTool() {
       </div>
       {error && <p className="error-text">{error}</p>}
       {diagnostic && (
-        <p className="muted" style={{ marginTop: -4, marginBottom: 4 }}>
-          Backend pre-flight check on this connection URL: HTTP{" "}
-          {diagnostic.statusCode ?? "no response"}
-          {diagnostic.body ? ` — ${diagnostic.body}` : ""}
-        </p>
+        <div className="muted" style={{ marginTop: -4, marginBottom: 4 }}>
+          <p style={{ margin: 0 }}>
+            Backend pre-flight check on this connection URL: HTTP{" "}
+            {diagnostic.statusCode ?? "no response"}
+            {diagnostic.body ? ` — ${diagnostic.body}` : ""}
+          </p>
+          {diagnostic.headers.length > 0 && (
+            <details style={{ marginTop: 2 }}>
+              <summary style={{ cursor: "pointer" }}>
+                Response headers ({diagnostic.headers.length}) — check these if this rejection never shows up in
+                AWS IoT Core's own connection logs (Settings → Logs), which would suggest something in the network
+                path is answering instead of IoT Core itself
+              </summary>
+              <pre
+                style={{
+                  margin: "4px 0 0",
+                  padding: 8,
+                  fontSize: 12,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+              >
+                {diagnostic.headers.join("\n")}
+              </pre>
+            </details>
+          )}
+        </div>
       )}
       {clientId && (
         <p className="muted" style={{ marginTop: 0, marginBottom: 10 }}>

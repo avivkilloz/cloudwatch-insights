@@ -452,7 +452,17 @@ expand in place:
     logging (IoT Console → Settings → Logs → set the log level to `DEBUG`),
     reconnect, and look for the entry matching the client ID shown under
     the connection status (`cloudwatch-insights-<random>`) in the
-    CloudWatch Logs group it writes to.
+    CloudWatch Logs group it writes to. **If a rejection shows up here but
+    nothing matching appears in that IoT Core logging even with `DEBUG`
+    enabled**, the request likely never reached IoT Core's device gateway at
+    all — something in the network path (a proxy, firewall, or inspection
+    appliance) answered first. The pre-flight check's expandable "Response
+    headers" section is the fastest way to tell the two apart: a genuine AWS
+    rejection carries AWS-typical headers (e.g. an `x-amzn-requestid` or
+    similar request-id header, `Content-Type: application/json`), while an
+    intercepting proxy's own error page typically doesn't — an unfamiliar
+    `Server` header, an HTML `Content-Type` instead of JSON, or extra
+    headers a real AWS response would never include are signs of the latter.
   - `HTTP 404` means the endpoint itself doesn't recognize `/mqtt` as a
     route at all — double check the discovered endpoint is actually this
     account's ATS IoT data endpoint.

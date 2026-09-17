@@ -419,7 +419,11 @@ def test_tools_mqtt_presigned_url_includes_preflight_diagnostic(monkeypatch):
     monkeypatch.setattr(
         iot_mqtt_signer,
         "probe_presigned_url",
-        lambda url: {"status_code": 403, "body": '{"message":"Forbidden"}'},
+        lambda url: {
+            "status_code": 403,
+            "body": '{"message":"Forbidden"}',
+            "headers": ["Content-Type: application/json", "X-Amzn-Requestid: abc123"],
+        },
     )
 
     resp = client.post("/api/tools/mqtt/presigned-url", json={"environment_id": environment_id})
@@ -428,6 +432,7 @@ def test_tools_mqtt_presigned_url_includes_preflight_diagnostic(monkeypatch):
     assert body["endpoint"] == "abc123-ats.iot.us-east-1.amazonaws.com"
     assert body["diagnostic_status_code"] == 403
     assert body["diagnostic_body"] == '{"message":"Forbidden"}'
+    assert body["diagnostic_headers"] == ["Content-Type: application/json", "X-Amzn-Requestid: abc123"]
 
     client.delete(f"/api/environments/{environment_id}")
 

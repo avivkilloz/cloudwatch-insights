@@ -647,3 +647,10 @@ class MqttPresignedUrlResponse(BaseModel):
     # whatever AWS actually said (status code + body) as a diagnostic.
     diagnostic_status_code: Optional[int] = None
     diagnostic_body: Optional[str] = None
+    # Raw response headers from the pre-flight check -- a rejection that
+    # never appears in AWS IoT Core's own connection logging (even with
+    # DEBUG logging on) suggests something in the network path answered
+    # before the request reached IoT Core at all; these headers are the
+    # fastest way to tell a genuine AWS response from an intercepting
+    # proxy/firewall's own.
+    diagnostic_headers: list[str] = []
