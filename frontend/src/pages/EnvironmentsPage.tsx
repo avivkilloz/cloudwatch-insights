@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, Environment, IotSavedSearch, IotSearchMode, LogsBackend, SavedQuery, SavedSession, Settings } from "../api";
 import { AWS_REGIONS } from "../regions";
 import SavedItemsHub from "../components/SavedItemsHub";
@@ -55,7 +55,9 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
   const [roleDraft, setRoleDraft] = useState("");
   const [appTitleDraft, setAppTitleDraft] = useState("");
   const [logoDraft, setLogoDraft] = useState("");
+  const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
     setLoading(true);
@@ -113,6 +115,7 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
       setLogoError(`Image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)} KB).`);
       return;
     }
+    setLogoFileName(file.name);
     const reader = new FileReader();
     reader.onload = () => setLogoDraft(String(reader.result));
     reader.onerror = () => setLogoError("Could not read that file.");
@@ -125,6 +128,7 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
 
   async function removeLogo() {
     setLogoDraft("");
+    setLogoFileName(null);
     setLogoError(null);
     applySettings(await api.updateSettings({ app_logo_url: null }));
   }
@@ -227,39 +231,47 @@ export default function EnvironmentsPage({ onSettingsChange }: Props) {
           </button>
         </div>
 
-        <div className="row" style={{ marginBottom: 14, alignItems: "flex-start" }}>
-          <div>
-            <span className="field-label">Logo (shown before the title, top bar)</span>
-            <div className="row" style={{ gap: 10 }}>
-              {logoDraft && (
-                <img
-                  src={logoDraft}
-                  alt=""
-                  style={{
-                    height: 32,
-                    width: 32,
-                    objectFit: "contain",
-                    borderRadius: 4,
-                    border: "1px solid var(--border)",
-                  }}
-                />
-              )}
-              <input type="file" accept="image/*" onChange={handleLogoFile} />
-            </div>
-            {logoError && (
-              <p className="error-text" style={{ marginTop: 4 }}>
-                {logoError}
-              </p>
+        <div style={{ marginBottom: 14 }}>
+          <span className="field-label">Logo (shown before the title, top bar)</span>
+          <div className="row" style={{ gap: 10, marginBottom: 8 }}>
+            {logoDraft && (
+              <img
+                src={logoDraft}
+                alt=""
+                style={{
+                  height: 32,
+                  width: 32,
+                  objectFit: "contain",
+                  borderRadius: 4,
+                  border: "1px solid var(--border)",
+                }}
+              />
+            )}
+            <input
+              ref={logoFileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleLogoFile}
+              style={{ display: "none" }}
+            />
+            <button type="button" className="secondary" onClick={() => logoFileInputRef.current?.click()}>
+              Choose file
+            </button>
+            <span className="muted">{logoFileName ?? "No file chosen"}</span>
+          </div>
+          {logoError && (
+            <p className="error-text" style={{ marginTop: 4, marginBottom: 8 }}>
+              {logoError}
+            </p>
+          )}
+          <div className="row">
+            <button onClick={saveLogo}>Save</button>
+            {settings.app_logo_url && (
+              <button className="danger" onClick={removeLogo}>
+                Remove
+              </button>
             )}
           </div>
-          <button onClick={saveLogo} style={{ marginTop: 18 }}>
-            Save
-          </button>
-          {settings.app_logo_url && (
-            <button className="danger" onClick={removeLogo} style={{ marginTop: 18 }}>
-              Remove
-            </button>
-          )}
         </div>
 
         <span className="field-label">Visible tabs</span>
