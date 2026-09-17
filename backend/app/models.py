@@ -46,6 +46,10 @@ class User(Base):
     username = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     group_id = Column(Integer, ForeignKey("user_groups.id"), nullable=False)
+    # Optional profile picture, stored inline as a data: URL (same pattern as
+    # Setting.app_logo_url) -- capped client-side and re-checked server-side
+    # to keep rows small.
+    avatar_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     group = relationship("UserGroup", back_populates="users")

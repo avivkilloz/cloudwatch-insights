@@ -767,34 +767,6 @@ th {
   width: 100%;
 }
 
-.header-icons {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.icon-btn:hover {
-  background: var(--panel-alt);
-  border-color: var(--border);
-  color: var(--text);
-}
-
 .icon-popover-wrap {
   position: relative;
 }
@@ -834,9 +806,69 @@ th {
   font-weight: 600;
 }
 
-.user-badge {
-  font-size: 12px;
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-initials {
+  color: #fff;
+  font-weight: 600;
+  user-select: none;
+}
+
+.user-menu-trigger {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.user-menu-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.user-menu-popover {
+  min-width: 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.user-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 10px;
+}
+
+.user-menu-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-menu-group {
+  font-size: 11px;
   color: var(--text-dim);
-  padding: 0 4px;
-  white-space: nowrap;
+}
+
+.icon-popover-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 2px;
+}
+
+.icon-popover-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px 2px;
 }

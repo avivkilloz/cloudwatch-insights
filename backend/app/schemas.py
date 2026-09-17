@@ -103,6 +103,7 @@ class UserOut(BaseModel):
     group_id: int
     group_name: str
     is_admin: bool
+    avatar_url: Optional[str] = None
     # The user's group's tab visibility -- included here (not just on
     # UserGroupOut) because /api/auth/me is how a non-admin user, who can't
     # call the admin-only /api/user-groups, finds out which tabs they can see.
@@ -122,6 +123,12 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class ProfileUpdate(BaseModel):
+    # Self-service only (own avatar) -- distinct from UserUpdate, which is
+    # admin-only and covers group/password for any user.
+    avatar_url: Optional[str] = None
 
 
 LogsBackend = Literal["cloudwatch", "opensearch"]

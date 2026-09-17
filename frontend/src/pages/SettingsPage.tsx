@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Environment, Settings, User, UserGroup } from "../api";
+import { api, ApiError, Environment, Settings, User, UserGroup } from "../api";
 import { AWS_REGIONS } from "../regions";
 import { useAuth } from "../AuthContext";
+import Avatar from "../components/Avatar";
+import SavedItemsPage from "./SavedItemsPage";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 
@@ -20,10 +22,19 @@ const TAB_TOGGLES: {
 // Logos are stored inline as a data: URL in the settings table, which is
 // fetched on every page load -- keep uploads small so that stays cheap.
 const MAX_LOGO_BYTES = 300 * 1024;
+// Avatars are self-service (any logged-in user can upload one, not just an
+// admin) -- kept smaller than the app logo, and comfortably under the
+// backend's MAX_AVATAR_URL_LENGTH once base64-encoded.
+const MAX_AVATAR_BYTES = 200 * 1024;
 
-type Section = "app" | "environments" | "groups" | "users";
+type Section = "account" | "saved" | "app" | "environments" | "groups" | "users";
 
-const SECTIONS: { id: Section; label: string }[] = [
+const BASE_SECTIONS: { id: Section; label: string }[] = [
+  { id: "account", label: "My account" },
+  { id: "saved", label: "Saved" },
+];
+
+const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "app", label: "App settings" },
   { id: "environments", label: "Environments" },
   { id: "groups", label: "User groups" },
@@ -64,15 +75,17 @@ function groupToDraft(g: UserGroup): GroupDraft {
   };
 }
 
-export default function AdminPage() {
-  const { user: currentUser } = useAuth();
-  const [section, setSection] = useState<Section>("app");
+export default function SettingsPage() {
+  const { user: currentUser, refresh: refreshAuth } = useAuth();
+  const isAdmin = !!currentUser?.is_admin;
+  const sections = isAdmin ? [...BASE_SECTIONS, ...ADMIN_SECTIONS] : BASE_SECTIONS;
+  const [section, setSection] = useState<Section>("account");
 
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettingsState] = useState<Settings>(EMPTY_SETTINGS);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isAdmin);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -96,6 +109,7 @@ export default function AdminPage() {
   const [userPasswordDrafts, setUserPasswordDrafts] = useState<Record<number, string>>({});
 
   async function refresh() {
+    if (!isAdmin) return;
     setLoading(true);
     setError(null);
     try {
@@ -120,6 +134,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function withActionError<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -269,13 +284,10 @@ export default function AdminPage() {
     });
   }
 
-  if (loading) return <p className="muted">Loading…</p>;
-  if (error) return <p className="error-text">{error}</p>;
-
   return (
     <div>
-      <div className="tabs" style={{ justifySelf: "start", marginBottom: 14 }}>
-        {SECTIONS.map((s) => (
+      <div className="tabs" style={{ justifySelf: "start", marginBottom: 14, flexWrap: "wrap" }}>
+        {sections.map((s) => (
           <button key={s.id} className={`tab ${section === s.id ? "active" : ""}`} onClick={() => setSection(s.id)}>
             {s.label}
           </button>
@@ -288,7 +300,14 @@ export default function AdminPage() {
         </p>
       )}
 
-      {section === "app" && (
+      {section === "account" && currentUser && <AccountSection user={currentUser} onProfileSaved={refreshAuth} />}
+
+      {section === "saved" && <SavedItemsPage />}
+
+      {isAdmin && loading && <p className="muted">Loading…</p>}
+      {isAdmin && error && <p className="error-text">{error}</p>}
+
+      {isAdmin && !loading && !error && section === "app" && (
         <div className="panel">
           <h2>App settings</h2>
           <div className="row" style={{ marginBottom: 14, alignItems: "flex-start" }}>
@@ -340,7 +359,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {section === "environments" && (
+      {isAdmin && !loading && !error && section === "environments" && (
         <>
           <div className="panel">
             <h2>Add environment</h2>
@@ -418,7 +437,7 @@ export default function AdminPage() {
         </>
       )}
 
-      {section === "groups" && (
+      {isAdmin && !loading && !error && section === "groups" && (
         <>
           <div className="panel">
             <h2>{editingGroupId != null ? "Edit user group" : "Create user group"}</h2>
@@ -532,7 +551,7 @@ export default function AdminPage() {
         </>
       )}
 
-      {section === "users" && (
+      {isAdmin && !loading && !error && section === "users" && (
         <>
           <div className="panel">
             <h2>Add user</h2>
@@ -638,5 +657,151 @@ export default function AdminPage() {
         </>
       )}
     </div>
+  );
+}
+
+function AccountSection({ user, onProfileSaved }: { user: User; onProfileSaved: () => Promise<void> }) {
+  const [avatarDraft, setAvatarDraft] = useState(user.avatar_url ?? "");
+  const [avatarFileName, setAvatarFileName] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  function handleAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAvatarError(null);
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError(`Image is too large (max ${Math.round(MAX_AVATAR_BYTES / 1024)} KB).`);
+      return;
+    }
+    setAvatarFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setAvatarDraft(String(reader.result));
+    reader.onerror = () => setAvatarError("Could not read that file.");
+    reader.readAsDataURL(file);
+  }
+
+  async function saveAvatar(url: string | null) {
+    setAvatarSaving(true);
+    setAvatarError(null);
+    try {
+      await api.updateOwnProfile(url);
+      await onProfileSaved();
+    } catch (e: any) {
+      setAvatarError(e.message ?? "Could not save picture.");
+    } finally {
+      setAvatarSaving(false);
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarDraft("");
+    setAvatarFileName(null);
+    await saveAvatar(null);
+  }
+
+  async function submitPasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(false);
+    setPasswordSaving(true);
+    try {
+      await api.changeOwnPassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordSuccess(true);
+    } catch (e: any) {
+      setPasswordError(e instanceof ApiError && e.status === 400 ? "Current password is incorrect." : e.message);
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="panel">
+        <h2>Profile picture</h2>
+        <div className="row" style={{ gap: 14, marginBottom: 8 }}>
+          <Avatar username={user.username} avatarUrl={avatarDraft || null} size={56} />
+          <div>
+            <div className="row" style={{ marginBottom: 6 }}>
+              <input
+                ref={avatarFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarFile}
+                style={{ display: "none" }}
+              />
+              <button type="button" className="secondary" onClick={() => avatarFileInputRef.current?.click()}>
+                Choose file
+              </button>
+              <span className="muted">{avatarFileName ?? "No file chosen"}</span>
+            </div>
+            <div className="row">
+              <button disabled={avatarSaving || !avatarDraft} onClick={() => saveAvatar(avatarDraft)}>
+                Save
+              </button>
+              {user.avatar_url && (
+                <button className="danger" disabled={avatarSaving} onClick={removeAvatar}>
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        {avatarError && <p className="error-text">{avatarError}</p>}
+      </div>
+
+      <div className="panel">
+        <h2>Change password</h2>
+        <form onSubmit={submitPasswordChange}>
+          <div className="row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
+            <div>
+              <span className="field-label">Current password</span>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                style={{ width: 200 }}
+              />
+            </div>
+            <div>
+              <span className="field-label">New password</span>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{ width: 200 }}
+              />
+            </div>
+          </div>
+          {passwordError && (
+            <p className="error-text" style={{ marginBottom: 8 }}>
+              {passwordError}
+            </p>
+          )}
+          {passwordSuccess && (
+            <p className="muted" style={{ marginBottom: 8 }}>
+              Password updated.
+            </p>
+          )}
+          <button type="submit" disabled={passwordSaving || !currentPassword || !newPassword}>
+            Update password
+          </button>
+        </form>
+      </div>
+    </>
   );
 }

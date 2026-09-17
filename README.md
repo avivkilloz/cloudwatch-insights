@@ -5,7 +5,8 @@ tables, S3 buckets, and Cognito user pools, across **multiple AWS accounts and
 regions** by assuming a role you configure in each target account.
 
 - Define **environments** — each one an AWS account paired with a single
-  region — once, under the admin Settings (gear icon).
+  region — once, under Settings' **Environments** section (Admin-group
+  members only).
 - **Logs tab**: pick one or more environments, browse/select their log
   groups, write a CloudWatch Logs Insights query (same syntax as the AWS
   console), and run it — the app fires one `StartQuery` per selected
@@ -93,20 +94,20 @@ regions** by assuming a role you configure in each target account.
 - Everything saved anywhere in the app — Logs/IoT saved queries and
   searches, Logs/IoT saved sessions, saved HTTP requests, and saved MQTT
   topics — is **per user** (each user only ever sees and manages their own)
-  and is managed from one **Saved items** panel on the **Saved** tab, with a
-  tab for each kind (Log Queries, IoT Searches, Logs Sessions, IoT Sessions,
-  HTTP Requests, MQTT Topics). Every kind supports full editing there, not
-  just rename/delete: saved queries/searches edit their query text and extra
-  fields (backend, search mode) directly; saved HTTP requests edit
-  method/URL/headers/body through the same form the HTTP Client tool itself
-  uses; saved MQTT topics edit the topic string; saved Logs/IoT sessions
-  (see below) edit their underlying JSON state directly, since their shape
-  is page-defined and too open-ended for a bespoke form. Only the
-  query/search and HTTP-request/MQTT-topic tabs support adding a new item
-  directly from the Saved tab — a session snapshot is still created from its
-  own page's "Save session" button, since that's what captures its state in
-  the first place. (Tables/Buckets/Cognito have no saved-item concept of
-  their own today.)
+  and is managed from one **Saved items** panel under the **Saved** section
+  of Settings, with a tab for each kind (Log Queries, IoT Searches, Logs
+  Sessions, IoT Sessions, HTTP Requests, MQTT Topics). Every kind supports
+  full editing there, not just rename/delete: saved queries/searches edit
+  their query text and extra fields (backend, search mode) directly; saved
+  HTTP requests edit method/URL/headers/body through the same form the HTTP
+  Client tool itself uses; saved MQTT topics edit the topic string; saved
+  Logs/IoT sessions (see below) edit their underlying JSON state directly,
+  since their shape is page-defined and too open-ended for a bespoke form.
+  Only the query/search and HTTP-request/MQTT-topic tabs support adding a
+  new item directly from Settings — a session snapshot is still created from
+  its own page's "Save session" button, since that's what captures its
+  state in the first place. (Tables/Buckets/Cognito have no saved-item
+  concept of their own today.)
 - **Saved sessions**, distinct from saved queries/searches: the Logs and
   IoT tabs each have a "Save session" button that snapshots the page's
   *entire* working state — selected environments, log groups, query text,
@@ -118,18 +119,18 @@ regions** by assuming a role you configure in each target account.
   is also what the Tools page's saved HTTP requests and saved MQTT topics
   are built on (each just its own page name under the same mechanism).
   (Tables, Buckets, and Cognito don't have this yet.)
-- Admin **Settings** (gear icon, top right — only visible to Admin-group
-  members) also lets you set a custom app title (shown in the top bar and
-  browser tab, in place of the default "Cloud Insights") and upload a logo
-  shown right before that title. An uploaded logo is capped at 300 KB and
-  stored inline (as a data URL) alongside the rest of the app's settings —
-  no separate file storage needed — so keep it small; for a larger image,
-  host it yourself and note that this app has no URL field for that today
-  (only file upload).
+- **Settings**, under the **App settings** section (Admin-group members
+  only), lets you set a custom app title (shown in the top bar and browser
+  tab, in place of the default "Cloud Insights") and upload a logo shown
+  right before that title. An uploaded logo is capped at 300 KB and stored
+  inline (as a data URL) alongside the rest of the app's settings — no
+  separate file storage needed — so keep it small; for a larger image, host
+  it yourself and note that this app has no URL field for that today (only
+  file upload).
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light, or one of the
   four [Catppuccin](https://catppuccin.com/) flavors — Latte, Frappé,
-  Macchiato, Mocha) from the palette icon in the top bar — it's remembered
-  per browser via `localStorage`.
+  Macchiato, Mocha) from the account menu (click your avatar, top right) —
+  it's remembered per browser via `localStorage`.
 
 ## Users, groups & login
 
@@ -145,15 +146,18 @@ control:
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
 - **Which tabs** are visible (Logs, IoT, Tables, Buckets, Cognito, Tools —
-  the **Saved** tab and the admin gear icon are handled separately, see
-  below).
+  Settings itself is handled separately, see below).
 
-Only members of the Admin group can add/edit/delete users and groups,
-change app settings (title/logo), or add/remove environments — reachable via
-the **gear icon** at the right of the top bar. Everyone else sees just their
-group's tabs, the **Saved** tab (their own saved queries/searches/sessions —
-these are always per-user, regardless of group), and a **logout** icon next
-to the theme picker.
+Everything about the current user lives behind their **avatar**, top right of
+the header (a picture if they've uploaded one, otherwise their initials):
+clicking it shows their username and group, a **Settings** link, the theme
+picker, and **Log out**. Settings itself is one page with a row of section
+tabs: **My account** (change your own password, upload/remove your avatar)
+and **Saved** (manage your own saved queries/searches/sessions) are open to
+every user. Admin-group members additionally get **App settings**,
+**Environments**, **User groups**, and **Users** — everyone else can't add or
+edit users/groups, change app settings, or add/remove environments; those
+sections simply aren't there for them.
 
 A default **Admin** group and an **admin** user in it are created
 automatically the first time the app starts with no users yet. Set the
@@ -372,8 +376,9 @@ The app needs two things:
    rather than `*`; this simplified example grants it account-wide the same
    way the rest of this policy does.)
 
-In the app's admin **Settings** (the gear icon, Admin-group members only),
-add an environment for each account/region combination you want to query — a
+In the app's **Settings** (from your avatar menu, top right — Admin-group
+members only see the sections below), add an environment for each
+account/region combination you want to query — a
 name, the 12-digit account ID, and a region — under the **Environments**
 section. Then, under **User groups**, set each group's **IAM role name**
 (e.g. `CloudWatchInsightsReadRole`) — this is the role that group's members
@@ -486,7 +491,7 @@ expand in place:
   set headers/body, and see the status, headers, and body that come back.
   Requests can be saved and reloaded by name (**Save request** / **Load
   saved request…**) — manageable, including full editing, from the
-  **Saved items** panel's "HTTP Requests" tab on the **Saved** tab. Requests are
+  **Saved items** panel's "HTTP Requests" tab, under Settings' **Saved** section. Requests are
   sent **from the backend**, not the
   browser, so they aren't
   subject to CORS — but for that same reason, the backend refuses to reach

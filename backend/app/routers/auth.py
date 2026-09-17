@@ -9,6 +9,10 @@ from ..db import get_db
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+# Avatars are stored inline as a data: URL, same as Setting.app_logo_url --
+# this bounds how much any one (self-service, unlike the admin-only logo)
+# upload can bloat the users table.
+MAX_AVATAR_URL_LENGTH = 300_000
 
 
 def _set_session_cookie(response: Response, session: models.Session) -> None:
@@ -47,6 +51,20 @@ def logout(
 
 @router.get("/me", response_model=schemas.UserOut)
 def me(current_user: models.User = Depends(auth.get_current_user)):
+    return auth.user_out(current_user)
+
+
+@router.put("/profile", response_model=schemas.UserOut)
+def update_own_profile(
+    payload: schemas.ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if payload.avatar_url and len(payload.avatar_url) > MAX_AVATAR_URL_LENGTH:
+        raise HTTPException(status_code=400, detail="Image is too large")
+    current_user.avatar_url = payload.avatar_url
+    db.commit()
+    db.refresh(current_user)
     return auth.user_out(current_user)
 
 

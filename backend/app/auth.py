@@ -72,6 +72,7 @@ def user_out(user: models.User) -> schemas.UserOut:
         group_id=user.group_id,
         group_name=group.name if group else "",
         is_admin=bool(group and group.is_admin),
+        avatar_url=user.avatar_url,
         logs_enabled=group.logs_enabled if group else False,
         iot_enabled=group.iot_enabled if group else False,
         tables_enabled=group.tables_enabled if group else False,
