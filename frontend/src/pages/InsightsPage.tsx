@@ -69,7 +69,7 @@ const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
 ];
 
 const DEFAULT_QUERY: Record<LogsBackend, string> = {
-  cloudwatch: `fields @timestamp, @message
+  cloudwatch: `fields @timestamp, @log, @message
 | sort @timestamp desc`,
   opensearch: "",
 };

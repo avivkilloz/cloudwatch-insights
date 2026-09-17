@@ -31,6 +31,17 @@ function pickSummaryField(fields: { field: string; value: string }[]): string {
   return fields.map((f) => `${f.field}=${f.value}`).join(" ");
 }
 
+// CloudWatch Logs Insights' auto-included @log field (present when a query
+// spans multiple log groups) is formatted "<account_id>:<log_group_name>" --
+// the account id is redundant with the environment tag shown right next to
+// it, so just show the log group name.
+function formatLogGroupTag(value: string): string {
+  const idx = value.indexOf(":");
+  return idx >= 0 ? value.slice(idx + 1) : value;
+}
+
+type GroupBy = "none" | "environment" | "log";
+
 // CloudWatch's @timestamp ("YYYY-MM-DD HH:MM:SS.mmm") sorts correctly as a
 // plain string; other fields might hold numbers (e.g. @duration, a count
 // from a `stats` query), which need numeric comparison to sort correctly
@@ -78,7 +89,7 @@ function rowToObject(row: FlatRow): Record<string, unknown> {
 
 export default function ResultsView({ items, limit, sortField, sortDirection = "desc", onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [groupByTarget, setGroupByTarget] = useState(false);
+  const [groupBy, setGroupBy] = useState<GroupBy>("none");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
@@ -161,14 +172,21 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
 
   const errors = items.filter((i) => i.error);
 
-  const groups = groupByTarget
-    ? Object.entries(
-        displayRows.reduce<Record<string, FlatRow[]>>((acc, row) => {
-          (acc[row.environment_name] ??= []).push(row);
-          return acc;
-        }, {})
-      )
-    : [["All results", displayRows] as [string, FlatRow[]]];
+  function groupKeyFor(row: FlatRow): string {
+    if (groupBy === "environment") return row.environment_name;
+    const logField = pickField(row.fields, "@log");
+    return logField ? formatLogGroupTag(logField) : "(no @log field)";
+  }
+
+  const groups =
+    groupBy === "none"
+      ? [["All results", displayRows] as [string, FlatRow[]]]
+      : Object.entries(
+          displayRows.reduce<Record<string, FlatRow[]>>((acc, row) => {
+            (acc[groupKeyFor(row)] ??= []).push(row);
+            return acc;
+          }, {})
+        );
 
   const allDisplayedSelected = displayRows.length > 0 && displayRows.every((r) => selectedKeys.has(r.key));
 
@@ -185,9 +203,13 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
             : `${displayRows.length} row(s) across ${items.length} target(s)`}
           {hiddenKeys.size > 0 && ` (${hiddenKeys.size} hidden)`}
         </span>
-        <label className="checkbox-item">
-          <input type="checkbox" checked={groupByTarget} onChange={(e) => setGroupByTarget(e.target.checked)} />
-          Group by environment
+        <label className="row" style={{ gap: 6 }}>
+          <span className="muted">Group by</span>
+          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+            <option value="none">None</option>
+            <option value="environment">Environment</option>
+            <option value="log">Log group</option>
+          </select>
         </label>
         {selectedKeys.size > 0 && (
           <button className="secondary" onClick={hideSelected}>
@@ -212,11 +234,12 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
       )}
       {groups.map(([groupName, rows]) => (
         <div key={groupName} style={{ marginBottom: 16 }}>
-          {groupByTarget && <h3>{groupName}</h3>}
+          {groupBy !== "none" && <h3>{groupName}</h3>}
           {rows.length === 0 && <p className="muted">No results.</p>}
           {rows.map((row) => {
             const isOpen = expanded.has(row.key);
             const ts = pickField(row.fields, "@timestamp");
+            const logGroup = pickField(row.fields, "@log");
             return (
               <div className="result-row" key={row.key}>
                 <div className="result-row-summary" onClick={() => toggle(row.key)}>
@@ -228,7 +251,12 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
                   />
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
                   {ts && <span className="tag">{ts}</span>}
-                  {!groupByTarget && <span className="tag">{row.environment_name}</span>}
+                  {groupBy !== "environment" && <span className="tag">{row.environment_name}</span>}
+                  {logGroup && groupBy !== "log" && (
+                    <span className="tag" title="@log">
+                      {formatLogGroupTag(logGroup)}
+                    </span>
+                  )}
                   <span className="msg">{pickSummaryField(row.fields)}</span>
                 </div>
                 {isOpen && (
