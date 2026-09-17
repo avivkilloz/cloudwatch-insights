@@ -30,6 +30,9 @@ export default function MqttTool() {
   const [publishTopic, setPublishTopic] = useState("");
   const [publishPayload, setPublishPayload] = useState("");
 
+  const [diagnostic, setDiagnostic] = useState<{ statusCode: number | null; body: string | null } | null>(null);
+  const everConnectedRef = useRef(false);
+
   const [messages, setMessages] = useState<ReceivedMessage[]>([]);
 
   const clientRef = useRef<MqttClient | null>(null);
@@ -48,8 +51,11 @@ export default function MqttTool() {
     }
     setStatus("connecting");
     setError(null);
+    setDiagnostic(null);
+    everConnectedRef.current = false;
     try {
       const conn = await api.getMqttPresignedUrl(Number(environmentId));
+      setDiagnostic({ statusCode: conn.diagnostic_status_code, body: conn.diagnostic_body });
       // Loaded on demand -- mqtt.js is a sizeable dependency this page
       // shouldn't pay for until this specific tool is actually used. Which
       // export actually holds the `connect` function varies by bundler/dev
@@ -73,8 +79,25 @@ export default function MqttTool() {
       clientRef.current = client;
       setEndpoint(conn.endpoint);
 
-      client.on("connect", () => setStatus("connected"));
-      client.on("close", () => setStatus((s) => (s === "error" ? s : "disconnected")));
+      client.on("connect", () => {
+        everConnectedRef.current = true;
+        setStatus("connected");
+      });
+      client.on("close", () => {
+        // A browser gives no reason for a rejected WebSocket handshake --
+        // just a bare close -- so if we never even got as far as a
+        // successful MQTT CONNACK, say so explicitly instead of silently
+        // reverting to "disconnected" with no explanation.
+        if (!everConnectedRef.current) {
+          setError(
+            "The connection closed immediately without ever completing. This usually means AWS IoT Core rejected " +
+              "it -- check the pre-flight diagnostic below, and confirm the assumed role has iot:Connect, " +
+              "iot:Publish, iot:Subscribe, and iot:Receive (an IoT policy or custom authorizer scoping these to a " +
+              "specific client ID can also reject a randomly generated one like this tool uses)."
+          );
+        }
+        setStatus((s) => (s === "error" ? s : "disconnected"));
+      });
       client.on("error", (err) => {
         setError(err.message);
         setStatus("error");
@@ -155,6 +178,13 @@ export default function MqttTool() {
         {endpoint && <span className="muted">{endpoint}</span>}
       </div>
       {error && <p className="error-text">{error}</p>}
+      {diagnostic && (
+        <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+          Backend pre-flight check on this connection URL: HTTP{" "}
+          {diagnostic.statusCode ?? "no response"}
+          {diagnostic.body ? ` — ${diagnostic.body}` : ""}
+        </p>
+      )}
 
       <div className="row" style={{ alignItems: "flex-start", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 260 }}>

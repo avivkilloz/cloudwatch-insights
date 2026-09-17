@@ -425,6 +425,18 @@ expand in place:
   endpoint must be reachable over HTTPS/WSS from wherever your browser is
   (it's public by default unless the account restricts it to a VPC).
 
+  If it connects and then disconnects immediately, the browser itself can't
+  tell you why: rejecting a WebSocket handshake never surfaces an HTTP
+  status or body to JavaScript, only a generic "closed" event. To work
+  around that, minting the connection URL also makes the exact same signed
+  request as a plain HTTPS call from the backend (which *can* see AWS's
+  response) and reports it back as a "pre-flight check" next to the
+  endpoint — read that first. A `403`/`401` there almost always means the
+  assumed role is missing one of the `iot:*` data-plane permissions above,
+  or an IoT policy/custom authorizer is scoping `iot:Connect` to a specific
+  client ID rather than allowing any (this tool generates a random one
+  per connection, e.g. `cloudwatch-insights-<random>`).
+
 ## Notes
 
 - Log group listing and query execution both fan out across every selected

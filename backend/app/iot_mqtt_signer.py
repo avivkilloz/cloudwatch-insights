@@ -1,3 +1,4 @@
+import httpx
 from botocore.auth import SigV4QueryAuth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
@@ -17,6 +18,11 @@ from . import aws_client, iot_client
 SIGNING_SERVICE = "iotdevicegateway"
 DEFAULT_EXPIRES_SECONDS = 300
 
+PROBE_TIMEOUT_SECONDS = 8.0
+# Caps how much of a probe response body gets echoed back, same rationale as
+# the OpenSearch client's error-body cap.
+MAX_PROBE_BODY_CHARS = 1000
+
 
 def build_presigned_ws_url(
     account_id: str, region: str, role_name: str, expires: int = DEFAULT_EXPIRES_SECONDS
@@ -28,3 +34,25 @@ def build_presigned_ws_url(
     request = AWSRequest(method="GET", url=f"https://{endpoint}/mqtt")
     SigV4QueryAuth(credentials, SIGNING_SERVICE, region, expires=expires).add_auth(request)
     return {"endpoint": endpoint, "url": request.url.replace("https://", "wss://", 1)}
+
+
+def probe_presigned_url(url: str) -> dict:
+    """Best-effort pre-flight check against a just-minted presigned URL.
+
+    A browser gives no visibility into *why* a WebSocket handshake was
+    rejected -- a failed upgrade just looks like a bare, reason-less close.
+    Making the exact same signed request as a plain HTTPS call from here
+    instead gets AWS's actual response back (status code and body), which is
+    the only place a rejection reason -- an invalid signature, a missing
+    iot:Connect/Publish/Subscribe/Receive permission, clock skew, etc. --
+    is visible at all. This doesn't try to classify the result as "good" or
+    "bad" (that would mean guessing at exactly which status IoT Core's
+    device gateway returns for a non-WebSocket request that's otherwise
+    validly signed, which isn't documented); it just surfaces what AWS said.
+    """
+    https_url = url.replace("wss://", "https://", 1)
+    try:
+        resp = httpx.get(https_url, timeout=PROBE_TIMEOUT_SECONDS)
+    except httpx.HTTPError as e:
+        return {"status_code": None, "body": str(e)}
+    return {"status_code": resp.status_code, "body": resp.text.strip()[:MAX_PROBE_BODY_CHARS]}

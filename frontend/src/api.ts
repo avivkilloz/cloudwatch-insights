@@ -304,6 +304,8 @@ export interface MqttPresignedUrlResponse {
   endpoint: string;
   url: string;
   expires_in: number;
+  diagnostic_status_code: number | null;
+  diagnostic_body: string | null;
 }
 
 // ---- AI assistant ----
