@@ -32,6 +32,14 @@ services:
       LITELLM_API_KEY: ${LITELLM_API_KEY:-}
       LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
       LITELLM_MODEL: ${LITELLM_MODEL:-}
+      # Password for the "admin" user created on first startup. Leave unset
+      # and the backend generates one itself, logged once here in `docker
+      # compose logs backend` -- set it explicitly if you'd rather choose it.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Local dev is plain HTTP, so the session cookie can't use `Secure`
+      # (browsers won't store it) -- keep this false here; deployments should
+      # leave it at the backend's default (true) once served over HTTPS.
+      COOKIE_SECURE: "false"
     ports:
       - "8000:8000"
     depends_on:

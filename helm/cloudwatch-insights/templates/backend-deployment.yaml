@@ -86,6 +86,19 @@ spec:
               value: {{ .Values.backend.ai.apiKey | quote }}
               {{- end }}
             {{- end }}
+            - name: COOKIE_SECURE
+              value: {{ .Values.backend.auth.cookieSecure | quote }}
+            {{- if or .Values.backend.auth.existingSecret .Values.backend.auth.adminPassword }}
+            - name: ADMIN_PASSWORD
+              {{- if .Values.backend.auth.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.auth.existingSecret }}
+                  key: {{ .Values.backend.auth.existingSecretKey }}
+              {{- else }}
+              value: {{ .Values.backend.auth.adminPassword | quote }}
+              {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

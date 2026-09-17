@@ -6,7 +6,6 @@ class EnvironmentBase(BaseModel):
     name: str
     account_id: str
     region: str
-    role_name: Optional[str] = None
 
 
 class EnvironmentCreate(EnvironmentBase):
@@ -17,7 +16,6 @@ class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
     account_id: Optional[str] = None
     region: Optional[str] = None
-    role_name: Optional[str] = None
 
 
 class EnvironmentOut(EnvironmentBase):
@@ -26,11 +24,30 @@ class EnvironmentOut(EnvironmentBase):
 
 
 class SettingsOut(BaseModel):
-    default_role_name: Optional[str] = None
     app_title: Optional[str] = None
     # A URL (including a data: URL for an uploaded image, stored inline) shown
     # right before the app title in the top bar.
     app_logo_url: Optional[str] = None
+
+
+class SettingsUpdate(BaseModel):
+    app_title: Optional[str] = None
+    app_logo_url: Optional[str] = None
+
+
+# ---- Auth / users / user groups ----
+#
+# A user belongs to exactly one group; the group is the sole unit of access
+# control (role to assume, visible tabs, visible environments). The Admin
+# group (UserGroup.is_admin) always sees every environment and is the only
+# group whose members can manage users/groups/settings/environments.
+
+TAB_FIELDS = ["logs_enabled", "iot_enabled", "tables_enabled", "buckets_enabled", "cognito_enabled", "tools_enabled"]
+
+
+class UserGroupBase(BaseModel):
+    name: str
+    role_name: Optional[str] = None
     logs_enabled: bool = True
     iot_enabled: bool = True
     tables_enabled: bool = True
@@ -39,16 +56,72 @@ class SettingsOut(BaseModel):
     tools_enabled: bool = True
 
 
-class SettingsUpdate(BaseModel):
-    default_role_name: Optional[str] = None
-    app_title: Optional[str] = None
-    app_logo_url: Optional[str] = None
+class UserGroupCreate(UserGroupBase):
+    # Environment ids this group can see (ignored for the Admin group, which
+    # always sees every environment regardless of this list).
+    environment_ids: list[int] = []
+
+
+class UserGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    role_name: Optional[str] = None
     logs_enabled: Optional[bool] = None
     iot_enabled: Optional[bool] = None
     tables_enabled: Optional[bool] = None
     buckets_enabled: Optional[bool] = None
     cognito_enabled: Optional[bool] = None
     tools_enabled: Optional[bool] = None
+    environment_ids: Optional[list[int]] = None
+
+
+class UserGroupOut(UserGroupBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    is_admin: bool
+    environment_ids: list[int] = []
+    user_count: int = 0
+
+
+class UserBase(BaseModel):
+    username: str
+    group_id: int
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserUpdate(BaseModel):
+    group_id: Optional[int] = None
+    password: Optional[str] = None
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
+    group_id: int
+    group_name: str
+    is_admin: bool
+    # The user's group's tab visibility -- included here (not just on
+    # UserGroupOut) because /api/auth/me is how a non-admin user, who can't
+    # call the admin-only /api/user-groups, finds out which tabs they can see.
+    logs_enabled: bool
+    iot_enabled: bool
+    tables_enabled: bool
+    buckets_enabled: bool
+    cognito_enabled: bool
+    tools_enabled: bool
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 LogsBackend = Literal["cloudwatch", "opensearch"]

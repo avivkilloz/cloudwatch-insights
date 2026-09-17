@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import iot_client, models, schemas
+from .. import auth, iot_client, models, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -43,17 +43,21 @@ def _search_one(
 
 
 @router.post("/search", response_model=schemas.IotSearchResponse)
-async def search_things(payload: schemas.IotSearchRequest, db: Session = Depends(get_db)):
+async def search_things(
+    payload: schemas.IotSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id)
+            environment = resolve_environment(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_error(environment_id, environment.name, environment.account_id, environment.region, str(e))
@@ -89,10 +93,14 @@ async def _immediate_error(environment_id: int, environment_name: str, account_i
 
 
 @router.post("/things/detail", response_model=schemas.IotThingDetail)
-def get_thing_detail(payload: schemas.IotThingDetailRequest, db: Session = Depends(get_db)):
+def get_thing_detail(
+    payload: schemas.IotThingDetailRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, payload.environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -105,13 +113,24 @@ def get_thing_detail(payload: schemas.IotThingDetailRequest, db: Session = Depen
 
 
 @router.get("/saved-searches", response_model=list[schemas.IotSavedSearchOut])
-def list_saved_searches(db: Session = Depends(get_db)):
-    return db.query(models.IotSavedSearch).order_by(models.IotSavedSearch.name).all()
+def list_saved_searches(
+    db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)
+):
+    return (
+        db.query(models.IotSavedSearch)
+        .filter(models.IotSavedSearch.user_id == current_user.id)
+        .order_by(models.IotSavedSearch.name)
+        .all()
+    )
 
 
 @router.post("/saved-searches", response_model=schemas.IotSavedSearchOut, status_code=201)
-def create_saved_search(payload: schemas.IotSavedSearchCreate, db: Session = Depends(get_db)):
-    saved = models.IotSavedSearch(**payload.model_dump())
+def create_saved_search(
+    payload: schemas.IotSavedSearchCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    saved = models.IotSavedSearch(**payload.model_dump(), user_id=current_user.id)
     db.add(saved)
     db.commit()
     db.refresh(saved)
@@ -119,9 +138,14 @@ def create_saved_search(payload: schemas.IotSavedSearchCreate, db: Session = Dep
 
 
 @router.put("/saved-searches/{saved_search_id}", response_model=schemas.IotSavedSearchOut)
-def update_saved_search(saved_search_id: int, payload: schemas.IotSavedSearchUpdate, db: Session = Depends(get_db)):
+def update_saved_search(
+    saved_search_id: int,
+    payload: schemas.IotSavedSearchUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     saved = db.get(models.IotSavedSearch, saved_search_id)
-    if not saved:
+    if not saved or saved.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Saved search not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(saved, key, value)
@@ -131,9 +155,13 @@ def update_saved_search(saved_search_id: int, payload: schemas.IotSavedSearchUpd
 
 
 @router.delete("/saved-searches/{saved_search_id}", status_code=204)
-def delete_saved_search(saved_search_id: int, db: Session = Depends(get_db)):
+def delete_saved_search(
+    saved_search_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     saved = db.get(models.IotSavedSearch, saved_search_id)
-    if not saved:
+    if not saved or saved.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Saved search not found")
     db.delete(saved)
     db.commit()
@@ -170,17 +198,21 @@ def _search_certs_one(
 
 
 @router.post("/certificates/search", response_model=schemas.IotCertificateSearchResponse)
-async def search_certificates(payload: schemas.IotCertificateSearchRequest, db: Session = Depends(get_db)):
+async def search_certificates(
+    payload: schemas.IotCertificateSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id)
+            environment = resolve_environment(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_cert_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_cert_error(
@@ -218,10 +250,14 @@ async def _immediate_cert_error(environment_id: int, environment_name: str, acco
 
 
 @router.post("/certificates/detail", response_model=schemas.IotCertificateDetail)
-def get_certificate_detail(payload: schemas.IotCertificateDetailRequest, db: Session = Depends(get_db)):
+def get_certificate_detail(
+    payload: schemas.IotCertificateDetailRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, payload.environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

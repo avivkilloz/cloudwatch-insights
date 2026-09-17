@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import opensearch_client, schemas
+from .. import auth, models, opensearch_client, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -72,12 +72,16 @@ def _domains_one(environment_id, environment_name, account_id, region, role_name
 
 
 @router.post("/domains", response_model=schemas.OpenSearchDomainsResponse)
-async def get_domains(payload: schemas.OpenSearchDomainsRequest, db: Session = Depends(get_db)):
+async def get_domains(
+    payload: schemas.OpenSearchDomainsRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id)
+            environment = resolve_environment(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -93,7 +97,7 @@ async def get_domains(payload: schemas.OpenSearchDomainsRequest, db: Session = D
             )
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -128,9 +132,13 @@ async def _wrap(value):
 
 
 @router.post("/indices", response_model=schemas.OpenSearchIndicesResponse)
-def get_indices(payload: schemas.OpenSearchIndicesRequest, db: Session = Depends(get_db)):
+def get_indices(
+    payload: schemas.OpenSearchIndicesRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
+        environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(db, environment)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -184,12 +192,16 @@ def _search_one(environment_id, environment_name, account_id, region, role_name,
 
 
 @router.post("/search", response_model=schemas.OpenSearchSearchResponse)
-async def search(payload: schemas.OpenSearchSearchRequest, db: Session = Depends(get_db)):
+async def search(
+    payload: schemas.OpenSearchSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     futures = []
     for target in payload.targets:
         try:
-            environment = resolve_environment(db, target.environment_id)
+            environment = resolve_environment(db, target.environment_id, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -207,7 +219,7 @@ async def search(payload: schemas.OpenSearchSearchRequest, db: Session = Depends
             )
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(

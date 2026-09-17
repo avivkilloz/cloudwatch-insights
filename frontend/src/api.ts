@@ -3,14 +3,39 @@ export interface Environment {
   name: string;
   account_id: string;
   region: string;
-  role_name: string | null;
 }
 
 export interface Settings {
-  default_role_name: string | null;
   app_title: string | null;
   /** A URL, including a data: URL for an uploaded image, shown right before the app title in the top bar. */
   app_logo_url: string | null;
+}
+
+/** A user belongs to exactly one group; the group is the sole unit of
+ * access control -- which IAM role to assume, which tabs are visible, and
+ * (for non-admin groups) which environments are visible. */
+export interface UserGroup {
+  id: number;
+  name: string;
+  role_name: string | null;
+  is_admin: boolean;
+  logs_enabled: boolean;
+  iot_enabled: boolean;
+  tables_enabled: boolean;
+  buckets_enabled: boolean;
+  cognito_enabled: boolean;
+  tools_enabled: boolean;
+  /** Ignored for the Admin group, which always sees every environment. */
+  environment_ids: number[];
+  user_count: number;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  group_id: number;
+  group_name: string;
+  is_admin: boolean;
   logs_enabled: boolean;
   iot_enabled: boolean;
   tables_enabled: boolean;
@@ -327,20 +352,60 @@ export interface AiAssistResponse {
 
 const BASE = "/api";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Set by AuthContext so that a 401 from ANY api call (not just the initial
+// /auth/me check) -- e.g. a session that expired while a background page was
+// still open -- immediately drops the app back to the login page, instead of
+// each page having to handle it individually.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...init,
   });
   if (!res.ok) {
+    if (res.status === 401 && path !== "/auth/login") onUnauthorized?.();
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    throw new ApiError(res.status, `${res.status} ${res.statusText}: ${text}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 export const api = {
+  login: (username: string, password: string) =>
+    req<User>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => req<void>("/auth/logout", { method: "POST" }),
+  me: () => req<User>("/auth/me"),
+  changeOwnPassword: (current_password: string, new_password: string) =>
+    req<User>("/auth/password", { method: "PUT", body: JSON.stringify({ current_password, new_password }) }),
+
+  listUsers: () => req<User[]>("/users"),
+  createUser: (payload: { username: string; password: string; group_id: number }) =>
+    req<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateUser: (id: number, payload: Partial<{ group_id: number; password: string }>) =>
+    req<User>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteUser: (id: number) => req<void>(`/users/${id}`, { method: "DELETE" }),
+
+  listUserGroups: () => req<UserGroup[]>("/user-groups"),
+  createUserGroup: (payload: Omit<UserGroup, "id" | "is_admin" | "user_count">) =>
+    req<UserGroup>("/user-groups", { method: "POST", body: JSON.stringify(payload) }),
+  updateUserGroup: (id: number, payload: Partial<Omit<UserGroup, "id" | "is_admin" | "user_count">>) =>
+    req<UserGroup>(`/user-groups/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteUserGroup: (id: number) => req<void>(`/user-groups/${id}`, { method: "DELETE" }),
+
   listEnvironments: () => req<Environment[]>("/environments"),
   createEnvironment: (payload: Omit<Environment, "id">) =>
     req<Environment>("/environments", { method: "POST", body: JSON.stringify(payload) }),

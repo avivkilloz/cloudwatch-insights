@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import dynamodb_client, schemas
+from .. import auth, dynamodb_client, models, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -9,10 +9,14 @@ router = APIRouter(prefix="/api/tables", tags=["tables"])
 
 
 @router.get("/list", response_model=schemas.DynamoTablesResponse)
-def list_tables(environment_id: int, db: Session = Depends(get_db)):
+def list_tables(
+    environment_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -25,10 +29,14 @@ def list_tables(environment_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/describe", response_model=schemas.DynamoTableInfo)
-def describe_table(payload: schemas.DynamoTableDescribeRequest, db: Session = Depends(get_db)):
+def describe_table(
+    payload: schemas.DynamoTableDescribeRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, payload.environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -43,10 +51,14 @@ def describe_table(payload: schemas.DynamoTableDescribeRequest, db: Session = De
 
 
 @router.post("/scan", response_model=schemas.DynamoScanResponse)
-def scan_table(payload: schemas.DynamoScanRequest, db: Session = Depends(get_db)):
+def scan_table(
+    payload: schemas.DynamoScanRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     try:
-        environment = resolve_environment(db, payload.environment_id)
-        role_name = resolve_role_name(db, environment)
+        environment = resolve_environment(db, payload.environment_id, current_user)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

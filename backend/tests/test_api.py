@@ -1,8 +1,14 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.conftest import client
 
-client = TestClient(app)
+
+def _client_without_cookies() -> TestClient:
+    """A fresh, unauthenticated client -- for asserting a route is reachable
+    (or rejected) with no session at all, independent of the shared,
+    logged-in `client`."""
+    return TestClient(app)
 
 
 def test_health():
@@ -12,24 +18,9 @@ def test_health():
 
 
 def test_environment_and_settings_crud():
-    resp = client.put("/api/settings", json={"default_role_name": "TestRole"})
+    resp = client.put("/api/settings", json={"app_title": "My Org Insights"})
     assert resp.status_code == 200
-    assert resp.json()["default_role_name"] == "TestRole"
-    # untouched fields keep their defaults/previous values
-    assert resp.json()["logs_enabled"] is True
-    assert resp.json()["iot_enabled"] is True
-
-    resp = client.put("/api/settings", json={"app_title": "My Org Insights", "iot_enabled": False})
-    assert resp.status_code == 200
-    updated = resp.json()
-    assert updated["app_title"] == "My Org Insights"
-    assert updated["iot_enabled"] is False
-    assert updated["logs_enabled"] is True  # untouched field preserved
-    assert updated["default_role_name"] == "TestRole"  # untouched field preserved
-
-    resp = client.put("/api/settings", json={"iot_enabled": True})
-    assert resp.status_code == 200
-    assert resp.json()["iot_enabled"] is True
+    assert resp.json()["app_title"] == "My Org Insights"
 
     resp = client.put("/api/settings", json={"app_logo_url": "data:image/png;base64,abc123"})
     assert resp.status_code == 200
@@ -41,22 +32,8 @@ def test_environment_and_settings_crud():
     assert resp.status_code == 200
     assert resp.json()["app_logo_url"] is None
 
-    resp = client.get("/api/settings")
-    assert resp.status_code == 200
-    defaults = resp.json()
-    # new tab toggles default to visible, same as logs/iot
-    assert defaults["tables_enabled"] is True
-    assert defaults["buckets_enabled"] is True
-    assert defaults["cognito_enabled"] is True
-
-    resp = client.put("/api/settings", json={"tables_enabled": False, "buckets_enabled": False})
-    assert resp.status_code == 200
-    updated = resp.json()
-    assert updated["tables_enabled"] is False
-    assert updated["buckets_enabled"] is False
-    assert updated["cognito_enabled"] is True  # untouched field preserved
-
-    resp = client.put("/api/settings", json={"tables_enabled": True, "buckets_enabled": True})
+    # /api/settings is deliberately public -- reachable with no session cookie.
+    resp = _client_without_cookies().get("/api/settings")
     assert resp.status_code == 200
 
     resp = client.post(
@@ -68,6 +45,8 @@ def test_environment_and_settings_crud():
     assert environment["account_id"] == "111122223333"
     assert environment["region"] == "us-east-1"
 
+    # Admins see every environment regardless of the Admin group's own
+    # environment-access list (which is never consulted for that group).
     resp = client.get("/api/environments")
     assert resp.status_code == 200
     assert any(e["id"] == environment["id"] for e in resp.json())
@@ -403,7 +382,7 @@ def test_tools_mqtt_presigned_url_includes_preflight_diagnostic(monkeypatch):
 
     resp = client.post(
         "/api/environments",
-        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1", "role_name": "OpsRole"},
+        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
     )
     assert resp.status_code == 201
     environment_id = resp.json()["id"]
@@ -437,16 +416,33 @@ def test_tools_mqtt_presigned_url_includes_preflight_diagnostic(monkeypatch):
     client.delete(f"/api/environments/{environment_id}")
 
 
-def test_settings_tools_enabled_defaults_true_and_persists():
-    resp = client.get("/api/settings")
-    assert resp.status_code == 200
-    assert resp.json()["tools_enabled"] is True
+def test_saved_items_are_isolated_per_user():
+    group = client.post("/api/user-groups", json={"name": "Viewers"}).json()
+    resp = client.post("/api/users", json={"username": "isolated-user", "password": "x", "group_id": group["id"]})
+    assert resp.status_code == 201
 
-    resp = client.put("/api/settings", json={"tools_enabled": False})
-    assert resp.status_code == 200
-    assert resp.json()["tools_enabled"] is False
-    assert resp.json()["logs_enabled"] is True  # untouched field preserved
+    other = _client_without_cookies()
+    login = other.post("/api/auth/login", json={"username": "isolated-user", "password": "x"})
+    assert login.status_code == 200
 
-    resp = client.put("/api/settings", json={"tools_enabled": True})
-    assert resp.status_code == 200
-    assert resp.json()["tools_enabled"] is True
+    resp = client.post("/api/saved-queries", json={"name": "Admin's query", "query_string": "fields @message"})
+    assert resp.status_code == 201
+    admin_saved_id = resp.json()["id"]
+
+    resp = other.post("/api/saved-queries", json={"name": "Other user's query", "query_string": "fields @message"})
+    assert resp.status_code == 201
+    other_saved_id = resp.json()["id"]
+
+    # Neither user's list includes the other's saved query.
+    admin_names = {q["name"] for q in client.get("/api/saved-queries").json()}
+    other_names = {q["name"] for q in other.get("/api/saved-queries").json()}
+    assert "Admin's query" in admin_names and "Other user's query" not in admin_names
+    assert "Other user's query" in other_names and "Admin's query" not in other_names
+
+    # Nor can one edit/delete the other's by id.
+    resp = other.put(f"/api/saved-queries/{admin_saved_id}", json={"name": "hijacked"})
+    assert resp.status_code == 404
+    resp = other.delete(f"/api/saved-queries/{admin_saved_id}")
+    assert resp.status_code == 404
+    resp = client.delete(f"/api/saved-queries/{other_saved_id}")
+    assert resp.status_code == 404

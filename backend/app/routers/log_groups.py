@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import aws_client, schemas
+from .. import aws_client, auth, models, schemas
 from ..db import get_db
 from ..resolve import ResolveError, resolve_environment, resolve_role_name
 
@@ -37,17 +37,21 @@ def _fetch_one(
 
 
 @router.post("", response_model=schemas.LogGroupsResponse)
-async def get_log_groups(payload: schemas.LogGroupsRequest, db: Session = Depends(get_db)):
+async def get_log_groups(
+    payload: schemas.LogGroupsRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id)
+            environment = resolve_environment(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(db, environment)
+            role_name = resolve_role_name(current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_error(environment_id, environment.name, environment.account_id, environment.region, str(e))
