@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ResultField } from "../api";
 
 // Loosened to the fields this component actually renders, rather than the
@@ -63,11 +63,24 @@ interface Props {
   limit?: number;
   sortField?: string; // empty/undefined = keep the order results arrived in
   sortDirection?: SortDirection;
+  /** Called with the full row data (same shape as each result row's fields,
+   * plus environment) every time the checkbox selection changes -- lets a
+   * parent page (e.g. the AI assistant) act on exactly the rows the user
+   * has checked. */
+  onSelectionChange?: (rows: Record<string, unknown>[]) => void;
 }
 
-export default function ResultsView({ items, limit, sortField, sortDirection = "desc" }: Props) {
+function rowToObject(row: FlatRow): Record<string, unknown> {
+  const obj: Record<string, unknown> = { environment: row.environment_name };
+  for (const f of row.fields) obj[f.field] = f.value;
+  return obj;
+}
+
+export default function ResultsView({ items, limit, sortField, sortDirection = "desc", onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupByTarget, setGroupByTarget] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
   const flatRows: FlatRow[] = [];
   items.forEach((item, itemIdx) => {
@@ -82,12 +95,25 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
     });
   });
 
+  // A new result set makes any previous selection/hides meaningless (their
+  // row keys won't match anything here) -- clear them explicitly rather
+  // than leaving stale state around.
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setHiddenKeys(new Set());
+    onSelectionChange?.([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  const visibleRows = flatRows.filter((r) => !hiddenKeys.has(r.key));
+
   // Each target is independently capped at `limit` rows by the backend, so
   // with multiple environments selected the merged set can add up to more
-  // than `limit` overall. Re-sort the merged set and cap it to the same
-  // limit so what's on screen matches what was asked for.
-  const totalBeforeTruncation = flatRows.length;
-  const sortedRows = sortField ? sortRows(flatRows, sortField, sortDirection) : flatRows;
+  // than `limit` overall. Re-sort the merged (visible, i.e. non-hidden) set
+  // and cap it to the same limit so what's on screen matches what was asked
+  // for -- hiding a row makes room for the next one rather than just
+  // leaving a gap.
+  const sortedRows = sortField ? sortRows(visibleRows, sortField, sortDirection) : visibleRows;
   const truncated = limit != null && sortedRows.length > limit;
   const displayRows = truncated ? sortedRows.slice(0, limit) : sortedRows;
 
@@ -98,6 +124,39 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
       else next.add(key);
       return next;
     });
+  }
+
+  function reportSelection(keys: Set<string>) {
+    onSelectionChange?.(flatRows.filter((r) => keys.has(r.key)).map(rowToObject));
+  }
+
+  function toggleSelect(key: string) {
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setSelectedKeys(next);
+    reportSelection(next);
+  }
+
+  function toggleSelectAll() {
+    const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedKeys.has(r.key));
+    const next = new Set(selectedKeys);
+    if (allSelected) displayRows.forEach((r) => next.delete(r.key));
+    else displayRows.forEach((r) => next.add(r.key));
+    setSelectedKeys(next);
+    reportSelection(next);
+  }
+
+  function hideSelected() {
+    const nextHidden = new Set(hiddenKeys);
+    selectedKeys.forEach((k) => nextHidden.add(k));
+    setHiddenKeys(nextHidden);
+    setSelectedKeys(new Set());
+    reportSelection(new Set());
+  }
+
+  function showAllHidden() {
+    setHiddenKeys(new Set());
   }
 
   const errors = items.filter((i) => i.error);
@@ -111,18 +170,35 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
       )
     : [["All results", displayRows] as [string, FlatRow[]]];
 
+  const allDisplayedSelected = displayRows.length > 0 && displayRows.every((r) => selectedKeys.has(r.key));
+
   return (
     <div>
       <div className="toolbar">
+        <label className="checkbox-item" title="Select all currently shown rows">
+          <input type="checkbox" checked={allDisplayedSelected} onChange={toggleSelectAll} disabled={displayRows.length === 0} />
+          Select all
+        </label>
         <span className="muted">
           {truncated
-            ? `Showing most recent ${displayRows.length} of ${totalBeforeTruncation} row(s) across ${items.length} target(s)`
+            ? `Showing most recent ${displayRows.length} of ${sortedRows.length} row(s) across ${items.length} target(s)`
             : `${displayRows.length} row(s) across ${items.length} target(s)`}
+          {hiddenKeys.size > 0 && ` (${hiddenKeys.size} hidden)`}
         </span>
         <label className="checkbox-item">
           <input type="checkbox" checked={groupByTarget} onChange={(e) => setGroupByTarget(e.target.checked)} />
           Group by environment
         </label>
+        {selectedKeys.size > 0 && (
+          <button className="secondary" onClick={hideSelected}>
+            Hide selected ({selectedKeys.size})
+          </button>
+        )}
+        {hiddenKeys.size > 0 && (
+          <button className="secondary" onClick={showAllHidden}>
+            Show {hiddenKeys.size} hidden
+          </button>
+        )}
       </div>
       {errors.length > 0 && (
         <div className="panel" style={{ borderColor: "var(--error)" }}>
@@ -144,6 +220,12 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
             return (
               <div className="result-row" key={row.key}>
                 <div className="result-row-summary" onClick={() => toggle(row.key)}>
+                  <input
+                    type="checkbox"
+                    checked={selectedKeys.has(row.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggleSelect(row.key)}
+                  />
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
                   {ts && <span className="tag">{ts}</span>}
                   {!groupByTarget && <span className="tag">{row.environment_name}</span>}

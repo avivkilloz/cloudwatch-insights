@@ -148,6 +148,7 @@ export default function InsightsPage() {
   const [startedQueries, setStartedQueries] = useState<StartedQuery[]>([]);
   const [results, setResults] = useState<QueryResultItem[]>([]);
   const [osResults, setOsResults] = useState<OpenSearchResultItem[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -588,7 +589,13 @@ export default function InsightsPage() {
 
       <div className="panel">
         <h2>4. Results</h2>
-        <ResultsView items={activeResults} limit={limit} sortField={sortField} sortDirection={sortDirection} />
+        <ResultsView
+          items={activeResults}
+          limit={limit}
+          sortField={sortField}
+          sortDirection={sortDirection}
+          onSelectionChange={setSelectedRows}
+        />
       </div>
 
       <AiAssistantWidget
@@ -596,6 +603,7 @@ export default function InsightsPage() {
         onUseQuery={setQueryString}
         sampleRows={flattenResults(activeResults)}
         rowCount={rowCount}
+        selectedRows={selectedRows}
         resultsVersion={resultsVersion}
         backend={backend}
       />
