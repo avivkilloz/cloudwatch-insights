@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from app import iot_mqtt_signer
 
@@ -48,31 +49,34 @@ def test_build_presigned_ws_url_respects_custom_expiry(monkeypatch):
     assert qs["X-Amz-Expires"][0] == "60"
 
 
-class _FakeProbeResponse:
-    def __init__(self, status_code, text=""):
-        self.status_code = status_code
-        self.text = text
-
-
-def test_probe_presigned_url_swaps_wss_for_https_and_reports_status(monkeypatch):
+def test_probe_presigned_url_reports_rejection_status_and_body(monkeypatch):
     captured = {}
+    response = Response(403, "Forbidden", headers={}, body=b'{"message":"Forbidden"}')
 
-    def fake_get(url, timeout):
+    def fake_ws_connect(url, subprotocols, open_timeout, proxy):
         captured["url"] = url
-        captured["timeout"] = timeout
-        return _FakeProbeResponse(403, '{"message":"Forbidden"}')
+        captured["subprotocols"] = subprotocols
+        captured["proxy"] = proxy
+        raise InvalidStatus(response)
 
-    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", fake_get)
+    monkeypatch.setattr(iot_mqtt_signer, "ws_connect", fake_ws_connect)
 
     result = iot_mqtt_signer.probe_presigned_url("wss://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x")
 
-    assert captured["url"] == "https://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x"
+    assert captured["url"] == "wss://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x"
+    assert captured["subprotocols"] == ["mqtt"]
+    assert captured["proxy"] is None
     assert result == {"status_code": 403, "body": '{"message":"Forbidden"}'}
 
 
 def test_probe_presigned_url_caps_body_length(monkeypatch):
-    huge_body = "x" * 5000
-    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", lambda url, timeout: _FakeProbeResponse(400, huge_body))
+    huge_body = b"x" * 5000
+    response = Response(400, "Bad Request", headers={}, body=huge_body)
+    monkeypatch.setattr(
+        iot_mqtt_signer,
+        "ws_connect",
+        lambda url, subprotocols, open_timeout, proxy: (_ for _ in ()).throw(InvalidStatus(response)),
+    )
 
     result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
 
@@ -81,12 +85,27 @@ def test_probe_presigned_url_caps_body_length(monkeypatch):
 
 
 def test_probe_presigned_url_reports_network_errors_without_raising(monkeypatch):
-    def fake_get(url, timeout):
-        raise httpx.ConnectTimeout("timed out")
+    def fake_ws_connect(url, subprotocols, open_timeout, proxy):
+        raise OSError("timed out")
 
-    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", fake_get)
+    monkeypatch.setattr(iot_mqtt_signer, "ws_connect", fake_ws_connect)
 
     result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
 
     assert result["status_code"] is None
     assert "timed out" in result["body"]
+
+
+def test_probe_presigned_url_reports_success_when_upgrade_accepted(monkeypatch):
+    class _FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(iot_mqtt_signer, "ws_connect", lambda url, subprotocols, open_timeout, proxy: _FakeConnection())
+
+    result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
+
+    assert result["status_code"] == 101

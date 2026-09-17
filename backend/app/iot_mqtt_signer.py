@@ -1,7 +1,8 @@
-import httpx
 from botocore.auth import SigV4QueryAuth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
+from websockets.exceptions import InvalidStatus
+from websockets.sync.client import connect as ws_connect
 
 from . import aws_client, iot_client
 
@@ -41,18 +42,23 @@ def probe_presigned_url(url: str) -> dict:
 
     A browser gives no visibility into *why* a WebSocket handshake was
     rejected -- a failed upgrade just looks like a bare, reason-less close.
-    Making the exact same signed request as a plain HTTPS call from here
-    instead gets AWS's actual response back (status code and body), which is
-    the only place a rejection reason -- an invalid signature, a missing
-    iot:Connect/Publish/Subscribe/Receive permission, clock skew, etc. --
-    is visible at all. This doesn't try to classify the result as "good" or
-    "bad" (that would mean guessing at exactly which status IoT Core's
-    device gateway returns for a non-WebSocket request that's otherwise
-    validly signed, which isn't documented); it just surfaces what AWS said.
+    This attempts the *actual* WebSocket handshake server-side (same "mqtt"
+    subprotocol mqtt.js requests), which -- unlike a browser -- lets us read
+    AWS's real rejection response (status code and body) when the upgrade is
+    refused. A plain HTTPS GET without WebSocket upgrade headers isn't
+    equivalent: IoT Core's device gateway 404s a request that doesn't look
+    like a WebSocket upgrade at all, regardless of whether the signature is
+    valid, which would be indistinguishable from an actual auth failure.
     """
-    https_url = url.replace("wss://", "https://", 1)
     try:
-        resp = httpx.get(https_url, timeout=PROBE_TIMEOUT_SECONDS)
-    except httpx.HTTPError as e:
+        with ws_connect(url, subprotocols=["mqtt"], open_timeout=PROBE_TIMEOUT_SECONDS, proxy=None):
+            pass
+    except InvalidStatus as e:
+        resp = e.response
+        body = bytes(resp.body).decode("utf-8", errors="replace") if resp.body else ""
+        return {"status_code": resp.status_code, "body": body.strip()[:MAX_PROBE_BODY_CHARS]}
+    except Exception as e:  # noqa: BLE001 - surface any handshake failure reason (DNS, TLS, timeout, etc.)
         return {"status_code": None, "body": str(e)}
-    return {"status_code": resp.status_code, "body": resp.text.strip()[:MAX_PROBE_BODY_CHARS]}
+    # No exception means AWS accepted the WebSocket upgrade (101 Switching
+    # Protocols) -- the signature and permissions are valid.
+    return {"status_code": 101, "body": "AWS accepted the WebSocket upgrade -- this URL and its signature are valid."}
