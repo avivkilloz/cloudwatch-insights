@@ -428,14 +428,25 @@ expand in place:
   If it connects and then disconnects immediately, the browser itself can't
   tell you why: rejecting a WebSocket handshake never surfaces an HTTP
   status or body to JavaScript, only a generic "closed" event. To work
-  around that, minting the connection URL also makes the exact same signed
-  request as a plain HTTPS call from the backend (which *can* see AWS's
-  response) and reports it back as a "pre-flight check" next to the
-  endpoint — read that first. A `403`/`401` there almost always means the
-  assumed role is missing one of the `iot:*` data-plane permissions above,
-  or an IoT policy/custom authorizer is scoping `iot:Connect` to a specific
-  client ID rather than allowing any (this tool generates a random one
-  per connection, e.g. `cloudwatch-insights-<random>`).
+  around that, minting the connection URL also attempts the actual
+  WebSocket handshake from the backend (which *can* see AWS's response) and
+  reports the result back as a "pre-flight check" next to the endpoint —
+  read that first:
+  - `HTTP 101` means AWS accepted the handshake — the URL and signature are
+    valid, so a subsequent immediate disconnect in the browser itself points
+    at something environment-specific (network reachability from your
+    browser, a proxy, etc.) rather than IAM/signing.
+  - `HTTP 403`/`401` almost always means the assumed role is missing one of
+    the `iot:*` data-plane permissions above, or an IoT policy/custom
+    authorizer is scoping `iot:Connect` to a specific client ID rather than
+    allowing any (this tool generates a random one per connection, e.g.
+    `cloudwatch-insights-<random>`).
+  - `HTTP 404` means the endpoint itself doesn't recognize `/mqtt` as a
+    route at all — double check the discovered endpoint is actually this
+    account's ATS IoT data endpoint.
+  - No status at all (a connection/timeout error) means the endpoint wasn't
+    reachable from the backend — check network path and security groups if
+    the domain uses a VPC endpoint.
 
 ## Notes
 
