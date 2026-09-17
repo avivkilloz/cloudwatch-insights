@@ -36,6 +36,7 @@ class SettingsOut(BaseModel):
     tables_enabled: bool = True
     buckets_enabled: bool = True
     cognito_enabled: bool = True
+    tools_enabled: bool = True
 
 
 class SettingsUpdate(BaseModel):
@@ -47,6 +48,7 @@ class SettingsUpdate(BaseModel):
     tables_enabled: Optional[bool] = None
     buckets_enabled: Optional[bool] = None
     cognito_enabled: Optional[bool] = None
+    tools_enabled: Optional[bool] = None
 
 
 LogsBackend = Literal["cloudwatch", "opensearch"]
@@ -596,3 +598,47 @@ class AiAssistResponse(BaseModel):
     # build_query mode only: the query text extracted from the reply's code
     # block, ready to drop straight into the query editor.
     suggested_query: Optional[str] = None
+
+
+# ---- Tools page ----
+#
+# A grid of small, independent developer utilities. Most (JWT, Base64, diff)
+# run entirely client-side and never touch the backend. The two that do:
+# the HTTP request tool (needs a server to avoid the browser's own CORS
+# restrictions) and the MQTT tester (needs a server to mint a SigV4-signed
+# connection URL with an environment's assumed-role credentials, though the
+# MQTT session itself then runs straight from the browser to the broker).
+
+
+class ToolHeader(BaseModel):
+    key: str
+    value: str
+
+
+HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+
+class HttpToolRequest(BaseModel):
+    method: HttpMethod = "GET"
+    url: str
+    headers: list[ToolHeader] = []
+    body: Optional[str] = None
+
+
+class HttpToolResponse(BaseModel):
+    status_code: int
+    status_text: str
+    headers: list[ToolHeader] = []
+    body: str
+    body_truncated: bool = False
+    elapsed_ms: int
+
+
+class MqttPresignedUrlRequest(BaseModel):
+    environment_id: int
+
+
+class MqttPresignedUrlResponse(BaseModel):
+    endpoint: str
+    url: str
+    expires_in: int

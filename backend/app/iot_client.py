@@ -16,7 +16,7 @@ _endpoint_cache: dict[tuple[str, str, str], str] = {}
 _endpoint_lock = threading.Lock()
 
 
-def _get_iot_data_endpoint(account_id: str, region: str, role_name: str) -> str:
+def get_iot_data_endpoint(account_id: str, region: str, role_name: str) -> str:
     cache_key = (account_id, region, role_name)
     with _endpoint_lock:
         cached = _endpoint_cache.get(cache_key)
@@ -31,7 +31,7 @@ def _get_iot_data_endpoint(account_id: str, region: str, role_name: str) -> str:
 
 
 def _get_iot_data_client(account_id: str, region: str, role_name: str):
-    endpoint = _get_iot_data_endpoint(account_id, region, role_name)
+    endpoint = get_iot_data_endpoint(account_id, region, role_name)
     return aws_client.get_client_with_endpoint("iot-data", account_id, region, role_name, f"https://{endpoint}")
 
 

@@ -16,6 +16,7 @@ export interface Settings {
   tables_enabled: boolean;
   buckets_enabled: boolean;
   cognito_enabled: boolean;
+  tools_enabled: boolean;
 }
 
 export interface SavedSession<T = Record<string, unknown>> {
@@ -281,6 +282,30 @@ export interface OpenSearchResultItem {
   error: string | null;
 }
 
+// ---- Tools page ----
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+
+export interface ToolHeader {
+  key: string;
+  value: string;
+}
+
+export interface HttpToolResponse {
+  status_code: number;
+  status_text: string;
+  headers: ToolHeader[];
+  body: string;
+  body_truncated: boolean;
+  elapsed_ms: number;
+}
+
+export interface MqttPresignedUrlResponse {
+  endpoint: string;
+  url: string;
+  expires_in: number;
+}
+
 // ---- AI assistant ----
 
 export type AiChatRole = "user" | "assistant";
@@ -459,5 +484,14 @@ export const api = {
     req<{ results: OpenSearchResultItem[] }>("/opensearch/search", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  sendHttpToolRequest: (payload: { method: HttpMethod; url: string; headers?: ToolHeader[]; body?: string | null }) =>
+    req<HttpToolResponse>("/tools/http-request", { method: "POST", body: JSON.stringify(payload) }),
+
+  getMqttPresignedUrl: (environmentId: number) =>
+    req<MqttPresignedUrlResponse>("/tools/mqtt/presigned-url", {
+      method: "POST",
+      body: JSON.stringify({ environment_id: environmentId }),
     }),
 };
