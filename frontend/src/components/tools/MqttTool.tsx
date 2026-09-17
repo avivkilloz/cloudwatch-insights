@@ -31,6 +31,7 @@ export default function MqttTool() {
   const [publishPayload, setPublishPayload] = useState("");
 
   const [diagnostic, setDiagnostic] = useState<{ statusCode: number | null; body: string | null } | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null);
   const everConnectedRef = useRef(false);
 
   const [messages, setMessages] = useState<ReceivedMessage[]>([]);
@@ -67,8 +68,10 @@ export default function MqttTool() {
       if (typeof mqttConnect !== "function") {
         throw new Error("Could not load the MQTT client library.");
       }
+      const newClientId = randomClientId();
+      setClientId(newClientId);
       const client = mqttConnect(conn.url, {
-        clientId: randomClientId(),
+        clientId: newClientId,
         protocolVersion: 4,
         // The presigned URL is only valid for a few minutes -- an
         // automatic reconnect after that would just keep failing auth
@@ -179,10 +182,17 @@ export default function MqttTool() {
       </div>
       {error && <p className="error-text">{error}</p>}
       {diagnostic && (
-        <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+        <p className="muted" style={{ marginTop: -4, marginBottom: 4 }}>
           Backend pre-flight check on this connection URL: HTTP{" "}
           {diagnostic.statusCode ?? "no response"}
           {diagnostic.body ? ` — ${diagnostic.body}` : ""}
+        </p>
+      )}
+      {clientId && (
+        <p className="muted" style={{ marginTop: 0, marginBottom: 10 }}>
+          Client ID for this attempt: <code>{clientId}</code> — use this to find the matching entry in AWS IoT
+          Core's own logging (Settings → Logs in the IoT console; a separate system from CloudTrail) if you enable
+          it to see the exact authorization decision.
         </p>
       )}
 
