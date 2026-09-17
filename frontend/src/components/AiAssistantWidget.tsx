@@ -10,6 +10,10 @@ interface Props {
   queryString?: string;
   sampleRows?: Record<string, unknown>[];
   rowCount?: number;
+  /** Rows the user has checked in the results view below, if any -- lets
+   * ask_results answer about exactly those rows instead of a sample, and
+   * lets build_query use them as examples when writing a new query. */
+  selectedRows?: Record<string, unknown>[];
   /** Wires up the "Use this query" button in the build_query thread. */
   onUseQuery?: (query: string) => void;
   /**
@@ -110,7 +114,15 @@ function CheckIcon() {
   );
 }
 
-export default function AiAssistantWidget({ queryString, sampleRows, rowCount, onUseQuery, resultsVersion, backend }: Props) {
+export default function AiAssistantWidget({
+  queryString,
+  sampleRows,
+  rowCount,
+  selectedRows,
+  onUseQuery,
+  resultsVersion,
+  backend,
+}: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<AiAssistMode>("build_query");
@@ -118,7 +130,8 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [useFullResults, setUseFullResults] = useState(false);
+  const [useSelected, setUseSelected] = useState(false);
+  const [includeSelectedInBuildQuery, setIncludeSelectedInBuildQuery] = useState(false);
   const [size, setSize] = useState(loadStoredSize);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -169,8 +182,18 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
     if (resultsVersion === undefined || resultsVersion === lastResultsVersion.current) return;
     lastResultsVersion.current = resultsVersion;
     setThreads((prev) => ({ ...prev, ask_results: [] }));
-    setUseFullResults(false);
+    setUseSelected(false);
+    setIncludeSelectedInBuildQuery(false);
   }, [resultsVersion]);
+
+  // The user deselecting everything (rather than a whole new query run)
+  // should fall back the same way -- there's nothing left to send.
+  useEffect(() => {
+    if ((selectedRows?.length ?? 0) === 0) {
+      setUseSelected(false);
+      setIncludeSelectedInBuildQuery(false);
+    }
+  }, [selectedRows]);
 
   function handleInputKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -199,14 +222,18 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
     setLoading(true);
     setError(null);
     try {
-      const interleaved = mode === "ask_results" ? interleaveByLogGroup(sampleRows ?? []) : undefined;
-      const rowsToSend = interleaved && !useFullResults ? interleaved.slice(0, SAMPLE_CAP) : interleaved;
+      let rowsToSend: Record<string, unknown>[] | undefined;
+      if (mode === "ask_results") {
+        rowsToSend = useSelected ? selectedRows : interleaveByLogGroup(sampleRows ?? []).slice(0, SAMPLE_CAP);
+      } else if (mode === "build_query" && includeSelectedInBuildQuery) {
+        rowsToSend = selectedRows;
+      }
       const resp = await api.aiAssist({
         mode,
         messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         query_string: queryString,
         sample_rows: rowsToSend,
-        row_count: mode === "ask_results" ? rowCount : undefined,
+        row_count: mode === "ask_results" ? (useSelected ? rowsToSend?.length : rowCount) : undefined,
         backend,
       });
       setThreads((prev) => ({
@@ -224,6 +251,7 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
 
   const messages = threads[mode];
   const totalAvailableRows = sampleRows?.length ?? 0;
+  const selectedCount = selectedRows?.length ?? 0;
 
   return (
     <>
@@ -256,31 +284,44 @@ export default function AiAssistantWidget({ queryString, sampleRows, rowCount, o
             </button>
           </div>
 
-          {mode === "ask_results" && totalAvailableRows > SAMPLE_CAP && (
+          {mode === "ask_results" && (totalAvailableRows > SAMPLE_CAP || selectedCount > 0) && (
             <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
               <div className="ai-widget-tabs">
                 <button
-                  className={!useFullResults ? "tab active" : "tab"}
-                  onClick={() => setUseFullResults(false)}
+                  className={!useSelected ? "tab active" : "tab"}
+                  onClick={() => setUseSelected(false)}
                   style={{ fontSize: 11, padding: "3px 8px" }}
                 >
-                  Sampled ({SAMPLE_CAP})
+                  Sampled ({Math.min(SAMPLE_CAP, totalAvailableRows)})
                 </button>
                 <button
-                  className={useFullResults ? "tab active" : "tab"}
-                  onClick={() => setUseFullResults(true)}
+                  className={useSelected ? "tab active" : "tab"}
+                  onClick={() => selectedCount > 0 && setUseSelected(true)}
+                  disabled={selectedCount === 0}
+                  title={selectedCount === 0 ? "Check some rows in the results below first" : undefined}
                   style={{ fontSize: 11, padding: "3px 8px" }}
                 >
-                  All results ({totalAvailableRows})
+                  Selected ({selectedCount})
                 </button>
               </div>
             </div>
           )}
-          {mode === "ask_results" && totalAvailableRows > SAMPLE_CAP && useFullResults && (
+          {mode === "ask_results" && useSelected && (
             <p className="muted" style={{ padding: "4px 12px 0" }}>
-              Sending all {totalAvailableRows} rows -- large result sets are automatically trimmed to fit the AI's
-              context window, so the assistant will say if it only saw part of it.
+              Sending only the {selectedCount} row(s) checked in the results below, instead of a sample.
             </p>
+          )}
+          {mode === "build_query" && selectedCount > 0 && (
+            <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
+              <label className="checkbox-item" style={{ fontSize: 11 }}>
+                <input
+                  type="checkbox"
+                  checked={includeSelectedInBuildQuery}
+                  onChange={(e) => setIncludeSelectedInBuildQuery(e.target.checked)}
+                />
+                Use {selectedCount} checked result(s) as examples
+              </label>
+            </div>
           )}
 
           <div className="ai-widget-messages">

@@ -46,17 +46,28 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
+- **Result row selection** (Logs tab): every result row has a checkbox, plus
+  a "Select all" checkbox above the list that selects/deselects every
+  currently-shown row. Selecting rows enables **Hide selected**, which
+  removes them from view (a "Show N hidden" button brings them all back);
+  hiding makes room for the next-best row within the current Limit rather
+  than just leaving a gap. Selection also feeds the AI assistant below —
+  see "About results" and "Build query". A new query run, or deselecting
+  everything, clears the selection.
 - **AI assistant** (Logs tab, optional): a floating "✦ Ask AI" button in
   the bottom-right corner opens a compact panel with two tabs instead of
   bloating the page with always-visible panels. "Build query" turns a
   plain-English description into a CloudWatch Logs Insights query you can
-  drop straight into the editor with one click; "About results" answers
-  questions about the current result set. By default it sees a sample of
-  the rows spread fairly across every log group in the results (so a
-  low-volume log group querying alongside a high-volume one isn't crowded
-  out); when there are more rows than that, a "Sampled / All results"
-  toggle lets you opt into sending everything currently loaded on the
-  page instead. Each tab keeps its own conversation — switching tabs
+  drop straight into the editor with one click — if you've checked some
+  result rows, a "Use N checked result(s) as examples" checkbox includes
+  them so the assistant can reference their actual field names/values
+  instead of guessing. "About results" answers questions about the current
+  result set: by default it sees a sample of the rows spread fairly across
+  every log group in the results (so a low-volume log group querying
+  alongside a high-volume one isn't crowded out); a "Sampled / Selected"
+  toggle appears once you've checked some rows, letting you narrow the
+  question to exactly those instead of the sample. Each tab keeps its own
+  conversation — switching tabs
   doesn't lose either thread, and you can go back and forth, not just one
   shot. Drag the panel's top-left corner to resize it; the size is
   remembered per browser. Backed by a [LiteLLM](https://www.litellm.ai/)

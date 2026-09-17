@@ -31,10 +31,14 @@ and modify only what the user's request calls for, preserving the rest of \
 it as-is (fields selected, filters, sorting, limits, etc.) rather than \
 writing an unrelated query from scratch. If the current query doesn't fit \
 the request at all (e.g. it's for a completely different kind of search), \
-or there is no current query, write a fresh one instead. Respond with a \
-brief one- or two-sentence explanation of the query, then a single fenced \
-code block containing ONLY the CloudWatch Logs Insights query itself (no \
-comments, no alternatives, nothing else in the block). If the user's \
+or there is no current query, write a fresh one instead. If a sample of \
+result rows is included in the context below, they're examples the user \
+selected to point out what they're looking for -- use their actual field \
+names and values to inform the query (e.g. an exact field to filter on, or \
+a literal value/pattern shared across them) rather than guessing. Respond \
+with a brief one- or two-sentence explanation of the query, then a single \
+fenced code block containing ONLY the CloudWatch Logs Insights query itself \
+(no comments, no alternatives, nothing else in the block). If the user's \
 request is ambiguous, make a reasonable assumption, state it briefly, and \
 still provide a best-effort query.""",
     "opensearch": """\
@@ -48,8 +52,12 @@ use it as the starting point and modify only what the user's request calls \
 for, preserving the rest of it (e.g. other AND/OR clauses) as-is rather \
 than writing an unrelated query from scratch. If the current query doesn't \
 fit the request at all, or there is no current query, write a fresh one \
-instead. Respond with a brief one- or two-sentence explanation of the \
-query, then a single fenced code block containing ONLY the Lucene \
+instead. If a sample of result rows is included in the context below, \
+they're examples the user selected to point out what they're looking for \
+-- use their actual field names and values to inform the query (e.g. an \
+exact field to filter on, or a literal value/pattern shared across them) \
+rather than guessing. Respond with a brief one- or two-sentence explanation \
+of the query, then a single fenced code block containing ONLY the Lucene \
 query_string itself (no comments, no alternatives, no leading \
 `GET /_search`, nothing else in the block -- just the query string as it \
 would be typed into the search bar). A time range is applied separately by \
