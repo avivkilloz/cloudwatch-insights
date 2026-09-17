@@ -436,33 +436,68 @@ expand in place:
     valid, so a subsequent immediate disconnect in the browser itself points
     at something environment-specific (network reachability from your
     browser, a proxy, etc.) rather than IAM/signing.
-  - `HTTP 403`/`401` means the assumed role's identity-based policy doesn't
-    grant this connection, and it's checked purely on the IAM principal at
-    this stage -- the MQTT client ID isn't sent until *after* a successful
-    WebSocket upgrade, so a client-ID-scoped condition can't be the cause of
-    a rejection this early. If the role's own policy already has
-    `iot:Connect`/`iot:Publish`/`iot:Subscribe`/`iot:Receive` on
-    `Resource: "*"` and it's still rejected, check for an SCP or permission
-    boundary that might also apply, and check the backend's system clock
-    (`date -u` in the pod) for skew, since SigV4 signatures are time-bound
-    and IoT Core reports a skew-caused rejection with the same generic
-    `Forbidden` body. **This action doesn't show up in CloudTrail** -- it's
-    an MQTT-level authorization decision inside the IoT device gateway, a
-    separate system. To see the actual reason, enable AWS IoT Core's own
-    logging (IoT Console → Settings → Logs → set the log level to `DEBUG`),
-    reconnect, and look for the entry matching the client ID shown under
-    the connection status (`cloudwatch-insights-<random>`) in the
-    CloudWatch Logs group it writes to. **If a rejection shows up here but
-    nothing matching appears in that IoT Core logging even with `DEBUG`
-    enabled**, the request likely never reached IoT Core's device gateway at
-    all — something in the network path (a proxy, firewall, or inspection
-    appliance) answered first. The pre-flight check's expandable "Response
-    headers" section is the fastest way to tell the two apart: a genuine AWS
-    rejection carries AWS-typical headers (e.g. an `x-amzn-requestid` or
-    similar request-id header, `Content-Type: application/json`), while an
-    intercepting proxy's own error page typically doesn't — an unfamiliar
-    `Server` header, an HTML `Content-Type` instead of JSON, or extra
-    headers a real AWS response would never include are signs of the latter.
+  - `HTTP 403`/`401` means AWS rejected the connection, but the generic
+    `Forbidden` body it returns doesn't say why -- and **this action doesn't
+    show up in CloudTrail**, since it's an MQTT-level decision inside the IoT
+    device gateway, a separate system with its own logging. To see the
+    actual reason: enable AWS IoT Core's own logging (IoT Console → Settings
+    → Logs → set the default log level to `DEBUG` or `INFO`), reconnect, and
+    look in the CloudWatch Logs group it writes to (`AWSIotLogsV2` by
+    default) for the entry matching the client ID shown under the connection
+    status (`cloudwatch-insights-<random>`).
+    - **If nothing shows up there even with logging enabled**, check for a
+      *per-event-type* override before assuming the request never arrived:
+      `aws iot get-v2-logging-options` returns an `eventConfigurations` list
+      that can override specific event types (e.g. `Connection.AuthNError`)
+      to `DISABLED` independently of `defaultLogLevel` -- easy to miss since
+      the console's basic log-level toggle doesn't surface it. Clear that
+      override (or set it explicitly to `INFO`) and reconnect.
+    - Once you can see the actual log entry, its `reason` field gives the
+      real cause. A `reason` of `SECURITY_TOKEN_SIGNATURE_MISMATCH`
+      specifically does *not* mean an IAM/policy problem (IAM Policy
+      Simulator will report the action as allowed) -- it means the signature
+      itself doesn't match what IoT Core recomputes. This app used to have
+      exactly that bug: AWS IoT Core's device gateway recomputes the
+      expected signature *excluding* the session token, unlike normal
+      SigV4Query behavior (e.g. for S3 presigned URLs) which signs the token
+      along with everything else -- signing it in, which botocore's
+      `SigV4QueryAuth` does by default when given a token-bearing
+      credentials object, produces a URL IoT Core always rejects this way.
+      It's fixed now (the token is appended after signing, unsigned), but if
+      you're running a fork or an older build, this is the first thing to
+      check.
+    - For any other `reason` (an actual authorization denial), check the
+      identity-based policy first -- the MQTT client ID isn't sent until
+      *after* a successful WebSocket upgrade, so a client-ID-scoped policy
+      condition can't be the cause of a rejection this early. If the role's
+      own policy already grants `iot:Connect`/`iot:Publish`/`iot:Subscribe`/
+      `iot:Receive` on `Resource: "*"` and it's still denied, run IAM Policy
+      Simulator against the exact assumed-role ARN
+      (`aws iam simulate-principal-policy --policy-source-arn <role-arn>
+      --action-names iot:Connect --resource-arns
+      "arn:aws:iot:<region>:<account-id>:client/*"`) -- unlike CloudTrail,
+      it accounts for SCPs and permissions boundaries and tells you which
+      one is the source of a deny, if any. If the simulator says the action
+      is allowed, and DNS for the IoT endpoint resolves to a public IP (not
+      a private VPC-endpoint address), also check whether an IoT Core
+      custom/default authorizer is configured on the account (IoT Console →
+      Security → Authorizers) -- one intercepts even SigV4-authenticated
+      connections independently of IAM.
+    - Separately, the backend's system clock can also produce a genuine
+      signature failure (SigV4 signatures are time-bound) -- compare
+      `date -u` in the pod against a trusted clock if the above doesn't
+      explain it.
+  - If a rejection shows up in the pre-flight check but nothing matching
+    ever appears in AWS IoT Core's own logging (with both the default level
+    *and* any per-event-type overrides confirmed enabled), the request may
+    never be reaching IoT Core's device gateway at all -- something in the
+    network path (a proxy, firewall, or inspection appliance) could be
+    answering first. The pre-flight check's expandable "Response headers"
+    section is the fastest way to tell a genuine AWS rejection (AWS-typical
+    headers like `x-amzn-RequestId`/`x-amzn-ErrorType`, JSON content type)
+    from an intercepting proxy's own error page (an unfamiliar `Server`
+    header, an HTML content type, or other headers a real AWS response
+    would never include).
   - `HTTP 404` means the endpoint itself doesn't recognize `/mqtt` as a
     route at all — double check the discovered endpoint is actually this
     account's ATS IoT data endpoint.
