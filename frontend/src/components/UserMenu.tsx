@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { User } from "../api";
-import { THEMES, ThemeId } from "../theme";
 import Avatar from "./Avatar";
 
 interface Props {
   user: User;
-  theme: ThemeId;
-  onThemeChange: (theme: ThemeId) => void;
   onOpenSettings: () => void;
   onLogout: () => void;
 }
 
-export default function UserMenu({ user, theme, onThemeChange, onOpenSettings, onLogout }: Props) {
+export default function UserMenu({ user, onOpenSettings, onLogout }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -57,17 +54,6 @@ export default function UserMenu({ user, theme, onThemeChange, onOpenSettings, o
           >
             Settings
           </button>
-          <div className="icon-popover-divider" />
-          <div className="icon-popover-label">Theme</div>
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              className={`icon-popover-item ${t.id === theme ? "active" : ""}`}
-              onClick={() => onThemeChange(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
           <div className="icon-popover-divider" />
           <button
             className="icon-popover-item"

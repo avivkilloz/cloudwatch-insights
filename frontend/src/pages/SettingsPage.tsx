@@ -3,6 +3,8 @@ import { api, ApiError, Environment, Settings, User, UserGroup } from "../api";
 import { AWS_REGIONS } from "../regions";
 import { useAuth } from "../AuthContext";
 import Avatar from "../components/Avatar";
+import ThemeGrid from "../components/ThemeGrid";
+import { ThemeId } from "../theme";
 import SavedItemsPage from "./SavedItemsPage";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -27,10 +29,11 @@ const MAX_LOGO_BYTES = 300 * 1024;
 // backend's MAX_AVATAR_URL_LENGTH once base64-encoded.
 const MAX_AVATAR_BYTES = 200 * 1024;
 
-type Section = "account" | "saved" | "app" | "environments" | "groups" | "users";
+type Section = "account" | "theme" | "saved" | "app" | "environments" | "groups" | "users";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
+  { id: "theme", label: "Theme" },
   { id: "saved", label: "Saved" },
 ];
 
@@ -75,7 +78,12 @@ function groupToDraft(g: UserGroup): GroupDraft {
   };
 }
 
-export default function SettingsPage() {
+interface Props {
+  theme: ThemeId;
+  onThemeChange: (theme: ThemeId) => void;
+}
+
+export default function SettingsPage({ theme, onThemeChange }: Props) {
   const { user: currentUser, refresh: refreshAuth } = useAuth();
   const isAdmin = !!currentUser?.is_admin;
   const sections = isAdmin ? [...BASE_SECTIONS, ...ADMIN_SECTIONS] : BASE_SECTIONS;
@@ -301,6 +309,16 @@ export default function SettingsPage() {
       )}
 
       {section === "account" && currentUser && <AccountSection user={currentUser} onProfileSaved={refreshAuth} />}
+
+      {section === "theme" && (
+        <div className="panel">
+          <h2>Theme</h2>
+          <p className="muted" style={{ marginBottom: 14 }}>
+            Pick a theme -- each card previews the real colors it uses. Remembered per browser.
+          </p>
+          <ThemeGrid theme={theme} onChange={onThemeChange} />
+        </div>
+      )}
 
       {section === "saved" && <SavedItemsPage />}
 

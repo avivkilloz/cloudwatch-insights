@@ -95,20 +95,12 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange }: ShellProps) {
           )}
         </nav>
         <div className="topbar-right">
-          {user && (
-            <UserMenu
-              user={user}
-              theme={theme}
-              onThemeChange={onThemeChange}
-              onOpenSettings={() => setTab("settings")}
-              onLogout={handleLogout}
-            />
-          )}
+          {user && <UserMenu user={user} onOpenSettings={() => setTab("settings")} onLogout={handleLogout} />}
         </div>
       </header>
       <main className="content">
         {TOGGLEABLE_TABS.map((t) => tab === t.id && t.enabled && <div key={t.id}>{t.render()}</div>)}
-        {tab === "settings" && <SettingsPage />}
+        {tab === "settings" && <SettingsPage theme={theme} onThemeChange={onThemeChange} />}
       </main>
     </div>
   );
