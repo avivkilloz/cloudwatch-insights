@@ -41,6 +41,12 @@ def get_mqtt_presigned_url(payload: schemas.MqttPresignedUrlRequest, db: Session
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to build MQTT connection URL: {e}") from e
 
+    diagnostic = iot_mqtt_signer.probe_presigned_url(result["url"])
+
     return schemas.MqttPresignedUrlResponse(
-        endpoint=result["endpoint"], url=result["url"], expires_in=iot_mqtt_signer.DEFAULT_EXPIRES_SECONDS
+        endpoint=result["endpoint"],
+        url=result["url"],
+        expires_in=iot_mqtt_signer.DEFAULT_EXPIRES_SECONDS,
+        diagnostic_status_code=diagnostic["status_code"],
+        diagnostic_body=diagnostic["body"],
     )

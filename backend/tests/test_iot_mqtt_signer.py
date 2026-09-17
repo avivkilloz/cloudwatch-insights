@@ -1,5 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
+
 from app import iot_mqtt_signer
 
 
@@ -44,3 +46,47 @@ def test_build_presigned_ws_url_respects_custom_expiry(monkeypatch):
 
     qs = parse_qs(urlsplit(result["url"]).query)
     assert qs["X-Amz-Expires"][0] == "60"
+
+
+class _FakeProbeResponse:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+def test_probe_presigned_url_swaps_wss_for_https_and_reports_status(monkeypatch):
+    captured = {}
+
+    def fake_get(url, timeout):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        return _FakeProbeResponse(403, '{"message":"Forbidden"}')
+
+    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", fake_get)
+
+    result = iot_mqtt_signer.probe_presigned_url("wss://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x")
+
+    assert captured["url"] == "https://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=x"
+    assert result == {"status_code": 403, "body": '{"message":"Forbidden"}'}
+
+
+def test_probe_presigned_url_caps_body_length(monkeypatch):
+    huge_body = "x" * 5000
+    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", lambda url, timeout: _FakeProbeResponse(400, huge_body))
+
+    result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
+
+    assert result["status_code"] == 400
+    assert len(result["body"]) == iot_mqtt_signer.MAX_PROBE_BODY_CHARS
+
+
+def test_probe_presigned_url_reports_network_errors_without_raising(monkeypatch):
+    def fake_get(url, timeout):
+        raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(iot_mqtt_signer.httpx, "get", fake_get)
+
+    result = iot_mqtt_signer.probe_presigned_url("wss://example.com/mqtt?a=b")
+
+    assert result["status_code"] is None
+    assert "timed out" in result["body"]

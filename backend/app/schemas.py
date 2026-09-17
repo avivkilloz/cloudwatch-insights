@@ -642,3 +642,8 @@ class MqttPresignedUrlResponse(BaseModel):
     endpoint: str
     url: str
     expires_in: int
+    # A backend-side pre-flight check against this same URL -- browsers hide
+    # the real reason a WebSocket handshake gets rejected, so this surfaces
+    # whatever AWS actually said (status code + body) as a diagnostic.
+    diagnostic_status_code: Optional[int] = None
+    diagnostic_body: Optional[str] = None
