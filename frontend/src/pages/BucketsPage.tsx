@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo } from "../api";
+import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
+
+const SESSION_PAGE = "buckets";
+
+interface BucketShortcutState {
+  environment_id: number;
+  bucket: string;
+}
 
 function formatSize(bytes: number | null): string {
   if (bytes == null) return "—";
@@ -55,8 +62,11 @@ export default function BucketsPage() {
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
 
+  const [savedBuckets, setSavedBuckets] = useState<SavedSession<BucketShortcutState>[]>([]);
+
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
+    api.listSavedSessions<BucketShortcutState>(SESSION_PAGE).then(setSavedBuckets);
   }, []);
 
   async function loadBuckets() {
@@ -77,13 +87,23 @@ export default function BucketsPage() {
     }
   }
 
-  async function browse(nextBucket: string, nextPrefix: string, searchTerm: string, loadMore: boolean) {
-    if (environmentId === "") return;
+  async function browse(
+    nextBucket: string,
+    nextPrefix: string,
+    searchTerm: string,
+    loadMore: boolean,
+    envIdOverride?: number
+  ) {
+    // envIdOverride lets loading a saved bucket shortcut browse into an
+    // environment other than the currently-selected one immediately,
+    // without waiting on the setEnvironmentId state update to land first.
+    const envId = envIdOverride ?? environmentId;
+    if (envId === "") return;
     setIsBrowsing(true);
     setBrowseError(null);
     try {
       const resp = await api.browseBucket({
-        environment_id: environmentId,
+        environment_id: envId,
         bucket: nextBucket,
         prefix: nextPrefix,
         search: searchTerm,
@@ -106,6 +126,24 @@ export default function BucketsPage() {
   function openBucket(name: string) {
     setSearch("");
     browse(name, "", "", false);
+  }
+
+  async function saveCurrentBucket() {
+    if (environmentId === "" || !bucket) return;
+    const name = prompt("Save bucket as:", bucket);
+    if (!name) return;
+    const saved = await api.createSavedSession<BucketShortcutState>({
+      page: SESSION_PAGE,
+      name,
+      state: { environment_id: environmentId, bucket },
+    });
+    setSavedBuckets((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  function loadSavedBucket(state: BucketShortcutState) {
+    setEnvironmentId(state.environment_id);
+    setSearch("");
+    browse(state.bucket, "", "", false, state.environment_id);
   }
 
   function openFolder(nextPrefix: string) {
@@ -134,6 +172,33 @@ export default function BucketsPage() {
 
   return (
     <div>
+      <div className="panel">
+        <h2>Saved buckets</h2>
+        <p className="muted">Jump straight back to a bucket you use often, without reselecting its environment.</p>
+        <div className="toolbar">
+          <select
+            onChange={(e) => {
+              const s = savedBuckets.find((x) => String(x.id) === e.target.value);
+              if (s) loadSavedBucket(s.state);
+              e.target.value = "";
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load saved bucket…
+            </option>
+            {savedBuckets.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={saveCurrentBucket} disabled={!bucket}>
+            Save current bucket
+          </button>
+        </div>
+      </div>
+
       <div className="panel">
         <h2>1. Choose environment and bucket</h2>
         <p className="muted">

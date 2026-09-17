@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, DynamoTableInfo, Environment } from "../api";
+import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
+const SESSION_PAGE = "tables";
+
+interface TableShortcutState {
+  environment_id: number;
+  table_name: string;
+}
 
 export default function TablesPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
@@ -25,8 +31,11 @@ export default function TablesPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  const [savedTables, setSavedTables] = useState<SavedSession<TableShortcutState>[]>([]);
+
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
+    api.listSavedSessions<TableShortcutState>(SESSION_PAGE).then(setSavedTables);
   }, []);
 
   async function loadTables() {
@@ -46,19 +55,40 @@ export default function TablesPage() {
     }
   }
 
-  async function selectTable(name: string) {
+  async function selectTable(name: string, envIdOverride?: number) {
+    // envIdOverride lets loading a saved table shortcut describe the table
+    // in an environment other than the currently-selected one immediately,
+    // without waiting on the setEnvironmentId state update to land first.
+    const envId = envIdOverride ?? environmentId;
     setTableName(name);
     setTableInfo(null);
     setItems([]);
     setLastEvaluatedKey(null);
     setScanError(null);
-    if (environmentId === "" || !name) return;
+    if (envId === "" || !name) return;
     try {
-      const info = await api.describeTable({ environment_id: environmentId, table_name: name });
+      const info = await api.describeTable({ environment_id: envId, table_name: name });
       setTableInfo(info);
     } catch (e: any) {
       setTablesError(e.message);
     }
+  }
+
+  async function saveCurrentTable() {
+    if (environmentId === "" || !tableName) return;
+    const name = prompt("Save table as:", tableName);
+    if (!name) return;
+    const saved = await api.createSavedSession<TableShortcutState>({
+      page: SESSION_PAGE,
+      name,
+      state: { environment_id: environmentId, table_name: tableName },
+    });
+    setSavedTables((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  function loadSavedTable(state: TableShortcutState) {
+    setEnvironmentId(state.environment_id);
+    selectTable(state.table_name, state.environment_id);
   }
 
   async function runScan(loadMore: boolean) {
@@ -108,6 +138,33 @@ export default function TablesPage() {
 
   return (
     <div>
+      <div className="panel">
+        <h2>Saved tables</h2>
+        <p className="muted">Jump straight back to a table you use often, without reselecting its environment.</p>
+        <div className="toolbar">
+          <select
+            onChange={(e) => {
+              const s = savedTables.find((x) => String(x.id) === e.target.value);
+              if (s) loadSavedTable(s.state);
+              e.target.value = "";
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load saved table…
+            </option>
+            {savedTables.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={saveCurrentTable} disabled={!tableName}>
+            Save current table
+          </button>
+        </div>
+      </div>
+
       <div className="panel">
         <h2>1. Choose environment and table</h2>
         <p className="muted">

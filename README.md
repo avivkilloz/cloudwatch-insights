@@ -32,6 +32,10 @@ regions** by assuming a role you configure in each target account.
   schemaless table other than scanning; leave the query blank to browse
   it unfiltered. Expand an item to see its full attributes as JSON. "Load
   more" pages through the table via DynamoDB's own `LastEvaluatedKey`.
+  A **Saved tables** panel at the top lets you bookmark an
+  environment+table pair via "Save current table" and jump straight back
+  to it later from "Load saved table…" — per-user, like every other saved
+  item, and manageable from Settings' **Saved** section too.
 - **Buckets tab**: pick one environment and a bucket (its actual region is
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
@@ -40,7 +44,8 @@ regions** by assuming a role you configure in each target account.
   instead. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
-  HTTPS URL) buttons.
+  HTTPS URL) buttons. A **Saved buckets** panel works the same way as
+  Tables' above — bookmark an environment+bucket pair for quick access.
 - **Cognito tab**: pick one environment and a user pool, then search users
   with a single `attribute:value` token (starts-with match, e.g.
   `email:john`) — Cognito's `ListUsers` only supports filtering by one
@@ -92,22 +97,23 @@ regions** by assuming a role you configure in each target account.
   floating button stays hidden until all three variables are set. See
   `DEPLOYMENT.md` for wiring this up via Helm.
 - Everything saved anywhere in the app — Logs/IoT saved queries and
-  searches, Logs/IoT saved sessions, saved HTTP requests, and saved MQTT
-  topics — is **per user** (each user only ever sees and manages their own)
-  and is managed from one **Saved items** panel under the **Saved** section
-  of Settings, with a tab for each kind (Log Queries, IoT Searches, Logs
-  Sessions, IoT Sessions, HTTP Requests, MQTT Topics). Every kind supports
-  full editing there, not just rename/delete: saved queries/searches edit
-  their query text and extra fields (backend, search mode) directly; saved
-  HTTP requests edit method/URL/headers/body through the same form the HTTP
-  Client tool itself uses; saved MQTT topics edit the topic string; saved
-  Logs/IoT sessions (see below) edit their underlying JSON state directly,
-  since their shape is page-defined and too open-ended for a bespoke form.
-  Only the query/search and HTTP-request/MQTT-topic tabs support adding a
-  new item directly from Settings — a session snapshot is still created from
-  its own page's "Save session" button, since that's what captures its
-  state in the first place. (Tables/Buckets/Cognito have no saved-item
-  concept of their own today.)
+  searches, Logs/IoT saved sessions, saved buckets/tables, saved HTTP
+  requests, and saved MQTT topics — is **per user** (each user only ever
+  sees and manages their own) and is managed from one **Saved items** panel
+  under the **Saved** section of Settings, with a tab for each kind (Log
+  Queries, IoT Searches, Logs Sessions, IoT Sessions, Buckets, Tables, HTTP
+  Requests, MQTT Topics). Every kind supports full editing there, not just
+  rename/delete: saved queries/searches edit their query text and extra
+  fields (backend, search mode) directly; saved HTTP requests edit
+  method/URL/headers/body through the same form the HTTP Client tool itself
+  uses; saved MQTT topics edit the topic string; saved Logs/IoT sessions and
+  saved buckets/tables (see below) edit their underlying JSON state
+  directly, since their shape is page-defined and too open-ended for a
+  bespoke form. Only the query/search and HTTP-request/MQTT-topic tabs
+  support adding a new item directly from Settings — a session snapshot or
+  a saved bucket/table is still created from its own page's "Save"
+  button, since that's what captures the current state in the first place.
+  (Cognito has no saved-item concept of its own today.)
 - **Saved sessions**, distinct from saved queries/searches: the Logs and
   IoT tabs each have a "Save session" button that snapshots the page's
   *entire* working state — selected environments, log groups, query text,
@@ -116,17 +122,19 @@ regions** by assuming a role you configure in each target account.
   it. Load one back via that page's "Load saved session" dropdown. Any
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself, which
-  is also what the Tools page's saved HTTP requests and saved MQTT topics
-  are built on (each just its own page name under the same mechanism).
-  (Tables, Buckets, and Cognito don't have this yet.)
+  is also what the Tools page's saved HTTP requests and saved MQTT topics,
+  and the Buckets/Tables tabs' saved bucket/table shortcuts, are all built
+  on (each just its own page name under the same mechanism). (Cognito
+  doesn't have this yet.)
 - **Settings**, under the **App settings** section (Admin-group members
   only), lets you set a custom app title (shown in the top bar and browser
   tab, in place of the default "Cloud Insights") and upload a logo shown
-  right before that title. An uploaded logo is capped at 300 KB and stored
-  inline (as a data URL) alongside the rest of the app's settings — no
-  separate file storage needed — so keep it small; for a larger image, host
-  it yourself and note that this app has no URL field for that today (only
-  file upload).
+  right before that title — the same logo also becomes the browser tab's
+  favicon, updating immediately without a reload. An uploaded logo is
+  capped at 300 KB and stored inline (as a data URL) alongside the
+  rest of the app's settings — no separate file storage needed — so keep it
+  small; for a larger image, host it yourself and note that this app has no
+  URL field for that today (only file upload).
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light, or one of the
   four [Catppuccin](https://catppuccin.com/) flavors — Latte, Frappé,
   Macchiato, Mocha) from Settings' **Theme** section — each one is a card
