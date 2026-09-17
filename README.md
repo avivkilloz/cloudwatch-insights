@@ -129,8 +129,9 @@ regions** by assuming a role you configure in each target account.
   file upload).
 - Pick a theme (Dark, Light, Dracula, Nord, Solarized Light, or one of the
   four [Catppuccin](https://catppuccin.com/) flavors — Latte, Frappé,
-  Macchiato, Mocha) from the account menu (click your avatar, top right) —
-  it's remembered per browser via `localStorage`.
+  Macchiato, Mocha) from Settings' **Theme** section — each one is a card
+  with a live preview using that theme's actual colors, not just a name.
+  Remembered per browser via `localStorage`.
 
 ## Users, groups & login
 
@@ -150,12 +151,13 @@ control:
 
 Everything about the current user lives behind their **avatar**, top right of
 the header (a picture if they've uploaded one, otherwise their initials):
-clicking it shows their username and group, a **Settings** link, the theme
-picker, and **Log out**. Settings itself is one page with a row of section
-tabs: **My account** (change your own password, upload/remove your avatar)
-and **Saved** (manage your own saved queries/searches/sessions) are open to
-every user. Admin-group members additionally get **App settings**,
-**Environments**, **User groups**, and **Users** — everyone else can't add or
+clicking it shows their username and group, a **Settings** link, and **Log
+out**. Settings itself is one page with a row of section tabs: **My
+account** (change your own password, upload/remove your avatar), **Theme**
+(see below), and **Saved** (manage your own saved queries/searches/sessions)
+are open to every user. Admin-group members additionally get **App
+settings**, **Environments**, **User groups**, and **Users** — everyone else
+can't add or
 edit users/groups, change app settings, or add/remove environments; those
 sections simply aren't there for them.
 
