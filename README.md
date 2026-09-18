@@ -64,11 +64,14 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
-- **Aggregator tab**: start a session by picking the services you're actually
+- **Aggregator tab**: start a session by picking what you're actually
   debugging across — say Logs, IoT and Cognito — and work with them in one
   place instead of losing each page's state every time you switch tabs. Each
   pane is the *real* page, not a cut-down copy: the same environment pickers,
-  search boxes, saved sessions, result rows and expandable details. Two
+  search boxes, saved sessions, result rows and expandable details. **Tools**
+  can be opened as a pane too, which is usually the point of a session rather
+  than a bonus: decode the JWT a request came in with, or replay the call that
+  produced the log line you're reading, without losing either side. Two
   layouts: **Side by side** lays them out in columns that wrap onto as many
   rows as your screen needs (so a fourth and fifth service move down rather
   than off the side), and **Stacked** puts them one above the other full
@@ -77,6 +80,13 @@ regions** by assuming a role you configure in each target account.
   it — independently, so minimising one says nothing about the others. Every pane stays mounted throughout, so
   minimising one or switching layout never discards its results or interrupts
   a running query.
+
+  Panes can be **reordered**: drag one by its title bar onto another to drop
+  it into that slot, or use the arrows on the title bar to nudge it one place
+  at a time. The arrows follow the layout, so they read **◀ ▶** side by side
+  and **▲ ▼** stacked, and grey out at the ends. A completed drag doesn't
+  also minimise the pane it started from, and the order is part of a saved
+  session.
 
   The AI assistant spans the whole session rather than one service. "About
   results" answers on the rows you've checked *across every open pane* pooled
@@ -87,9 +97,12 @@ regions** by assuming a role you configure in each target account.
   examples, and "Use this query" drops it into that pane's search box. The
   picker belongs to that tab alone — "About results" has no single service
   to target, so instead of a picker it names the services your checked rows
-  actually came from. A
-  session (which services, which layout) can be saved and reloaded like any
-  other, and is managed under **Saved items → Aggregator Sessions**.
+  actually came from. The Tools pane joins in on both counts when its HTTP
+  Client is open: it becomes another "Build for" target, and the exchange it
+  last sent pools into the cross-service question tagged `HTTP client`, so
+  "does this 500 line up with those log errors?" is one question. A
+  session (which panes, in which order, and which layout) can be saved and
+  reloaded like any other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
   Logs (both backends), IoT (things and certificates), Tables, Buckets and
   Cognito. Every row has a checkbox, plus a "Select all" checkbox above the

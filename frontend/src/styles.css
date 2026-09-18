@@ -675,6 +675,25 @@ th {
   cursor: pointer;
 }
 
+/* The whole title bar is the drag handle; the grip is the affordance that
+   says so. */
+.aggregator-drag-handle {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+}
+
+.aggregator-pane.dragging {
+  opacity: 0.5;
+}
+
+.aggregator-pane.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
 .aggregator-pane-header h3 {
   margin: 0;
   flex: 1;
