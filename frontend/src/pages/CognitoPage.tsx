@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import RestoredResultsNote from "../components/RestoredResultsNote";
+import { useSessionState } from "../sessions/SessionContext";
 import { api, CognitoUserInfo, CognitoUserPoolInfo, Environment } from "../api";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
@@ -17,23 +19,26 @@ function statusTagClass(status: string | null): string {
 
 export default function CognitoPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [environmentId, setEnvironmentId] = useState<number | "">("");
+  const [environmentId, setEnvironmentId] = useSessionState<number | "">("environmentId", "");
 
-  const [userPools, setUserPools] = useState<CognitoUserPoolInfo[]>([]);
+  const [userPools, setUserPools] = useSessionState<CognitoUserPoolInfo[]>("userPools", []);
   const [poolsLoading, setPoolsLoading] = useState(false);
   const [poolsError, setPoolsError] = useState<string | null>(null);
 
-  const [userPoolId, setUserPoolId] = useState("");
-  const [queryString, setQueryString] = useState("");
+  const [userPoolId, setUserPoolId] = useSessionState("userPoolId", "");
+  const [queryString, setQueryString] = useSessionState("queryString", "");
 
-  const [users, setUsers] = useState<CognitoUserInfo[]>([]);
-  const [paginationToken, setPaginationToken] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [users, setUsers] = useSessionState<CognitoUserInfo[]>("users", []);
+  const [paginationToken, setPaginationToken] = useSessionState<string | null>("paginationToken", null);
+  const [expanded, setExpanded] = useSessionState<Set<number>>("expanded", () => new Set());
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   // Bumped only when a fresh search replaces the users, so that "Load more"
   // (which appends) doesn't throw away the rows the user has checked.
-  const [resultsVersion, setResultsVersion] = useState(0);
+  const [resultsVersion, setResultsVersion] = useSessionState("resultsVersion", 0);
+  // When these results came back, so a restored session can say how old they
+  // are rather than passing them off as current.
+  const [ranAt, setRanAt] = useSessionState<number | null>("ranAt", null);
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
@@ -80,6 +85,7 @@ export default function CognitoPage() {
       setPaginationToken(resp.pagination_token);
       if (!loadMore) {
         setExpanded(new Set());
+        setRanAt(Date.now());
         setResultsVersion((v) => v + 1);
       }
     } catch (e: any) {
@@ -168,6 +174,8 @@ export default function CognitoPage() {
             </button>
             {searchError && <span className="error-text">{searchError}</span>}
           </div>
+
+          <RestoredResultsNote ranAt={ranAt} onRerun={() => runSearch(false)} />
 
           {users.length > 0 && (
             <div className="toolbar">

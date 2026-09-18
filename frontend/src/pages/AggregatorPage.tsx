@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, PointerEvent as ReactPointerEvent } from "react";
 import { api, SavedSession } from "../api";
+import { SessionKeyScope, useSessionState } from "../sessions/SessionContext";
 import { useAuth } from "../AuthContext";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import {
@@ -103,11 +104,11 @@ const SERVICES: {
 
 export default function AggregatorPage() {
   const { user } = useAuth();
-  const [services, setServices] = useState<ServiceId[]>([]);
-  const [layout, setLayout] = useState<Layout>("columns");
+  const [services, setServices] = useSessionState<ServiceId[]>("services", []);
+  const [layout, setLayout] = useSessionState<Layout>("layout", "columns");
   // Panes collapsed to just their header. Independent per pane -- minimising
   // one says nothing about the others, unlike a single "focused" pane would.
-  const [minimized, setMinimized] = useState<Set<ServiceId>>(new Set());
+  const [minimized, setMinimized] = useSessionState<Set<ServiceId>>("minimized", () => new Set());
   const [savedSessions, setSavedSessions] = useState<SavedSession<AggregatorSessionState>[]>([]);
 
   // Panes register their full context (including the row arrays) here on every
@@ -537,7 +538,9 @@ export default function AggregatorPage() {
                   </button>
                 </header>
                 <div className="aggregator-pane-body" hidden={collapsed}>
-                  {s.render()}
+                  {/* Panes are whole pages, so their state keys have to be
+                      kept apart within this one session. */}
+                  <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
                 </div>
               </section>
             );

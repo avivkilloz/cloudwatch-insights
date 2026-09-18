@@ -4,16 +4,54 @@ A web app that mimics CloudWatch Logs Insights, browses IoT fleets, DynamoDB
 tables, S3 buckets, and Cognito user pools, across **multiple AWS accounts and
 regions** by assuming a role you configure in each target account.
 
+## Sessions
+
+The app is organised around **sessions** rather than a fixed set of tabs.
+
+- The **header** holds the app title on the left, an **agent prompt bar** in
+  the middle, and your avatar on the right. The title takes you **home**,
+  which is the agent's own chat page and where the app opens.
+- Below it, a **session strip** holds whichever sessions you have open, with a
+  **+** at the end of them (so on the left when there are none). **+** lists
+  every service as a session type — Logs, IoT, Tables, Buckets, Cognito,
+  Aggregator, Tools — plus your saved sessions. Picking one starts a session
+  and gives it a tab; a second Logs session is called "Logs 2" rather than
+  colliding. Click a tab to switch to it, double-click to rename it, drag to
+  reorder, **✕** to close.
+- Every open session **stays mounted**: switching tabs never interrupts a
+  running query or loses a scroll position.
+- **A refresh puts you back where you were.** Open sessions, which one you
+  were looking at, and each session's whole state — the inputs, the rows on
+  screen, and its AI assistant conversation — are kept in the browser
+  (IndexedDB, per user) and restored. Restored rows say **when they were
+  fetched**, with a "Run again" button, so AWS data from yesterday is never
+  shown as though it were current. A session whose results were too large to
+  keep (past a 4 MB cap) comes back with its inputs and says so.
+- **Saved sessions** are the other half, and deliberately different: they're
+  named **templates** stored per user on the server, holding a session's
+  *inputs* only. Open one from **+** and it starts a fresh session seeded with
+  those inputs; nothing you then do changes the saved copy. Save one from the
+  session's own "Save session" button, and manage them under **Saved items**
+  in Settings.
+- The two AI surfaces are distinct. The **agent** in the header sees the
+  workspace from outside and will be able to act on it; the **✦ Ask AI**
+  assistant inside a session only ever sees that session's own query and rows.
+  *The agent is not connected to a model yet* — it says so rather than
+  guessing, and the home page shows the platform state it will be given.
+
+Settings (including Environments, Users, Groups and Saved items) is reached
+from the avatar menu and is not a session; the strip stays above it.
+
 - Define **environments** — each one an AWS account paired with a single
   region — once, under Settings' **Environments** section (Admin-group
   members only).
-- **Logs tab**: pick one or more environments, browse/select their log
+- **Logs session**: pick one or more environments, browse/select their log
   groups, write a CloudWatch Logs Insights query (same syntax as the AWS
   console), and run it — the app fires one `StartQuery` per selected
   environment in parallel and polls until every target finishes. Results
   from all targets are merged into one list, shrunk to a single summary
   line per row by default; click a row to expand every field.
-- **IoT tab**: pick one or more environments, then search either **Things**
+- **IoT session**: pick one or more environments, then search either **Things**
   (the same "Advanced search" syntax as the AWS console — by name,
   attributes, connectivity, shadow values, group membership, and more) or
   **Certificates** (by status or certificate ID — see below). Expand a thing
@@ -64,7 +102,7 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
-- **Aggregator tab**: start a session by picking what you're actually
+- **Aggregator session**: pick what you're actually
   debugging across — say Logs, IoT and Cognito — and work with them in one
   place instead of losing each page's state every time you switch tabs. Each
   pane is the *real* page, not a cut-down copy: the same environment pickers,

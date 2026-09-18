@@ -1,0 +1,266 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  Dispatch,
+  ReactNode,
+  SetStateAction,
+} from "react";
+import { EMPTY_WORKSPACE, PersistedSession, Workspace, loadWorkspace, saveWorkspace } from "./storage";
+
+/** Which kinds of session the + button can start. Values are stored, so
+ * renaming one orphans existing open sessions -- add rather than rename. */
+export type SessionType = "logs" | "iot" | "tables" | "buckets" | "cognito" | "aggregator" | "tools";
+
+export type ViewKind = "home" | "settings" | "session";
+
+interface SessionsApi {
+  sessions: PersistedSession[];
+  activeId: string | null;
+  view: ViewKind;
+  /** False until the workspace has been read back from IndexedDB, so nothing
+   * renders (and immediately re-persists) an empty workspace over a real one. */
+  ready: boolean;
+  open: (type: SessionType, title: string, state?: Record<string, unknown>) => string;
+  close: (id: string) => void;
+  activate: (id: string) => void;
+  rename: (id: string, title: string) => void;
+  reorder: (id: string, toIndex: number) => void;
+  show: (view: ViewKind) => void;
+}
+
+const SessionsContext = createContext<SessionsApi | null>(null);
+
+export function useSessions(): SessionsApi {
+  const ctx = useContext(SessionsContext);
+  if (!ctx) throw new Error("useSessions must be used inside <SessionsProvider>");
+  return ctx;
+}
+
+// How long to wait after the last change before writing. Typing in a query box
+// shouldn't mean an IndexedDB write per keystroke, but a refresh a second later
+// should still find your work.
+const PERSIST_DEBOUNCE_MS = 400;
+
+let sessionCounter = 0;
+
+export function SessionsProvider({ userId, children }: { userId: number; children: ReactNode }) {
+  const [workspace, setWorkspace] = useState<Workspace>(EMPTY_WORKSPACE);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    loadWorkspace(userId).then((loaded) => {
+      if (cancelled) return;
+      setWorkspace(loaded);
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Persist on a trailing debounce. Writing only after `ready` matters: the
+  // first render holds an empty workspace, and saving that would wipe the one
+  // still being read back.
+  const pending = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    if (pending.current !== null) window.clearTimeout(pending.current);
+    pending.current = window.setTimeout(() => {
+      pending.current = null;
+      saveWorkspace(userId, workspace);
+    }, PERSIST_DEBOUNCE_MS);
+    return () => {
+      if (pending.current !== null) window.clearTimeout(pending.current);
+    };
+  }, [workspace, ready, userId]);
+
+  // A debounce loses the last few hundred milliseconds if the tab is closed
+  // mid-flight, which is exactly when someone is most likely to be mid-edit.
+  useEffect(() => {
+    function flush() {
+      if (ready) saveWorkspace(userId, workspace);
+    }
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [workspace, ready, userId]);
+
+  const open = useCallback((type: SessionType, title: string, state: Record<string, unknown> = {}) => {
+    const id = `s${Date.now().toString(36)}${(sessionCounter++).toString(36)}`;
+    setWorkspace((w) => ({
+      ...w,
+      sessions: [...w.sessions, { id, type, title, state }],
+      activeId: id,
+      view: "session",
+    }));
+    return id;
+  }, []);
+
+  const close = useCallback((id: string) => {
+    setWorkspace((w) => {
+      const index = w.sessions.findIndex((s) => s.id === id);
+      const sessions = w.sessions.filter((s) => s.id !== id);
+      if (w.activeId !== id) return { ...w, sessions };
+      // Closing the session you're looking at lands on its neighbour rather
+      // than dumping you back on the home page.
+      const next = sessions[Math.min(index, sessions.length - 1)];
+      return {
+        ...w,
+        sessions,
+        activeId: next?.id ?? null,
+        view: next ? "session" : "home",
+      };
+    });
+  }, []);
+
+  const activate = useCallback((id: string) => {
+    setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
+  }, []);
+
+  const rename = useCallback((id: string, title: string) => {
+    setWorkspace((w) => ({
+      ...w,
+      sessions: w.sessions.map((s) => (s.id === id ? { ...s, title } : s)),
+    }));
+  }, []);
+
+  const reorder = useCallback((id: string, toIndex: number) => {
+    setWorkspace((w) => {
+      const from = w.sessions.findIndex((s) => s.id === id);
+      if (from < 0 || toIndex < 0 || toIndex >= w.sessions.length) return w;
+      const sessions = [...w.sessions];
+      sessions.splice(toIndex, 0, sessions.splice(from, 1)[0]);
+      return { ...w, sessions };
+    });
+  }, []);
+
+  const show = useCallback((view: ViewKind) => {
+    setWorkspace((w) => ({ ...w, view }));
+  }, []);
+
+  // Pages call this (through useSessionState) on every change they want kept.
+  const writeState = useCallback((sessionId: string, key: string, value: unknown) => {
+    setWorkspace((w) => {
+      const session = w.sessions.find((s) => s.id === sessionId);
+      if (!session || Object.is(session.state[key], value)) return w;
+      return {
+        ...w,
+        sessions: w.sessions.map((s) =>
+          s.id === sessionId ? { ...s, state: { ...s.state, [key]: value } } : s,
+        ),
+      };
+    });
+  }, []);
+
+  const api = useMemo<SessionsApi>(
+    () => ({
+      sessions: workspace.sessions,
+      activeId: workspace.activeId,
+      view: workspace.view as ViewKind,
+      ready,
+      open,
+      close,
+      activate,
+      rename,
+      reorder,
+      show,
+    }),
+    [workspace, ready, open, close, activate, rename, reorder, show],
+  );
+
+  return (
+    <SessionsContext.Provider value={api}>
+      <WriteStateContext.Provider value={writeState}>{children}</WriteStateContext.Provider>
+    </SessionsContext.Provider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-session state
+// ---------------------------------------------------------------------------
+
+type WriteState = (sessionId: string, key: string, value: unknown) => void;
+const WriteStateContext = createContext<WriteState | null>(null);
+
+interface SessionScope {
+  id: string;
+  initial: Record<string, unknown>;
+}
+
+const SessionScopeContext = createContext<SessionScope | null>(null);
+
+/** Wraps one session's subtree so everything inside it reads and writes that
+ * session's own state. */
+export function SessionScopeProvider({
+  session,
+  children,
+}: {
+  session: PersistedSession;
+  children: ReactNode;
+}) {
+  // The initial bag is captured once: it seeds useSessionState on mount, and
+  // must not change underneath a mounted page or every keystroke would look
+  // like a fresh restore.
+  const initial = useRef(session.state).current;
+  const scope = useMemo(() => ({ id: session.id, initial }), [session.id, initial]);
+  return <SessionScopeContext.Provider value={scope}>{children}</SessionScopeContext.Provider>;
+}
+
+export function useSessionScope(): SessionScope | null {
+  return useContext(SessionScopeContext);
+}
+
+/**
+ * Namespaces the keys used inside it.
+ *
+ * The Aggregator renders whole pages as panes, so one session can hold a Logs
+ * pane and an IoT pane that both want a key called "queryString". Without a
+ * prefix per pane they'd overwrite each other and restore as each other.
+ */
+const KeyPrefixContext = createContext("");
+
+export function SessionKeyScope({ prefix, children }: { prefix: string; children: ReactNode }) {
+  const parent = useContext(KeyPrefixContext);
+  const value = useMemo(() => `${parent}${prefix}.`, [parent, prefix]);
+  return <KeyPrefixContext.Provider value={value}>{children}</KeyPrefixContext.Provider>;
+}
+
+/**
+ * useState, except the value is seeded from the session's restored state and
+ * written back as it changes.
+ *
+ * Outside a session (the Tools tab used standalone, a page rendered in a test)
+ * it degrades to a plain useState, so the same components work in both places.
+ *
+ * Only pass state worth restoring. Loading flags, in-flight errors and
+ * anything derived should stay on useState -- restoring "Searching…" from
+ * yesterday would be a lie.
+ */
+export function useSessionState<T>(key: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
+  const scope = useContext(SessionScopeContext);
+  const write = useContext(WriteStateContext);
+  const fullKey = useContext(KeyPrefixContext) + key;
+
+  const [value, setValue] = useState<T>(() => {
+    if (scope && fullKey in scope.initial) return scope.initial[fullKey] as T;
+    return typeof initial === "function" ? (initial as () => T)() : initial;
+  });
+
+  // Report after render rather than inside the setter, so a page that calls
+  // several setters in one handler produces one workspace update per commit.
+  const lastWritten = useRef<unknown>(undefined);
+  useEffect(() => {
+    if (!scope || !write) return;
+    if (Object.is(lastWritten.current, value)) return;
+    lastWritten.current = value;
+    write(scope.id, fullKey, value);
+  }, [scope, write, fullKey, value]);
+
+  return [value, setValue];
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSessionState } from "../sessions/SessionContext";
 import {
   api,
   Environment,
@@ -14,6 +15,7 @@ import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import OpenSearchIndexSelector, { OpenSearchSelectionMap } from "../components/OpenSearchIndexSelector";
+import RestoredResultsNote from "../components/RestoredResultsNote";
 import ResultsView, { ResultsViewItem, SortDirection } from "../components/ResultsView";
 
 const SESSION_PAGE = "logs";
@@ -110,28 +112,43 @@ function openSearchTargets(selection: OpenSearchSelectionMap): OpenSearchTarget[
 }
 
 export default function InsightsPage() {
+  // useSessionState is useState that survives a reload, keyed within this
+  // session. Everything the user chose or is looking at uses it; anything
+  // refetched on mount (environments, saved lists) or only true right now
+  // (isRunning, runError, in-flight query ids) deliberately does not -- coming
+  // back to "Running…" from yesterday, or polling query ids CloudWatch has
+  // long since forgotten, would be worse than starting clean.
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<Set<number>>(new Set());
-  const [logGroupSelection, setLogGroupSelection] = useState<SelectionMap>({});
-  const [openSearchSelection, setOpenSearchSelection] = useState<OpenSearchSelectionMap>({});
+  const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useSessionState<Set<number>>(
+    "selectedEnvironmentIds",
+    () => new Set(),
+  );
+  const [logGroupSelection, setLogGroupSelection] = useSessionState<SelectionMap>("logGroupSelection", {});
+  const [openSearchSelection, setOpenSearchSelection] = useSessionState<OpenSearchSelectionMap>(
+    "openSearchSelection",
+    {},
+  );
 
-  const [backend, setBackend] = useState<LogsBackend>("cloudwatch");
-  const [queryString, setQueryString] = useState(DEFAULT_QUERY.cloudwatch);
-  const [limit, setLimit] = useState(DEFAULT_LIMIT);
-  const [timestampField, setTimestampField] = useState(DEFAULT_TIMESTAMP_FIELD);
-  const [sortField, setSortField] = useState("@timestamp");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [preset, setPreset] = useState<number | "custom">(15 * 60);
+  const [backend, setBackend] = useSessionState<LogsBackend>("backend", "cloudwatch");
+  const [queryString, setQueryString] = useSessionState("queryString", DEFAULT_QUERY.cloudwatch);
+  const [limit, setLimit] = useSessionState("limit", DEFAULT_LIMIT);
+  const [timestampField, setTimestampField] = useSessionState("timestampField", DEFAULT_TIMESTAMP_FIELD);
+  const [sortField, setSortField] = useSessionState("sortField", "@timestamp");
+  const [sortDirection, setSortDirection] = useSessionState<SortDirection>("sortDirection", "desc");
+  const [preset, setPreset] = useSessionState<number | "custom">("preset", 15 * 60);
   const now = Math.floor(Date.now() / 1000);
-  const [customStart, setCustomStart] = useState(toLocalDatetimeInput(now - 15 * 60));
-  const [customEnd, setCustomEnd] = useState(toLocalDatetimeInput(now));
+  const [customStart, setCustomStart] = useSessionState("customStart", () => toLocalDatetimeInput(now - 15 * 60));
+  const [customEnd, setCustomEnd] = useSessionState("customEnd", () => toLocalDatetimeInput(now));
 
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession<LogsSessionState>[]>([]);
 
   const [startedQueries, setStartedQueries] = useState<StartedQuery[]>([]);
-  const [results, setResults] = useState<QueryResultItem[]>([]);
-  const [osResults, setOsResults] = useState<OpenSearchResultItem[]>([]);
+  const [results, setResults] = useSessionState<QueryResultItem[]>("results", []);
+  const [osResults, setOsResults] = useSessionState<OpenSearchResultItem[]>("osResults", []);
+  // When the results came back, so restored rows can say how old they are
+  // rather than passing yesterday's logs off as current.
+  const [ranAt, setRanAt] = useSessionState<number | null>("ranAt", null);
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -139,7 +156,7 @@ export default function InsightsPage() {
   // Bumped each time a new query run supersedes the displayed results, so the
   // AI widget can drop a stale "About results" conversation that was talking
   // about a previous result set instead of quietly answering from old data.
-  const [resultsVersion, setResultsVersion] = useState(0);
+  const [resultsVersion, setResultsVersion] = useSessionState("resultsVersion", 0);
 
   const activeResults: ResultsViewItem[] = backend === "opensearch" ? osResults : results;
 
@@ -286,6 +303,7 @@ export default function InsightsPage() {
     setRunError(null);
     setResults([]);
     setOsResults([]);
+    setRanAt(Date.now());
     setResultsVersion((v) => v + 1);
     if (backend === "opensearch") {
       await runOpenSearchSearch();
@@ -572,6 +590,7 @@ export default function InsightsPage() {
 
       <div className="panel">
         <h2>4. Results</h2>
+        <RestoredResultsNote ranAt={ranAt} onRerun={runQuery} />
         <ResultsView
           items={activeResults}
           limit={limit}
