@@ -312,8 +312,6 @@ export default function TablesPage() {
         domain="tables"
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={items}
-        rowCount={items.length}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
       />

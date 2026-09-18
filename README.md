@@ -72,9 +72,9 @@ regions** by assuming a role you configure in each target account.
   layouts: **Side by side** lays them out in columns that wrap onto as many
   rows as your screen needs (so a fourth and fifth service move down rather
   than off the side), and **Stacked** puts them one above the other full
-  width. In either layout each pane has a **−/+** button that minimises it to
-  just its title bar and expands it again — independently, so minimising one
-  says nothing about the others. Every pane stays mounted throughout, so
+  width. In either layout each pane minimises to just its title bar and
+  expands again — click anywhere on its title bar, or the **−/+** button on
+  it — independently, so minimising one says nothing about the others. Every pane stays mounted throughout, so
   minimising one or switching layout never discards its results or interrupts
   a running query.
 
@@ -84,7 +84,10 @@ regions** by assuming a role you configure in each target account.
   whether those log errors line up with the devices that went offline.
   "Build query" has a "Build for" picker: choose any open service and it
   writes that service's own syntax, using your cross-service selection as
-  examples, and "Use this query" drops it into that pane's search box. A
+  examples, and "Use this query" drops it into that pane's search box. The
+  picker belongs to that tab alone — "About results" has no single service
+  to target, so instead of a picker it names the services your checked rows
+  actually came from. A
   session (which services, which layout) can be saved and reloaded like any
   other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
@@ -124,12 +127,11 @@ regions** by assuming a role you configure in each target account.
   that page's search box with one click — if you've checked some result
   rows, a "Use N checked result(s) as examples" checkbox includes them so
   the assistant can reference their actual field names/values instead of
-  guessing. "About results" answers questions about the current result set:
-  by default it sees a sample of the rows; a "Sampled / Selected" toggle
-  appears once you've checked some rows, letting you narrow the question to
-  exactly those instead of the sample. On the Logs tab the default sample is
-  spread fairly across every log group in the results, so a low-volume log
-  group querying alongside a high-volume one isn't crowded out.
+  guessing. "About results" answers questions about the rows you've checked
+  — only those, so what the assistant sees is exactly what you picked rather
+  than an opaque sample of the result set. It says how many rows are going
+  with the question, and until you've checked at least one it says so and
+  leaves "Ask" disabled, since there'd be nothing to answer from.
 
   The assistant knows **which page it's on**, and each page's query syntax is
   wildly different, so the syntax it writes and the way it describes your
@@ -142,6 +144,10 @@ regions** by assuming a role you configure in each target account.
   filter on one attribute at a time" rather than inventing syntax that
   silently returns nothing. Buckets gets "About results" only — its search is
   a literal filename substring, so there's no query worth writing for you.
+  The **Tools** tab's HTTP Client has it too, and is the one surface where
+  what the assistant writes isn't a query string at all but a whole request
+  as JSON, applied to the form by **Use this request** — see the Tools
+  section below.
   Switching what a page is searching (Logs' CloudWatch/OpenSearch toggle,
   IoT's things/certificates toggle) starts fresh threads, since neither the
   query language nor the rows still apply.
@@ -585,6 +591,18 @@ expand in place:
   rebinding). Redirects are returned as-is rather than followed
   automatically, so a redirect can't be used to reach a blocked address
   either.
+
+  It has its own **AI assistant** (the same floating panel as the search
+  tabs, appearing while this tool is open). "Build query" describes the
+  request you want in plain English and fills in the whole form — method,
+  URL, headers and body — from one click of **Use this request**; ask for a
+  change ("add a bearer token", "make it a PATCH") and it refines what's
+  already in the form rather than starting over. It's told this tool's own
+  constraints, so it won't hand you a URL the backend is going to refuse,
+  and it puts an obvious placeholder like `Bearer <token>` where a
+  credential goes rather than inventing one. "About results" answers about
+  the last exchange — the request you sent *and* the response that came
+  back, which is what makes "why is this a 403?" answerable at all.
 - **MQTT Tester** — pick one of your configured environments, then
   subscribe and publish to topics on that account's AWS IoT Core endpoint,
   the same way the AWS IoT console's own "MQTT test client" works.

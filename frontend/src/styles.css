@@ -671,6 +671,8 @@ th {
   border-bottom: 1px solid var(--border);
   background: var(--panel-alt);
   border-radius: 8px 8px 0 0;
+  /* The whole title bar minimises/expands the pane, not just the −/+ button. */
+  cursor: pointer;
 }
 
 .aggregator-pane-header h3 {

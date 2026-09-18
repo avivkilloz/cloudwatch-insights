@@ -155,14 +155,6 @@ export default function IotPage() {
     setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
-  // The rows on screen, flattened into the same plain-object shape the results
-  // lists report their selection in, so the assistant sees one consistent
-  // shape whichever search mode is showing.
-  const flatRows: Record<string, unknown>[] =
-    searchMode === "things"
-      ? thingResults.flatMap((item) => item.things.map((thing) => ({ environment: item.environment_name, ...thing })))
-      : certResults.flatMap((item) => item.certificates.map((cert) => ({ environment: item.environment_name, ...cert })));
-
   return (
     <div>
       <div className="panel">
@@ -319,8 +311,6 @@ export default function IotPage() {
         domain={searchMode === "things" ? "iot-things" : "iot-certificates"}
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={flatRows}
-        rowCount={flatRows.length}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
       />

@@ -249,8 +249,6 @@ export default function CognitoPage() {
         domain="cognito"
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={users as unknown as Record<string, unknown>[]}
-        rowCount={users.length}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
       />

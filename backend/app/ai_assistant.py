@@ -24,13 +24,15 @@ MAX_SAMPLE_CONTEXT_CHARS = 12000
 
 @dataclasses.dataclass(frozen=True)
 class Domain:
-    """One searchable AWS surface in the app, and the prompt fragments that
-    teach the model its query syntax and what its result rows are.
+    """One surface in the app the assistant can be asked about -- a searchable
+    AWS service, or the Tools page's HTTP client -- and the prompt fragments
+    that teach the model its query syntax and what its result rows are.
 
     The two system prompts are assembled from a shared template plus these
     fragments, rather than written out per domain, so every surface gets the
     same "refine the current query", "use the selected rows as examples" and
-    "don't overstate a truncated sample" behaviour for free."""
+    "don't overstate a truncated sample" behaviour for free. A surface the
+    shared wording doesn't fit can replace either template outright."""
 
     # Completes "You are an expert at writing ..." -- the syntax, with examples.
     query_language: str
@@ -42,23 +44,62 @@ class Domain:
     build_notes: str = ""
     # Domain-specific notes appended to the ask_results prompt.
     ask_notes: str = ""
+    # Replaces the shared template outright, for a surface the shared wording
+    # simply doesn't describe. Every domain below but one is a search box, and
+    # the templates say so throughout ("what they want to find", "the results
+    # of a search you just ran", "a sample of the rows"); the HTTP client is
+    # not a search, so contorting it into that wording would misdescribe what
+    # the user is looking at. An override still gets {build_notes}/{ask_notes}
+    # interpolated, so the per-domain constraints stay in one place.
+    build_template: Optional[str] = None
+    ask_template: Optional[str] = None
 
 
-_MULTI_LOG_GROUP_NOTE = (
-    " When the query spans multiple log groups (an @log field with different "
-    "values), the sample is built to include rows from every distinct @log "
-    "value rather than a plain chronological slice, so a sparser log group "
-    "isn't crowded out -- don't treat the relative counts of each @log value "
-    "in the sample as reflecting their true relative frequency in the full "
-    "result set."
-)
+# The HTTP client's own prompts. It is the one surface that isn't a search
+# box: its "query" is a whole request, and its "results" are the single
+# response that came back, so both shared templates are replaced rather than
+# reworded. {build_notes}/{ask_notes} still interpolate, exactly as they do
+# for the shared templates.
+_HTTP_BUILD_TEMPLATE = """\
+You are an expert at writing {query_language} The user is working in a \
+Postman-like HTTP client inside a multi-account AWS debugging tool, and will \
+describe in plain English the request they want to send. Respond with a \
+brief one- or two-sentence explanation, then a single fenced code block \
+containing ONLY the {query_block_noun}, of exactly this shape (no comments, \
+no alternatives, nothing else in the block):
+
+{{
+  "method": "POST",
+  "url": "https://api.example.com/v1/things",
+  "headers": {{ "Content-Type": "application/json" }},
+  "body": "{{\\"name\\": \\"thing-1\\"}}"
+}}
+
+If a "Current query" is included in the context below, it is the request \
+currently loaded in the user's form, in that same JSON shape: use it as the \
+starting point and change only what the user asked for, keeping the rest of \
+the method, URL, headers and body as they are. If there is no current \
+request, or it has nothing to do with what they're asking for, write a fresh \
+one. If a previous exchange is included, use its actual status, headers and \
+body to inform the request rather than guessing.{build_notes} If the request \
+is ambiguous, make a reasonable assumption, say so briefly, and still give a \
+best-effort request."""
+
+_HTTP_ASK_TEMPLATE = """\
+You are helping a user understand {results_noun}, sent from a Postman-like \
+HTTP client inside a multi-account AWS debugging tool. You'll be given the \
+request they sent and the response that came back -- status code, headers \
+and body, which may have been truncated if it was large. Answer their \
+question concisely and specifically, quoting actual values from the exchange \
+where relevant, and don't assert something about the full body that you \
+can't see because it was truncated.{ask_notes}"""
+
 
 DOMAINS: dict[str, Domain] = {
     "logs-cloudwatch": Domain(
         query_language="AWS CloudWatch Logs Insights queries.",
         results_noun="log events",
         query_block_noun="CloudWatch Logs Insights query",
-        ask_notes=_MULTI_LOG_GROUP_NOTE,
     ),
     "logs-opensearch": Domain(
         query_language=(
@@ -73,7 +114,6 @@ DOMAINS: dict[str, Domain] = {
             "query string as it would be typed into the search bar)"
         ),
         build_notes=" A time range is applied separately by the app, so never include one in the query.",
-        ask_notes=_MULTI_LOG_GROUP_NOTE,
     ),
     "iot-things": Domain(
         query_language=(
@@ -153,6 +193,40 @@ DOMAINS: dict[str, Domain] = {
             "most selective one and say that's a Cognito limitation."
         ),
     ),
+    # The Tools page's HTTP client. Unlike every other domain, a "query" here
+    # isn't a string typed into a search box -- it's a whole request. The
+    # model emits it as a small JSON object, which the tool parses and loads
+    # into its own method/URL/headers/body form.
+    "tools-http": Domain(
+        query_language="HTTP requests.",
+        results_noun="an HTTP request and the response it got back",
+        query_block_noun="JSON request object",
+        build_template=_HTTP_BUILD_TEMPLATE,
+        ask_template=_HTTP_ASK_TEMPLATE,
+        build_notes=(
+            " The JSON must parse on its own: no comments, no trailing commas, "
+            "no placeholders outside string values. `method` is one of GET, "
+            "POST, PUT, PATCH, DELETE, HEAD or OPTIONS; `headers` is a flat "
+            "object of string values; `body` is a STRING (JSON-encode it "
+            "yourself if the body is itself JSON), and is omitted for GET and "
+            "HEAD. Never invent a real credential -- put an obvious "
+            "placeholder like \"Bearer <token>\" in and say the user needs to "
+            "fill it in. The app sends this from its backend, which refuses "
+            "loopback, private and link-local addresses (including cloud "
+            "metadata endpoints), so don't suggest a URL pointing at one; say "
+            "it's blocked instead. Redirects are shown rather than followed."
+        ),
+        ask_notes=(
+            " There is exactly one row, and it is the authoritative record of "
+            "what was actually sent and received. A \"Query that produced "
+            "these results\" block, if present, is only the request currently "
+            "loaded in the user's form, which they may have edited since "
+            "sending -- trust the row over it where they disagree. "
+            "Diagnosing a failing response is usually the point of the "
+            "question, so when you suggest a fix, say which part of the "
+            "request you would change."
+        ),
+    ),
     # The Aggregator pools rows from several of the above at once. It never
     # builds a query under this domain -- "Build query" there targets whichever
     # single service the user picked, and uses that service's own domain.
@@ -210,8 +284,11 @@ def _domain(name: Optional[str]) -> Domain:
 
 
 def build_query_prompt(domain: Optional[str]) -> str:
+    # An overriding template is filled from the same fragments as the shared
+    # one, so a domain that replaces the wording still can't quietly stop
+    # declaring its own syntax or result rows.
     d = _domain(domain)
-    return _BUILD_QUERY_TEMPLATE.format(
+    return (d.build_template or _BUILD_QUERY_TEMPLATE).format(
         query_language=d.query_language,
         results_noun=d.results_noun,
         query_block_noun=d.query_block_noun,
@@ -221,7 +298,9 @@ def build_query_prompt(domain: Optional[str]) -> str:
 
 def ask_results_prompt(domain: Optional[str]) -> str:
     d = _domain(domain)
-    return _ASK_RESULTS_TEMPLATE.format(results_noun=d.results_noun, ask_notes=d.ask_notes)
+    return (d.ask_template or _ASK_RESULTS_TEMPLATE).format(
+        results_noun=d.results_noun, ask_notes=d.ask_notes
+    )
 
 _CODE_BLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
 
