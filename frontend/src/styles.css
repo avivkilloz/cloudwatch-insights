@@ -613,19 +613,27 @@ th {
   }
 }
 
-/* Aggregator: several whole pages open at once. Columns scroll independently
-   so a long result list in one service doesn't push the others off-screen;
-   the min track width keeps a column usable rather than letting four services
-   squeeze each other into unreadable slivers, and overflowing columns scroll
-   horizontally instead. */
+/* Aggregator: several whole pages open at once. Panes wrap onto as many rows
+   as they need rather than being forced into one horizontally-scrolling row --
+   past three services that row runs off the side of a laptop screen, and
+   side-scrolling to reach a pane defeats the point of having them side by side.
+   The min track width keeps a pane usable, so the browser fits as many columns
+   as the viewport genuinely has room for and moves the rest down. */
 .aggregator-columns {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(420px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   gap: 12px;
-  overflow-x: auto;
   align-items: start;
   padding-bottom: 8px;
+}
+
+/* Below the min track width one column is all that fits, which the auto-fit
+   above already resolves to -- but the panes' own max-height is worth dropping
+   there so a single column isn't also a short scrolling box. */
+@media (max-width: 520px) {
+  .aggregator-pane {
+    max-height: none;
+  }
 }
 
 .aggregator-stack {
@@ -644,8 +652,15 @@ th {
   max-height: calc(100vh - 220px);
 }
 
-.aggregator-stack .aggregator-pane.collapsed {
+/* Minimised: the pane is just its header, so round it off and drop the border
+   that would otherwise dangle under a body that isn't there. */
+.aggregator-pane.collapsed {
   max-height: none;
+}
+
+.aggregator-pane.collapsed .aggregator-pane-header {
+  border-bottom: none;
+  border-radius: 8px;
 }
 
 .aggregator-pane-header {
@@ -669,6 +684,9 @@ th {
 .aggregator-pane-header button {
   padding: 2px 8px;
   font-size: 12px;
+  /* Fixed width so swapping the minimise glyph for the expand one doesn't
+     shuffle the buttons next to it. */
+  min-width: 28px;
 }
 
 .aggregator-pane-body {
