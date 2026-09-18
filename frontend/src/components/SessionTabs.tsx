@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, SavedSession } from "../api";
 import { useAuth } from "../AuthContext";
@@ -74,6 +74,7 @@ export default function SessionTabs() {
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const addRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
 
   const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
   const active = sessions.find((s) => s.id === activeId);
@@ -126,6 +127,125 @@ export default function SessionTabs() {
     };
   }, [menuOpen]);
 
+  // Reordering tabs runs on pointer events, not HTML5 drag-and-drop.
+  // A native drag hands the mouse to the browser for the whole gesture, and
+  // any drag that never delivers its dragend -- one whose source element
+  // re-renders away mid-gesture, say, which a polling page does on its own --
+  // leaves that session live, so every later click goes to a drag that isn't
+  // there and the page looks frozen until a reload. Pointer events have no
+  // such session to get stuck in: setPointerCapture guarantees the release is
+  // seen, and every exit path runs the same cleanup. This is the same trade
+  // the Aggregator's pane reordering already made.
+  //
+  // The live drag lives in a ref so each handler reads what the one before it
+  // wrote; the state below only drives the CSS.
+  const dragRef = useRef<{ id: string; startX: number; moved: boolean; over: string | null; x: number } | null>(null);
+  const autoScroll = useRef<number | null>(null);
+  // A drag ends with a click on the tab it started from, which would
+  // otherwise activate it.
+  const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  /** How far the pointer travels before this is a drag and not a click. */
+  const DRAG_THRESHOLD_PX = 5;
+  // The strip scrolls horizontally, so a tab off the edge has to be reachable
+  // mid-drag -- a native drag scrolls for you, a pointer one has to do it.
+  const AUTO_SCROLL_EDGE_PX = 48;
+  const AUTO_SCROLL_STEP_PX = 14;
+  const AUTO_SCROLL_INTERVAL_MS = 16;
+
+  /** Which tab is under an x, hit-tested by geometry so it works the same
+   * while the pointer is captured by the tab it started on. */
+  function tabUnder(x: number): string | null {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-tab-id]"))) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right) return el.dataset.tabId ?? null;
+    }
+    return null;
+  }
+
+  function updateDropTarget(drag: NonNullable<typeof dragRef.current>) {
+    const over = tabUnder(drag.x);
+    const next = over && over !== drag.id ? over : null;
+    if (next === drag.over) return;
+    drag.over = next;
+    setDropTarget(next);
+  }
+
+  function autoScrollTick() {
+    const drag = dragRef.current;
+    const el = barRef.current;
+    if (!drag || !drag.moved || !el) return;
+    const r = el.getBoundingClientRect();
+    let dx = 0;
+    if (drag.x < r.left + AUTO_SCROLL_EDGE_PX) dx = -AUTO_SCROLL_STEP_PX;
+    else if (drag.x > r.right - AUTO_SCROLL_EDGE_PX) dx = AUTO_SCROLL_STEP_PX;
+    if (!dx) return;
+    const before = el.scrollLeft;
+    el.scrollLeft += dx;
+    // At either end nothing scrolled, so nothing moved under the pointer.
+    if (el.scrollLeft !== before) updateDropTarget(drag);
+  }
+
+  function startDrag(e: ReactPointerEvent<HTMLElement>, id: string) {
+    // Left button only, and never from the close button on the tab.
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".session-tab-close")) return;
+    // A drag released over another tab never delivers the click it was meant
+    // to suppress, so clear it here rather than waiting for one.
+    suppressClick.current = false;
+    dragRef.current = { id, startX: e.clientX, x: e.clientX, moved: false, over: null };
+  }
+
+  function moveDrag(e: ReactPointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    drag.x = e.clientX;
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.startX) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      // Captured only now, not on pointerdown. While an element holds the
+      // capture the browser retargets the compatibility mouse events to it
+      // too, so capturing up front sent the click to the tab's wrapper and
+      // the label's own handler never ran -- clicking a tab stopped
+      // activating it. Below the threshold the pointer is still over the tab
+      // anyway, so nothing is lost by waiting.
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDragging(drag.id);
+      autoScroll.current = window.setInterval(autoScrollTick, AUTO_SCROLL_INTERVAL_MS);
+    }
+    updateDropTarget(drag);
+  }
+
+  /** The single exit. `commit` is false when the drag was cancelled rather
+   * than released, so the state still clears but nothing moves. */
+  function endDrag(commit: boolean) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (autoScroll.current !== null) {
+      window.clearInterval(autoScroll.current);
+      autoScroll.current = null;
+    }
+    setDragging(null);
+    setDropTarget(null);
+    if (!drag?.moved) return;
+    suppressClick.current = true;
+    if (commit && drag.over) {
+      const to = sessions.findIndex((s) => s.id === drag.over);
+      if (to >= 0) reorder(drag.id, to);
+    }
+  }
+
+  // Escape cancels a drag in progress, the way a native one would.
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") endDrag(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function startSession(type: SessionType, label: string, state?: Record<string, unknown>) {
     open(type, nextTitle(label, sessions.map((s) => s.title)), state);
     setMenuOpen(false);
@@ -152,23 +272,29 @@ export default function SessionTabs() {
   const canSaveActive = view === "session" && !!active && !!sessionType(active.type)?.savedPage;
 
   return (
-    <div className="session-bar">
-      {sessions.map((s, i) => (
+    <div className="session-bar" ref={barRef}>
+      {sessions.map((s) => (
         <div
           key={s.id}
-          className={`session-tab${view === "session" && activeId === s.id ? " active" : ""}`}
-          draggable
-          onDragStart={(e) => e.dataTransfer.setData("text/plain", s.id)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const dragged = e.dataTransfer.getData("text/plain");
-            if (dragged && dragged !== s.id) reorder(dragged, i);
-          }}
+          data-tab-id={s.id}
+          className={
+            `session-tab${view === "session" && activeId === s.id ? " active" : ""}` +
+            `${dragging === s.id ? " dragging" : ""}${dropTarget === s.id ? " drop-target" : ""}`
+          }
+          onPointerDown={(e) => startDrag(e, s.id)}
+          onPointerMove={moveDrag}
+          onPointerUp={() => endDrag(true)}
+          onPointerCancel={() => endDrag(false)}
         >
           <button
             className="session-tab-label"
-            onClick={() => activate(s.id)}
+            onClick={() => {
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              activate(s.id);
+            }}
             onDoubleClick={() => {
               const name = prompt("Rename session:", s.title);
               if (name?.trim()) rename(s.id, name.trim());

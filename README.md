@@ -25,7 +25,9 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   saved sessions. Picking one starts a session and gives it a tab; a second
   Logs session is called "Logs 2" rather than colliding. Click a tab to switch
   to it, double-click to rename it, drag to reorder, **✕** to close.
-  **Save session** at the right of the strip saves the active one.
+  **Save session** at the right of the strip saves the active one. Reordering
+  is pointer-driven, like the Aggregator's panes, rather than the browser's
+  own drag-and-drop — see the note under *Aggregator* for why.
 - Every open session **stays mounted**: switching tabs never interrupts a
   running query or loses a scroll position.
 - **A refresh puts you back where you were.** Open sessions, which one you
