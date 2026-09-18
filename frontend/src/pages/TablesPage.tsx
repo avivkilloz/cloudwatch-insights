@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
@@ -31,6 +33,10 @@ export default function TablesPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  // Bumped only when a fresh scan replaces the items, so that "Load more"
+  // (which appends) doesn't throw away the rows the user has checked.
+  const [resultsVersion, setResultsVersion] = useState(0);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   const [savedTables, setSavedTables] = useState<SavedSession<TableShortcutState>[]>([]);
 
@@ -66,6 +72,7 @@ export default function TablesPage() {
     setItems([]);
     setLastEvaluatedKey(null);
     setScanError(null);
+    setResultsVersion((v) => v + 1);
     if (envId === "" || !name) return;
     try {
       const info = await api.describeTable({ environment_id: envId, table_name: name });
@@ -107,7 +114,10 @@ export default function TablesPage() {
       setItems((prev) => (loadMore ? [...prev, ...resp.items] : resp.items));
       setLastEvaluatedKey(resp.last_evaluated_key);
       setScannedCount((prev) => (loadMore ? prev + resp.scanned_count : resp.scanned_count));
-      if (!loadMore) setExpanded(new Set());
+      if (!loadMore) {
+        setExpanded(new Set());
+        setResultsVersion((v) => v + 1);
+      }
     } catch (e: any) {
       setScanError(e.message);
     } finally {
@@ -136,6 +146,19 @@ export default function TablesPage() {
     const firstKey = Object.keys(item)[0];
     return firstKey ? `${firstKey}: ${String(item[firstKey])}` : "(empty item)";
   }
+
+  // A scanned DynamoDB item has no field guaranteed to be unique, so rows are
+  // identified by their position in the scan -- which is stable because
+  // "Load more" only ever appends.
+  const rows = items.map((item, index) => ({ key: String(index), index, item }));
+  const selection = useRowSelection({
+    rows,
+    keyOf: (r) => r.key,
+    toObject: (r) => r.item,
+    onSelectionChange: setSelectedRows,
+    resetOn: resultsVersion,
+  });
+  const displayRows = selection.visibleRows;
 
   return (
     <div>
@@ -241,25 +264,33 @@ export default function TablesPage() {
           </div>
 
           <div className="toolbar">
+            <SelectAllCheckbox selection={selection} displayed={displayRows} />
             <span className="muted">
-              {items.length} item(s) loaded, {scannedCount} scanned so far
+              {displayRows.length} item(s) loaded, {scannedCount} scanned so far
+              {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
             </span>
-            <ExportMenu rows={items} filename={`table-${tableName}`} />
+            <HideSelectedButtons selection={selection} />
+            <ExportMenu
+              rows={displayRows.map((r) => r.item)}
+              selectedRows={selection.selectedObjects}
+              filename={`table-${tableName}`}
+            />
           </div>
 
           {items.length === 0 && !isScanning && <p className="muted">No items loaded yet — click Scan.</p>}
-          {items.map((item, i) => {
-            const isOpen = expanded.has(i);
+          {displayRows.map((row) => {
+            const isOpen = expanded.has(row.index);
             return (
-              <div className="result-row" key={i}>
-                <div className="result-row-summary" onClick={() => toggleExpanded(i)}>
+              <div className="result-row" key={row.key}>
+                <div className="result-row-summary" onClick={() => toggleExpanded(row.index)}>
+                  <RowCheckbox selection={selection} row={row} />
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
-                  <span className="msg">{itemSummary(item)}</span>
+                  <span className="msg">{itemSummary(row.item)}</span>
                 </div>
                 {isOpen && (
                   <div className="result-row-detail">
                     <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                      {JSON.stringify(item, null, 2)}
+                      {JSON.stringify(row.item, null, 2)}
                     </pre>
                   </div>
                 )}
@@ -276,6 +307,16 @@ export default function TablesPage() {
           )}
         </div>
       )}
+
+      <AiAssistantWidget
+        domain="tables"
+        queryString={queryString}
+        onUseQuery={setQueryString}
+        sampleRows={items}
+        rowCount={items.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }

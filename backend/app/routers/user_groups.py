@@ -20,6 +20,7 @@ def _group_out(db: Session, group: models.UserGroup) -> schemas.UserGroupOut:
         tables_enabled=group.tables_enabled,
         buckets_enabled=group.buckets_enabled,
         cognito_enabled=group.cognito_enabled,
+        aggregator_enabled=group.aggregator_enabled,
         tools_enabled=group.tools_enabled,
         environment_ids=environment_ids,
         user_count=user_count,

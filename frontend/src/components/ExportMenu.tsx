@@ -9,12 +9,16 @@ interface Props {
    * etc.) without a cast at every call site -- export.ts only ever reads
    * these via Object.keys/values, which works on any plain object shape. */
   rows: object[];
+  /** When the user has checked rows in the results list, export exports just
+   * those instead of everything on screen. */
+  selectedRows?: object[];
   /** Used as the downloaded file's base name (without extension). */
   filename: string;
 }
 
-export default function ExportMenu({ rows, filename }: Props) {
-  const objectRows = rows as Record<string, unknown>[];
+export default function ExportMenu({ rows, selectedRows, filename }: Props) {
+  const exportingSelection = (selectedRows?.length ?? 0) > 0;
+  const objectRows = (exportingSelection ? selectedRows! : rows) as Record<string, unknown>[];
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -30,7 +34,7 @@ export default function ExportMenu({ rows, filename }: Props) {
 
   async function handle(kind: "csv" | "xlsx" | "json") {
     setOpen(false);
-    if (rows.length === 0) return;
+    if (objectRows.length === 0) return;
     setBusy(true);
     try {
       if (kind === "csv") exportCsv(filename, objectRows);
@@ -44,8 +48,13 @@ export default function ExportMenu({ rows, filename }: Props) {
   return (
     <div className="icon-popover-wrap">
       <div ref={ref}>
-        <button className="secondary" onClick={() => setOpen((o) => !o)} disabled={rows.length === 0 || busy}>
-          {busy ? "Exporting…" : "Export ▾"}
+        <button
+          className="secondary"
+          onClick={() => setOpen((o) => !o)}
+          disabled={objectRows.length === 0 || busy}
+          title={exportingSelection ? "Exporting only the rows you checked" : undefined}
+        >
+          {busy ? "Exporting…" : exportingSelection ? `Export ${objectRows.length} selected ▾` : "Export ▾"}
         </button>
         {open && (
           <div className="icon-popover" style={{ minWidth: 140 }}>

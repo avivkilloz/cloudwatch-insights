@@ -52,14 +52,43 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
-- **Result row selection** (Logs tab): every result row has a checkbox, plus
-  a "Select all" checkbox above the list that selects/deselects every
-  currently-shown row. Selecting rows enables **Hide selected**, which
-  removes them from view (a "Show N hidden" button brings them all back);
-  hiding makes room for the next-best row within the current Limit rather
-  than just leaving a gap. Selection also feeds the AI assistant below —
-  see "About results" and "Build query". A new query run, or deselecting
-  everything, clears the selection.
+- **Aggregator tab**: start a session by picking the services you're actually
+  debugging across — say Logs, IoT and Cognito — and work with them in one
+  place instead of losing each page's state every time you switch tabs. Each
+  pane is the *real* page, not a cut-down copy: the same environment pickers,
+  search boxes, saved sessions, result rows and expandable details. Two
+  layouts: **Side by side** puts them in independently-scrolling columns, and
+  **One at a time** stacks them so you can expand one and collapse the rest.
+  Either way every pane stays mounted, so collapsing one or switching layout
+  never discards its results or interrupts a running query.
+
+  The AI assistant spans the whole session rather than one service. "About
+  results" answers on the rows you've checked *across every open pane* pooled
+  together — each tagged with which service it came from, so you can ask
+  whether those log errors line up with the devices that went offline.
+  "Build query" has a "Build for" picker: choose any open service and it
+  writes that service's own syntax, using your cross-service selection as
+  examples, and "Use this query" drops it into that pane's search box. A
+  session (which services, which layout) can be saved and reloaded like any
+  other, and is managed under **Saved items → Aggregator Sessions**.
+- **Result row selection**, on every tab that returns a list of results —
+  Logs (both backends), IoT (things and certificates), Tables, Buckets and
+  Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
+  list that selects/deselects every currently-shown row. Selecting rows:
+  - enables **Hide selected**, which removes them from view so you can whittle
+    a noisy result set down to what matters (a "Show N hidden" button brings
+    them all back). On the Logs tab, hiding also makes room for the
+    next-best row within the current Limit rather than just leaving a gap;
+  - narrows **export** — the button becomes "Export N selected" and writes
+    only the checked rows, instead of everything on screen;
+  - feeds the **AI assistant** — see "About results" and "Build query" below,
+    and on the Aggregator tab your selections across every open service are
+    pooled into one question.
+
+  A fresh search clears the selection; loading another page of results
+  (the "Load more" buttons on Tables, Buckets and Cognito) keeps it, since
+  those append rather than replace. Checking a row never expands it, so you
+  can select and inspect independently.
 - **Grouping and the `@log` field** (Logs tab, CloudWatch backend): the
   default query includes `@log` alongside `@timestamp`/`@message`, so when
   a query spans multiple log groups, each row shows a tag naming which one
@@ -72,21 +101,37 @@ regions** by assuming a role you configure in each target account.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- **AI assistant** (Logs tab, optional): a floating "✦ Ask AI" button in
-  the bottom-right corner opens a compact panel with two tabs instead of
-  bloating the page with always-visible panels. "Build query" turns a
-  plain-English description into a CloudWatch Logs Insights query you can
-  drop straight into the editor with one click — if you've checked some
-  result rows, a "Use N checked result(s) as examples" checkbox includes
-  them so the assistant can reference their actual field names/values
-  instead of guessing. "About results" answers questions about the current
-  result set: by default it sees a sample of the rows spread fairly across
-  every log group in the results (so a low-volume log group querying
-  alongside a high-volume one isn't crowded out); a "Sampled / Selected"
-  toggle appears once you've checked some rows, letting you narrow the
-  question to exactly those instead of the sample. Each tab keeps its own
-  conversation — switching tabs
-  doesn't lose either thread, and you can go back and forth, not just one
+- **AI assistant** (every searchable tab, optional): a floating "✦ Ask AI"
+  button in the bottom-right corner opens a compact panel with two tabs
+  instead of bloating the page with always-visible panels. "Build query"
+  turns a plain-English description into a query you can drop straight into
+  that page's search box with one click — if you've checked some result
+  rows, a "Use N checked result(s) as examples" checkbox includes them so
+  the assistant can reference their actual field names/values instead of
+  guessing. "About results" answers questions about the current result set:
+  by default it sees a sample of the rows; a "Sampled / Selected" toggle
+  appears once you've checked some rows, letting you narrow the question to
+  exactly those instead of the sample. On the Logs tab the default sample is
+  spread fairly across every log group in the results, so a low-volume log
+  group querying alongside a high-volume one isn't crowded out.
+
+  The assistant knows **which page it's on**, and each page's query syntax is
+  wildly different, so the syntax it writes and the way it describes your
+  rows follow the tab you're looking at: CloudWatch Logs Insights' pipe
+  syntax or OpenSearch Lucene on Logs (following that tab's backend toggle),
+  IoT Fleet Indexing on IoT things, the much narrower
+  `status:`/`certid:` filters on IoT certificates, `field:value` scan tokens
+  on Tables, and Cognito's single starts-with `attribute:value` token on
+  Cognito. It's told each surface's limits too, so it says "Cognito can only
+  filter on one attribute at a time" rather than inventing syntax that
+  silently returns nothing. Buckets gets "About results" only — its search is
+  a literal filename substring, so there's no query worth writing for you.
+  Switching what a page is searching (Logs' CloudWatch/OpenSearch toggle,
+  IoT's things/certificates toggle) starts fresh threads, since neither the
+  query language nor the rows still apply.
+
+  Each tab keeps its own conversation — switching tabs doesn't lose either
+  thread, and you can go back and forth, not just one
   shot. Drag the panel's top-left corner to resize it; the size is
   remembered per browser. Backed by a [LiteLLM](https://www.litellm.ai/)
   proxy (or anything else exposing an OpenAI-compatible
@@ -101,8 +146,8 @@ regions** by assuming a role you configure in each target account.
   requests, and saved MQTT topics — is **per user** (each user only ever
   sees and manages their own) and is managed from one **Saved items** panel
   under the **Saved** section of Settings, with a tab for each kind (Log
-  Queries, IoT Searches, Logs Sessions, IoT Sessions, Buckets, Tables, HTTP
-  Requests, MQTT Topics). Every kind supports full editing there, not just
+  Queries, IoT Searches, Logs Sessions, IoT Sessions, Aggregator Sessions,
+  Buckets, Tables, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
   method/URL/headers/body through the same form the HTTP Client tool itself
@@ -123,14 +168,15 @@ regions** by assuming a role you configure in each target account.
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself, which
   is also what the Tools page's saved HTTP requests and saved MQTT topics,
-  and the Buckets/Tables tabs' saved bucket/table shortcuts, are all built
-  on (each just its own page name under the same mechanism). (Cognito
-  doesn't have this yet.)
+  the Buckets/Tables tabs' saved bucket/table shortcuts, and the Aggregator's
+  saved sessions are all built on (each just its own page name under the same
+  mechanism). (Cognito doesn't have this yet.)
 - **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
   next to the result count on the Logs tab (both CloudWatch and OpenSearch
   backends), IoT tab (Things and Certificates), Tables, Buckets, and Cognito
   exports exactly the rows currently on screen — after any sort, hide, or
-  search/filter you've applied, not a raw re-fetch. Entirely client-side, no
+  search/filter you've applied, not a raw re-fetch — or, when you have rows
+  checked, just those. Entirely client-side, no
   backend involved: the file is built from data already loaded into the page
   and downloaded straight from the browser. CSV/JSON are generated inline;
   the `.xlsx` writer is loaded on demand so its bundle cost is only paid by

@@ -30,6 +30,7 @@ class UserGroup(Base):
     tables_enabled = Column(Boolean, nullable=False, server_default="true")
     buckets_enabled = Column(Boolean, nullable=False, server_default="true")
     cognito_enabled = Column(Boolean, nullable=False, server_default="true")
+    aggregator_enabled = Column(Boolean, nullable=False, server_default="true")
     tools_enabled = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

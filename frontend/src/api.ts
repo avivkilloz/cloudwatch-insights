@@ -24,6 +24,7 @@ export interface UserGroup {
   tables_enabled: boolean;
   buckets_enabled: boolean;
   cognito_enabled: boolean;
+  aggregator_enabled: boolean;
   tools_enabled: boolean;
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
@@ -42,6 +43,7 @@ export interface User {
   tables_enabled: boolean;
   buckets_enabled: boolean;
   cognito_enabled: boolean;
+  aggregator_enabled: boolean;
   tools_enabled: boolean;
 }
 
@@ -346,6 +348,19 @@ export interface AiChatMessage {
 
 export type AiAssistMode = "build_query" | "ask_results";
 
+/** Which page/service the assistant is being asked about. Picks the query
+ * syntax build_query writes, and tells ask_results what the rows are. */
+export type AiDomain =
+  | "logs-cloudwatch"
+  | "logs-opensearch"
+  | "iot-things"
+  | "iot-certificates"
+  | "tables"
+  | "buckets"
+  | "cognito"
+  /** The Aggregator page asking about rows pooled from several services. */
+  | "aggregator";
+
 export interface AiAssistResponse {
   reply: string;
   suggested_query: string | null;
@@ -529,7 +544,7 @@ export const api = {
     query_string?: string;
     sample_rows?: Record<string, unknown>[];
     row_count?: number;
-    backend?: LogsBackend;
+    domain?: AiDomain;
   }) => req<AiAssistResponse>("/ai/assist", { method: "POST", body: JSON.stringify(payload) }),
 
   getOpenSearchDomains: (environmentIds: number[]) =>

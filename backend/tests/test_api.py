@@ -361,6 +361,24 @@ def test_ai_assist_returns_503_when_unconfigured():
     assert resp.status_code == 503
 
 
+def test_ai_assist_accepts_every_page_domain():
+    for domain in ("logs-cloudwatch", "logs-opensearch", "iot-things", "iot-certificates", "tables", "buckets", "cognito"):
+        resp = client.post(
+            "/api/ai/assist",
+            json={"mode": "build_query", "messages": [{"role": "user", "content": "hi"}], "domain": domain},
+        )
+        # 503 (not configured) rather than 422 -- i.e. the domain validated.
+        assert resp.status_code == 503, domain
+
+
+def test_ai_assist_rejects_an_unknown_domain():
+    resp = client.post(
+        "/api/ai/assist",
+        json={"mode": "build_query", "messages": [{"role": "user", "content": "hi"}], "domain": "nope"},
+    )
+    assert resp.status_code == 422
+
+
 def test_tools_http_request_rejects_blocked_address():
     resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "http://169.254.169.254/latest/meta-data/"})
     assert resp.status_code == 400

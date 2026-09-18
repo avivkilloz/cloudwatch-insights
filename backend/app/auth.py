@@ -78,5 +78,6 @@ def user_out(user: models.User) -> schemas.UserOut:
         tables_enabled=group.tables_enabled if group else False,
         buckets_enabled=group.buckets_enabled if group else False,
         cognito_enabled=group.cognito_enabled if group else False,
+        aggregator_enabled=group.aggregator_enabled if group else False,
         tools_enabled=group.tools_enabled if group else False,
     )

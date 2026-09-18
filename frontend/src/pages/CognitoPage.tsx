@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, CognitoUserInfo, CognitoUserPoolInfo, Environment } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
 function formatTimestamp(epochSeconds: number | null): string {
   if (epochSeconds == null) return "—";
@@ -29,6 +31,10 @@ export default function CognitoPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // Bumped only when a fresh search replaces the users, so that "Load more"
+  // (which appends) doesn't throw away the rows the user has checked.
+  const [resultsVersion, setResultsVersion] = useState(0);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -56,6 +62,7 @@ export default function CognitoPage() {
     setUsers([]);
     setPaginationToken(null);
     setSearchError(null);
+    setResultsVersion((v) => v + 1);
   }
 
   async function runSearch(loadMore: boolean) {
@@ -71,7 +78,10 @@ export default function CognitoPage() {
       });
       setUsers((prev) => (loadMore ? [...prev, ...resp.users] : resp.users));
       setPaginationToken(resp.pagination_token);
-      if (!loadMore) setExpanded(new Set());
+      if (!loadMore) {
+        setExpanded(new Set());
+        setResultsVersion((v) => v + 1);
+      }
     } catch (e: any) {
       setSearchError(e.message);
     } finally {
@@ -87,6 +97,19 @@ export default function CognitoPage() {
       return next;
     });
   }
+
+  // `username` is nullable and Cognito doesn't guarantee it's unique across a
+  // paginated listing, so rows are identified by their position, which is
+  // stable because "Load more" only ever appends.
+  const rows = users.map((user, index) => ({ key: String(index), index, user }));
+  const selection = useRowSelection({
+    rows,
+    keyOf: (r) => r.key,
+    toObject: (r) => ({ ...r.user }),
+    onSelectionChange: setSelectedRows,
+    resetOn: resultsVersion,
+  });
+  const displayRows = selection.visibleRows;
 
   return (
     <div>
@@ -148,17 +171,29 @@ export default function CognitoPage() {
 
           {users.length > 0 && (
             <div className="toolbar">
-              <span className="muted">{users.length} user(s) loaded</span>
-              <ExportMenu rows={users} filename="cognito-users" />
+              <SelectAllCheckbox selection={selection} displayed={displayRows} />
+              <span className="muted">
+                {displayRows.length} user(s) loaded
+                {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
+              </span>
+              <HideSelectedButtons selection={selection} />
+              <ExportMenu
+                rows={displayRows.map((r) => r.user)}
+                selectedRows={selection.selectedObjects}
+                filename="cognito-users"
+              />
             </div>
           )}
 
           {users.length === 0 && !isSearching && <p className="muted">No users loaded yet — click Search.</p>}
-          {users.map((u, i) => {
+          {displayRows.map((row) => {
+            const u = row.user;
+            const i = row.index;
             const isOpen = expanded.has(i);
             return (
-              <div className="result-row" key={`${u.username}-${i}`}>
+              <div className="result-row" key={row.key}>
                 <div className="result-row-summary" onClick={() => toggleExpanded(i)}>
+                  <RowCheckbox selection={selection} row={row} />
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
                   <span className={statusTagClass(u.status)}>{u.status ?? "unknown"}</span>
                   {u.enabled === false && <span className="tag error">disabled</span>}
@@ -209,6 +244,16 @@ export default function CognitoPage() {
           )}
         </div>
       )}
+
+      <AiAssistantWidget
+        domain="cognito"
+        queryString={queryString}
+        onUseQuery={setQueryString}
+        sampleRows={users as unknown as Record<string, unknown>[]}
+        rowCount={users.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }
