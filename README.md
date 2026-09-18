@@ -68,10 +68,13 @@ regions** by assuming a role you configure in each target account.
   debugging across — say Logs, IoT and Cognito — and work with them in one
   place instead of losing each page's state every time you switch tabs. Each
   pane is the *real* page, not a cut-down copy: the same environment pickers,
-  search boxes, saved sessions, result rows and expandable details. **Tools**
-  can be opened as a pane too, which is usually the point of a session rather
-  than a bonus: decode the JWT a request came in with, or replay the call that
-  produced the log line you're reading, without losing either side. Two
+  search boxes, saved sessions, result rows and expandable details. **Individual
+  tools** can be opened as panes too — the HTTP client, JWT, Base64, diff or
+  MQTT, each its own pane rather than the whole Tools page as one — which is
+  usually the point of a session rather than a bonus: replay the call that
+  produced the log line you're reading, or decode the JWT it came in with,
+  without losing either side. The picker keeps them in their own row, so
+  "a search page" and "a tool" stay distinguishable. Two
   layouts: **Side by side** lays them out in columns that wrap onto as many
   rows as your screen needs (so a fourth and fifth service move down rather
   than off the side), and **Stacked** puts them one above the other full
@@ -102,10 +105,10 @@ regions** by assuming a role you configure in each target account.
   examples, and "Use this query" drops it into that pane's search box. The
   picker belongs to that tab alone — "About results" has no single service
   to target, so instead of a picker it names the services your checked rows
-  actually came from. The Tools pane joins in on both counts when its HTTP
-  Client is open: it becomes another "Build for" target, and the exchange it
-  last sent pools into the cross-service question tagged `HTTP client`, so
-  "does this 500 line up with those log errors?" is one question. A
+  actually came from. An open **HTTP client** pane joins in on both counts: it
+  becomes another "Build for" target, and the exchange it last sent pools into
+  the cross-service question tagged `HTTP client`, so "does this 500 line up
+  with those log errors?" is one question. A
   session (which panes, in which order, and which layout) can be saved and
   reloaded like any other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
