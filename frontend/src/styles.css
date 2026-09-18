@@ -613,6 +613,76 @@ th {
   }
 }
 
+/* Aggregator: several whole pages open at once. Columns scroll independently
+   so a long result list in one service doesn't push the others off-screen;
+   the min track width keeps a column usable rather than letting four services
+   squeeze each other into unreadable slivers, and overflowing columns scroll
+   horizontally instead. */
+.aggregator-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(420px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  align-items: start;
+  padding-bottom: 8px;
+}
+
+.aggregator-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.aggregator-pane {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 220px);
+}
+
+.aggregator-stack .aggregator-pane.collapsed {
+  max-height: none;
+}
+
+.aggregator-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-alt);
+  border-radius: 8px 8px 0 0;
+}
+
+.aggregator-pane-header h3 {
+  margin: 0;
+  flex: 1;
+  text-transform: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.aggregator-pane-header button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.aggregator-pane-body {
+  overflow-y: auto;
+  padding: 12px 12px 0;
+}
+
+/* The embedded pages are built as full-width pages, so their own panels
+   shouldn't also draw a card border inside the pane's card. */
+.aggregator-pane-body .panel {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
 .ai-widget-button {
   position: fixed;
   right: 24px;

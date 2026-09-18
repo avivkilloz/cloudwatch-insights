@@ -52,6 +52,25 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
+- **Aggregator tab**: start a session by picking the services you're actually
+  debugging across — say Logs, IoT and Cognito — and work with them in one
+  place instead of losing each page's state every time you switch tabs. Each
+  pane is the *real* page, not a cut-down copy: the same environment pickers,
+  search boxes, saved sessions, result rows and expandable details. Two
+  layouts: **Side by side** puts them in independently-scrolling columns, and
+  **One at a time** stacks them so you can expand one and collapse the rest.
+  Either way every pane stays mounted, so collapsing one or switching layout
+  never discards its results or interrupts a running query.
+
+  The AI assistant spans the whole session rather than one service. "About
+  results" answers on the rows you've checked *across every open pane* pooled
+  together — each tagged with which service it came from, so you can ask
+  whether those log errors line up with the devices that went offline.
+  "Build query" has a "Build for" picker: choose any open service and it
+  writes that service's own syntax, using your cross-service selection as
+  examples, and "Use this query" drops it into that pane's search box. A
+  session (which services, which layout) can be saved and reloaded like any
+  other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
   Logs (both backends), IoT (things and certificates), Tables, Buckets and
   Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
@@ -62,8 +81,9 @@ regions** by assuming a role you configure in each target account.
     next-best row within the current Limit rather than just leaving a gap;
   - narrows **export** — the button becomes "Export N selected" and writes
     only the checked rows, instead of everything on screen;
-  - feeds the **AI assistant** (Logs tab) — see "About results" and
-    "Build query".
+  - feeds the **AI assistant** — see "About results" and "Build query" below,
+    and on the Aggregator tab your selections across every open service are
+    pooled into one question.
 
   A fresh search clears the selection; loading another page of results
   (the "Load more" buttons on Tables, Buckets and Cognito) keeps it, since
@@ -126,8 +146,8 @@ regions** by assuming a role you configure in each target account.
   requests, and saved MQTT topics — is **per user** (each user only ever
   sees and manages their own) and is managed from one **Saved items** panel
   under the **Saved** section of Settings, with a tab for each kind (Log
-  Queries, IoT Searches, Logs Sessions, IoT Sessions, Buckets, Tables, HTTP
-  Requests, MQTT Topics). Every kind supports full editing there, not just
+  Queries, IoT Searches, Logs Sessions, IoT Sessions, Aggregator Sessions,
+  Buckets, Tables, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
   method/URL/headers/body through the same form the HTTP Client tool itself
@@ -148,9 +168,9 @@ regions** by assuming a role you configure in each target account.
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself, which
   is also what the Tools page's saved HTTP requests and saved MQTT topics,
-  and the Buckets/Tables tabs' saved bucket/table shortcuts, are all built
-  on (each just its own page name under the same mechanism). (Cognito
-  doesn't have this yet.)
+  the Buckets/Tables tabs' saved bucket/table shortcuts, and the Aggregator's
+  saved sessions are all built on (each just its own page name under the same
+  mechanism). (Cognito doesn't have this yet.)
 - **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
   next to the result count on the Logs tab (both CloudWatch and OpenSearch
   backends), IoT tab (Things and Certificates), Tables, Buckets, and Cognito

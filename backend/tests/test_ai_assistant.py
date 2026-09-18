@@ -107,7 +107,7 @@ def test_every_domain_builds_both_prompts_with_the_shared_rules():
         assert "{" not in ask
 
 
-def test_domains_cover_every_searchable_page():
+def test_domains_cover_every_searchable_page_plus_the_aggregator():
     assert set(ai_assistant.DOMAINS) == {
         "logs-cloudwatch",
         "logs-opensearch",
@@ -116,7 +116,16 @@ def test_domains_cover_every_searchable_page():
         "tables",
         "buckets",
         "cognito",
+        "aggregator",
     }
+
+
+def test_aggregator_ask_prompt_explains_the_service_tag():
+    # Its rows are pooled from several services and share no schema, so the
+    # `service` field is the only thing keeping them apart.
+    prompt = ai_assistant.ask_results_prompt("aggregator")
+    assert "`service` field" in prompt
+    assert "several different AWS services" in prompt
 
 
 def test_domain_prompts_teach_their_own_syntax_not_another_domains():

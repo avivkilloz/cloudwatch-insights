@@ -24,6 +24,7 @@ export interface UserGroup {
   tables_enabled: boolean;
   buckets_enabled: boolean;
   cognito_enabled: boolean;
+  aggregator_enabled: boolean;
   tools_enabled: boolean;
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
@@ -42,6 +43,7 @@ export interface User {
   tables_enabled: boolean;
   buckets_enabled: boolean;
   cognito_enabled: boolean;
+  aggregator_enabled: boolean;
   tools_enabled: boolean;
 }
 
@@ -355,7 +357,9 @@ export type AiDomain =
   | "iot-certificates"
   | "tables"
   | "buckets"
-  | "cognito";
+  | "cognito"
+  /** The Aggregator page asking about rows pooled from several services. */
+  | "aggregator";
 
 export interface AiAssistResponse {
   reply: string;

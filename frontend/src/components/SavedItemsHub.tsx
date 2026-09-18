@@ -26,6 +26,7 @@ type TabId =
   | "iot-searches"
   | "logs-sessions"
   | "iot-sessions"
+  | "aggregator-sessions"
   | "buckets"
   | "tables"
   | "http-requests"
@@ -36,6 +37,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "iot-searches", label: "IoT Searches" },
   { id: "logs-sessions", label: "Logs Sessions" },
   { id: "iot-sessions", label: "IoT Sessions" },
+  { id: "aggregator-sessions", label: "Aggregator Sessions" },
   { id: "buckets", label: "Buckets" },
   { id: "tables", label: "Tables" },
   { id: "http-requests", label: "HTTP Requests" },
@@ -115,6 +117,17 @@ export default function SavedItemsHub(props: Props) {
           kind="json"
           items={props.savedSessions.filter((s) => s.page === "iot")}
           onCreate={(name, state) => props.onCreateSession("iot", name, state)}
+          onUpdate={props.onUpdateSession}
+          onDelete={props.onDeleteSession}
+        />
+      )}
+
+      {tab === "aggregator-sessions" && (
+        <SavedSessionEditorPanel
+          description="Which services an Aggregator session opens and how they're laid out, created via the Aggregator page's &quot;Save session&quot; button. The raw JSON below is editable directly; load it on the Aggregator page to see it applied."
+          kind="json"
+          items={props.savedSessions.filter((s) => s.page === "aggregator")}
+          onCreate={(name, state) => props.onCreateSession("aggregator", name, state)}
           onUpdate={props.onUpdateSession}
           onDelete={props.onDeleteSession}
         />

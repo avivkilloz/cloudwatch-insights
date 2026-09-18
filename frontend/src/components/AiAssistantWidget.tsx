@@ -1,5 +1,14 @@
-import { useEffect, useRef, useState, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from "react";
 import { api, AiAssistMode, AiChatMessage, AiDomain } from "../api";
+import { useAiPaneRegistry } from "./aiPanes";
 import MarkdownLite from "./MarkdownLite";
 
 interface DisplayMessage extends AiChatMessage {
@@ -31,6 +40,13 @@ interface Props {
    * answering from a previous, no-longer-visible result set.
    */
   resultsVersion?: number;
+  /** Overrides `domain` in ask_results mode. The Aggregator asks about rows
+   * pooled from several services at once, which is a different thing to
+   * describe than the one service build_query is writing for. */
+  askDomain?: AiDomain;
+  /** Extra controls rendered under the mode tabs -- the Aggregator's picker
+   * for which open service "Build query" should write for. */
+  headerExtra?: ReactNode;
 }
 
 const MODE_LABELS: Record<AiAssistMode, string> = {
@@ -77,6 +93,11 @@ const DOMAIN_COPY: Record<AiDomain, { rows: string; build: string; ask: string }
     rows: "users",
     build: "e.g. users whose email starts with john",
     ask: "e.g. how many of these are unconfirmed?",
+  },
+  aggregator: {
+    rows: "checked rows from every open service",
+    build: "",
+    ask: "e.g. do these log errors line up with the disconnected devices?",
   },
 };
 
@@ -165,7 +186,11 @@ export default function AiAssistantWidget({
   selectedRows,
   onUseQuery,
   resultsVersion,
+  askDomain,
+  headerExtra,
 }: Props) {
+  const registry = useAiPaneRegistry();
+  const paneId = useId();
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<AiAssistMode>(modes[0]);
@@ -180,11 +205,40 @@ export default function AiAssistantWidget({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    // Inside an Aggregator this widget renders nothing, so it has no status to
+    // check -- the Aggregator's own shared widget does that once instead.
+    if (registry) return;
     api
       .getAiStatus()
       .then((s) => setConfigured(s.configured))
       .catch(() => setConfigured(false));
-  }, []);
+  }, [registry]);
+
+  // Hand this page's assistant context to the Aggregator rather than putting
+  // up a competing floating button. Deliberately runs on every render, since
+  // the row arrays are rebuilt each time; the registry compares before
+  // re-rendering, so re-registering unchanged content costs nothing.
+  useEffect(() => {
+    if (!registry) return;
+    registry.register({
+      id: paneId,
+      domain,
+      modes,
+      queryString,
+      rows: sampleRows ?? [],
+      selectedRows: selectedRows ?? [],
+      onUseQuery,
+      resultsVersion: resultsVersion ?? 0,
+    });
+  });
+
+  // Deregistering belongs in its own effect with stable deps: as the cleanup
+  // of the every-render effect above it would run on every render too, and the
+  // remove/re-add churn would change the pane list each time and spin.
+  useEffect(() => {
+    if (!registry) return;
+    return () => registry.unregister(paneId);
+  }, [registry, paneId]);
 
   function startResize(e: ReactMouseEvent) {
     e.preventDefault();
@@ -297,7 +351,7 @@ export default function AiAssistantWidget({
         query_string: queryString,
         sample_rows: rowsToSend,
         row_count: mode === "ask_results" ? (useSelected ? rowsToSend?.length : rowCount) : undefined,
-        domain,
+        domain: mode === "ask_results" ? askDomain ?? domain : domain,
       });
       setThreads((prev) => ({
         ...prev,
@@ -310,6 +364,9 @@ export default function AiAssistantWidget({
     }
   }
 
+  // Inside an Aggregator the pane has handed its context up; the Aggregator's
+  // single shared widget is what the user actually interacts with.
+  if (registry) return null;
   if (!configured) return null;
 
   const messages = threads[mode];
@@ -352,6 +409,7 @@ export default function AiAssistantWidget({
               ✕
             </button>
           </div>
+          {headerExtra}
 
           {mode === "ask_results" && (totalAvailableRows > SAMPLE_CAP || selectedCount > 0) && (
             <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>

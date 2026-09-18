@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
+import AggregatorPage from "./pages/AggregatorPage";
 import BucketsPage from "./pages/BucketsPage";
 import CognitoPage from "./pages/CognitoPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -12,7 +13,7 @@ import ToolsPage from "./pages/ToolsPage";
 import UserMenu from "./components/UserMenu";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
 
-type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "tools" | "settings";
+type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "aggregator" | "tools" | "settings";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -90,6 +91,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     { id: "tables", label: "Tables", enabled: !!user?.tables_enabled, render: () => <TablesPage /> },
     { id: "buckets", label: "Buckets", enabled: !!user?.buckets_enabled, render: () => <BucketsPage /> },
     { id: "cognito", label: "Cognito", enabled: !!user?.cognito_enabled, render: () => <CognitoPage /> },
+    { id: "aggregator", label: "Aggregator", enabled: !!user?.aggregator_enabled, render: () => <AggregatorPage /> },
     { id: "tools", label: "Tools", enabled: !!user?.tools_enabled, render: () => <ToolsPage /> },
   ];
 

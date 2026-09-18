@@ -42,7 +42,15 @@ class SettingsUpdate(BaseModel):
 # group (UserGroup.is_admin) always sees every environment and is the only
 # group whose members can manage users/groups/settings/environments.
 
-TAB_FIELDS = ["logs_enabled", "iot_enabled", "tables_enabled", "buckets_enabled", "cognito_enabled", "tools_enabled"]
+TAB_FIELDS = [
+    "logs_enabled",
+    "iot_enabled",
+    "tables_enabled",
+    "buckets_enabled",
+    "cognito_enabled",
+    "tools_enabled",
+    "aggregator_enabled",
+]
 
 
 class UserGroupBase(BaseModel):
@@ -53,6 +61,7 @@ class UserGroupBase(BaseModel):
     tables_enabled: bool = True
     buckets_enabled: bool = True
     cognito_enabled: bool = True
+    aggregator_enabled: bool = True
     tools_enabled: bool = True
 
 
@@ -70,6 +79,7 @@ class UserGroupUpdate(BaseModel):
     tables_enabled: Optional[bool] = None
     buckets_enabled: Optional[bool] = None
     cognito_enabled: Optional[bool] = None
+    aggregator_enabled: Optional[bool] = None
     tools_enabled: Optional[bool] = None
     environment_ids: Optional[list[int]] = None
 
@@ -112,6 +122,7 @@ class UserOut(BaseModel):
     tables_enabled: bool
     buckets_enabled: bool
     cognito_enabled: bool
+    aggregator_enabled: bool
     tools_enabled: bool
 
 
@@ -663,6 +674,7 @@ AiDomain = Literal[
     "tables",
     "buckets",
     "cognito",
+    "aggregator",
 ]
 
 

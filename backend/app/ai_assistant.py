@@ -153,6 +153,24 @@ DOMAINS: dict[str, Domain] = {
             "most selective one and say that's a Cognito limitation."
         ),
     ),
+    # The Aggregator pools rows from several of the above at once. It never
+    # builds a query under this domain -- "Build query" there targets whichever
+    # single service the user picked, and uses that service's own domain.
+    "aggregator": Domain(
+        query_language="AWS search queries.",
+        results_noun="records gathered from several AWS services at once",
+        query_block_noun="query",
+        ask_notes=(
+            " These rows were pooled from several different AWS services, so "
+            "they do not share a schema. Every row carries a `service` field "
+            "naming which one it came from (e.g. \"Logs (CloudWatch)\", \"IoT "
+            "things\", \"Cognito\"); use it to keep them straight, and when you "
+            "draw a connection between rows from different services, say which "
+            "fields you matched them on so the user can check it. Correlating "
+            "them is usually the point of the question -- but say so plainly "
+            "when the rows simply don't line up, rather than forcing a link."
+        ),
+    ),
 }
 
 DEFAULT_DOMAIN = "logs-cloudwatch"

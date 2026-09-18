@@ -10,7 +10,14 @@ import SavedItemsPage from "./SavedItemsPage";
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 
 const TAB_TOGGLES: {
-  key: "logs_enabled" | "iot_enabled" | "tables_enabled" | "buckets_enabled" | "cognito_enabled" | "tools_enabled";
+  key:
+    | "logs_enabled"
+    | "iot_enabled"
+    | "tables_enabled"
+    | "buckets_enabled"
+    | "cognito_enabled"
+    | "aggregator_enabled"
+    | "tools_enabled";
   label: string;
 }[] = [
   { key: "logs_enabled", label: "Logs" },
@@ -18,6 +25,7 @@ const TAB_TOGGLES: {
   { key: "tables_enabled", label: "Tables" },
   { key: "buckets_enabled", label: "Buckets" },
   { key: "cognito_enabled", label: "Cognito" },
+  { key: "aggregator_enabled", label: "Aggregator" },
   { key: "tools_enabled", label: "Tools" },
 ];
 
@@ -60,6 +68,7 @@ function emptyGroupDraft(): GroupDraft {
     tables_enabled: true,
     buckets_enabled: true,
     cognito_enabled: true,
+    aggregator_enabled: true,
     tools_enabled: true,
   };
 }
@@ -74,6 +83,7 @@ function groupToDraft(g: UserGroup): GroupDraft {
     tables_enabled: g.tables_enabled,
     buckets_enabled: g.buckets_enabled,
     cognito_enabled: g.cognito_enabled,
+    aggregator_enabled: g.aggregator_enabled,
     tools_enabled: g.tools_enabled,
   };
 }
