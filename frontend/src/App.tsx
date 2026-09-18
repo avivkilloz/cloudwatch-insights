@@ -173,7 +173,17 @@ function SessionBody({ session, hidden }: { session: PersistedSession; hidden: b
           </div>
         )}
         {def && def.enabledFor(user) ? (
-          def.render()
+          <>
+            {/* Rendered here rather than inside each page, so every session
+                gets the same header and an Aggregator pane -- which renders
+                the page component directly -- doesn't get a second one under
+                its own title bar. */}
+            <div className="page-intro">
+              <h1 className="page-intro-title">{def.label}</h1>
+              <p className="page-intro-help">{def.help}</p>
+            </div>
+            {def.render()}
+          </>
         ) : (
           <div className="panel">
             <p className="muted" style={{ margin: 0 }}>

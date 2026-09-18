@@ -22,8 +22,8 @@ const TAB_TOGGLES: {
 }[] = [
   { key: "logs_enabled", label: "Logs" },
   { key: "iot_enabled", label: "IoT" },
-  { key: "tables_enabled", label: "Tables" },
-  { key: "buckets_enabled", label: "Buckets" },
+  { key: "tables_enabled", label: "DynamoDB" },
+  { key: "buckets_enabled", label: "S3" },
   { key: "cognito_enabled", label: "Cognito" },
   { key: "aggregator_enabled", label: "Aggregator" },
   { key: "tools_enabled", label: "Tools" },

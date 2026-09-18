@@ -12,17 +12,25 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   the middle, and your avatar on the right. The title takes you **home**;
   typing a question in the bar opens an **agent session** with that question
   already asked.
-- **Home** is a card per session type, grouped into **Services**, **Tools** and
-  **Assistant**. Click a card to open that session. Tick several and press
-  **Open N in Aggregator** to open one Aggregator session with exactly those
-  panes — you can still add and remove panes once it's running.
+- **Home** is a card per session type, grouped into **Platform**, **Services**
+  and **Tools**, in that order. *Platform* holds the Aggregator and the Agent —
+  this app's own features, as against the pages below them, each of which is a
+  window onto something that exists outside it. Click a card to open that
+  session. Tick several and a floating **Aggregate** button appears in the
+  bottom-right corner — the same corner as **✦ Ask AI** on every other page —
+  which opens one Aggregator session with exactly those panes; you can still
+  add and remove panes once it's running.
+- Every session page opens with its **name and a short description** of what it
+  is for, drawn from the session-type registry so each page says it once and
+  says it the same way. Aggregator panes don't repeat it — they already sit
+  under their own title bar.
 - Below the header, a **session strip** holds whichever sessions you have open,
   with a **+** at the end of them (so on the left when there are none). It's
   deliberately flat — no background or rule of its own, so it reads as the top
   of the page rather than a second header. **+** lists every session type —
-  Logs, IoT, Tables, Buckets, Cognito, Aggregator, each **tool** on its own
-  (HTTP client, MQTT tester, JWT, Base64, Diff) and the **Agent** — plus your
-  saved sessions. Picking one starts a session and gives it a tab; a second
+  the **Aggregator** and **Agent** first, then Logs, IoT, DynamoDB, S3 and
+  Cognito, then each **tool** on its own (HTTP client, MQTT tester, JWT,
+  Base64, Diff) — plus your saved sessions. Picking one starts a session and gives it a tab; a second
   Logs session is called "Logs 2" rather than colliding. Click a tab to switch
   to it, double-click to rename it, drag to reorder, **✕** to close.
   **Save session** at the right of the strip saves the active one. Reordering
@@ -85,7 +93,7 @@ from the avatar menu and is not a session; the strip stays above it.
   same cache as expanding a row, so a row you already opened is free and a
   row fetched for an export is already there when you open it. Rows whose
   detail can't be fetched are called out and fall back to their summary.
-- **Tables tab**: pick one environment (DynamoDB tables are inherently
+- **DynamoDB page**: pick one environment (DynamoDB tables are inherently
   single-account/region, so unlike Logs/IoT this page doesn't fan out
   across several at once), load its table list, and pick a table to see
   its key schema, status, and item count. Search/filter with
@@ -98,7 +106,7 @@ from the avatar menu and is not a session; the strip stays above it.
   environment+table pair via "Save current table" and jump straight back
   to it later from "Load saved table…" — per-user, like every other saved
   item, and manageable from Settings' **Saved** section too.
-- **Buckets tab**: pick one environment and a bucket (its actual region is
+- **S3 page**: pick one environment and a bucket (its actual region is
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
   the current level, breadcrumbs to jump back up. The search box switches
@@ -107,11 +115,11 @@ from the avatar menu and is not a session; the strip stays above it.
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
   HTTPS URL) buttons. A **Saved buckets** panel works the same way as
-  Tables' above — bookmark an environment+bucket pair for quick access.
+  DynamoDB' above — bookmark an environment+bucket pair for quick access.
 - **Cognito tab**: pick one environment and a user pool, then search users
   with a single `attribute:value` token (starts-with match, e.g.
   `email:john`) — Cognito's `ListUsers` only supports filtering by one
-  attribute per call, unlike the Tables/IoT search boxes. Leave it blank
+  attribute per call, unlike the DynamoDB/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
 - **Aggregator session**: pick what you're actually
@@ -162,7 +170,7 @@ from the avatar menu and is not a session; the strip stays above it.
   session (which panes, in which order, and which layout) can be saved and
   reloaded like any other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
-  Logs (both backends), IoT (things and certificates), Tables, Buckets and
+  Logs (both backends), IoT (things and certificates), DynamoDB, S3 and
   Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
   list that selects/deselects every currently-shown row. Selecting rows:
   - enables **Hide selected**, which removes them from view so you can whittle
@@ -176,7 +184,7 @@ from the avatar menu and is not a session; the strip stays above it.
     pooled into one question.
 
   A fresh search clears the selection; loading another page of results
-  (the "Load more" buttons on Tables, Buckets and Cognito) keeps it, since
+  (the "Load more" buttons on DynamoDB, S3 and Cognito) keeps it, since
   those append rather than replace. Checking a row never expands it, so you
   can select and inspect independently.
 - **Grouping and the `@log` field** (Logs tab, CloudWatch backend): the
@@ -210,10 +218,10 @@ from the avatar menu and is not a session; the strip stays above it.
   syntax or OpenSearch Lucene on Logs (following that tab's backend toggle),
   IoT Fleet Indexing on IoT things, the much narrower
   `status:`/`certid:` filters on IoT certificates, `field:value` scan tokens
-  on Tables, and Cognito's single starts-with `attribute:value` token on
+  on DynamoDB, and Cognito's single starts-with `attribute:value` token on
   Cognito. It's told each surface's limits too, so it says "Cognito can only
   filter on one attribute at a time" rather than inventing syntax that
-  silently returns nothing. Buckets gets "About results" only — its search is
+  silently returns nothing. S3 gets "About results" only — its search is
   a literal filename substring, so there's no query worth writing for you.
   The **Tools** tab's HTTP Client has it too, and is the one surface where
   what the assistant writes isn't a query string at all but a whole request
@@ -240,7 +248,7 @@ from the avatar menu and is not a session; the strip stays above it.
   sees and manages their own) and is managed from one **Saved items** panel
   under the **Saved** section of Settings, with a tab for each kind (Log
   Queries, IoT Searches, Logs Sessions, IoT Sessions, Aggregator Sessions,
-  Buckets, Tables, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
+  S3, DynamoDB, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
   method/URL/headers/body through the same form the HTTP Client tool itself
@@ -261,12 +269,12 @@ from the avatar menu and is not a session; the strip stays above it.
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself, which
   is also what the Tools page's saved HTTP requests and saved MQTT topics,
-  the Buckets/Tables tabs' saved bucket/table shortcuts, and the Aggregator's
+  the S3/DynamoDB pages' saved bucket/table shortcuts, and the Aggregator's
   saved sessions are all built on (each just its own page name under the same
   mechanism). (Cognito doesn't have this yet.)
 - **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
   next to the result count on the Logs tab (both CloudWatch and OpenSearch
-  backends), IoT tab (Things and Certificates), Tables, Buckets, and Cognito
+  backends), IoT page (Things and Certificates), DynamoDB, S3, and Cognito
   exports exactly the rows currently on screen — after any sort, hide, or
   search/filter you've applied, not a raw re-fetch — or, when you have rows
   checked, just those. Entirely client-side, no
@@ -302,7 +310,7 @@ control:
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
-- **Which tabs** are visible (Logs, IoT, Tables, Buckets, Cognito, Tools —
+- **Which pages** are visible (Logs, IoT, DynamoDB, S3, Cognito, Tools —
   Settings itself is handled separately, see below).
 
 Everything about the current user lives behind their **avatar**, top right of
@@ -529,7 +537,7 @@ The app needs two things:
    ```
    (Drop whichever service's actions you don't need — `logs:*` for Logs
    (CloudWatch backend), `iot:*` for IoT, `dynamodb:*` for Tables, `s3:*`
-   for Buckets, `cognito-idp:*` for Cognito, `es:*` for Logs (OpenSearch
+   for S3, `cognito-idp:*` for Cognito, `es:*` for Logs (OpenSearch
    backend). `s3:ListBucket` is normally scoped to specific bucket ARNs
    rather than `*`; this simplified example grants it account-wide the same
    way the rest of this policy does.)
@@ -630,7 +638,8 @@ backend.
 Small, independent developer utilities. Each one is its own **session type**:
 open it from **+** or a home card, beside whatever you're debugging, and it
 keeps its state like any other session. Any of them can also be an Aggregator
-pane.
+pane. Each tool's page is laid out in cards, the same as a service page, so its
+inputs and its output stay visibly separate.
 
 - **JWT Decoder / Encoder** — decode any JWT's header and payload, or build
   and sign a new one. Runs entirely in your browser (via the Web Crypto

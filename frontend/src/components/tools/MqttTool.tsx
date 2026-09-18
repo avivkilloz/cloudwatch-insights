@@ -184,208 +184,219 @@ export default function MqttTool() {
 
   return (
     <div>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <select
-          value={environmentId}
-          onChange={(e) => setEnvironmentId(e.target.value ? Number(e.target.value) : "")}
-          disabled={connected || status === "connecting"}
-        >
-          <option value="">Choose environment…</option>
-          {environments.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name} ({e.account_id} · {e.region})
-            </option>
-          ))}
-        </select>
-        {!connected ? (
-          <button onClick={connect} disabled={status === "connecting" || !environmentId}>
-            {status === "connecting" ? "Connecting…" : "Connect"}
-          </button>
-        ) : (
-          <button className="secondary" onClick={disconnect}>
-            Disconnect
-          </button>
-        )}
-        <span className={`tag ${connected ? "ok" : status === "error" ? "error" : ""}`}>{status}</span>
-        {endpoint && <span className="muted">{endpoint}</span>}
-      </div>
-      {error && <p className="error-text">{error}</p>}
-      {diagnostic && (
-        <div className="muted" style={{ marginTop: -4, marginBottom: 4 }}>
-          <p style={{ margin: 0 }}>
-            Backend pre-flight check on this connection URL: HTTP{" "}
-            {diagnostic.statusCode ?? "no response"}
-            {diagnostic.body ? ` — ${diagnostic.body}` : ""}
-          </p>
-          {diagnostic.headers.length > 0 && (
-            <details style={{ marginTop: 2 }}>
-              <summary style={{ cursor: "pointer" }}>
-                Response headers ({diagnostic.headers.length}) — check these if this rejection never shows up in
-                AWS IoT Core's own connection logs (Settings → Logs), which would suggest something in the network
-                path is answering instead of IoT Core itself
-              </summary>
-              <pre
-                style={{
-                  margin: "4px 0 0",
-                  padding: 8,
-                  fontSize: 12,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                }}
-              >
-                {diagnostic.headers.join("\n")}
-              </pre>
-            </details>
+      <div className="panel">
+        <h2>Connection</h2>
+        <div className="row">
+          <select
+            value={environmentId}
+            onChange={(e) => setEnvironmentId(e.target.value ? Number(e.target.value) : "")}
+            disabled={connected || status === "connecting"}
+          >
+            <option value="">Choose environment…</option>
+            {environments.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name} ({e.account_id} · {e.region})
+              </option>
+            ))}
+          </select>
+          {!connected ? (
+            <button onClick={connect} disabled={status === "connecting" || !environmentId}>
+              {status === "connecting" ? "Connecting…" : "Connect"}
+            </button>
+          ) : (
+            <button className="secondary" onClick={disconnect}>
+              Disconnect
+            </button>
           )}
+          <span className={`tag ${connected ? "ok" : status === "error" ? "error" : ""}`}>{status}</span>
+          {endpoint && <span className="muted">{endpoint}</span>}
         </div>
-      )}
-      {clientId && (
-        <p className="muted" style={{ marginTop: 0, marginBottom: 10 }}>
-          Client ID for this attempt: <code>{clientId}</code> — use this to find the matching entry in AWS IoT
-          Core's own logging (Settings → Logs in the IoT console; a separate system from CloudTrail) if you enable
-          it to see the exact authorization decision.
+        {error && <p className="error-text">{error}</p>}
+        {diagnostic && (
+          <div className="muted" style={{ marginTop: 8 }}>
+            <p style={{ margin: 0 }}>
+              Backend pre-flight check on this connection URL: HTTP {diagnostic.statusCode ?? "no response"}
+              {diagnostic.body ? ` — ${diagnostic.body}` : ""}
+            </p>
+            {diagnostic.headers.length > 0 && (
+              <details style={{ marginTop: 2 }}>
+                <summary style={{ cursor: "pointer" }}>
+                  Response headers ({diagnostic.headers.length}) — check these if this rejection never shows up in
+                  AWS IoT Core's own connection logs (Settings → Logs), which would suggest something in the network
+                  path is answering instead of IoT Core itself
+                </summary>
+                <pre
+                  style={{
+                    margin: "4px 0 0",
+                    padding: 8,
+                    fontSize: 12,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {diagnostic.headers.join("\n")}
+                </pre>
+              </details>
+            )}
+          </div>
+        )}
+        {clientId && (
+          <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+            Client ID for this attempt: <code>{clientId}</code> — use this to find the matching entry in AWS IoT
+            Core's own logging (Settings → Logs in the IoT console; a separate system from CloudTrail) if you enable
+            it to see the exact authorization decision.
+          </p>
+        )}
+        <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
+          Connecting mints a short-lived, SigV4-signed WebSocket URL using the chosen environment's assumed role (the
+          same mechanism the AWS IoT console's own MQTT test client uses), then connects straight from your browser to
+          that account's IoT Core endpoint — the MQTT session itself never passes through this app's backend. The role
+          needs <code>iot:DescribeEndpoint</code>, <code>iot:Connect</code>, <code>iot:Publish</code>,{" "}
+          <code>iot:Subscribe</code> and <code>iot:Receive</code> permissions, and the endpoint must be reachable from
+          wherever your browser is.
         </p>
-      )}
+      </div>
 
       <div className="row" style={{ alignItems: "flex-start", gap: 16 }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
-          <span className="field-label">Subscribe</span>
-          <div className="row">
+        <div style={{ flex: 1, minWidth: 300 }}>
+          <div className="panel">
+            <h2>Subscribe</h2>
+            <div className="row">
+              <input
+                type="text"
+                placeholder="topic/#"
+                value={subscribeTopic}
+                onChange={(e) => setSubscribeTopic(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button className="secondary" onClick={subscribe} disabled={!connected || !subscribeTopic.trim()}>
+                Subscribe
+              </button>
+            </div>
+            <div className="row" style={{ marginTop: 6 }}>
+              <select
+                onChange={(e) => {
+                  const saved = savedTopics.find((t) => String(t.id) === e.target.value);
+                  if (saved) setSubscribeTopic(saved.state.topic);
+                  e.target.value = "";
+                }}
+                defaultValue=""
+                style={{ flex: 1 }}
+              >
+                <option value="" disabled>
+                  Load saved topic…
+                </option>
+                {savedTopics.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary"
+                onClick={() => saveTopic(subscribeTopic)}
+                disabled={!subscribeTopic.trim()}
+                title="Save this topic"
+              >
+                Save topic
+              </button>
+            </div>
+            {subscriptions.length > 0 && (
+              <div className="row" style={{ marginTop: 8 }}>
+                {subscriptions.map((t) => (
+                  <span key={t} className="tag">
+                    {t}{" "}
+                    <button
+                      className="danger"
+                      style={{ padding: "0 6px", marginLeft: 4 }}
+                      onClick={() => unsubscribe(t)}
+                      title="Unsubscribe"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="panel">
+            <h2>Publish</h2>
             <input
               type="text"
-              placeholder="topic/#"
-              value={subscribeTopic}
-              onChange={(e) => setSubscribeTopic(e.target.value)}
-              style={{ flex: 1 }}
+              placeholder="topic"
+              value={publishTopic}
+              onChange={(e) => setPublishTopic(e.target.value)}
+              style={{ width: "100%", marginBottom: 6 }}
             />
-            <button className="secondary" onClick={subscribe} disabled={!connected || !subscribeTopic.trim()}>
-              Subscribe
-            </button>
-          </div>
-          <div className="row" style={{ marginTop: 6 }}>
-            <select
-              onChange={(e) => {
-                const saved = savedTopics.find((t) => String(t.id) === e.target.value);
-                if (saved) setSubscribeTopic(saved.state.topic);
-                e.target.value = "";
-              }}
-              defaultValue=""
-              style={{ flex: 1 }}
-            >
-              <option value="" disabled>
-                Load saved topic…
-              </option>
-              {savedTopics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+            <div className="row" style={{ marginBottom: 6 }}>
+              <select
+                onChange={(e) => {
+                  const saved = savedTopics.find((t) => String(t.id) === e.target.value);
+                  if (saved) setPublishTopic(saved.state.topic);
+                  e.target.value = "";
+                }}
+                defaultValue=""
+                style={{ flex: 1 }}
+              >
+                <option value="" disabled>
+                  Load saved topic…
                 </option>
-              ))}
-            </select>
-            <button
-              className="secondary"
-              onClick={() => saveTopic(subscribeTopic)}
-              disabled={!subscribeTopic.trim()}
-              title="Save this topic"
-            >
-              Save topic
-            </button>
-          </div>
-          {subscriptions.length > 0 && (
-            <div className="row" style={{ marginTop: 8 }}>
-              {subscriptions.map((t) => (
-                <span key={t} className="tag">
-                  {t}{" "}
-                  <button
-                    className="danger"
-                    style={{ padding: "0 6px", marginLeft: 4 }}
-                    onClick={() => unsubscribe(t)}
-                    title="Unsubscribe"
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
+                {savedTopics.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary"
+                onClick={() => saveTopic(publishTopic)}
+                disabled={!publishTopic.trim()}
+                title="Save this topic"
+              >
+                Save topic
+              </button>
             </div>
-          )}
-
-          <span className="field-label" style={{ marginTop: 14, display: "block" }}>
-            Publish
-          </span>
-          <input
-            type="text"
-            placeholder="topic"
-            value={publishTopic}
-            onChange={(e) => setPublishTopic(e.target.value)}
-            style={{ width: "100%", marginBottom: 6 }}
-          />
-          <div className="row" style={{ marginBottom: 6 }}>
-            <select
-              onChange={(e) => {
-                const saved = savedTopics.find((t) => String(t.id) === e.target.value);
-                if (saved) setPublishTopic(saved.state.topic);
-                e.target.value = "";
-              }}
-              defaultValue=""
-              style={{ flex: 1 }}
-            >
-              <option value="" disabled>
-                Load saved topic…
-              </option>
-              {savedTopics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="secondary"
-              onClick={() => saveTopic(publishTopic)}
-              disabled={!publishTopic.trim()}
-              title="Save this topic"
-            >
-              Save topic
+            <textarea
+              rows={3}
+              placeholder="Message payload"
+              value={publishPayload}
+              onChange={(e) => setPublishPayload(e.target.value)}
+            />
+            <button onClick={publish} disabled={!connected || !publishTopic.trim()} style={{ marginTop: 6 }}>
+              Publish
             </button>
           </div>
-          <textarea
-            rows={3}
-            placeholder="Message payload"
-            value={publishPayload}
-            onChange={(e) => setPublishPayload(e.target.value)}
-          />
-          <button onClick={publish} disabled={!connected || !publishTopic.trim()} style={{ marginTop: 6 }}>
-            Publish
-          </button>
         </div>
 
-        <div style={{ flex: 1, minWidth: 260 }}>
-          <span className="field-label">Incoming messages</span>
-          {messages.length === 0 && <p className="muted">Subscribe to a topic to see messages arrive here.</p>}
-          <div className="checkbox-list" style={{ maxHeight: 320 }}>
-            {messages.map((m) => (
-              <div key={m.id} className="result-row" style={{ marginBottom: 6 }}>
-                <div className="result-row-detail" style={{ borderTop: "none" }}>
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <span className="tag">{m.topic}</span>
-                    <span className="muted">{new Date(m.timestamp).toLocaleTimeString()}</span>
+        <div style={{ flex: 1, minWidth: 300 }}>
+          <div className="panel">
+            <h2>Incoming messages</h2>
+            {messages.length === 0 && (
+              <p className="muted" style={{ margin: 0 }}>
+                Subscribe to a topic to see messages arrive here.
+              </p>
+            )}
+            {messages.length > 0 && (
+              <div className="checkbox-list" style={{ maxHeight: 320 }}>
+                {messages.map((m) => (
+                  <div key={m.id} className="result-row" style={{ marginBottom: 6 }}>
+                    <div className="result-row-detail" style={{ borderTop: "none" }}>
+                      <div className="row" style={{ justifyContent: "space-between" }}>
+                        <span className="tag">{m.topic}</span>
+                        <span className="muted">{new Date(m.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <pre className="tool-json-output" style={{ marginTop: 6, marginBottom: 0 }}>
+                        {m.payload}
+                      </pre>
+                    </div>
                   </div>
-                  <pre className="tool-json-output" style={{ marginTop: 6, marginBottom: 0 }}>
-                    {m.payload}
-                  </pre>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
-
-      <p className="muted" style={{ marginTop: 10 }}>
-        Connecting mints a short-lived, SigV4-signed WebSocket URL using the chosen environment's assumed role (the
-        same mechanism the AWS IoT console's own MQTT test client uses), then connects straight from your browser to
-        that account's IoT Core endpoint -- the MQTT session itself never passes through this app's backend. The
-        role needs <code>iot:DescribeEndpoint</code>, <code>iot:Connect</code>, <code>iot:Publish</code>,{" "}
-        <code>iot:Subscribe</code>, and <code>iot:Receive</code> permissions, and the endpoint must be reachable
-        from wherever your browser is.
-      </p>
     </div>
   );
 }

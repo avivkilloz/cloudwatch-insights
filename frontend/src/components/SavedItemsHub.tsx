@@ -38,8 +38,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "logs-sessions", label: "Logs Sessions" },
   { id: "iot-sessions", label: "IoT Sessions" },
   { id: "aggregator-sessions", label: "Aggregator Sessions" },
-  { id: "buckets", label: "Buckets" },
-  { id: "tables", label: "Tables" },
+  { id: "buckets", label: "S3" },
+  { id: "tables", label: "DynamoDB" },
   { id: "http-requests", label: "HTTP Requests" },
   { id: "mqtt-topics", label: "MQTT Topics" },
 ];

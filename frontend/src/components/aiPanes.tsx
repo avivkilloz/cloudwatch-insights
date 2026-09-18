@@ -80,8 +80,8 @@ export const DOMAIN_LABELS: Record<AiDomain, string> = {
   "logs-opensearch": "Logs (OpenSearch)",
   "iot-things": "IoT things",
   "iot-certificates": "IoT certificates",
-  tables: "Tables",
-  buckets: "Buckets",
+  tables: "DynamoDB",
+  buckets: "S3",
   cognito: "Cognito",
   aggregator: "All open services",
   // Never an Aggregator pane -- the Tools page isn't one of the services

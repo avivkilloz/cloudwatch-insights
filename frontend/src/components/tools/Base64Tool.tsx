@@ -49,36 +49,46 @@ export default function Base64Tool() {
 
   return (
     <div>
-      <div className="toolbar">
-        <button className={mode === "encode" ? "" : "secondary"} onClick={() => setMode("encode")}>
-          Encode
-        </button>
-        <button className={mode === "decode" ? "" : "secondary"} onClick={() => setMode("decode")}>
-          Decode
-        </button>
-        {mode === "encode" && (
-          <label className="checkbox-item">
-            <input type="checkbox" checked={urlSafe} onChange={(e) => setUrlSafe(e.target.checked)} />
-            URL-safe
-          </label>
+      <div className="panel">
+        <h2>Input</h2>
+        <div className="toolbar">
+          <button className={mode === "encode" ? "" : "secondary"} onClick={() => setMode("encode")}>
+            Encode
+          </button>
+          <button className={mode === "decode" ? "" : "secondary"} onClick={() => setMode("decode")}>
+            Decode
+          </button>
+          {mode === "encode" && (
+            <label className="checkbox-item">
+              <input type="checkbox" checked={urlSafe} onChange={(e) => setUrlSafe(e.target.checked)} />
+              URL-safe
+            </label>
+          )}
+        </div>
+        <span className="field-label">{mode === "encode" ? "Text" : "Base64"}</span>
+        <textarea
+          rows={6}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={mode === "encode" ? "Type or paste text to encode…" : "Paste Base64 to decode…"}
+        />
+      </div>
+
+      <div className="panel">
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+          <h2 style={{ margin: 0 }}>{mode === "encode" ? "Base64" : "Text"}</h2>
+          <button className="secondary" onClick={copyOutput} disabled={!output}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        {error ? (
+          <p className="error-text" style={{ margin: 0 }}>
+            {error}
+          </p>
+        ) : (
+          <textarea rows={6} value={output} readOnly />
         )}
       </div>
-      <span className="field-label">{mode === "encode" ? "Text" : "Base64"}</span>
-      <textarea
-        rows={5}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder={mode === "encode" ? "Type or paste text to encode…" : "Paste Base64 to decode…"}
-      />
-      <div className="row" style={{ marginTop: 10, justifyContent: "space-between" }}>
-        <span className="field-label" style={{ margin: 0 }}>
-          {mode === "encode" ? "Base64" : "Text"}
-        </span>
-        <button className="secondary" onClick={copyOutput} disabled={!output}>
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      {error ? <p className="error-text">{error}</p> : <textarea rows={5} value={output} readOnly />}
     </div>
   );
 }
