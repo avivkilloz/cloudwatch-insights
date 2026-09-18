@@ -75,4 +75,7 @@ export const DOMAIN_LABELS: Record<AiDomain, string> = {
   buckets: "Buckets",
   cognito: "Cognito",
   aggregator: "All open services",
+  // Never an Aggregator pane -- the Tools page isn't one of the services
+  // offered there -- but the map is keyed by every domain.
+  "tools-http": "HTTP client",
 };

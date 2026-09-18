@@ -359,7 +359,11 @@ export type AiDomain =
   | "buckets"
   | "cognito"
   /** The Aggregator page asking about rows pooled from several services. */
-  | "aggregator";
+  | "aggregator"
+  /** The Tools page's HTTP client, where a "query" is a whole request
+   * (method, URL, headers, body) expressed as JSON rather than a search
+   * string, and the "rows" are the single exchange that came back. */
+  | "tools-http";
 
 export interface AiAssistResponse {
   reply: string;

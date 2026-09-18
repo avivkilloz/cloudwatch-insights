@@ -144,6 +144,10 @@ regions** by assuming a role you configure in each target account.
   filter on one attribute at a time" rather than inventing syntax that
   silently returns nothing. Buckets gets "About results" only — its search is
   a literal filename substring, so there's no query worth writing for you.
+  The **Tools** tab's HTTP Client has it too, and is the one surface where
+  what the assistant writes isn't a query string at all but a whole request
+  as JSON, applied to the form by **Use this request** — see the Tools
+  section below.
   Switching what a page is searching (Logs' CloudWatch/OpenSearch toggle,
   IoT's things/certificates toggle) starts fresh threads, since neither the
   query language nor the rows still apply.
@@ -587,6 +591,18 @@ expand in place:
   rebinding). Redirects are returned as-is rather than followed
   automatically, so a redirect can't be used to reach a blocked address
   either.
+
+  It has its own **AI assistant** (the same floating panel as the search
+  tabs, appearing while this tool is open). "Build query" describes the
+  request you want in plain English and fills in the whole form — method,
+  URL, headers and body — from one click of **Use this request**; ask for a
+  change ("add a bearer token", "make it a PATCH") and it refines what's
+  already in the form rather than starting over. It's told this tool's own
+  constraints, so it won't hand you a URL the backend is going to refuse,
+  and it puts an obvious placeholder like `Bearer <token>` where a
+  credential goes rather than inventing one. "About results" answers about
+  the last exchange — the request you sent *and* the response that came
+  back, which is what makes "why is this a 403?" answerable at all.
 - **MQTT Tester** — pick one of your configured environments, then
   subscribe and publish to topics on that account's AWS IoT Core endpoint,
   the same way the AWS IoT console's own "MQTT test client" works.

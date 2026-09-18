@@ -54,9 +54,29 @@ const MODE_LABELS: Record<AiAssistMode, string> = {
 
 const ALL_MODES: AiAssistMode[] = ["build_query", "ask_results"];
 
+interface DomainCopy {
+  /** Plural noun for a result row, used in the "check some rows" wording. */
+  rows: string;
+  /** Input placeholder in each mode. */
+  build: string;
+  ask: string;
+  /** Label for the button that applies a suggestion. Defaults to "Use this
+   * query"; the HTTP client's suggestion is a whole request, not a query. */
+  applyLabel?: string;
+  /** Override the empty-thread hint, which says what this mode is for. */
+  buildHint?: string;
+  askHint?: string;
+  /** Overrides "Asking about the N checked row(s)." -- for a surface whose
+   * ask subject is one implicit thing (the HTTP client's last response)
+   * rather than rows the user ticks off a list. */
+  askSubject?: string;
+  /** Overrides "check some rows first", for the same reason. */
+  askEmpty?: string;
+}
+
 // Per-page wording, so the prompts suggest something actually answerable on
 // the page you're looking at rather than always talking about log lines.
-const DOMAIN_COPY: Record<AiDomain, { rows: string; build: string; ask: string }> = {
+const DOMAIN_COPY: Record<AiDomain, DomainCopy> = {
   "logs-cloudwatch": {
     rows: "log rows",
     build: "e.g. show errors from the last hour grouped by service",
@@ -96,6 +116,16 @@ const DOMAIN_COPY: Record<AiDomain, { rows: string; build: string; ask: string }
     rows: "checked rows from every open service",
     build: "",
     ask: "e.g. do these log errors line up with the disconnected devices?",
+  },
+  "tools-http": {
+    rows: "exchange",
+    build: "e.g. POST a new thing with a JSON body and a bearer token",
+    ask: "e.g. why is this coming back 403?",
+    applyLabel: "Use this request",
+    buildHint: "Describe the request you want in plain English.",
+    askHint: "Ask about the request you sent and the response it came back with.",
+    askSubject: "Asking about the request you just sent and its response.",
+    askEmpty: "Send a request first — this answers about the response you got back.",
   },
 };
 
@@ -331,10 +361,11 @@ export default function AiAssistantWidget({
   // ask_results has nothing to answer from until rows are checked, so it says
   // so rather than letting a question go off with no data attached.
   const needsSelection = mode === "ask_results" && selectedCount === 0;
+  const askEmpty = copy.askEmpty ?? `Check the ${copy.rows} you want to ask about — only checked rows are sent.`;
   const emptyHint =
     mode === "build_query"
-      ? "Describe the query you want in plain English."
-      : `Check the ${copy.rows} you want to ask about in the results below.`;
+      ? copy.buildHint ?? "Describe the query you want in plain English."
+      : copy.askHint ?? `Check the ${copy.rows} you want to ask about in the results below.`;
 
   return (
     <>
@@ -370,9 +401,7 @@ export default function AiAssistantWidget({
 
           {mode === "ask_results" && (
             <p className={needsSelection ? "muted" : undefined} style={{ padding: "4px 12px 0", fontSize: 12 }}>
-              {needsSelection
-                ? `Check the ${copy.rows} you want to ask about — only checked rows are sent.`
-                : `Asking about the ${selectedCount} checked row(s).`}
+              {needsSelection ? askEmpty : copy.askSubject ?? `Asking about the ${selectedCount} checked row(s).`}
               {selectedCount > MAX_ROWS_SENT && ` Only the first ${MAX_ROWS_SENT} will be sent.`}
             </p>
           )}
@@ -413,7 +442,7 @@ export default function AiAssistantWidget({
                   </div>
                   {m.suggestedQuery && onUseQuery && (
                     <button className="secondary" style={{ padding: "3px 10px" }} onClick={() => onUseQuery(m.suggestedQuery!)}>
-                      Use this query
+                      {copy.applyLabel ?? "Use this query"}
                     </button>
                   )}
                 </div>
@@ -439,7 +468,7 @@ export default function AiAssistantWidget({
             <button
               onClick={send}
               disabled={loading || !input.trim() || needsSelection}
-              title={needsSelection ? "Check some rows in the results below first" : undefined}
+              title={needsSelection ? askEmpty : undefined}
               style={{ padding: "6px 12px" }}
             >
               {loading ? "…" : "Ask"}

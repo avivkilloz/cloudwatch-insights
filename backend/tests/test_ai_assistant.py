@@ -89,25 +89,31 @@ def test_chat_posts_to_chat_completions_with_system_prompt_and_context(monkeypat
     assert captured["json"]["messages"][-1] == {"role": "user", "content": "show errors"}
 
 
+# Naming them rather than checking for a bare "{" -- the HTTP client's prompt
+# contains a literal JSON example, so braces alone no longer mean "someone
+# left a placeholder unformatted".
+_PLACEHOLDERS = ("{query_language}", "{results_noun}", "{query_block_noun}", "{build_notes}", "{ask_notes}")
+
+
 def test_every_domain_builds_both_prompts_with_the_shared_rules():
     for name in ai_assistant.DOMAINS:
         build = ai_assistant.build_query_prompt(name)
         # The shared "refine what's already in the editor" behaviour every
-        # domain inherits from the template.
-        assert "Current query" in build
-        assert "starting point" in build
+        # domain inherits, whether from the shared template or an override.
+        assert "Current query" in build, name
+        assert "starting point" in build, name
         # The domain's own syntax description made it in, and no placeholder
         # was left unformatted.
-        assert ai_assistant.DOMAINS[name].query_language in build
-        assert "{" not in build
+        assert ai_assistant.DOMAINS[name].query_language in build, name
+        assert not any(p in build for p in _PLACEHOLDERS), name
 
         ask = ai_assistant.ask_results_prompt(name)
-        assert ai_assistant.DOMAINS[name].results_noun in ask
-        assert "truncated" in ask
-        assert "{" not in ask
+        assert ai_assistant.DOMAINS[name].results_noun in ask, name
+        assert "truncated" in ask, name
+        assert not any(p in ask for p in _PLACEHOLDERS), name
 
 
-def test_domains_cover_every_searchable_page_plus_the_aggregator():
+def test_domains_cover_every_searchable_page_plus_the_aggregator_and_http_client():
     assert set(ai_assistant.DOMAINS) == {
         "logs-cloudwatch",
         "logs-opensearch",
@@ -117,6 +123,7 @@ def test_domains_cover_every_searchable_page_plus_the_aggregator():
         "buckets",
         "cognito",
         "aggregator",
+        "tools-http",
     }
 
 
@@ -126,6 +133,46 @@ def test_aggregator_ask_prompt_explains_the_service_tag():
     prompt = ai_assistant.ask_results_prompt("aggregator")
     assert "`service` field" in prompt
     assert "several different AWS services" in prompt
+
+
+def test_http_client_build_prompt_asks_for_a_whole_request_as_json():
+    prompt = ai_assistant.build_query_prompt("tools-http")
+    # Every field of the form has to be nameable, or "Use this request" can
+    # only ever fill part of it in.
+    for field in ('"method"', '"url"', '"headers"', '"body"'):
+        assert field in prompt
+    # The body is JSON-encoded into a string field, which is the one part of
+    # the shape a model is most likely to get wrong.
+    assert "`body` is a STRING" in prompt
+    # The SSRF guard is a property of this app, not of HTTP -- the model has
+    # to be told, or it will happily suggest a URL the backend then refuses.
+    assert "loopback, private and link-local" in prompt
+    assert "Never invent a real credential" in prompt
+
+
+def test_http_client_prompts_do_not_describe_the_tool_as_a_search():
+    # It is the one surface that isn't a search box, so it replaces both
+    # shared templates rather than being squeezed into their wording.
+    build = ai_assistant.build_query_prompt("tools-http")
+    ask = ai_assistant.ask_results_prompt("tools-http")
+    assert "what they want to find" not in build
+    assert "the results of a search" not in ask
+    assert "request" in ask and "response" in ask
+
+
+def test_http_client_ask_prompt_prefers_the_row_over_the_current_form():
+    # The form can be edited after sending, so the exchange row -- not the
+    # "current query" context block -- is what actually went over the wire.
+    prompt = ai_assistant.ask_results_prompt("tools-http")
+    assert "trust the row over it" in prompt
+
+
+def test_template_overrides_do_not_leak_into_the_shared_domains():
+    # Only tools-http overrides; everything else must still come from the
+    # shared templates, so a change there keeps reaching all of them.
+    for name, domain in ai_assistant.DOMAINS.items():
+        overrides = domain.build_template is not None or domain.ask_template is not None
+        assert overrides == (name == "tools-http"), name
 
 
 def test_domain_prompts_teach_their_own_syntax_not_another_domains():

@@ -663,9 +663,9 @@ class AiStatus(BaseModel):
 
 # Which page/service a request is about. build_query mode uses it to teach the
 # right query syntax (they differ wildly -- CloudWatch's pipe syntax, Lucene,
-# IoT Fleet Indexing, DynamoDB field:value tokens...) and ask_results mode uses
-# it to describe what the rows are. An unknown value falls back to
-# logs-cloudwatch rather than erroring.
+# IoT Fleet Indexing, DynamoDB field:value tokens, and for the HTTP client a
+# whole request as JSON) and ask_results mode uses it to describe what the rows
+# are. An unknown value falls back to logs-cloudwatch rather than erroring.
 AiDomain = Literal[
     "logs-cloudwatch",
     "logs-opensearch",
@@ -675,6 +675,7 @@ AiDomain = Literal[
     "buckets",
     "cognito",
     "aggregator",
+    "tools-http",
 ]
 
 

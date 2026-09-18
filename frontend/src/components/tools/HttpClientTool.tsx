@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, HttpMethod, HttpToolResponse, SavedSession, ToolHeader } from "../../api";
+import AiAssistantWidget from "../AiAssistantWidget";
+import { BODYLESS_METHODS, HTTP_METHODS, parseSuggestedRequest, serializeRequest } from "./httpRequestJson";
 
-const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const METHODS = HTTP_METHODS;
 const SAVED_REQUESTS_PAGE = "tools-http";
 
 let nextHeaderId = 1;
@@ -43,6 +45,14 @@ export default function HttpClientTool() {
   const [response, setResponse] = useState<HttpToolResponse | null>(null);
 
   const [savedRequests, setSavedRequests] = useState<SavedSession<SavedHttpRequestState>[]>([]);
+
+  // The last exchange, kept as the single "row" the assistant answers about
+  // in its "About results" mode. Bumped alongside it so that sending a new
+  // request drops the old thread rather than letting it keep answering from
+  // a response that's no longer on screen.
+  const [exchange, setExchange] = useState<Record<string, unknown>[]>([]);
+  const [exchangeVersion, setExchangeVersion] = useState(0);
+  const [assistantError, setAssistantError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listSavedSessions<SavedHttpRequestState>(SAVED_REQUESTS_PAGE).then(setSavedRequests);
@@ -95,17 +105,51 @@ export default function HttpClientTool() {
     setResponse(null);
     try {
       const headers: ToolHeader[] = headerRows.filter((r) => r.key.trim()).map((r) => ({ key: r.key, value: r.value }));
-      const resp = await api.sendHttpToolRequest({
-        method,
-        url: url.trim(),
-        headers,
-        body: ["GET", "HEAD"].includes(method) ? undefined : body || undefined,
-      });
+      const sentBody = BODYLESS_METHODS.includes(method) ? undefined : body || undefined;
+      const resp = await api.sendHttpToolRequest({ method, url: url.trim(), headers, body: sentBody });
       setResponse(resp);
+      // The request goes in alongside the response: asking "why is this a
+      // 403?" is unanswerable without seeing what was actually sent, and the
+      // form may well be edited before the question is asked.
+      setExchange([
+        {
+          request: { method, url: url.trim(), headers, body: sentBody },
+          response: {
+            status_code: resp.status_code,
+            status_text: resp.status_text,
+            elapsed_ms: resp.elapsed_ms,
+            headers: resp.headers,
+            body: resp.body,
+            body_truncated: resp.body_truncated,
+          },
+        },
+      ]);
+      setExchangeVersion((v) => v + 1);
     } catch (e: any) {
       setError(e.message);
+      // A request that never completed has no response to ask about.
+      setExchange([]);
+      setExchangeVersion((v) => v + 1);
     } finally {
       setSending(false);
+    }
+  }
+
+  /** Loads an assistant suggestion into the form. */
+  function applySuggestedRequest(text: string) {
+    try {
+      const req = parseSuggestedRequest(text);
+      setMethod(req.method);
+      setUrl(req.url);
+      setHeaderRows(
+        req.headers.length > 0
+          ? req.headers.map((h) => ({ id: nextHeaderId++, key: h.key, value: h.value }))
+          : [{ id: nextHeaderId++, key: "", value: "" }]
+      );
+      setBody(req.body);
+      setAssistantError(null);
+    } catch (e: any) {
+      setAssistantError(e.message);
     }
   }
 
@@ -179,7 +223,7 @@ export default function HttpClientTool() {
         Add header
       </button>
 
-      {!["GET", "HEAD"].includes(method) && (
+      {!BODYLESS_METHODS.includes(method) && (
         <>
           <span className="field-label">Body</span>
           <textarea rows={6} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Request body (raw)…" />
@@ -187,6 +231,7 @@ export default function HttpClientTool() {
       )}
 
       {error && <p className="error-text">{error}</p>}
+      {assistantError && <p className="error-text">{assistantError}</p>}
 
       {response && (
         <div style={{ marginTop: 14 }}>
@@ -221,6 +266,24 @@ export default function HttpClientTool() {
         this can't be used to reach internal infrastructure. Redirects are shown as-is rather than followed
         automatically.
       </p>
+
+      {/* Scoped to this tool rather than the Tools page as a whole: it's
+          rendered from the card body, so the floating button is there exactly
+          while the HTTP client is open. Unlike every other page's assistant,
+          the suggestion it applies is a whole request rather than a query
+          string -- see httpRequestJson.ts. */}
+      <AiAssistantWidget
+        domain="tools-http"
+        queryString={serializeRequest({
+          method,
+          url,
+          headers: headerRows.filter((r) => r.key.trim()).map((r) => ({ key: r.key, value: r.value })),
+          body,
+        })}
+        onUseQuery={applySuggestedRequest}
+        selectedRows={exchange}
+        resultsVersion={exchangeVersion}
+      />
     </div>
   );
 }
