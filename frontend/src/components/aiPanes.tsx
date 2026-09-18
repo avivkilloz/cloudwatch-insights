@@ -12,8 +12,6 @@ export interface AiPane {
   domain: AiDomain;
   modes: AiAssistMode[];
   queryString?: string;
-  /** Everything currently on screen in this pane. */
-  rows: Record<string, unknown>[];
   selectedRows: Record<string, unknown>[];
   /** Applies a generated query to this pane's own search box. */
   onUseQuery?: (query: string) => void;
@@ -28,7 +26,6 @@ export interface AiPaneSummary {
   id: string;
   domain: AiDomain;
   modes: AiAssistMode[];
-  rowCount: number;
   selectedCount: number;
   resultsVersion: number;
 }
@@ -49,7 +46,6 @@ export function summarizePane(pane: AiPane): AiPaneSummary {
     id: pane.id,
     domain: pane.domain,
     modes: pane.modes,
-    rowCount: pane.rows.length,
     selectedCount: pane.selectedRows.length,
     resultsVersion: pane.resultsVersion,
   };
@@ -62,7 +58,6 @@ export function sameSummaries(a: AiPaneSummary[], b: AiPaneSummary[]): boolean {
     return (
       x.id === y.id &&
       x.domain === y.domain &&
-      x.rowCount === y.rowCount &&
       x.selectedCount === y.selectedCount &&
       x.resultsVersion === y.resultsVersion &&
       x.modes.length === y.modes.length &&

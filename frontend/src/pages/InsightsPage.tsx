@@ -16,22 +16,6 @@ import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import OpenSearchIndexSelector, { OpenSearchSelectionMap } from "../components/OpenSearchIndexSelector";
 import ResultsView, { ResultsViewItem, SortDirection } from "../components/ResultsView";
 
-/** Flattens every row across all queried targets into plain objects, in
- * their original (query-sorted) order and with no cap -- the AI widget
- * decides how much of this to actually send, per its sampled/all-results
- * toggle. */
-function flattenResults(items: ResultsViewItem[]): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  for (const item of items) {
-    for (const row of item.rows) {
-      const obj: Record<string, unknown> = { environment: item.environment_name };
-      for (const f of row) obj[f.field] = f.value;
-      rows.push(obj);
-    }
-  }
-  return rows;
-}
-
 const SESSION_PAGE = "logs";
 
 interface SerializedOpenSearchSelection {
@@ -401,7 +385,6 @@ export default function InsightsPage() {
   }
 
   const filteredSavedQueries = savedQueries.filter((q) => q.backend === backend);
-  const rowCount = activeResults.reduce((sum, item) => sum + item.rows.length, 0);
 
   return (
     <div>
@@ -601,8 +584,6 @@ export default function InsightsPage() {
       <AiAssistantWidget
         queryString={queryString}
         onUseQuery={setQueryString}
-        sampleRows={flattenResults(activeResults)}
-        rowCount={rowCount}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
         domain={backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch"}

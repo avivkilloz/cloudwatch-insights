@@ -44,21 +44,11 @@ class Domain:
     ask_notes: str = ""
 
 
-_MULTI_LOG_GROUP_NOTE = (
-    " When the query spans multiple log groups (an @log field with different "
-    "values), the sample is built to include rows from every distinct @log "
-    "value rather than a plain chronological slice, so a sparser log group "
-    "isn't crowded out -- don't treat the relative counts of each @log value "
-    "in the sample as reflecting their true relative frequency in the full "
-    "result set."
-)
-
 DOMAINS: dict[str, Domain] = {
     "logs-cloudwatch": Domain(
         query_language="AWS CloudWatch Logs Insights queries.",
         results_noun="log events",
         query_block_noun="CloudWatch Logs Insights query",
-        ask_notes=_MULTI_LOG_GROUP_NOTE,
     ),
     "logs-opensearch": Domain(
         query_language=(
@@ -73,7 +63,6 @@ DOMAINS: dict[str, Domain] = {
             "query string as it would be typed into the search bar)"
         ),
         build_notes=" A time range is applied separately by the app, so never include one in the query.",
-        ask_notes=_MULTI_LOG_GROUP_NOTE,
     ),
     "iot-things": Domain(
         query_language=(

@@ -72,9 +72,9 @@ regions** by assuming a role you configure in each target account.
   layouts: **Side by side** lays them out in columns that wrap onto as many
   rows as your screen needs (so a fourth and fifth service move down rather
   than off the side), and **Stacked** puts them one above the other full
-  width. In either layout each pane has a **−/+** button that minimises it to
-  just its title bar and expands it again — independently, so minimising one
-  says nothing about the others. Every pane stays mounted throughout, so
+  width. In either layout each pane minimises to just its title bar and
+  expands again — click anywhere on its title bar, or the **−/+** button on
+  it — independently, so minimising one says nothing about the others. Every pane stays mounted throughout, so
   minimising one or switching layout never discards its results or interrupts
   a running query.
 
@@ -84,7 +84,10 @@ regions** by assuming a role you configure in each target account.
   whether those log errors line up with the devices that went offline.
   "Build query" has a "Build for" picker: choose any open service and it
   writes that service's own syntax, using your cross-service selection as
-  examples, and "Use this query" drops it into that pane's search box. A
+  examples, and "Use this query" drops it into that pane's search box. The
+  picker belongs to that tab alone — "About results" has no single service
+  to target, so instead of a picker it names the services your checked rows
+  actually came from. A
   session (which services, which layout) can be saved and reloaded like any
   other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
@@ -124,12 +127,11 @@ regions** by assuming a role you configure in each target account.
   that page's search box with one click — if you've checked some result
   rows, a "Use N checked result(s) as examples" checkbox includes them so
   the assistant can reference their actual field names/values instead of
-  guessing. "About results" answers questions about the current result set:
-  by default it sees a sample of the rows; a "Sampled / Selected" toggle
-  appears once you've checked some rows, letting you narrow the question to
-  exactly those instead of the sample. On the Logs tab the default sample is
-  spread fairly across every log group in the results, so a low-volume log
-  group querying alongside a high-volume one isn't crowded out.
+  guessing. "About results" answers questions about the rows you've checked
+  — only those, so what the assistant sees is exactly what you picked rather
+  than an opaque sample of the result set. It says how many rows are going
+  with the question, and until you've checked at least one it says so and
+  leaves "Ask" disabled, since there'd be nothing to answer from.
 
   The assistant knows **which page it's on**, and each page's query syntax is
   wildly different, so the syntax it writes and the way it describes your

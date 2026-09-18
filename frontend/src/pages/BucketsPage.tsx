@@ -366,8 +366,6 @@ export default function BucketsPage() {
         domain="buckets"
         modes={["ask_results"]}
         queryString={activeSearch}
-        sampleRows={files as unknown as Record<string, unknown>[]}
-        rowCount={files.length}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
       />

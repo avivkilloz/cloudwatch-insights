@@ -146,11 +146,11 @@ export default function AggregatorPage() {
 
   // Rows from every open pane, each tagged with the service it came from so
   // the assistant can tell a log line from a Cognito user once they're pooled.
-  function taggedRows(pick: (pane: AiPane) => Record<string, unknown>[]): Record<string, unknown>[] {
+  function taggedSelection(): Record<string, unknown>[] {
     const out: Record<string, unknown>[] = [];
     for (const pane of panesRef.current.values()) {
       const label = DOMAIN_LABELS[pane.domain];
-      for (const row of pick(pane)) out.push({ service: label, ...row });
+      for (const row of pane.selectedRows) out.push({ service: label, ...row });
     }
     return out;
   }
@@ -158,7 +158,7 @@ export default function AggregatorPage() {
   const activeSummary = summaries.find((s) => s.id === target) ?? summaries[0];
   const activePane = activeSummary ? panesRef.current.get(activeSummary.id) : undefined;
   const totalSelected = summaries.reduce((n, s) => n + s.selectedCount, 0);
-  const totalRows = summaries.reduce((n, s) => n + s.rowCount, 0);
+  const contributing = summaries.filter((s) => s.selectedCount > 0);
   // Any pane re-running its search changes the pooled result set, so the
   // "About results" thread should start over.
   const combinedVersion = summaries.reduce((n, s) => n + s.resultsVersion, 0);
@@ -229,12 +229,21 @@ export default function AggregatorPage() {
             const collapsed = minimized.has(s.id);
             return (
               <section key={s.id} className={`aggregator-pane${collapsed ? " collapsed" : ""}`}>
-                <header className="aggregator-pane-header">
+                {/* The whole title bar toggles, so the buttons on it have to
+                    stop their click bubbling -- otherwise minimise would fire
+                    twice and cancel itself out, and closing would also toggle. */}
+                <header
+                  className="aggregator-pane-header"
+                  onClick={() => toggleMinimized(s.id)}
+                  title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                >
                   <h3>{s.label}</h3>
                   <button
                     className="secondary"
-                    onClick={() => toggleMinimized(s.id)}
-                    title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMinimized(s.id);
+                    }}
                     aria-label={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
                     aria-expanded={!collapsed}
                   >
@@ -242,7 +251,10 @@ export default function AggregatorPage() {
                   </button>
                   <button
                     className="secondary"
-                    onClick={() => toggleService(s.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleService(s.id);
+                    }}
                     title={`Close ${s.label}`}
                     aria-label={`Close ${s.label}`}
                   >
@@ -265,30 +277,36 @@ export default function AggregatorPage() {
           modes={activePane?.modes ?? ["ask_results"]}
           queryString={activePane?.queryString}
           onUseQuery={activePane?.onUseQuery}
-          sampleRows={taggedRows((p) => p.rows)}
-          rowCount={totalRows}
-          selectedRows={taggedRows((p) => p.selectedRows)}
+          selectedRows={taggedSelection()}
           resultsVersion={combinedVersion}
-          headerExtra={
-            summaries.length > 1 && (
-              <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
-                <label className="row" style={{ gap: 6, fontSize: 11 }}>
-                  <span className="muted">Build for</span>
-                  <select
-                    value={activeSummary?.id ?? ""}
-                    onChange={(e) => setTarget(e.target.value)}
-                    style={{ fontSize: 11, padding: "2px 6px" }}
-                  >
-                    {summaries.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {DOMAIN_LABELS[s.domain]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {totalSelected > 0 && <span className="muted">{totalSelected} checked across all services</span>}
-              </div>
-            )
+          headerExtra={(mode) =>
+            // "Build for" picks the one service a generated query is written
+            // for, so it only belongs in that mode -- "About results" pools
+            // every open service at once and has nothing to target.
+            mode === "build_query" ? (
+              summaries.length > 1 && (
+                <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
+                  <label className="row" style={{ gap: 6, fontSize: 11 }}>
+                    <span className="muted">Build for</span>
+                    <select
+                      value={activeSummary?.id ?? ""}
+                      onChange={(e) => setTarget(e.target.value)}
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      {summaries.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {DOMAIN_LABELS[s.domain]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )
+            ) : contributing.length > 0 ? (
+              <p className="muted" style={{ padding: "4px 12px 0", fontSize: 11 }}>
+                Across {contributing.map((s) => DOMAIN_LABELS[s.domain]).join(", ")}.
+              </p>
+            ) : null
           }
         />
       )}

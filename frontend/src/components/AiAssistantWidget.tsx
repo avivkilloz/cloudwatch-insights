@@ -26,11 +26,8 @@ interface Props {
    * pass just ["ask_results"]. */
   modes?: AiAssistMode[];
   queryString?: string;
-  sampleRows?: Record<string, unknown>[];
-  rowCount?: number;
-  /** Rows the user has checked in the results view below, if any -- lets
-   * ask_results answer about exactly those rows instead of a sample, and
-   * lets build_query use them as examples when writing a new query. */
+  /** The rows the user has checked in the results below. These are the whole
+   * subject of ask_results, and optional examples for build_query. */
   selectedRows?: Record<string, unknown>[];
   /** Wires up the "Use this query" button in the build_query thread. */
   onUseQuery?: (query: string) => void;
@@ -44,9 +41,10 @@ interface Props {
    * pooled from several services at once, which is a different thing to
    * describe than the one service build_query is writing for. */
   askDomain?: AiDomain;
-  /** Extra controls rendered under the mode tabs -- the Aggregator's picker
-   * for which open service "Build query" should write for. */
-  headerExtra?: ReactNode;
+  /** Extra controls rendered under the mode tabs, per mode -- the Aggregator's
+   * picker for which open service "Build query" writes for only belongs in that
+   * mode, since "About results" spans every open service at once. */
+  headerExtra?: (mode: AiAssistMode) => ReactNode;
 }
 
 const MODE_LABELS: Record<AiAssistMode, string> = {
@@ -103,11 +101,9 @@ const DOMAIN_COPY: Record<AiDomain, { rows: string; build: string; ask: string }
 
 const EMPTY_THREADS: Record<AiAssistMode, DisplayMessage[]> = { build_query: [], ask_results: [] };
 
-// The @log interleaving below only means anything for CloudWatch/OpenSearch
-// rows; every other domain's rows have no such field.
-const LOG_DOMAINS: AiDomain[] = ["logs-cloudwatch", "logs-opensearch"];
-
-const SAMPLE_CAP = 40;
+// Mirrors the backend router's own cap on how many rows it will accept, so a
+// very large selection can say up front that only part of it is going.
+const MAX_ROWS_SENT = 500;
 
 const DEFAULT_SIZE = { width: 380, height: 480 };
 const MIN_SIZE = { width: 320, height: 280 };
@@ -128,36 +124,6 @@ function loadStoredSize(): { width: number; height: number } {
     // localStorage unavailable, or a bad/stale value -- fall back to the default size.
   }
   return DEFAULT_SIZE;
-}
-
-/**
- * Reorders rows so that distinct @log values interleave (row 0 from group A,
- * row 1 from group B, row 2 from group A, ...) rather than staying grouped
- * in their original order. A query spanning multiple log groups can have one
- * far higher-volume than another, so any prefix taken from a plain
- * chronological list can end up entirely from the dominant group. Once
- * interleaved, ANY prefix -- whether the capped sample or the full list
- * truncated later by the backend's context-size budget -- keeps every
- * represented log group fairly included.
- */
-function interleaveByLogGroup(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  const groups = new Map<string, Record<string, unknown>[]>();
-  for (const row of rows) {
-    const key = String(row["@log"] ?? "");
-    const list = groups.get(key);
-    if (list) list.push(row);
-    else groups.set(key, [row]);
-  }
-  if (groups.size <= 1) return rows;
-
-  const groupLists = Array.from(groups.values());
-  const interleaved: Record<string, unknown>[] = [];
-  for (let i = 0; interleaved.length < rows.length; i++) {
-    for (const list of groupLists) {
-      if (i < list.length) interleaved.push(list[i]);
-    }
-  }
-  return interleaved;
 }
 
 function CopyIcon() {
@@ -181,8 +147,6 @@ export default function AiAssistantWidget({
   domain,
   modes = ALL_MODES,
   queryString,
-  sampleRows,
-  rowCount,
   selectedRows,
   onUseQuery,
   resultsVersion,
@@ -198,7 +162,6 @@ export default function AiAssistantWidget({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [useSelected, setUseSelected] = useState(false);
   const [includeSelectedInBuildQuery, setIncludeSelectedInBuildQuery] = useState(false);
   const [size, setSize] = useState(loadStoredSize);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -225,7 +188,6 @@ export default function AiAssistantWidget({
       domain,
       modes,
       queryString,
-      rows: sampleRows ?? [],
       selectedRows: selectedRows ?? [],
       onUseQuery,
       resultsVersion: resultsVersion ?? 0,
@@ -279,7 +241,6 @@ export default function AiAssistantWidget({
     if (resultsVersion === undefined || resultsVersion === lastResultsVersion.current) return;
     lastResultsVersion.current = resultsVersion;
     setThreads((prev) => ({ ...prev, ask_results: [] }));
-    setUseSelected(false);
     setIncludeSelectedInBuildQuery(false);
   }, [resultsVersion]);
 
@@ -292,7 +253,6 @@ export default function AiAssistantWidget({
     lastDomain.current = domain;
     setThreads(EMPTY_THREADS);
     setError(null);
-    setUseSelected(false);
     setIncludeSelectedInBuildQuery(false);
   }, [domain]);
 
@@ -302,13 +262,9 @@ export default function AiAssistantWidget({
     if (!modes.includes(mode)) setMode(modes[0]);
   }, [modes, mode]);
 
-  // The user deselecting everything (rather than a whole new query run)
-  // should fall back the same way -- there's nothing left to send.
+  // Nothing checked means there are no example rows left to include.
   useEffect(() => {
-    if ((selectedRows?.length ?? 0) === 0) {
-      setUseSelected(false);
-      setIncludeSelectedInBuildQuery(false);
-    }
+    if ((selectedRows?.length ?? 0) === 0) setIncludeSelectedInBuildQuery(false);
   }, [selectedRows]);
 
   function handleInputKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -331,6 +287,8 @@ export default function AiAssistantWidget({
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
+    // Enter-to-send bypasses the disabled button, so guard here too.
+    if (mode === "ask_results" && (selectedRows?.length ?? 0) === 0) return;
     const nextMessages: DisplayMessage[] = [...threads[mode], { role: "user", content: text }];
     setThreads((prev) => ({ ...prev, [mode]: nextMessages }));
     setInput("");
@@ -338,19 +296,16 @@ export default function AiAssistantWidget({
     setLoading(true);
     setError(null);
     try {
-      let rowsToSend: Record<string, unknown>[] | undefined;
-      if (mode === "ask_results") {
-        const all = sampleRows ?? [];
-        rowsToSend = useSelected ? selectedRows : (LOG_DOMAINS.includes(domain) ? interleaveByLogGroup(all) : all).slice(0, SAMPLE_CAP);
-      } else if (mode === "build_query" && includeSelectedInBuildQuery) {
-        rowsToSend = selectedRows;
-      }
+      // ask_results is always about the rows the user checked; build_query
+      // takes them only as optional examples.
+      const rowsToSend =
+        mode === "ask_results" || includeSelectedInBuildQuery ? selectedRows : undefined;
       const resp = await api.aiAssist({
         mode,
         messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         query_string: queryString,
         sample_rows: rowsToSend,
-        row_count: mode === "ask_results" ? (useSelected ? rowsToSend?.length : rowCount) : undefined,
+        row_count: mode === "ask_results" ? rowsToSend?.length : undefined,
         domain: mode === "ask_results" ? askDomain ?? domain : domain,
       });
       setThreads((prev) => ({
@@ -370,14 +325,16 @@ export default function AiAssistantWidget({
   if (!configured) return null;
 
   const messages = threads[mode];
-  const totalAvailableRows = sampleRows?.length ?? 0;
   const selectedCount = selectedRows?.length ?? 0;
   const copy = DOMAIN_COPY[domain];
   const placeholder = mode === "build_query" ? copy.build : copy.ask;
+  // ask_results has nothing to answer from until rows are checked, so it says
+  // so rather than letting a question go off with no data attached.
+  const needsSelection = mode === "ask_results" && selectedCount === 0;
   const emptyHint =
     mode === "build_query"
       ? "Describe the query you want in plain English."
-      : `Ask a question about the ${copy.rows} currently on screen.`;
+      : `Check the ${copy.rows} you want to ask about in the results below.`;
 
   return (
     <>
@@ -409,33 +366,14 @@ export default function AiAssistantWidget({
               ✕
             </button>
           </div>
-          {headerExtra}
+          {headerExtra?.(mode)}
 
-          {mode === "ask_results" && (totalAvailableRows > SAMPLE_CAP || selectedCount > 0) && (
-            <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
-              <div className="ai-widget-tabs">
-                <button
-                  className={!useSelected ? "tab active" : "tab"}
-                  onClick={() => setUseSelected(false)}
-                  style={{ fontSize: 11, padding: "3px 8px" }}
-                >
-                  Sampled ({Math.min(SAMPLE_CAP, totalAvailableRows)})
-                </button>
-                <button
-                  className={useSelected ? "tab active" : "tab"}
-                  onClick={() => selectedCount > 0 && setUseSelected(true)}
-                  disabled={selectedCount === 0}
-                  title={selectedCount === 0 ? "Check some rows in the results below first" : undefined}
-                  style={{ fontSize: 11, padding: "3px 8px" }}
-                >
-                  Selected ({selectedCount})
-                </button>
-              </div>
-            </div>
-          )}
-          {mode === "ask_results" && useSelected && (
-            <p className="muted" style={{ padding: "4px 12px 0" }}>
-              Sending only the {selectedCount} row(s) checked in the results below, instead of a sample.
+          {mode === "ask_results" && (
+            <p className={needsSelection ? "muted" : undefined} style={{ padding: "4px 12px 0", fontSize: 12 }}>
+              {needsSelection
+                ? `Check the ${copy.rows} you want to ask about — only checked rows are sent.`
+                : `Asking about the ${selectedCount} checked row(s).`}
+              {selectedCount > MAX_ROWS_SENT && ` Only the first ${MAX_ROWS_SENT} will be sent.`}
             </p>
           )}
           {mode === "build_query" && selectedCount > 0 && (
@@ -498,7 +436,12 @@ export default function AiAssistantWidget({
               placeholder={placeholder}
               className="ai-widget-textarea"
             />
-            <button onClick={send} disabled={loading || !input.trim()} style={{ padding: "6px 12px" }}>
+            <button
+              onClick={send}
+              disabled={loading || !input.trim() || needsSelection}
+              title={needsSelection ? "Check some rows in the results below first" : undefined}
+              style={{ padding: "6px 12px" }}
+            >
               {loading ? "…" : "Ask"}
             </button>
           </div>

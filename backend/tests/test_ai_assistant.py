@@ -138,12 +138,11 @@ def test_domain_prompts_teach_their_own_syntax_not_another_domains():
     assert "Cognito only supports filtering by ONE attribute" in ai_assistant.build_query_prompt("cognito")
 
 
-def test_multi_log_group_caveat_only_applies_to_log_domains():
-    # The @log fairness note describes how the *frontend* samples log rows, so
-    # it would be a lie on any non-log domain.
-    for name in ("logs-cloudwatch", "logs-opensearch"):
-        assert "@log" in ai_assistant.ask_results_prompt(name)
-    for name in ("iot-things", "iot-certificates", "tables", "buckets", "cognito"):
+def test_no_ask_prompt_describes_frontend_sampling():
+    # The assistant no longer samples or interleaves rows -- it is sent exactly
+    # the rows the user checked. Any prompt still describing how the frontend
+    # picks log rows (the old "@log" fairness note) would now be a lie.
+    for name in ai_assistant.DOMAINS:
         assert "@log" not in ai_assistant.ask_results_prompt(name)
 
 
