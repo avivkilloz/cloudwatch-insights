@@ -15,17 +15,43 @@ import CognitoPage from "./CognitoPage";
 import InsightsPage from "./InsightsPage";
 import IotPage from "./IotPage";
 import TablesPage from "./TablesPage";
-import ToolsPage from "./ToolsPage";
+import Base64Tool from "../components/tools/Base64Tool";
+import DiffTool from "../components/tools/DiffTool";
+import HttpClientTool from "../components/tools/HttpClientTool";
+import JwtTool from "../components/tools/JwtTool";
+import MqttTool from "../components/tools/MqttTool";
 
 const SESSION_PAGE = "aggregator";
 
-type ServiceId = "logs" | "iot" | "tables" | "buckets" | "cognito" | "tools";
+type ServiceId =
+  | "logs"
+  | "iot"
+  | "tables"
+  | "buckets"
+  | "cognito"
+  | "tool-jwt"
+  | "tool-base64"
+  | "tool-diff"
+  | "tool-http"
+  | "tool-mqtt";
 type Layout = "columns" | "stacked";
 
 interface AggregatorSessionState {
   services: ServiceId[];
   layout: Layout;
 }
+
+// Kept apart from the search services so the picker can group them, and so
+// adding a tool to the Tools tab is one line here to offer it in a session too.
+const TOOLS: { id: ServiceId; label: string; render: () => JSX.Element }[] = [
+  { id: "tool-http", label: "HTTP client", render: () => <HttpClientTool /> },
+  { id: "tool-jwt", label: "JWT", render: () => <JwtTool /> },
+  { id: "tool-base64", label: "Base64", render: () => <Base64Tool /> },
+  { id: "tool-diff", label: "Diff", render: () => <DiffTool /> },
+  { id: "tool-mqtt", label: "MQTT", render: () => <MqttTool /> },
+];
+
+const TOOL_IDS = new Set<ServiceId>(TOOLS.map((t) => t.id));
 
 const SERVICES: {
   id: ServiceId;
@@ -63,17 +89,16 @@ const SERVICES: {
     render: () => <CognitoPage />,
     enabledFor: (u) => !!u?.cognito_enabled,
   },
-  // Not a searchable service, but the thing you most often need *beside* one:
-  // decode the JWT a request came in with, or replay the call that produced
-  // the log line you're reading, without losing either pane's state. The HTTP
-  // client carries its own assistant, so opening it here registers it as
-  // another target the shared assistant can write for and ask about.
-  {
-    id: "tools",
-    label: "Tools",
-    render: () => <ToolsPage />,
-    enabledFor: (u) => !!u?.tools_enabled,
-  },
+  // Individual tools, each its own pane rather than the whole Tools page as
+  // one: you open the HTTP client next to the Logs you're reading, not a grid
+  // of five tools you mostly don't want. They're rendered bare -- the pane's
+  // own title bar already does what the tool card's does on the Tools tab.
+  ...TOOLS.map((t) => ({
+    id: t.id,
+    label: t.label,
+    render: t.render,
+    enabledFor: (u: any) => !!u?.tools_enabled,
+  })),
 ];
 
 export default function AggregatorPage() {
@@ -344,19 +369,35 @@ export default function AggregatorPage() {
       <div className="panel">
         <h2>Session</h2>
         <p className="muted">
-          Pick what you're debugging across — any of the search tabs, plus the Tools page — and work with them side by
-          side, each with its own state. Drag a pane by its title bar to reorder them, or use the arrows on it. The AI
-          assistant spans all of them: ask about the rows you've checked across every service at once, or have it write
-          a query for any one of them using what you selected in the others as examples.
+          Pick what you're debugging across — any of the search tabs, plus whichever individual tools you want beside
+          them — and work with them side by side, each in its own pane with its own state. Drag a pane by its title bar
+          to reorder them, or use the arrows on it. The AI assistant spans all of them: ask about the rows you've
+          checked across every service at once, or have it write a query for any one of them using what you selected in
+          the others as examples.
         </p>
-        <div className="toolbar">
-          {available.map((s) => (
-            <label key={s.id} className="checkbox-item">
-              <input type="checkbox" checked={services.includes(s.id)} onChange={() => toggleService(s.id)} />
-              {s.label}
-            </label>
-          ))}
-        </div>
+        {/* Two rows rather than one long one -- ten checkboxes in a single
+            line reads as an undifferentiated list, and "a search page" and
+            "a tool" are different kinds of thing to reach for. */}
+        {[
+          { heading: "Services", ids: SERVICES.filter((x) => !TOOL_IDS.has(x.id)) },
+          { heading: "Tools", ids: SERVICES.filter((x) => TOOL_IDS.has(x.id)) },
+        ].map((group) => {
+          const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
+          if (shown.length === 0) return null;
+          return (
+            <div className="toolbar" key={group.heading}>
+              <span className="field-label" style={{ minWidth: 62 }}>
+                {group.heading}
+              </span>
+              {shown.map((x) => (
+                <label key={x.id} className="checkbox-item">
+                  <input type="checkbox" checked={services.includes(x.id)} onChange={() => toggleService(x.id)} />
+                  {x.label}
+                </label>
+              ))}
+            </div>
+          );
+        })}
         <div className="toolbar">
           <span className="muted">Layout</span>
           <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
@@ -390,7 +431,7 @@ export default function AggregatorPage() {
 
       {open.length === 0 && (
         <div className="panel">
-          <p className="muted">Choose one or more services above to start a session.</p>
+          <p className="muted">Choose one or more services or tools above to start a session.</p>
         </div>
       )}
 
