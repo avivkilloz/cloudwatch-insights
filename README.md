@@ -69,10 +69,14 @@ regions** by assuming a role you configure in each target account.
   place instead of losing each page's state every time you switch tabs. Each
   pane is the *real* page, not a cut-down copy: the same environment pickers,
   search boxes, saved sessions, result rows and expandable details. Two
-  layouts: **Side by side** puts them in independently-scrolling columns, and
-  **One at a time** stacks them so you can expand one and collapse the rest.
-  Either way every pane stays mounted, so collapsing one or switching layout
-  never discards its results or interrupts a running query.
+  layouts: **Side by side** lays them out in columns that wrap onto as many
+  rows as your screen needs (so a fourth and fifth service move down rather
+  than off the side), and **Stacked** puts them one above the other full
+  width. In either layout each pane has a **−/+** button that minimises it to
+  just its title bar and expands it again — independently, so minimising one
+  says nothing about the others. Every pane stays mounted throughout, so
+  minimising one or switching layout never discards its results or interrupts
+  a running query.
 
   The AI assistant spans the whole session rather than one service. "About
   results" answers on the rows you've checked *across every open pane* pooled

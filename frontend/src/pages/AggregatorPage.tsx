@@ -19,7 +19,7 @@ import TablesPage from "./TablesPage";
 const SESSION_PAGE = "aggregator";
 
 type ServiceId = "logs" | "iot" | "tables" | "buckets" | "cognito";
-type Layout = "columns" | "focus";
+type Layout = "columns" | "stacked";
 
 interface AggregatorSessionState {
   services: ServiceId[];
@@ -68,7 +68,9 @@ export default function AggregatorPage() {
   const { user } = useAuth();
   const [services, setServices] = useState<ServiceId[]>([]);
   const [layout, setLayout] = useState<Layout>("columns");
-  const [focused, setFocused] = useState<ServiceId | null>(null);
+  // Panes collapsed to just their header. Independent per pane -- minimising
+  // one says nothing about the others, unlike a single "focused" pane would.
+  const [minimized, setMinimized] = useState<Set<ServiceId>>(new Set());
   const [savedSessions, setSavedSessions] = useState<SavedSession<AggregatorSessionState>[]>([]);
 
   // Panes register their full context (including the row arrays) here on every
@@ -106,7 +108,22 @@ export default function AggregatorPage() {
 
   function toggleService(id: ServiceId) {
     setServices((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
-    setFocused((prev) => (prev === id ? null : prev));
+    // Closing a pane shouldn't leave it minimised for the next time it's opened.
+    setMinimized((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleMinimized(id: ServiceId) {
+    setMinimized((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   async function saveCurrentSession() {
@@ -122,8 +139,9 @@ export default function AggregatorPage() {
 
   function applySession(state: AggregatorSessionState) {
     setServices(state.services.filter((id) => available.some((s) => s.id === id)));
-    setLayout(state.layout);
-    setFocused(null);
+    // Sessions saved before this mode was renamed carry the old "focus" value.
+    setLayout(state.layout === "columns" ? "columns" : "stacked");
+    setMinimized(new Set());
   }
 
   // Rows from every open pane, each tagged with the service it came from so
@@ -167,8 +185,8 @@ export default function AggregatorPage() {
           <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
             Side by side
           </button>
-          <button className={layout === "focus" ? "" : "secondary"} onClick={() => setLayout("focus")}>
-            One at a time
+          <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
+            Stacked
           </button>
           <select
             onChange={(e) => {
@@ -202,23 +220,32 @@ export default function AggregatorPage() {
       {/* Only the panes go inside the provider. The shared widget below must
           stay outside it, or it would register itself as a pane and render
           nothing -- leaving the page with no assistant at all. */}
-      {/* Every pane stays mounted in both layouts -- "One at a time" only
-          collapses the others, so their results and in-flight searches survive
-          switching focus, which is the whole point of working across services. */}
+      {/* Minimising only hides a pane's body -- it stays mounted in both
+          layouts, so its results and any in-flight search survive, which is the
+          whole point of working across services at once. */}
       <AiPaneRegistryContext.Provider value={registry}>
         <div className={layout === "columns" ? "aggregator-columns" : "aggregator-stack"}>
           {open.map((s) => {
-            const collapsed = layout === "focus" && focused !== null && focused !== s.id;
+            const collapsed = minimized.has(s.id);
             return (
               <section key={s.id} className={`aggregator-pane${collapsed ? " collapsed" : ""}`}>
                 <header className="aggregator-pane-header">
                   <h3>{s.label}</h3>
-                  {layout === "focus" && (
-                    <button className="secondary" onClick={() => setFocused(focused === s.id ? null : s.id)}>
-                      {focused === s.id ? "Show all" : "Focus"}
-                    </button>
-                  )}
-                  <button className="secondary" onClick={() => toggleService(s.id)} title={`Close ${s.label}`}>
+                  <button
+                    className="secondary"
+                    onClick={() => toggleMinimized(s.id)}
+                    title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                    aria-label={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                    aria-expanded={!collapsed}
+                  >
+                    {collapsed ? "+" : "−"}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => toggleService(s.id)}
+                    title={`Close ${s.label}`}
+                    aria-label={`Close ${s.label}`}
+                  >
                     ✕
                   </button>
                 </header>
