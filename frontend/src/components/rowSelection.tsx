@@ -8,6 +8,15 @@ import { useEffect, useState } from "react";
 export interface RowSelection<T> {
   /** Every row except the ones the user hid. */
   visibleRows: T[];
+  /** The selected rows themselves, rather than their exported shape. */
+  selectedRows: T[];
+  /** A stable signature of which rows are selected -- a cheap effect dependency
+   * for work that should redo itself when the selection changes. */
+  selectionKey: string;
+  /** Re-emits the current selection. For when what the selected rows serialize
+   * to has changed (e.g. extra detail was fetched for them) rather than which
+   * rows are selected. */
+  resend: () => void;
   selectedCount: number;
   hiddenCount: number;
   isSelected: (row: T) => boolean;
@@ -50,6 +59,9 @@ export function useRowSelection<T>(options: {
 
   return {
     visibleRows: rows.filter((r) => !hiddenKeys.has(keyOf(r))),
+    selectedRows,
+    selectionKey: Array.from(selectedKeys).sort().join("|"),
+    resend: () => onSelectionChange?.(selectedRows.map(toObject)),
     selectedCount: selectedKeys.size,
     hiddenCount: hiddenKeys.size,
     selectedObjects: selectedRows.map(toObject),

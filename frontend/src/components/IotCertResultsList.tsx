@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, IotCertificateDetail, IotCertificateInfo, IotCertificateSearchResultItem } from "../api";
 import ExportMenu from "./ExportMenu";
 import IotCertificateDetailPanel from "./IotCertificateDetailPanel";
+import { useDetailCache } from "./iotDetails";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "./rowSelection";
 
 interface FlatCert {
@@ -10,11 +11,6 @@ interface FlatCert {
   environment_name: string;
   cert: IotCertificateInfo;
 }
-
-type DetailState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; detail: IotCertificateDetail };
 
 function certStatusTagClass(status: string): string {
   if (status === "ACTIVE") return "tag ok";
@@ -26,6 +22,16 @@ function rowToObject(row: FlatCert): Record<string, unknown> {
   return { environment: row.environment_name, ...row.cert };
 }
 
+// A certificate's search result already carries its policies, so detail only
+// adds which things the certificate is attached to.
+function withDetail(row: FlatCert, detail: IotCertificateDetail): Record<string, unknown> {
+  return {
+    ...rowToObject(row),
+    thing_names: detail.thing_names,
+    ...(detail.warnings.length > 0 ? { detail_warnings: detail.warnings } : {}),
+  };
+}
+
 interface Props {
   items: IotCertificateSearchResultItem[];
   /** Reports the checked rows up to the page, which feeds them to the AI assistant. */
@@ -34,7 +40,6 @@ interface Props {
 
 export default function IotCertResultsList({ items, onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [details, setDetails] = useState<Record<string, DetailState>>({});
 
   const flat: FlatCert[] = [];
   items.forEach((item) => {
@@ -48,36 +53,49 @@ export default function IotCertResultsList({ items, onSelectionChange }: Props) 
     });
   });
 
+  const detailCache = useDetailCache<FlatCert, IotCertificateDetail>({
+    keyOf: (r) => r.key,
+    fetchDetail: (r) =>
+      api.getIotCertificateDetail({ environment_id: r.environment_id, certificate_id: r.cert.certificate_id }),
+    resetOn: items,
+  });
+
+  function toExportObject(row: FlatCert): Record<string, unknown> {
+    if (!detailCache.includeDetails) return rowToObject(row);
+    const detail = detailCache.detailFor(row);
+    return detail ? withDetail(row, detail) : rowToObject(row);
+  }
+
   const selection = useRowSelection({
     rows: flat,
     keyOf: (r) => r.key,
-    toObject: rowToObject,
+    toObject: toExportObject,
     onSelectionChange,
     resetOn: items,
   });
   const displayRows = selection.visibleRows;
 
+  useEffect(() => {
+    if (!detailCache.includeDetails) return;
+    detailCache.loadMany(selection.selectedRows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailCache.includeDetails, selection.selectionKey]);
+
+  useEffect(() => {
+    selection.resend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailCache.includeDetails, detailCache.details]);
+
   const errors = items.filter((i) => i.error);
 
-  async function toggle(row: FlatCert) {
+  function toggle(row: FlatCert) {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(row.key)) next.delete(row.key);
       else next.add(row.key);
       return next;
     });
-    if (!details[row.key]) {
-      setDetails((prev) => ({ ...prev, [row.key]: { status: "loading" } }));
-      try {
-        const detail = await api.getIotCertificateDetail({
-          environment_id: row.environment_id,
-          certificate_id: row.cert.certificate_id,
-        });
-        setDetails((prev) => ({ ...prev, [row.key]: { status: "ready", detail } }));
-      } catch (e: any) {
-        setDetails((prev) => ({ ...prev, [row.key]: { status: "error", message: e.message } }));
-      }
-    }
+    detailCache.loadOne(row);
   }
 
   return (
@@ -89,6 +107,25 @@ export default function IotCertResultsList({ items, onSelectionChange }: Props) 
           {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
         </span>
         <HideSelectedButtons selection={selection} />
+        {selection.selectedCount > 0 && (
+          <label
+            className="checkbox-item"
+            title="Fetches which things each checked certificate is attached to and includes it in the export and in what the AI assistant sees. One request per certificate."
+          >
+            <input
+              type="checkbox"
+              checked={detailCache.includeDetails}
+              onChange={(e) => detailCache.setIncludeDetails(e.target.checked)}
+            />
+            Include attached things
+          </label>
+        )}
+        {detailCache.loadingCount > 0 && <span className="muted">Loading details… ({detailCache.loadingCount} left)</span>}
+        {detailCache.includeDetails && detailCache.errorCount > 0 && (
+          <span className="error-text">
+            {detailCache.errorCount} certificate(s) had no detail available — exported from their summary alone.
+          </span>
+        )}
         <ExportMenu
           rows={displayRows.map(rowToObject)}
           selectedRows={selection.selectedObjects}
@@ -108,7 +145,7 @@ export default function IotCertResultsList({ items, onSelectionChange }: Props) 
       {flat.length === 0 && errors.length === 0 && <p className="muted">No certificates found.</p>}
       {displayRows.map((row) => {
         const isOpen = expanded.has(row.key);
-        const state = details[row.key];
+        const state = detailCache.stateFor(row);
         return (
           <div className="result-row" key={row.key}>
             <div className="result-row-summary" onClick={() => toggle(row)}>
