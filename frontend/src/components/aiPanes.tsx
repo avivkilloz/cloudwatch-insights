@@ -13,6 +13,12 @@ export interface AiPane {
   modes: AiAssistMode[];
   queryString?: string;
   selectedRows: Record<string, unknown>[];
+  /** Bumped by the pane whenever its selected rows are replaced. Counts alone
+   * can't see a change of *content* -- fetching an IoT thing's shadows and
+   * certificates re-emits the same number of rows with more in them -- so
+   * without this the Aggregator never re-reads them and pools the pre-detail
+   * version. */
+  selectionVersion: number;
   /** Applies a generated query to this pane's own search box. */
   onUseQuery?: (query: string) => void;
   /** Bumped by the pane when a new search supersedes its rows. */
@@ -27,6 +33,7 @@ export interface AiPaneSummary {
   domain: AiDomain;
   modes: AiAssistMode[];
   selectedCount: number;
+  selectionVersion: number;
   resultsVersion: number;
 }
 
@@ -47,6 +54,7 @@ export function summarizePane(pane: AiPane): AiPaneSummary {
     domain: pane.domain,
     modes: pane.modes,
     selectedCount: pane.selectedRows.length,
+    selectionVersion: pane.selectionVersion,
     resultsVersion: pane.resultsVersion,
   };
 }
@@ -59,6 +67,7 @@ export function sameSummaries(a: AiPaneSummary[], b: AiPaneSummary[]): boolean {
       x.id === y.id &&
       x.domain === y.domain &&
       x.selectedCount === y.selectedCount &&
+      x.selectionVersion === y.selectionVersion &&
       x.resultsVersion === y.resultsVersion &&
       x.modes.length === y.modes.length &&
       x.modes.every((m, j) => m === y.modes[j])

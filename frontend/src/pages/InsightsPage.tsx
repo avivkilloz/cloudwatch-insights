@@ -18,28 +18,7 @@ import OpenSearchIndexSelector, { OpenSearchSelectionMap } from "../components/O
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import ResultsView, { ResultsViewItem, SortDirection } from "../components/ResultsView";
 
-const SESSION_PAGE = "logs";
 
-interface SerializedOpenSearchSelection {
-  [environmentId: string]: {
-    [domainName: string]: { domain_endpoint: string; indices: string[] };
-  };
-}
-
-interface LogsSessionState {
-  backend: LogsBackend;
-  environment_ids: number[];
-  log_group_selection: Record<string, string[]>;
-  opensearch_selection: SerializedOpenSearchSelection;
-  query_string: string;
-  limit: number;
-  timestamp_field: string;
-  sort_field: string;
-  sort_direction: SortDirection;
-  preset: number | "custom";
-  custom_start: string;
-  custom_end: string;
-}
 
 const RELATIVE_PRESETS: { label: string; seconds: number }[] = [
   { label: "Last 5 minutes", seconds: 5 * 60 },
@@ -72,27 +51,7 @@ function toLocalDatetimeInput(epochSeconds: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function serializeOpenSearchSelection(selection: OpenSearchSelectionMap): SerializedOpenSearchSelection {
-  const out: SerializedOpenSearchSelection = {};
-  for (const [envId, domains] of Object.entries(selection)) {
-    out[envId] = {};
-    for (const [domainName, entry] of Object.entries(domains)) {
-      out[envId][domainName] = { domain_endpoint: entry.domain_endpoint, indices: Array.from(entry.indices) };
-    }
-  }
-  return out;
-}
 
-function deserializeOpenSearchSelection(serialized: SerializedOpenSearchSelection): OpenSearchSelectionMap {
-  const out: OpenSearchSelectionMap = {};
-  for (const [envId, domains] of Object.entries(serialized ?? {})) {
-    out[Number(envId)] = {};
-    for (const [domainName, entry] of Object.entries(domains)) {
-      out[Number(envId)][domainName] = { domain_endpoint: entry.domain_endpoint, indices: new Set(entry.indices) };
-    }
-  }
-  return out;
-}
 
 function openSearchTargets(selection: OpenSearchSelectionMap): OpenSearchTarget[] {
   const targets: OpenSearchTarget[] = [];
@@ -141,7 +100,6 @@ export default function InsightsPage() {
   const [customEnd, setCustomEnd] = useSessionState("customEnd", () => toLocalDatetimeInput(now));
 
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
-  const [savedSessions, setSavedSessions] = useState<SavedSession<LogsSessionState>[]>([]);
 
   const [startedQueries, setStartedQueries] = useState<StartedQuery[]>([]);
   const [results, setResults] = useSessionState<QueryResultItem[]>("results", []);
@@ -163,7 +121,6 @@ export default function InsightsPage() {
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
     api.listSavedQueries().then(setSavedQueries);
-    api.listSavedSessions<LogsSessionState>(SESSION_PAGE).then(setSavedSessions);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -350,93 +307,13 @@ export default function InsightsPage() {
     setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
-  function captureSession(): LogsSessionState {
-    return {
-      backend,
-      environment_ids: Array.from(selectedEnvironmentIds),
-      log_group_selection: Object.fromEntries(
-        Object.entries(logGroupSelection).map(([envId, names]) => [envId, Array.from(names)])
-      ),
-      opensearch_selection: serializeOpenSearchSelection(openSearchSelection),
-      query_string: queryString,
-      limit,
-      timestamp_field: timestampField,
-      sort_field: sortField,
-      sort_direction: sortDirection,
-      preset,
-      custom_start: customStart,
-      custom_end: customEnd,
-    };
-  }
 
-  function applySession(state: LogsSessionState) {
-    setBackend(state.backend ?? "cloudwatch");
-    setSelectedEnvironmentIds(new Set(state.environment_ids));
-    setLogGroupSelection(
-      Object.fromEntries(
-        Object.entries(state.log_group_selection ?? {}).map(([envId, names]) => [Number(envId), new Set(names)])
-      )
-    );
-    setOpenSearchSelection(deserializeOpenSearchSelection(state.opensearch_selection));
-    setQueryString(state.query_string);
-    setLimit(state.limit);
-    setTimestampField(state.timestamp_field || DEFAULT_TIMESTAMP_FIELD);
-    setSortField(state.sort_field);
-    setSortDirection(state.sort_direction);
-    setPreset(state.preset);
-    setCustomStart(state.custom_start);
-    setCustomEnd(state.custom_end);
-    setResults([]);
-    setOsResults([]);
-    setResultsVersion((v) => v + 1);
-  }
 
-  async function saveCurrentSession() {
-    const name = prompt("Save session as:");
-    if (!name) return;
-    const saved = await api.createSavedSession<LogsSessionState>({
-      page: SESSION_PAGE,
-      name,
-      state: captureSession(),
-    });
-    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
-  }
 
   const filteredSavedQueries = savedQueries.filter((q) => q.backend === backend);
 
   return (
     <div>
-      <div className="panel">
-        <h2>Session</h2>
-        <p className="muted">
-          Unlike a saved query (just the query text), a saved session captures everything on this page — the
-          backend, selected environments, log groups/indices, query, time range, limit, and sort — so you can resume
-          an investigation later exactly where you left it.
-        </p>
-        <div className="toolbar">
-          <select
-            onChange={(e) => {
-              const s = savedSessions.find((x) => String(x.id) === e.target.value);
-              if (s) applySession(s.state);
-              e.target.value = "";
-            }}
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Load saved session…
-            </option>
-            {savedSessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <button className="secondary" onClick={saveCurrentSession}>
-            Save session
-          </button>
-        </div>
-      </div>
-
       <div className="panel">
         <h2>Backend</h2>
         <div className="toolbar">

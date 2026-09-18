@@ -196,6 +196,16 @@ export default function AiAssistantWidget({
   const [includeSelectedInBuildQuery, setIncludeSelectedInBuildQuery] = useState(false);
   const [size, setSize] = useState(loadStoredSize);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Counts how many times the rows handed down have been replaced. Compared
+  // against the prop's identity rather than its contents, so a page that never
+  // passes rows at all leaves it at zero instead of churning every render.
+  const lastRowsRef = useRef(selectedRows);
+  const selectionVersionRef = useRef(0);
+  if (lastRowsRef.current !== selectedRows) {
+    lastRowsRef.current = selectedRows;
+    selectionVersionRef.current += 1;
+  }
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -220,6 +230,7 @@ export default function AiAssistantWidget({
       modes,
       queryString,
       selectedRows: selectedRows ?? [],
+      selectionVersion: selectionVersionRef.current,
       onUseQuery,
       resultsVersion: resultsVersion ?? 0,
     });
@@ -298,6 +309,22 @@ export default function AiAssistantWidget({
     if ((selectedRows?.length ?? 0) === 0) setIncludeSelectedInBuildQuery(false);
   }, [selectedRows]);
 
+  // Clicking anywhere outside the panel closes it, the same as pressing ✕.
+  // The floating button is excluded so its own click still toggles rather
+  // than closing and immediately reopening.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
   function handleInputKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -370,11 +397,11 @@ export default function AiAssistantWidget({
 
   return (
     <>
-      <button className="ai-widget-button" onClick={() => setOpen((v) => !v)}>
+      <button className="ai-widget-button" ref={buttonRef} onClick={() => setOpen((v) => !v)}>
         {open ? "Close AI assistant" : "✦ Ask AI"}
       </button>
       {open && (
-        <div className="ai-widget-panel" style={{ width: size.width, height: size.height }}>
+        <div className="ai-widget-panel" ref={panelRef} style={{ width: size.width, height: size.height }}>
           <div
             className="ai-widget-resize-handle"
             onMouseDown={startResize}

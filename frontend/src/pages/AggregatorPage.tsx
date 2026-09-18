@@ -11,96 +11,20 @@ import {
   sameSummaries,
   summarizePane,
 } from "../components/aiPanes";
-import BucketsPage from "./BucketsPage";
-import CognitoPage from "./CognitoPage";
-import InsightsPage from "./InsightsPage";
-import IotPage from "./IotPage";
-import TablesPage from "./TablesPage";
-import Base64Tool from "../components/tools/Base64Tool";
-import DiffTool from "../components/tools/DiffTool";
-import HttpClientTool from "../components/tools/HttpClientTool";
-import JwtTool from "../components/tools/JwtTool";
-import MqttTool from "../components/tools/MqttTool";
+import { PANE_TYPES } from "../sessions/paneTypes";
 
-const SESSION_PAGE = "aggregator";
-
-type ServiceId =
-  | "logs"
-  | "iot"
-  | "tables"
-  | "buckets"
-  | "cognito"
-  | "tool-jwt"
-  | "tool-base64"
-  | "tool-diff"
-  | "tool-http"
-  | "tool-mqtt";
+type ServiceId = string;
 type Layout = "columns" | "stacked";
 
-interface AggregatorSessionState {
-  services: ServiceId[];
-  layout: Layout;
-}
-
-// Kept apart from the search services so the picker can group them, and so
-// adding a tool to the Tools tab is one line here to offer it in a session too.
-const TOOLS: { id: ServiceId; label: string; render: () => JSX.Element }[] = [
-  { id: "tool-http", label: "HTTP client", render: () => <HttpClientTool /> },
-  { id: "tool-jwt", label: "JWT", render: () => <JwtTool /> },
-  { id: "tool-base64", label: "Base64", render: () => <Base64Tool /> },
-  { id: "tool-diff", label: "Diff", render: () => <DiffTool /> },
-  { id: "tool-mqtt", label: "MQTT", render: () => <MqttTool /> },
-];
-
-const TOOL_IDS = new Set<ServiceId>(TOOLS.map((t) => t.id));
-
-const SERVICES: {
-  id: ServiceId;
-  label: string;
-  render: () => JSX.Element;
-  enabledFor: (u: any) => boolean;
-}[] = [
-  {
-    id: "logs",
-    label: "Logs",
-    render: () => <InsightsPage />,
-    enabledFor: (u) => !!u?.logs_enabled,
-  },
-  {
-    id: "iot",
-    label: "IoT",
-    render: () => <IotPage />,
-    enabledFor: (u) => !!u?.iot_enabled,
-  },
-  {
-    id: "tables",
-    label: "Tables",
-    render: () => <TablesPage />,
-    enabledFor: (u) => !!u?.tables_enabled,
-  },
-  {
-    id: "buckets",
-    label: "Buckets",
-    render: () => <BucketsPage />,
-    enabledFor: (u) => !!u?.buckets_enabled,
-  },
-  {
-    id: "cognito",
-    label: "Cognito",
-    render: () => <CognitoPage />,
-    enabledFor: (u) => !!u?.cognito_enabled,
-  },
-  // Individual tools, each its own pane rather than the whole Tools page as
-  // one: you open the HTTP client next to the Logs you're reading, not a grid
-  // of five tools you mostly don't want. They're rendered bare -- the pane's
-  // own title bar already does what the tool card's does on the Tools tab.
-  ...TOOLS.map((t) => ({
-    id: t.id,
-    label: t.label,
-    render: t.render,
-    enabledFor: (u: any) => !!u?.tools_enabled,
-  })),
-];
+// Panes are session types that make sense side by side -- the registry says
+// which, so a new tool or service shows up here without a second list.
+const SERVICES = PANE_TYPES.map((t) => ({
+  id: t.type as ServiceId,
+  label: t.label,
+  group: t.group,
+  render: t.render,
+  enabledFor: t.enabledFor,
+}));
 
 export default function AggregatorPage() {
   const { user } = useAuth();
@@ -109,7 +33,6 @@ export default function AggregatorPage() {
   // Panes collapsed to just their header. Independent per pane -- minimising
   // one says nothing about the others, unlike a single "focused" pane would.
   const [minimized, setMinimized] = useSessionState<Set<ServiceId>>("minimized", () => new Set());
-  const [savedSessions, setSavedSessions] = useState<SavedSession<AggregatorSessionState>[]>([]);
 
   // Panes register their full context (including the row arrays) here on every
   // render. Keeping it in a ref means that churn never re-renders this page;
@@ -119,7 +42,6 @@ export default function AggregatorPage() {
   const [target, setTarget] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listSavedSessions<AggregatorSessionState>(SESSION_PAGE).then(setSavedSessions);
   }, []);
 
   const syncSummaries = useCallback(() => {
@@ -328,24 +250,6 @@ export default function AggregatorPage() {
     });
   }
 
-  async function saveCurrentSession() {
-    const name = prompt("Save aggregator session as:");
-    if (!name) return;
-    const saved = await api.createSavedSession<AggregatorSessionState>({
-      page: SESSION_PAGE,
-      name,
-      state: { services, layout },
-    });
-    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
-  }
-
-  function applySession(state: AggregatorSessionState) {
-    setServices(state.services.filter((id) => available.some((s) => s.id === id)));
-    // Sessions saved before this mode was renamed carry the old "focus" value.
-    setLayout(state.layout === "columns" ? "columns" : "stacked");
-    setMinimized(new Set());
-  }
-
   // Rows from every open pane, each tagged with the service it came from so
   // the assistant can tell a log line from a Cognito user once they're pooled.
   function taggedSelection(): Record<string, unknown>[] {
@@ -380,8 +284,8 @@ export default function AggregatorPage() {
             line reads as an undifferentiated list, and "a search page" and
             "a tool" are different kinds of thing to reach for. */}
         {[
-          { heading: "Services", ids: SERVICES.filter((x) => !TOOL_IDS.has(x.id)) },
-          { heading: "Tools", ids: SERVICES.filter((x) => TOOL_IDS.has(x.id)) },
+          { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
+          { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
         ].map((group) => {
           const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
           if (shown.length === 0) return null;
@@ -406,26 +310,6 @@ export default function AggregatorPage() {
           </button>
           <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
             Stacked
-          </button>
-          <select
-            onChange={(e) => {
-              const s = savedSessions.find((x) => String(x.id) === e.target.value);
-              if (s) applySession(s.state);
-              e.target.value = "";
-            }}
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Load saved session…
-            </option>
-            {savedSessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <button className="secondary" onClick={saveCurrentSession} disabled={services.length === 0}>
-            Save session
           </button>
         </div>
       </div>
