@@ -1,153 +1,104 @@
-import { useEffect, useRef, useState } from "react";
-import MarkdownLite from "../components/MarkdownLite";
-import { sessionTypeLabel } from "../components/SessionTabs";
-import { useSessions } from "../sessions/SessionContext";
+import { useState } from "react";
+import { useAuth } from "../AuthContext";
+import { SessionType, useSessions } from "../sessions/SessionContext";
+import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 
 /**
- * The platform agent's page -- where you land on opening the app and whenever
- * you click the brand.
+ * The landing view: a card per session type, grouped by what it's for.
  *
- * The agent itself isn't wired to a model yet. This deliberately doesn't fake
- * one: a chat that invents answers about your AWS accounts is worse than one
- * that says it can't answer. What it does do is show the platform state the
- * agent will be given, which is real and is the thing the next change builds
- * on.
- *
- * It's a different thing from the per-session AI assistant: that one sees one
- * session's query and rows, this one sees the workspace from outside and will
- * be able to act on it.
+ * Clicking a card opens that session. Ticking several and pressing "Open in
+ * Aggregator" opens one Aggregator session with exactly those panes -- the
+ * Aggregator itself is unchanged, so panes can still be added and removed once
+ * it's open.
  */
+export default function HomePage() {
+  const { user } = useAuth();
+  const { sessions, open } = useSessions();
+  const [picked, setPicked] = useState<Set<SessionType>>(new Set());
 
-export interface HomeMessage {
-  role: "user" | "agent";
-  content: string;
-}
+  const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
+  const aggregator = types.find((t) => t.type === "aggregator");
 
-const NOT_WIRED =
-  "I'm not connected to a model yet, so I can't answer that.\n\n" +
-  "Once I am, I'll be able to read the whole workspace and act on it — open a " +
-  "session for you, run a search in one, and answer across every session at " +
-  "once. That's different from the **✦ Ask AI** assistant inside a session, " +
-  "which only ever sees that session's own query and rows.";
-
-export default function HomePage({
-  messages,
-  onMessagesChange,
-  pendingPrompt,
-  onPendingPromptHandled,
-}: {
-  messages: HomeMessage[];
-  onMessagesChange: (messages: HomeMessage[]) => void;
-  /** A prompt submitted from the header bar, handed over once on arrival. */
-  pendingPrompt: string | null;
-  onPendingPromptHandled: () => void;
-}) {
-  const { sessions } = useSessions();
-  const [input, setInput] = useState("");
-  const endRef = useRef<HTMLDivElement | null>(null);
-
-  function send(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    onMessagesChange([...messages, { role: "user", content: trimmed }, { role: "agent", content: NOT_WIRED }]);
-    setInput("");
+  function nextTitle(label: string): string {
+    const taken = sessions.map((s) => s.title);
+    if (!taken.includes(label)) return label;
+    for (let n = 2; ; n++) {
+      const candidate = `${label} ${n}`;
+      if (!taken.includes(candidate)) return candidate;
+    }
   }
 
-  // The header bar submits into this page, so a prompt typed up there arrives
-  // as a pending value the moment the page mounts.
-  const handled = useRef(false);
-  useEffect(() => {
-    if (!pendingPrompt || handled.current) return;
-    handled.current = true;
-    send(pendingPrompt);
-    onPendingPromptHandled();
-    // Cleared so a later prompt from the header is handled too.
-    handled.current = false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPrompt]);
+  function toggle(type: SessionType) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+  function openAggregator() {
+    if (!aggregator || picked.size === 0) return;
+    // The Aggregator reads `services` as its open panes, so seeding that key
+    // is all it takes -- no special entry point into the page itself.
+    open("aggregator", nextTitle("Aggregator"), { services: Array.from(picked) });
+    setPicked(new Set());
+  }
+
+  const pickable = types.filter((t) => t.paneable);
 
   return (
     <div className="home">
       <div className="panel">
-        <h2>Agent</h2>
+        <h2>Start a session</h2>
         <p className="muted">
-          Ask about anything in the platform, and — once this is connected — have it do the work: open the sessions
-          you need, run the searches, and answer across all of them at once. It sees the workspace from outside,
-          unlike the <strong>✦ Ask AI</strong> assistant inside a session, which only ever sees that session's own
-          query and rows.
+          Open any of these on its own, or tick several and open them together in one Aggregator session — you can
+          still add and remove panes once it's running. Everything you open gets a tab above and keeps its state, so a
+          refresh puts you back where you were.
         </p>
-        <p className="error-text" style={{ marginBottom: 0 }}>
-          Not connected to a model yet — it will say so rather than guess.
-        </p>
-      </div>
-
-      <div className="panel">
-        <h2>What it can see</h2>
-        {sessions.length === 0 ? (
-          <p className="muted">
-            No sessions open. Use the <strong>+</strong> button below the header to start one.
-          </p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Session</th>
-                <th>Type</th>
-                <th>State kept</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.title}</td>
-                  <td>{sessionTypeLabel(s.type)}</td>
-                  <td className="muted">
-                    {s.truncated
-                      ? "inputs only — results were too large to keep"
-                      : `${Object.keys(s.state).length} value(s)`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {aggregator && (
+          <div className="toolbar">
+            <button onClick={openAggregator} disabled={picked.size === 0}>
+              Open {picked.size > 0 ? picked.size : ""} in Aggregator
+            </button>
+            {picked.size > 0 && (
+              <button className="secondary" onClick={() => setPicked(new Set())}>
+                Clear selection
+              </button>
+            )}
+            {picked.size === 0 && <span className="muted">Tick the cards you want side by side.</span>}
+          </div>
         )}
       </div>
 
-      <div className="panel home-chat">
-        {messages.length === 0 && (
-          <p className="muted">Nothing asked yet. Type below, or use the search bar in the header.</p>
-        )}
-        {messages.map((m, i) => (
-          <div className="result-row" key={i} style={{ marginBottom: 8 }}>
-            <div className="result-row-detail" style={{ borderTop: "none" }}>
-              <span className={m.role === "user" ? "tag" : "tag ok"}>{m.role === "user" ? "You" : "Agent"}</span>
-              <div style={{ marginTop: 6 }}>
-                <MarkdownLite text={m.content} />
-              </div>
+      {GROUP_ORDER.map((group) => {
+        const inGroup = types.filter((t) => t.group === group);
+        if (inGroup.length === 0) return null;
+        return (
+          <div className="panel" key={group}>
+            <h2>{group}</h2>
+            <div className="home-cards">
+              {inGroup.map((t) => {
+                const selectable = pickable.includes(t);
+                return (
+                  <div key={t.type} className={`home-card${picked.has(t.type) ? " picked" : ""}`}>
+                    <button className="home-card-open" onClick={() => open(t.type, nextTitle(t.label))}>
+                      <span className="home-card-title">{t.label}</span>
+                      <span className="home-card-desc">{t.description}</span>
+                    </button>
+                    {selectable && aggregator && (
+                      <label className="home-card-pick" title={`Include ${t.label} when opening an Aggregator`}>
+                        <input type="checkbox" checked={picked.has(t.type)} onChange={() => toggle(t.type)} />
+                        Aggregate
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
-        ))}
-        <div ref={endRef} />
-        <div className="toolbar" style={{ marginTop: 10 }}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") send(input);
-            }}
-            placeholder="Ask the agent…"
-            style={{ flex: 1, minWidth: 240 }}
-          />
-          <button onClick={() => send(input)} disabled={!input.trim()}>
-            Ask
-          </button>
-        </div>
-      </div>
+        );
+      })}
     </div>
   );
 }

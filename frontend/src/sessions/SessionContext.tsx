@@ -13,8 +13,21 @@ import {
 import { EMPTY_WORKSPACE, PersistedSession, Workspace, loadWorkspace, saveWorkspace } from "./storage";
 
 /** Which kinds of session the + button can start. Values are stored, so
- * renaming one orphans existing open sessions -- add rather than rename. */
-export type SessionType = "logs" | "iot" | "tables" | "buckets" | "cognito" | "aggregator" | "tools";
+ * renaming one orphans existing open sessions -- add rather than rename.
+ * The registry in ./registry.tsx says what each one is and renders. */
+export type SessionType =
+  | "logs"
+  | "iot"
+  | "tables"
+  | "buckets"
+  | "cognito"
+  | "aggregator"
+  | "tool-http"
+  | "tool-mqtt"
+  | "tool-jwt"
+  | "tool-base64"
+  | "tool-diff"
+  | "agent";
 
 export type ViewKind = "home" | "settings" | "session";
 
@@ -31,6 +44,55 @@ interface SessionsApi {
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
   show: (view: ViewKind) => void;
+  /** This session's state with its outputs stripped -- what a saved session
+   * stores. */
+  captureInputs: (id: string) => Record<string, unknown>;
+}
+
+// Keys a page writes as a *result* rather than an input. A saved session is a
+// template you start from, so it keeps what you chose and not what came back:
+// restoring someone else's rows, or a "fetched 3 days ago" marker, from a
+// template would be worse than an empty session.
+//
+// Matched on the last dot-separated segment, so an Aggregator pane's prefixed
+// keys ("<paneId>.results") are covered by the same list.
+const OUTPUT_STATE_KEYS = new Set([
+  // Result sets.
+  "results",
+  "osResults",
+  "thingResults",
+  "certResults",
+  "items",
+  "users",
+  "folders",
+  "files",
+  "exchange",
+  "response",
+  // Pagination cursors and counters that only mean something with the rows
+  // they came with.
+  "lastEvaluatedKey",
+  "paginationToken",
+  "continuationToken",
+  "scannedCount",
+  "expanded",
+  "ranAt",
+  "resultsVersion",
+  "exchangeVersion",
+  // Lists refetched on mount from the environment rather than chosen.
+  "tables",
+  "buckets",
+  "userPools",
+  "tableInfo",
+  // The assistant conversation belongs to the rows it was about.
+  "threads",
+  "mode",
+  "messages",
+  "openingPrompt",
+]);
+
+export function isInputStateKey(key: string): boolean {
+  const leaf = key.slice(key.lastIndexOf(".") + 1);
+  return !OUTPUT_STATE_KEYS.has(leaf);
 }
 
 const SessionsContext = createContext<SessionsApi | null>(null);
@@ -144,6 +206,15 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setWorkspace((w) => ({ ...w, view }));
   }, []);
 
+  const captureInputs = useCallback(
+    (id: string) => {
+      const session = workspace.sessions.find((s) => s.id === id);
+      if (!session) return {};
+      return Object.fromEntries(Object.entries(session.state).filter(([key]) => isInputStateKey(key)));
+    },
+    [workspace.sessions],
+  );
+
   // Pages call this (through useSessionState) on every change they want kept.
   const writeState = useCallback((sessionId: string, key: string, value: unknown) => {
     setWorkspace((w) => {
@@ -170,8 +241,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       rename,
       reorder,
       show,
+      captureInputs,
     }),
-    [workspace, ready, open, close, activate, rename, reorder, show],
+    [workspace, ready, open, close, activate, rename, reorder, show, captureInputs],
   );
 
   return (
@@ -190,7 +262,9 @@ const WriteStateContext = createContext<WriteState | null>(null);
 
 interface SessionScope {
   id: string;
-  initial: Record<string, unknown>;
+  /** The session's state as it is right now. Read once per mount, by
+   * useSessionState's initialiser. */
+  read: () => Record<string, unknown>;
 }
 
 const SessionScopeContext = createContext<SessionScope | null>(null);
@@ -204,11 +278,13 @@ export function SessionScopeProvider({
   session: PersistedSession;
   children: ReactNode;
 }) {
-  // The initial bag is captured once: it seeds useSessionState on mount, and
-  // must not change underneath a mounted page or every keystroke would look
-  // like a fresh restore.
-  const initial = useRef(session.state).current;
-  const scope = useMemo(() => ({ id: session.id, initial }), [session.id, initial]);
+  // Kept pointing at the current state rather than frozen. A useState
+  // initialiser only runs on mount, so this can't make a mounted page reset;
+  // freezing it, though, means a remount (React's strict double-mount, a key
+  // change) re-seeds from the original bag and throws away everything since.
+  const latest = useRef(session.state);
+  latest.current = session.state;
+  const scope = useMemo(() => ({ id: session.id, read: () => latest.current }), [session.id]);
   return <SessionScopeContext.Provider value={scope}>{children}</SessionScopeContext.Provider>;
 }
 
@@ -248,7 +324,8 @@ export function useSessionState<T>(key: string, initial: T | (() => T)): [T, Dis
   const fullKey = useContext(KeyPrefixContext) + key;
 
   const [value, setValue] = useState<T>(() => {
-    if (scope && fullKey in scope.initial) return scope.initial[fullKey] as T;
+    const bag = scope?.read();
+    if (bag && fullKey in bag) return bag[fullKey] as T;
     return typeof initial === "function" ? (initial as () => T)() : initial;
   });
 

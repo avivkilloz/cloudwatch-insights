@@ -1,19 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
-import AggregatorPage from "./pages/AggregatorPage";
-import BucketsPage from "./pages/BucketsPage";
-import CognitoPage from "./pages/CognitoPage";
-import HomePage, { HomeMessage } from "./pages/HomePage";
-import SettingsPage from "./pages/SettingsPage";
-import InsightsPage from "./pages/InsightsPage";
-import IotPage from "./pages/IotPage";
+import { openingExchange } from "./pages/AgentPage";
+import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
-import TablesPage from "./pages/TablesPage";
-import ToolsPage from "./pages/ToolsPage";
+import SettingsPage from "./pages/SettingsPage";
 import SessionTabs from "./components/SessionTabs";
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
+import { SESSION_TYPES, sessionType } from "./sessions/registry";
 import { PersistedSession } from "./sessions/storage";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
 
@@ -77,28 +72,6 @@ export default function App() {
   );
 }
 
-/** Each session type's page. Rendered inside a SessionScopeProvider, so the
- * pages themselves only have to swap useState for useSessionState to have
- * their state survive a refresh -- they never touch the store directly. */
-function renderSession(type: SessionType) {
-  switch (type) {
-    case "logs":
-      return <InsightsPage />;
-    case "iot":
-      return <IotPage />;
-    case "tables":
-      return <TablesPage />;
-    case "buckets":
-      return <BucketsPage />;
-    case "cognito":
-      return <CognitoPage />;
-    case "aggregator":
-      return <AggregatorPage />;
-    case "tools":
-      return <ToolsPage />;
-  }
-}
-
 interface ShellProps {
   appTitle: string;
   appLogoUrl: string | null;
@@ -109,10 +82,8 @@ interface ShellProps {
 
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
-  const { sessions, activeId, view, ready, show } = useSessions();
+  const { sessions, activeId, view, ready, show, open } = useSessions();
   const [prompt, setPrompt] = useState("");
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-  const [homeMessages, setHomeMessages] = useState<HomeMessage[]>([]);
 
   async function handleLogout() {
     await logout();
@@ -121,9 +92,13 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   function askAgent() {
     const text = prompt.trim();
     if (!text) return;
-    setPendingPrompt(text);
     setPrompt("");
-    show("home");
+    // A question in the header starts an agent session and arrives as its
+    // first message, rather than being answered somewhere with no history.
+    const taken = sessions.map((s) => s.title);
+    let title = "Agent";
+    for (let n = 2; taken.includes(title); n++) title = `Agent ${n}`;
+    open("agent", title, { "agent.messages": openingExchange(text) });
   }
 
   // Nothing renders until the workspace has been read back, so a restored
@@ -160,14 +135,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       <SessionTabs />
 
       <main className="content">
-        {view === "home" && (
-          <HomePage
-            messages={homeMessages}
-            onMessagesChange={setHomeMessages}
-            pendingPrompt={pendingPrompt}
-            onPendingPromptHandled={() => setPendingPrompt(null)}
-          />
-        )}
+        {view === "home" && <HomePage />}
         {view === "settings" && (
           <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
@@ -191,15 +159,7 @@ function SessionBody({ session, hidden }: { session: PersistedSession; hidden: b
   // An admin can revoke a service while a session for it is open; the session
   // stays in the strip (closing it silently would lose work the user can't see
   // to save) but says why it won't render.
-  const enabled: Record<SessionType, boolean> = {
-    logs: !!user?.logs_enabled,
-    iot: !!user?.iot_enabled,
-    tables: !!user?.tables_enabled,
-    buckets: !!user?.buckets_enabled,
-    cognito: !!user?.cognito_enabled,
-    aggregator: !!user?.aggregator_enabled,
-    tools: !!user?.tools_enabled,
-  };
+  const def = sessionType(session.type);
 
   return (
     <div className="session-body" hidden={hidden}>
@@ -212,12 +172,14 @@ function SessionBody({ session, hidden }: { session: PersistedSession; hidden: b
             </p>
           </div>
         )}
-        {enabled[session.type as SessionType] ? (
-          renderSession(session.type as SessionType)
+        {def && def.enabledFor(user) ? (
+          def.render()
         ) : (
           <div className="panel">
             <p className="muted" style={{ margin: 0 }}>
-              This session's service is no longer enabled for your account.
+              {def
+                ? "This session's service is no longer enabled for your account."
+                : "This session is of a kind this version no longer knows how to open."}
             </p>
           </div>
         )}

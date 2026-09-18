@@ -9,15 +9,23 @@ regions** by assuming a role you configure in each target account.
 The app is organised around **sessions** rather than a fixed set of tabs.
 
 - The **header** holds the app title on the left, an **agent prompt bar** in
-  the middle, and your avatar on the right. The title takes you **home**,
-  which is the agent's own chat page and where the app opens.
-- Below it, a **session strip** holds whichever sessions you have open, with a
-  **+** at the end of them (so on the left when there are none). **+** lists
-  every service as a session type — Logs, IoT, Tables, Buckets, Cognito,
-  Aggregator, Tools — plus your saved sessions. Picking one starts a session
-  and gives it a tab; a second Logs session is called "Logs 2" rather than
-  colliding. Click a tab to switch to it, double-click to rename it, drag to
-  reorder, **✕** to close.
+  the middle, and your avatar on the right. The title takes you **home**;
+  typing a question in the bar opens an **agent session** with that question
+  already asked.
+- **Home** is a card per session type, grouped into **Services**, **Tools** and
+  **Assistant**. Click a card to open that session. Tick several and press
+  **Open N in Aggregator** to open one Aggregator session with exactly those
+  panes — you can still add and remove panes once it's running.
+- Below the header, a **session strip** holds whichever sessions you have open,
+  with a **+** at the end of them (so on the left when there are none). It's
+  deliberately flat — no background or rule of its own, so it reads as the top
+  of the page rather than a second header. **+** lists every session type —
+  Logs, IoT, Tables, Buckets, Cognito, Aggregator, each **tool** on its own
+  (HTTP client, MQTT tester, JWT, Base64, Diff) and the **Agent** — plus your
+  saved sessions. Picking one starts a session and gives it a tab; a second
+  Logs session is called "Logs 2" rather than colliding. Click a tab to switch
+  to it, double-click to rename it, drag to reorder, **✕** to close.
+  **Save session** at the right of the strip saves the active one.
 - Every open session **stays mounted**: switching tabs never interrupts a
   running query or loses a scroll position.
 - **A refresh puts you back where you were.** Open sessions, which one you
@@ -29,15 +37,17 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   keep (past a 4 MB cap) comes back with its inputs and says so.
 - **Saved sessions** are the other half, and deliberately different: they're
   named **templates** stored per user on the server, holding a session's
-  *inputs* only. Open one from **+** and it starts a fresh session seeded with
-  those inputs; nothing you then do changes the saved copy. Save one from the
-  session's own "Save session" button, and manage them under **Saved items**
-  in Settings.
-- The two AI surfaces are distinct. The **agent** in the header sees the
-  workspace from outside and will be able to act on it; the **✦ Ask AI**
-  assistant inside a session only ever sees that session's own query and rows.
-  *The agent is not connected to a model yet* — it says so rather than
-  guessing, and the home page shows the platform state it will be given.
+  *inputs* only. Saving takes the session's own state and strips its outputs —
+  the rows, the fetched-at markers, the assistant thread — so what's kept is
+  everything you chose, including each Aggregator pane's own inputs. Open one
+  from **+** and it starts a fresh session seeded with those inputs; nothing
+  you then do changes the saved copy. Manage them under **Saved items** in
+  Settings.
+- The two AI surfaces are distinct. The **agent** is its own session type and
+  sees the workspace from outside; the **✦ Ask AI** assistant inside a service
+  session only ever sees that session's own query and rows, and closes when you
+  click outside it. *The agent is not connected to a model yet* — it says so
+  rather than guessing, and shows the workspace state it will be given.
 
 Settings (including Environments, Users, Groups and Saved items) is reached
 from the avatar menu and is not a session; the strip stays above it.
@@ -613,10 +623,12 @@ Insights has `StartQuery`/`GetQueryResults` — a search is a single
 synchronous request, so there's no "Stop" button or polling for that
 backend.
 
-## Tools tab
+## Tools
 
-A grid of small, independent developer utilities, each a card you click to
-expand in place:
+Small, independent developer utilities. Each one is its own **session type**:
+open it from **+** or a home card, beside whatever you're debugging, and it
+keeps its state like any other session. Any of them can also be an Aggregator
+pane.
 
 - **JWT Decoder / Encoder** — decode any JWT's header and payload, or build
   and sign a new one. Runs entirely in your browser (via the Web Crypto
