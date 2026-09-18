@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ResultField } from "../api";
+import ExportMenu from "./ExportMenu";
 
 // Loosened to the fields this component actually renders, rather than the
 // CloudWatch-specific QueryResultItem shape -- so it also accepts
@@ -221,6 +222,7 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
             Show {hiddenKeys.size} hidden
           </button>
         )}
+        <ExportMenu rows={displayRows.map(rowToObject)} filename="logs-results" />
       </div>
       {errors.length > 0 && (
         <div className="panel" style={{ borderColor: "var(--error)" }}>

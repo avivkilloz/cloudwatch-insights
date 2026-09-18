@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
+import ExportMenu from "../components/ExportMenu";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
@@ -243,6 +244,7 @@ export default function TablesPage() {
             <span className="muted">
               {items.length} item(s) loaded, {scannedCount} scanned so far
             </span>
+            <ExportMenu rows={items} filename={`table-${tableName}`} />
           </div>
 
           {items.length === 0 && !isScanning && <p className="muted">No items loaded yet — click Scan.</p>}

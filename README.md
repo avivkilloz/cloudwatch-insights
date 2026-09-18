@@ -126,6 +126,15 @@ regions** by assuming a role you configure in each target account.
   and the Buckets/Tables tabs' saved bucket/table shortcuts, are all built
   on (each just its own page name under the same mechanism). (Cognito
   doesn't have this yet.)
+- **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
+  next to the result count on the Logs tab (both CloudWatch and OpenSearch
+  backends), IoT tab (Things and Certificates), Tables, Buckets, and Cognito
+  exports exactly the rows currently on screen — after any sort, hide, or
+  search/filter you've applied, not a raw re-fetch. Entirely client-side, no
+  backend involved: the file is built from data already loaded into the page
+  and downloaded straight from the browser. CSV/JSON are generated inline;
+  the `.xlsx` writer is loaded on demand so its bundle cost is only paid by
+  users who actually click "Excel (.xlsx)".
 - **Settings**, under the **App settings** section (Admin-group members
   only), lets you set a custom app title (shown in the top bar and browser
   tab, in place of the default "Cloud Insights") and upload a logo shown
