@@ -671,8 +671,12 @@ th {
   border-bottom: 1px solid var(--border);
   background: var(--panel-alt);
   border-radius: 8px 8px 0 0;
-  /* The whole title bar minimises/expands the pane, not just the −/+ button. */
+  /* The whole title bar minimises/expands the pane, not just the −/+ button,
+     and is also the drag handle for reordering -- so no text selection or
+     touch scrolling starting on it. */
   cursor: pointer;
+  user-select: none;
+  touch-action: none;
 }
 
 /* The whole title bar is the drag handle; the grip is the affordance that

@@ -84,9 +84,14 @@ regions** by assuming a role you configure in each target account.
   Panes can be **reordered**: drag one by its title bar onto another to drop
   it into that slot, or use the arrows on the title bar to nudge it one place
   at a time. The arrows follow the layout, so they read **◀ ▶** side by side
-  and **▲ ▼** stacked, and grey out at the ends. A completed drag doesn't
-  also minimise the pane it started from, and the order is part of a saved
-  session.
+  and **▲ ▼** stacked, and grey out at the ends. Dragging is built on pointer
+  events rather than the browser's own drag-and-drop, so it behaves the same
+  everywhere and can't leave the page wedged: holding near the top or bottom
+  edge scrolls so you can reach a pane that started off-screen, Escape
+  cancels, and releasing anywhere that isn't a pane just does nothing. A short
+  press is still a click, so the title bar keeps minimising/expanding and the
+  drag's own release never collapses the pane it just moved. The order is part
+  of a saved session.
 
   The AI assistant spans the whole session rather than one service. "About
   results" answers on the rows you've checked *across every open pane* pooled
