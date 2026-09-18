@@ -15,10 +15,11 @@ import CognitoPage from "./CognitoPage";
 import InsightsPage from "./InsightsPage";
 import IotPage from "./IotPage";
 import TablesPage from "./TablesPage";
+import ToolsPage from "./ToolsPage";
 
 const SESSION_PAGE = "aggregator";
 
-type ServiceId = "logs" | "iot" | "tables" | "buckets" | "cognito";
+type ServiceId = "logs" | "iot" | "tables" | "buckets" | "cognito" | "tools";
 type Layout = "columns" | "stacked";
 
 interface AggregatorSessionState {
@@ -62,6 +63,17 @@ const SERVICES: {
     render: () => <CognitoPage />,
     enabledFor: (u) => !!u?.cognito_enabled,
   },
+  // Not a searchable service, but the thing you most often need *beside* one:
+  // decode the JWT a request came in with, or replay the call that produced
+  // the log line you're reading, without losing either pane's state. The HTTP
+  // client carries its own assistant, so opening it here registers it as
+  // another target the shared assistant can write for and ask about.
+  {
+    id: "tools",
+    label: "Tools",
+    render: () => <ToolsPage />,
+    enabledFor: (u) => !!u?.tools_enabled,
+  },
 ];
 
 export default function AggregatorPage() {
@@ -103,8 +115,17 @@ export default function AggregatorPage() {
     [syncSummaries],
   );
 
+  // Which pane is mid-drag, and which one it's currently hovering over. Only
+  // the highlight lives in state; the order itself is `services`.
+  const [dragging, setDragging] = useState<ServiceId | null>(null);
+  const [dropTarget, setDropTarget] = useState<ServiceId | null>(null);
+
+  // The checkbox list keeps its fixed order, but the panes follow `services`,
+  // which is what reordering rewrites.
   const available = SERVICES.filter((s) => s.enabledFor(user));
-  const open = SERVICES.filter((s) => services.includes(s.id));
+  const open = services
+    .map((id) => SERVICES.find((s) => s.id === id))
+    .filter((s): s is (typeof SERVICES)[number] => !!s);
 
   function toggleService(id: ServiceId) {
     setServices((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
@@ -113,6 +134,31 @@ export default function AggregatorPage() {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
       next.delete(id);
+      return next;
+    });
+  }
+
+  /** Moves a pane one place earlier (-1) or later (+1) in the order. */
+  function moveService(id: ServiceId, delta: number) {
+    setServices((prev) => {
+      const from = prev.indexOf(id);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      return next;
+    });
+  }
+
+  /** Drops `id` into the slot `over` currently occupies, shifting the rest. */
+  function dropService(id: ServiceId, over: ServiceId) {
+    if (id === over) return;
+    setServices((prev) => {
+      const from = prev.indexOf(id);
+      const to = prev.indexOf(over);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      next.splice(to, 0, next.splice(from, 1)[0]);
       return next;
     });
   }
@@ -168,7 +214,8 @@ export default function AggregatorPage() {
       <div className="panel">
         <h2>Session</h2>
         <p className="muted">
-          Pick the services you're debugging across and work with them side by side, each with its own searches. The AI
+          Pick what you're debugging across — any of the search tabs, plus the Tools page — and work with them side by
+          side, each with its own state. Drag a pane by its title bar to reorder them, or use the arrows on it. The AI
           assistant spans all of them: ask about the rows you've checked across every service at once, or have it write
           a query for any one of them using what you selected in the others as examples.
         </p>
@@ -225,19 +272,84 @@ export default function AggregatorPage() {
           whole point of working across services at once. */}
       <AiPaneRegistryContext.Provider value={registry}>
         <div className={layout === "columns" ? "aggregator-columns" : "aggregator-stack"}>
-          {open.map((s) => {
+          {open.map((s, i) => {
             const collapsed = minimized.has(s.id);
+            // Which way "earlier" and "later" actually look depends on the
+            // layout, so the arrows follow it rather than always saying up/down.
+            const back = layout === "columns" ? "left" : "up";
+            const forward = layout === "columns" ? "right" : "down";
             return (
-              <section key={s.id} className={`aggregator-pane${collapsed ? " collapsed" : ""}`}>
+              <section
+                key={s.id}
+                className={
+                  "aggregator-pane" +
+                  (collapsed ? " collapsed" : "") +
+                  (dragging === s.id ? " dragging" : "") +
+                  (dropTarget === s.id && dragging !== s.id ? " drop-target" : "")
+                }
+                // The drop zone is the whole pane, not just its title bar, so
+                // there's something to aim at once a pane is minimised too.
+                onDragOver={(e) => {
+                  if (!dragging || dragging === s.id) return;
+                  e.preventDefault();
+                  setDropTarget(s.id);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragging) dropService(dragging, s.id);
+                  setDragging(null);
+                  setDropTarget(null);
+                }}
+              >
                 {/* The whole title bar toggles, so the buttons on it have to
                     stop their click bubbling -- otherwise minimise would fire
-                    twice and cancel itself out, and closing would also toggle. */}
+                    twice and cancel itself out, and closing would also toggle.
+                    It's also the drag handle: a completed drag doesn't fire a
+                    click, so reordering doesn't minimise the pane on the way. */}
                 <header
                   className="aggregator-pane-header"
+                  draggable
+                  onDragStart={(e) => {
+                    setDragging(s.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    // Firefox won't start a drag without some payload set.
+                    e.dataTransfer.setData("text/plain", s.id);
+                  }}
+                  onDragEnd={() => {
+                    setDragging(null);
+                    setDropTarget(null);
+                  }}
                   onClick={() => toggleMinimized(s.id)}
-                  title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                  title={`${collapsed ? "Expand" : "Minimise"} ${s.label} — drag to reorder`}
                 >
+                  <span className="aggregator-drag-handle" aria-hidden="true">
+                    ⠿
+                  </span>
                   <h3>{s.label}</h3>
+                  <button
+                    className="secondary"
+                    disabled={i === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      moveService(s.id, -1);
+                    }}
+                    title={`Move ${s.label} ${back}`}
+                    aria-label={`Move ${s.label} ${back}`}
+                  >
+                    {layout === "columns" ? "◀" : "▲"}
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={i === open.length - 1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      moveService(s.id, 1);
+                    }}
+                    title={`Move ${s.label} ${forward}`}
+                    aria-label={`Move ${s.label} ${forward}`}
+                  >
+                    {layout === "columns" ? "▶" : "▼"}
+                  </button>
                   <button
                     className="secondary"
                     onClick={(e) => {
