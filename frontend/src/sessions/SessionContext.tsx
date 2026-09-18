@@ -16,7 +16,12 @@ import { EMPTY_WORKSPACE, PersistedSession, Workspace, loadWorkspace, saveWorksp
  * renaming one orphans existing open sessions -- add rather than rename.
  * The registry in ./registry.tsx says what each one is and renders. */
 export type SessionType =
+  /** Legacy: one page with a CloudWatch/OpenSearch switch inside it. Kept in
+   * the union so a session stored before the split still has a valid type
+   * while it is migrated on load -- it is not offered anywhere any more. */
   | "logs"
+  | "logs-cloudwatch"
+  | "logs-opensearch"
   | "iot"
   | "tables"
   | "buckets"
@@ -28,6 +33,51 @@ export type SessionType =
   | "tool-base64"
   | "tool-diff"
   | "agent";
+
+/**
+ * Splits the old single "logs" session into the two it became.
+ *
+ * Which one it is was already in the session's own state -- the `backend` key
+ * the removed switch wrote -- so nothing is guessed and nothing is lost. Runs
+ * on every load rather than once: a workspace can come back from an older
+ * browser at any time.
+ */
+function migrateSessionTypes(w: Workspace): Workspace {
+  const needsWork = w.sessions.some(
+    (s) => s.type === "logs" || (s.type === "aggregator" && (s.state.services as string[] | undefined)?.includes("logs")),
+  );
+  if (!needsWork) return w;
+
+  return {
+    ...w,
+    sessions: w.sessions.map((s) => {
+      if (s.type === "logs") {
+        return { ...s, type: s.state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch" };
+      }
+      if (s.type !== "aggregator") return s;
+      const services = s.state.services as string[] | undefined;
+      if (!services?.includes("logs")) return s;
+
+      // An Aggregator keeps its panes' state under "<paneId>.<key>", so the
+      // pane's id and every key it owns have to move together -- renaming only
+      // the id would leave the pane on screen with none of its inputs.
+      const next = s.state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch";
+      const backend = s.state["logs.backend"] === "opensearch" ? "logs-opensearch" : next;
+      const state: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(s.state)) {
+        state[key.startsWith("logs.") ? `${backend}.${key.slice("logs.".length)}` : key] = value;
+      }
+      state.services = services.map((id) => (id === "logs" ? backend : id));
+      if (s.state.minimized instanceof Set && s.state.minimized.has("logs")) {
+        const minimized = new Set(s.state.minimized as Set<string>);
+        minimized.delete("logs");
+        minimized.add(backend);
+        state.minimized = minimized;
+      }
+      return { ...s, state };
+    }),
+  };
+}
 
 export type ViewKind = "home" | "settings" | "session";
 
@@ -119,7 +169,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setReady(false);
     loadWorkspace(userId).then((loaded) => {
       if (cancelled) return;
-      setWorkspace(loaded);
+      setWorkspace(migrateSessionTypes(loaded));
       setReady(true);
     });
     return () => {

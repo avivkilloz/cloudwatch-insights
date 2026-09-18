@@ -259,14 +259,18 @@ button,
 
 /* Reads as the top of the body rather than a second header: no background of
    its own, no rule under it, and tabs shaped like the Settings page's. */
+/* Shaped like the cards in the body -- same border, radius and padding -- but
+   filled with the page background rather than the panel colour, so it reads as
+   part of the surface the cards sit on rather than as another card. */
 .session-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* The bottom padding is the gap between the strip and the page under it:
-     with no rule between them, the separation has to come from space. */
-  padding: 14px 20px 14px;
-  background: transparent;
+  margin: 14px 20px 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   overflow-x: auto;
   /* Chrome, not content: a stray click-drag across the strip should never
      start a native text drag, which hands the mouse to the browser for the
@@ -493,6 +497,7 @@ button,
 }
 
 .home-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -522,7 +527,9 @@ button,
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  padding: 12px 12px 10px;
+  /* Room on the right for the tick in the corner, so a long title never runs
+     underneath it. */
+  padding: 12px 34px 12px 12px;
 }
 
 .home-card-title {
@@ -536,14 +543,14 @@ button,
   line-height: 1.35;
 }
 
+/* Over the card's top-right corner, level with the title. Absolute rather
+   than a row of its own: the card is a single block again, and the tick is an
+   affordance on it rather than a second thing to read. */
 .home-card-pick {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-top: 1px solid var(--border);
-  font-size: 11.5px;
-  color: var(--text-dim);
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  margin: 0;
   cursor: pointer;
 }
 
@@ -580,9 +587,9 @@ button,
 .content {
   flex: 1;
   overflow: auto;
-  /* Less at the top: the session strip sits directly above with no rule
-     between them, so the two should read as one surface. */
-  padding: 12px 20px 20px;
+  /* The session strip above carries its own margin, so this is the gap between
+     the strip's card and the first card of the page. */
+  padding: 14px 20px 20px;
 }
 
 h2 {

@@ -41,17 +41,33 @@ export interface SessionTypeDef {
 
 export const PANE_TYPES: SessionTypeDef[] = [
   {
-    type: "logs",
-    label: "Logs",
+    type: "logs-cloudwatch",
+    label: "CloudWatch",
     group: "Services",
-    description: "CloudWatch Logs Insights or OpenSearch, across environments.",
+    description: "Query CloudWatch Logs Insights across environments.",
     help:
-      "Run one query across several AWS accounts and regions at once, against either CloudWatch Logs Insights or " +
-      "OpenSearch, and read the merged results newest-first. Pick the environments and log groups, write the query " +
-      "or have the assistant write it, then run it.",
-    render: () => <InsightsPage />,
+      "Run one CloudWatch Logs Insights query across several AWS accounts and regions at once and read the merged " +
+      "results newest-first. Pick the environments and log groups, write the query in Insights' pipe syntax or have " +
+      "the assistant write it, then run it.",
+    render: () => <InsightsPage backend="cloudwatch" />,
     enabledFor: (u) => !!u?.logs_enabled,
+    // Unchanged from when this was the only logs page, so sessions saved
+    // before the split still list and open here.
     savedPage: "logs",
+    paneable: true,
+  },
+  {
+    type: "logs-opensearch",
+    label: "OpenSearch",
+    group: "Services",
+    description: "Query AWS-provisioned OpenSearch domains across environments.",
+    help:
+      "Search AWS-provisioned OpenSearch domains across environments using Lucene query_string syntax — the same as " +
+      "OpenSearch Dashboards' search bar — and read the merged results newest-first. Each domain's access policy has " +
+      "to allow the app's assumed role, and its endpoint has to be reachable from the backend.",
+    render: () => <InsightsPage backend="opensearch" />,
+    enabledFor: (u) => !!u?.logs_enabled,
+    savedPage: "logs-opensearch",
     paneable: true,
   },
   {

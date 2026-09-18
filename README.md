@@ -28,10 +28,12 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   with a **+** at the end of them (so on the left when there are none). It's
   deliberately flat — no background or rule of its own, so it reads as the top
   of the page rather than a second header. **+** lists every session type —
-  the **Aggregator** and **Agent** first, then Logs, IoT, DynamoDB, S3 and
+  the **Aggregator** and **Agent** first, then CloudWatch, OpenSearch, IoT,
+  DynamoDB, S3 and
   Cognito, then each **tool** on its own (HTTP client, MQTT tester, JWT,
   Base64, Diff) — plus your saved sessions. Picking one starts a session and gives it a tab; a second
-  Logs session is called "Logs 2" rather than colliding. Click a tab to switch
+  CloudWatch session is called "CloudWatch 2" rather than colliding. Click a tab
+  to switch
   to it, double-click to rename it, drag to reorder, **✕** to close.
   **Save session** at the right of the strip saves the active one. Reordering
   is pointer-driven, like the Aggregator's panes, rather than the browser's
@@ -65,7 +67,7 @@ from the avatar menu and is not a session; the strip stays above it.
 - Define **environments** — each one an AWS account paired with a single
   region — once, under Settings' **Environments** section (Admin-group
   members only).
-- **Logs session**: pick one or more environments, browse/select their log
+- **CloudWatch session**: pick one or more environments, browse/select their log
   groups, write a CloudWatch Logs Insights query (same syntax as the AWS
   console), and run it — the app fires one `StartQuery` per selected
   environment in parallel and polls until every target finishes. Results
@@ -94,7 +96,7 @@ from the avatar menu and is not a session; the strip stays above it.
   row fetched for an export is already there when you open it. Rows whose
   detail can't be fetched are called out and fall back to their summary.
 - **DynamoDB page**: pick one environment (DynamoDB tables are inherently
-  single-account/region, so unlike Logs/IoT this page doesn't fan out
+  single-account/region, so unlike CloudWatch/IoT this page doesn't fan out
   across several at once), load its table list, and pick a table to see
   its key schema, status, and item count. Search/filter with
   `field:value` tokens (exact match, ANDed) — this runs a `Scan` with a
@@ -123,7 +125,7 @@ from the avatar menu and is not a session; the strip stays above it.
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
 - **Aggregator session**: pick what you're actually
-  debugging across — say Logs, IoT and Cognito — and work with them in one
+  debugging across — say CloudWatch, IoT and Cognito — and work with them in one
   place instead of losing each page's state every time you switch tabs. Each
   pane is the *real* page, not a cut-down copy: the same environment pickers,
   search boxes, saved sessions, result rows and expandable details. **Individual
@@ -170,12 +172,12 @@ from the avatar menu and is not a session; the strip stays above it.
   session (which panes, in which order, and which layout) can be saved and
   reloaded like any other, and is managed under **Saved items → Aggregator Sessions**.
 - **Result row selection**, on every tab that returns a list of results —
-  Logs (both backends), IoT (things and certificates), DynamoDB, S3 and
+  CloudWatch, OpenSearch, IoT (things and certificates), DynamoDB, S3 and
   Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
   list that selects/deselects every currently-shown row. Selecting rows:
   - enables **Hide selected**, which removes them from view so you can whittle
     a noisy result set down to what matters (a "Show N hidden" button brings
-    them all back). On the Logs tab, hiding also makes room for the
+    them all back). On the CloudWatch page, hiding also makes room for the
     next-best row within the current Limit rather than just leaving a gap;
   - narrows **export** — the button becomes "Export N selected" and writes
     only the checked rows, instead of everything on screen;
@@ -187,7 +189,7 @@ from the avatar menu and is not a session; the strip stays above it.
   (the "Load more" buttons on DynamoDB, S3 and Cognito) keeps it, since
   those append rather than replace. Checking a row never expands it, so you
   can select and inspect independently.
-- **Grouping and the `@log` field** (Logs tab, CloudWatch backend): the
+- **Grouping and the `@log` field** (CloudWatch page): the
   default query includes `@log` alongside `@timestamp`/`@message`, so when
   a query spans multiple log groups, each row shows a tag naming which one
   it came from (CloudWatch returns this as `<account_id>:<log_group_name>`;
@@ -215,7 +217,7 @@ from the avatar menu and is not a session; the strip stays above it.
   The assistant knows **which page it's on**, and each page's query syntax is
   wildly different, so the syntax it writes and the way it describes your
   rows follow the tab you're looking at: CloudWatch Logs Insights' pipe
-  syntax or OpenSearch Lucene on Logs (following that tab's backend toggle),
+  syntax on CloudWatch or OpenSearch Lucene on OpenSearch,
   IoT Fleet Indexing on IoT things, the much narrower
   `status:`/`certid:` filters on IoT certificates, `field:value` scan tokens
   on DynamoDB, and Cognito's single starts-with `attribute:value` token on
@@ -227,9 +229,8 @@ from the avatar menu and is not a session; the strip stays above it.
   what the assistant writes isn't a query string at all but a whole request
   as JSON, applied to the form by **Use this request** — see the Tools
   section below.
-  Switching what a page is searching (Logs' CloudWatch/OpenSearch toggle,
-  IoT's things/certificates toggle) starts fresh threads, since neither the
-  query language nor the rows still apply.
+  Switching what a page is searching (IoT's things/certificates toggle) starts
+  fresh threads, since neither the query language nor the rows still apply.
 
   Each tab keeps its own conversation — switching tabs doesn't lose either
   thread, and you can go back and forth, not just one
@@ -242,17 +243,18 @@ from the avatar menu and is not a session; the strip stays above it.
   are deployment secrets rather than app data. Entirely optional: the
   floating button stays hidden until all three variables are set. See
   `DEPLOYMENT.md` for wiring this up via Helm.
-- Everything saved anywhere in the app — Logs/IoT saved queries and
-  searches, Logs/IoT saved sessions, saved buckets/tables, saved HTTP
+- Everything saved anywhere in the app — log/IoT saved queries and
+  searches, session templates, saved buckets/tables, saved HTTP
   requests, and saved MQTT topics — is **per user** (each user only ever
   sees and manages their own) and is managed from one **Saved items** panel
   under the **Saved** section of Settings, with a tab for each kind (Log
-  Queries, IoT Searches, Logs Sessions, IoT Sessions, Aggregator Sessions,
+  Queries, IoT Searches, CloudWatch Sessions, OpenSearch Sessions, IoT Sessions,
+  Aggregator Sessions,
   S3, DynamoDB, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
   method/URL/headers/body through the same form the HTTP Client tool itself
-  uses; saved MQTT topics edit the topic string; saved Logs/IoT sessions and
+  uses; saved MQTT topics edit the topic string; saved log/IoT sessions and
   saved buckets/tables (see below) edit their underlying JSON state
   directly, since their shape is page-defined and too open-ended for a
   bespoke form. Only the query/search and HTTP-request/MQTT-topic tabs
@@ -260,7 +262,7 @@ from the avatar menu and is not a session; the strip stays above it.
   a saved bucket/table is still created from its own page's "Save"
   button, since that's what captures the current state in the first place.
   (Cognito has no saved-item concept of its own today.)
-- **Saved sessions**, distinct from saved queries/searches: the Logs and
+- **Saved sessions**, distinct from saved queries/searches: the log and
   IoT tabs each have a "Save session" button that snapshots the page's
   *entire* working state — selected environments, log groups, query text,
   time range, limit, sort, search mode, and so on — not just the query
@@ -273,7 +275,7 @@ from the avatar menu and is not a session; the strip stays above it.
   saved sessions are all built on (each just its own page name under the same
   mechanism). (Cognito doesn't have this yet.)
 - **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
-  next to the result count on the Logs tab (both CloudWatch and OpenSearch
+  next to the result count on the CloudWatch and OpenSearch pages (both
   backends), IoT page (Things and Certificates), DynamoDB, S3, and Cognito
   exports exactly the rows currently on screen — after any sort, hide, or
   search/filter you've applied, not a raw re-fetch — or, when you have rows
@@ -310,7 +312,8 @@ control:
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
-- **Which pages** are visible (Logs, IoT, DynamoDB, S3, Cognito, Tools —
+- **Which pages** are visible (CloudWatch + OpenSearch, IoT, DynamoDB, S3,
+  Cognito, Tools —
   Settings itself is handled separately, see below).
 
 Everything about the current user lives behind their **avatar**, top right of
@@ -535,9 +538,9 @@ The app needs two things:
      ]
    }
    ```
-   (Drop whichever service's actions you don't need — `logs:*` for Logs
+   (Drop whichever service's actions you don't need — `logs:*` for CloudWatch
    (CloudWatch backend), `iot:*` for IoT, `dynamodb:*` for Tables, `s3:*`
-   for S3, `cognito-idp:*` for Cognito, `es:*` for Logs (OpenSearch
+   for S3, `cognito-idp:*` for Cognito, `es:*` for OpenSearch (
    backend). `s3:ListBucket` is normally scoped to specific bucket ARNs
    rather than `*`; this simplified example grants it account-wide the same
    way the rest of this policy does.)
@@ -586,14 +589,17 @@ indexing setup, but is more limited than Things search:
   `ListCertificates` — so it can be slow and the certificate ID is the only
   thing you can free-text search on.
 
-### Logs tab: OpenSearch backend
+### OpenSearch
 
-The Logs page can search either CloudWatch Logs Insights (the default) or an
-AWS-provisioned OpenSearch domain — pick one with the backend toggle at the
-top of the page. Both share the same environment picker, results table, and
-AI assistant; only the second step (choosing what to search) and the query
-syntax (Lucene `query_string`, e.g. `level:ERROR AND service:checkout`,
-instead of CloudWatch's pipe syntax) differ.
+**CloudWatch** and **OpenSearch** are two separate session types rather than
+one page with a switch on it. They share the same environment picker, results
+table and AI assistant; what differs is the second step (log groups against
+indices) and the query syntax — Lucene `query_string`, e.g.
+`level:ERROR AND service:checkout`, instead of CloudWatch's pipe syntax.
+
+Sessions and saved sessions created before the split still open: which of the
+two they were using was already recorded in their own state, so they are
+routed to the matching page rather than guessed at.
 
 Two things need to line up for the OpenSearch backend to reach a domain:
 
@@ -652,10 +658,13 @@ inputs and its output stay visibly separate.
   (word- and line-level boundaries alone wouldn't highlight, say, a couple
   of changed characters inside one long unbroken token), with a view-mode
   selector: **Unified** (inline, one line under the other), **Split**
-  (side-by-side columns), and **Compact** (unified, but collapsing long runs
-  of unchanged lines into a clickable "N unchanged lines" placeholder so a
-  small change in a large text doesn't require scrolling past pages of
-  context). Client-side only.
+  (side-by-side columns), and **Compact — fold unchanged runs** (unified, but
+  collapsing long runs of unchanged lines into a clickable "N unchanged lines"
+  placeholder so a small change in a large text doesn't require scrolling past
+  pages of context). Compact only folds runs of more than nine consecutive
+  unchanged lines, so on a short diff it is identical to Unified by design —
+  which is why the option says what it does rather than just "Compact".
+  Client-side only.
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
   Requests can be saved and reloaded by name (**Save request** / **Load

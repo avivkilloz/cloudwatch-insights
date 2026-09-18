@@ -25,6 +25,7 @@ type TabId =
   | "logs-queries"
   | "iot-searches"
   | "logs-sessions"
+  | "opensearch-sessions"
   | "iot-sessions"
   | "aggregator-sessions"
   | "buckets"
@@ -35,7 +36,8 @@ type TabId =
 const TABS: { id: TabId; label: string }[] = [
   { id: "logs-queries", label: "Log Queries" },
   { id: "iot-searches", label: "IoT Searches" },
-  { id: "logs-sessions", label: "Logs Sessions" },
+  { id: "logs-sessions", label: "CloudWatch Sessions" },
+  { id: "opensearch-sessions", label: "OpenSearch Sessions" },
   { id: "iot-sessions", label: "IoT Sessions" },
   { id: "aggregator-sessions", label: "Aggregator Sessions" },
   { id: "buckets", label: "S3" },
@@ -102,10 +104,21 @@ export default function SavedItemsHub(props: Props) {
 
       {tab === "logs-sessions" && (
         <SavedSessionEditorPanel
-          description="A full working-state snapshot from the Logs page — environments, filters, query, and so on — created via its &quot;Save session&quot; button. The raw JSON below is editable directly; load it on the Logs page to see it applied."
+          description="The inputs of a CloudWatch session — environments, log groups, query, time range and so on — saved with &quot;Save session&quot; in the session strip. The raw JSON below is editable directly. Sessions saved before CloudWatch and OpenSearch became separate pages are listed here too, and open on whichever page their own state says they were using."
           kind="json"
           items={props.savedSessions.filter((s) => s.page === "logs")}
           onCreate={(name, state) => props.onCreateSession("logs", name, state)}
+          onUpdate={props.onUpdateSession}
+          onDelete={props.onDeleteSession}
+        />
+      )}
+
+      {tab === "opensearch-sessions" && (
+        <SavedSessionEditorPanel
+          description="The inputs of an OpenSearch session — environments, indices, query, time range and so on — saved with &quot;Save session&quot; in the session strip. The raw JSON below is editable directly."
+          kind="json"
+          items={props.savedSessions.filter((s) => s.page === "logs-opensearch")}
+          onCreate={(name, state) => props.onCreateSession("logs-opensearch", name, state)}
           onUpdate={props.onUpdateSession}
           onDelete={props.onDeleteSession}
         />
