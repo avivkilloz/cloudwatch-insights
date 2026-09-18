@@ -26,7 +26,13 @@ function rowToObject(row: FlatCert): Record<string, unknown> {
   return { environment: row.environment_name, ...row.cert };
 }
 
-export default function IotCertResultsList({ items }: { items: IotCertificateSearchResultItem[] }) {
+interface Props {
+  items: IotCertificateSearchResultItem[];
+  /** Reports the checked rows up to the page, which feeds them to the AI assistant. */
+  onSelectionChange?: (rows: Record<string, unknown>[]) => void;
+}
+
+export default function IotCertResultsList({ items, onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState<Record<string, DetailState>>({});
 
@@ -46,6 +52,7 @@ export default function IotCertResultsList({ items }: { items: IotCertificateSea
     rows: flat,
     keyOf: (r) => r.key,
     toObject: rowToObject,
+    onSelectionChange,
     resetOn: items,
   });
   const displayRows = selection.visibleRows;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -35,6 +36,7 @@ export default function TablesPage() {
   // Bumped only when a fresh scan replaces the items, so that "Load more"
   // (which appends) doesn't throw away the rows the user has checked.
   const [resultsVersion, setResultsVersion] = useState(0);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   const [savedTables, setSavedTables] = useState<SavedSession<TableShortcutState>[]>([]);
 
@@ -153,6 +155,7 @@ export default function TablesPage() {
     rows,
     keyOf: (r) => r.key,
     toObject: (r) => r.item,
+    onSelectionChange: setSelectedRows,
     resetOn: resultsVersion,
   });
   const displayRows = selection.visibleRows;
@@ -304,6 +307,16 @@ export default function TablesPage() {
           )}
         </div>
       )}
+
+      <AiAssistantWidget
+        domain="tables"
+        queryString={queryString}
+        onUseQuery={setQueryString}
+        sampleRows={items}
+        rowCount={items.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }

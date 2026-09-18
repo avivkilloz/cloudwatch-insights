@@ -89,11 +89,58 @@ def test_chat_posts_to_chat_completions_with_system_prompt_and_context(monkeypat
     assert captured["json"]["messages"][-1] == {"role": "user", "content": "show errors"}
 
 
-def test_build_query_system_prompts_instruct_refining_the_current_query():
-    for backend in ("cloudwatch", "opensearch"):
-        prompt = ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS[backend]
-        assert "Current query" in prompt
-        assert "starting point" in prompt
+def test_every_domain_builds_both_prompts_with_the_shared_rules():
+    for name in ai_assistant.DOMAINS:
+        build = ai_assistant.build_query_prompt(name)
+        # The shared "refine what's already in the editor" behaviour every
+        # domain inherits from the template.
+        assert "Current query" in build
+        assert "starting point" in build
+        # The domain's own syntax description made it in, and no placeholder
+        # was left unformatted.
+        assert ai_assistant.DOMAINS[name].query_language in build
+        assert "{" not in build
+
+        ask = ai_assistant.ask_results_prompt(name)
+        assert ai_assistant.DOMAINS[name].results_noun in ask
+        assert "truncated" in ask
+        assert "{" not in ask
+
+
+def test_domains_cover_every_searchable_page():
+    assert set(ai_assistant.DOMAINS) == {
+        "logs-cloudwatch",
+        "logs-opensearch",
+        "iot-things",
+        "iot-certificates",
+        "tables",
+        "buckets",
+        "cognito",
+    }
+
+
+def test_domain_prompts_teach_their_own_syntax_not_another_domains():
+    assert "Lucene" in ai_assistant.build_query_prompt("logs-opensearch")
+    assert "Lucene" not in ai_assistant.build_query_prompt("logs-cloudwatch")
+    assert "Fleet Indexing" in ai_assistant.build_query_prompt("iot-things")
+    # Certificates deliberately do NOT use Fleet Indexing -- the prompt has to
+    # say so, since it's the obvious wrong assumption for an IoT search box.
+    assert "Fleet Indexing does not cover certificates" in ai_assistant.build_query_prompt("iot-certificates")
+    assert "Cognito only supports filtering by ONE attribute" in ai_assistant.build_query_prompt("cognito")
+
+
+def test_multi_log_group_caveat_only_applies_to_log_domains():
+    # The @log fairness note describes how the *frontend* samples log rows, so
+    # it would be a lie on any non-log domain.
+    for name in ("logs-cloudwatch", "logs-opensearch"):
+        assert "@log" in ai_assistant.ask_results_prompt(name)
+    for name in ("iot-things", "iot-certificates", "tables", "buckets", "cognito"):
+        assert "@log" not in ai_assistant.ask_results_prompt(name)
+
+
+def test_unknown_domain_falls_back_to_cloudwatch_rather_than_erroring():
+    assert ai_assistant.build_query_prompt("not-a-real-domain") == ai_assistant.build_query_prompt("logs-cloudwatch")
+    assert ai_assistant.build_query_prompt(None) == ai_assistant.build_query_prompt("logs-cloudwatch")
 
 
 def test_chat_includes_sample_rows_in_context(monkeypatch):
@@ -149,7 +196,7 @@ def test_build_sample_context_truncates_oversized_rows_and_says_so():
     assert context.count('"message"') == reported_count
 
 
-def test_chat_uses_opensearch_system_prompt_when_backend_is_opensearch(monkeypatch):
+def test_chat_uses_the_requested_domains_system_prompt(monkeypatch):
     monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
     monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
     monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
@@ -165,15 +212,15 @@ def test_chat_uses_opensearch_system_prompt_when_backend_is_opensearch(monkeypat
     ai_assistant.chat(
         "build_query",
         [{"role": "user", "content": "show errors"}],
-        backend="opensearch",
+        domain="logs-opensearch",
     )
 
     system_prompt = captured["json"]["messages"][0]["content"]
-    assert system_prompt == ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS["opensearch"]
+    assert system_prompt == ai_assistant.build_query_prompt("logs-opensearch")
     assert "Lucene" in system_prompt
 
 
-def test_chat_defaults_to_cloudwatch_system_prompt_when_backend_omitted(monkeypatch):
+def test_chat_defaults_to_cloudwatch_system_prompt_when_domain_omitted(monkeypatch):
     monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
     monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
     monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
@@ -188,10 +235,10 @@ def test_chat_defaults_to_cloudwatch_system_prompt_when_backend_omitted(monkeypa
 
     ai_assistant.chat("build_query", [{"role": "user", "content": "show errors"}])
 
-    assert captured["json"]["messages"][0]["content"] == ai_assistant.BUILD_QUERY_SYSTEM_PROMPTS["cloudwatch"]
+    assert captured["json"]["messages"][0]["content"] == ai_assistant.build_query_prompt("logs-cloudwatch")
 
 
-def test_chat_ask_results_prompt_is_backend_agnostic(monkeypatch):
+def test_chat_ask_results_uses_the_domains_ask_prompt(monkeypatch):
     monkeypatch.setenv("LITELLM_API_KEY", "sk-test")
     monkeypatch.setenv("LITELLM_BASE_URL", "https://litellm.example.com")
     monkeypatch.setenv("LITELLM_MODEL", "gpt-4o-mini")
@@ -207,10 +254,11 @@ def test_chat_ask_results_prompt_is_backend_agnostic(monkeypatch):
     ai_assistant.chat(
         "ask_results",
         [{"role": "user", "content": "how many errors?"}],
-        backend="opensearch",
+        domain="cognito",
     )
 
-    assert captured["json"]["messages"][0]["content"] == ai_assistant.ASK_RESULTS_SYSTEM_PROMPT
+    assert captured["json"]["messages"][0]["content"] == ai_assistant.ask_results_prompt("cognito")
+    assert "Cognito users" in captured["json"]["messages"][0]["content"]
 
 
 def test_build_sample_context_always_includes_at_least_one_row_even_if_oversized():

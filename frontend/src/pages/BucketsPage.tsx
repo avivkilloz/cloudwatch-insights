@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -66,6 +67,7 @@ export default function BucketsPage() {
   // Bumped only when a fresh browse/search replaces the listing, so that
   // "Load more" (which appends) doesn't throw away the checked files.
   const [resultsVersion, setResultsVersion] = useState(0);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   const [savedBuckets, setSavedBuckets] = useState<SavedSession<BucketShortcutState>[]>([]);
 
@@ -182,6 +184,7 @@ export default function BucketsPage() {
     rows: files,
     keyOf: (f) => f.key,
     toObject: (f) => ({ ...f }),
+    onSelectionChange: setSelectedRows,
     resetOn: resultsVersion,
   });
   const displayFiles = selection.visibleRows;
@@ -356,6 +359,18 @@ export default function BucketsPage() {
           )}
         </div>
       )}
+
+      {/* Ask-only: S3's "search" here is a literal filename substring, so
+          there's no query worth having the assistant write. */}
+      <AiAssistantWidget
+        domain="buckets"
+        modes={["ask_results"]}
+        queryString={activeSearch}
+        sampleRows={files as unknown as Record<string, unknown>[]}
+        rowCount={files.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }

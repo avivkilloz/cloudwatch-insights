@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { api, AiAssistMode, AiChatMessage, LogsBackend } from "../api";
+import { api, AiAssistMode, AiChatMessage, AiDomain } from "../api";
 import MarkdownLite from "./MarkdownLite";
 
 interface DisplayMessage extends AiChatMessage {
@@ -7,6 +7,15 @@ interface DisplayMessage extends AiChatMessage {
 }
 
 interface Props {
+  /** Which page/service this widget is sitting on. Decides the query syntax
+   * "Build query" writes and what "About results" thinks the rows are, and
+   * changing it starts fresh threads -- a conversation about IoT things has
+   * nothing useful to say about DynamoDB items. */
+  domain: AiDomain;
+  /** Modes this page offers. Defaults to both; a page whose search box takes
+   * something too trivial to need help writing (S3's filename substring) can
+   * pass just ["ask_results"]. */
+  modes?: AiAssistMode[];
   queryString?: string;
   sampleRows?: Record<string, unknown>[];
   rowCount?: number;
@@ -22,9 +31,6 @@ interface Props {
    * answering from a previous, no-longer-visible result set.
    */
   resultsVersion?: number;
-  /** Which Logs-page backend build_query should write for -- CloudWatch Logs
-   * Insights syntax vs. OpenSearch Lucene query_string syntax. */
-  backend?: LogsBackend;
 }
 
 const MODE_LABELS: Record<AiAssistMode, string> = {
@@ -32,17 +38,53 @@ const MODE_LABELS: Record<AiAssistMode, string> = {
   ask_results: "About results",
 };
 
-const MODE_PLACEHOLDERS: Record<AiAssistMode, string> = {
-  build_query: "e.g. show errors from the last hour grouped by service",
-  ask_results: "e.g. what's the most common error?",
-};
+const ALL_MODES: AiAssistMode[] = ["build_query", "ask_results"];
 
-const MODE_EMPTY_HINTS: Record<AiAssistMode, string> = {
-  build_query: "Describe the query you want in plain English.",
-  ask_results: "Ask a question about the current results.",
+// Per-page wording, so the prompts suggest something actually answerable on
+// the page you're looking at rather than always talking about log lines.
+const DOMAIN_COPY: Record<AiDomain, { rows: string; build: string; ask: string }> = {
+  "logs-cloudwatch": {
+    rows: "log rows",
+    build: "e.g. show errors from the last hour grouped by service",
+    ask: "e.g. what's the most common error?",
+  },
+  "logs-opensearch": {
+    rows: "log rows",
+    build: "e.g. errors from the checkout service, excluding health checks",
+    ask: "e.g. what's the most common error?",
+  },
+  "iot-things": {
+    rows: "things",
+    build: "e.g. prod-stage things that are currently disconnected",
+    ask: "e.g. which of these have been offline longest?",
+  },
+  "iot-certificates": {
+    rows: "certificates",
+    build: "e.g. only inactive certificates",
+    ask: "e.g. how many of these are inactive?",
+  },
+  tables: {
+    rows: "items",
+    build: "e.g. items whose status is ACTIVE",
+    ask: "e.g. what fields do these items have in common?",
+  },
+  buckets: {
+    rows: "files",
+    build: "",
+    ask: "e.g. which of these files is largest?",
+  },
+  cognito: {
+    rows: "users",
+    build: "e.g. users whose email starts with john",
+    ask: "e.g. how many of these are unconfirmed?",
+  },
 };
 
 const EMPTY_THREADS: Record<AiAssistMode, DisplayMessage[]> = { build_query: [], ask_results: [] };
+
+// The @log interleaving below only means anything for CloudWatch/OpenSearch
+// rows; every other domain's rows have no such field.
+const LOG_DOMAINS: AiDomain[] = ["logs-cloudwatch", "logs-opensearch"];
 
 const SAMPLE_CAP = 40;
 
@@ -115,17 +157,18 @@ function CheckIcon() {
 }
 
 export default function AiAssistantWidget({
+  domain,
+  modes = ALL_MODES,
   queryString,
   sampleRows,
   rowCount,
   selectedRows,
   onUseQuery,
   resultsVersion,
-  backend,
 }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<AiAssistMode>("build_query");
+  const [mode, setMode] = useState<AiAssistMode>(modes[0]);
   const [threads, setThreads] = useState(EMPTY_THREADS);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -186,6 +229,25 @@ export default function AiAssistantWidget({
     setIncludeSelectedInBuildQuery(false);
   }, [resultsVersion]);
 
+  // Switching what the page is searching (Logs' CloudWatch/OpenSearch toggle,
+  // IoT's things/certificates toggle) changes both the query language and what
+  // the rows are, so neither thread still applies.
+  const lastDomain = useRef(domain);
+  useEffect(() => {
+    if (domain === lastDomain.current) return;
+    lastDomain.current = domain;
+    setThreads(EMPTY_THREADS);
+    setError(null);
+    setUseSelected(false);
+    setIncludeSelectedInBuildQuery(false);
+  }, [domain]);
+
+  // A page can stop offering the mode that's currently showing (e.g. moving to
+  // a domain with no worthwhile query to build).
+  useEffect(() => {
+    if (!modes.includes(mode)) setMode(modes[0]);
+  }, [modes, mode]);
+
   // The user deselecting everything (rather than a whole new query run)
   // should fall back the same way -- there's nothing left to send.
   useEffect(() => {
@@ -224,7 +286,8 @@ export default function AiAssistantWidget({
     try {
       let rowsToSend: Record<string, unknown>[] | undefined;
       if (mode === "ask_results") {
-        rowsToSend = useSelected ? selectedRows : interleaveByLogGroup(sampleRows ?? []).slice(0, SAMPLE_CAP);
+        const all = sampleRows ?? [];
+        rowsToSend = useSelected ? selectedRows : (LOG_DOMAINS.includes(domain) ? interleaveByLogGroup(all) : all).slice(0, SAMPLE_CAP);
       } else if (mode === "build_query" && includeSelectedInBuildQuery) {
         rowsToSend = selectedRows;
       }
@@ -234,7 +297,7 @@ export default function AiAssistantWidget({
         query_string: queryString,
         sample_rows: rowsToSend,
         row_count: mode === "ask_results" ? (useSelected ? rowsToSend?.length : rowCount) : undefined,
-        backend,
+        domain,
       });
       setThreads((prev) => ({
         ...prev,
@@ -252,6 +315,12 @@ export default function AiAssistantWidget({
   const messages = threads[mode];
   const totalAvailableRows = sampleRows?.length ?? 0;
   const selectedCount = selectedRows?.length ?? 0;
+  const copy = DOMAIN_COPY[domain];
+  const placeholder = mode === "build_query" ? copy.build : copy.ask;
+  const emptyHint =
+    mode === "build_query"
+      ? "Describe the query you want in plain English."
+      : `Ask a question about the ${copy.rows} currently on screen.`;
 
   return (
     <>
@@ -268,7 +337,7 @@ export default function AiAssistantWidget({
           />
           <div className="ai-widget-header">
             <div className="ai-widget-tabs">
-              {(Object.keys(MODE_LABELS) as AiAssistMode[]).map((m) => (
+              {modes.map((m) => (
                 <button
                   key={m}
                   className={mode === m ? "tab active" : "tab"}
@@ -325,7 +394,7 @@ export default function AiAssistantWidget({
           )}
 
           <div className="ai-widget-messages">
-            {messages.length === 0 && <p className="muted">{MODE_EMPTY_HINTS[mode]}</p>}
+            {messages.length === 0 && <p className="muted">{emptyHint}</p>}
             {messages.map((m, i) => (
               <div className="result-row" key={i} style={{ marginBottom: 8 }}>
                 <div className="result-row-detail" style={{ borderTop: "none" }}>
@@ -368,7 +437,7 @@ export default function AiAssistantWidget({
                 el.style.height = `${el.scrollHeight}px`;
               }}
               onKeyDown={handleInputKeyDown}
-              placeholder={MODE_PLACEHOLDERS[mode]}
+              placeholder={placeholder}
               className="ai-widget-textarea"
             />
             <button onClick={send} disabled={loading || !input.trim()} style={{ padding: "6px 12px" }}>

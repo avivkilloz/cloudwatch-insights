@@ -81,21 +81,37 @@ regions** by assuming a role you configure in each target account.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- **AI assistant** (Logs tab, optional): a floating "✦ Ask AI" button in
-  the bottom-right corner opens a compact panel with two tabs instead of
-  bloating the page with always-visible panels. "Build query" turns a
-  plain-English description into a CloudWatch Logs Insights query you can
-  drop straight into the editor with one click — if you've checked some
-  result rows, a "Use N checked result(s) as examples" checkbox includes
-  them so the assistant can reference their actual field names/values
-  instead of guessing. "About results" answers questions about the current
-  result set: by default it sees a sample of the rows spread fairly across
-  every log group in the results (so a low-volume log group querying
-  alongside a high-volume one isn't crowded out); a "Sampled / Selected"
-  toggle appears once you've checked some rows, letting you narrow the
-  question to exactly those instead of the sample. Each tab keeps its own
-  conversation — switching tabs
-  doesn't lose either thread, and you can go back and forth, not just one
+- **AI assistant** (every searchable tab, optional): a floating "✦ Ask AI"
+  button in the bottom-right corner opens a compact panel with two tabs
+  instead of bloating the page with always-visible panels. "Build query"
+  turns a plain-English description into a query you can drop straight into
+  that page's search box with one click — if you've checked some result
+  rows, a "Use N checked result(s) as examples" checkbox includes them so
+  the assistant can reference their actual field names/values instead of
+  guessing. "About results" answers questions about the current result set:
+  by default it sees a sample of the rows; a "Sampled / Selected" toggle
+  appears once you've checked some rows, letting you narrow the question to
+  exactly those instead of the sample. On the Logs tab the default sample is
+  spread fairly across every log group in the results, so a low-volume log
+  group querying alongside a high-volume one isn't crowded out.
+
+  The assistant knows **which page it's on**, and each page's query syntax is
+  wildly different, so the syntax it writes and the way it describes your
+  rows follow the tab you're looking at: CloudWatch Logs Insights' pipe
+  syntax or OpenSearch Lucene on Logs (following that tab's backend toggle),
+  IoT Fleet Indexing on IoT things, the much narrower
+  `status:`/`certid:` filters on IoT certificates, `field:value` scan tokens
+  on Tables, and Cognito's single starts-with `attribute:value` token on
+  Cognito. It's told each surface's limits too, so it says "Cognito can only
+  filter on one attribute at a time" rather than inventing syntax that
+  silently returns nothing. Buckets gets "About results" only — its search is
+  a literal filename substring, so there's no query worth writing for you.
+  Switching what a page is searching (Logs' CloudWatch/OpenSearch toggle,
+  IoT's things/certificates toggle) starts fresh threads, since neither the
+  query language nor the rows still apply.
+
+  Each tab keeps its own conversation — switching tabs doesn't lose either
+  thread, and you can go back and forth, not just one
   shot. Drag the panel's top-left corner to resize it; the size is
   remembered per browser. Backed by a [LiteLLM](https://www.litellm.ai/)
   proxy (or anything else exposing an OpenAI-compatible

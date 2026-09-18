@@ -642,12 +642,28 @@ class SavedSessionOut(SavedSessionBase):
 # Backed by a LiteLLM proxy (or anything OpenAI-compatible), configured
 # entirely via env vars (LITELLM_API_KEY/BASE_URL/MODEL) -- never through the
 # Settings page, since these are deployment-time secrets/config, not
-# app data. Currently used by the Logs page only: building a query from a
+# app data. Used by every searchable page: building a query from a
 # plain-English description, and answering questions about a query's results.
 
 
 class AiStatus(BaseModel):
     configured: bool
+
+
+# Which page/service a request is about. build_query mode uses it to teach the
+# right query syntax (they differ wildly -- CloudWatch's pipe syntax, Lucene,
+# IoT Fleet Indexing, DynamoDB field:value tokens...) and ask_results mode uses
+# it to describe what the rows are. An unknown value falls back to
+# logs-cloudwatch rather than erroring.
+AiDomain = Literal[
+    "logs-cloudwatch",
+    "logs-opensearch",
+    "iot-things",
+    "iot-certificates",
+    "tables",
+    "buckets",
+    "cognito",
+]
 
 
 AiChatRole = Literal["user", "assistant"]
@@ -665,12 +681,7 @@ class AiAssistRequest(BaseModel):
     query_string: Optional[str] = None
     sample_rows: list[dict] = []
     row_count: Optional[int] = None
-    # Which Logs-page backend this request is for -- build_query mode uses it
-    # to teach the right query syntax (CloudWatch Logs Insights' pipe syntax
-    # vs. OpenSearch's Lucene query_string syntax); ask_results mode ignores
-    # it, since answering questions about a sample of rows doesn't depend on
-    # which backend produced them.
-    backend: LogsBackend = "cloudwatch"
+    domain: AiDomain = "logs-cloudwatch"
 
 
 class AiAssistResponse(BaseModel):

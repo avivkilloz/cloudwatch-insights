@@ -8,6 +8,7 @@ import {
   IotSearchResultItem,
   SavedSession,
 } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import IotResultsList from "../components/IotResultsList";
 import IotCertResultsList from "../components/IotCertResultsList";
@@ -55,6 +56,8 @@ export default function IotPage() {
   const [certResults, setCertResults] = useState<IotCertificateSearchResultItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -78,6 +81,7 @@ export default function IotPage() {
     setThingResults([]);
     setCertResults([]);
     setSearchError(null);
+    setResultsVersion((v) => v + 1);
   }
 
   async function runSearch() {
@@ -109,6 +113,7 @@ export default function IotPage() {
         });
         setCertResults(resp.results);
       }
+      setResultsVersion((v) => v + 1);
     } catch (e: any) {
       setSearchError(e.message);
     } finally {
@@ -149,6 +154,14 @@ export default function IotPage() {
     });
     setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
+
+  // The rows on screen, flattened into the same plain-object shape the results
+  // lists report their selection in, so the assistant sees one consistent
+  // shape whichever search mode is showing.
+  const flatRows: Record<string, unknown>[] =
+    searchMode === "things"
+      ? thingResults.flatMap((item) => item.things.map((thing) => ({ environment: item.environment_name, ...thing })))
+      : certResults.flatMap((item) => item.certificates.map((cert) => ({ environment: item.environment_name, ...cert })));
 
   return (
     <div>
@@ -296,11 +309,21 @@ export default function IotPage() {
       <div className="panel">
         <h2>3. Results</h2>
         {searchMode === "things" ? (
-          <IotResultsList items={thingResults} />
+          <IotResultsList items={thingResults} onSelectionChange={setSelectedRows} />
         ) : (
-          <IotCertResultsList items={certResults} />
+          <IotCertResultsList items={certResults} onSelectionChange={setSelectedRows} />
         )}
       </div>
+
+      <AiAssistantWidget
+        domain={searchMode === "things" ? "iot-things" : "iot-certificates"}
+        queryString={queryString}
+        onUseQuery={setQueryString}
+        sampleRows={flatRows}
+        rowCount={flatRows.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, CognitoUserInfo, CognitoUserPoolInfo, Environment } from "../api";
+import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -33,6 +34,7 @@ export default function CognitoPage() {
   // Bumped only when a fresh search replaces the users, so that "Load more"
   // (which appends) doesn't throw away the rows the user has checked.
   const [resultsVersion, setResultsVersion] = useState(0);
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -104,6 +106,7 @@ export default function CognitoPage() {
     rows,
     keyOf: (r) => r.key,
     toObject: (r) => ({ ...r.user }),
+    onSelectionChange: setSelectedRows,
     resetOn: resultsVersion,
   });
   const displayRows = selection.visibleRows;
@@ -241,6 +244,16 @@ export default function CognitoPage() {
           )}
         </div>
       )}
+
+      <AiAssistantWidget
+        domain="cognito"
+        queryString={queryString}
+        onUseQuery={setQueryString}
+        sampleRows={users as unknown as Record<string, unknown>[]}
+        rowCount={users.length}
+        selectedRows={selectedRows}
+        resultsVersion={resultsVersion}
+      />
     </div>
   );
 }

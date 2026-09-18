@@ -605,7 +605,7 @@ export default function InsightsPage() {
         rowCount={rowCount}
         selectedRows={selectedRows}
         resultsVersion={resultsVersion}
-        backend={backend}
+        domain={backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch"}
       />
     </div>
   );

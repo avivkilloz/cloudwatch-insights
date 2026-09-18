@@ -26,7 +26,13 @@ function rowToObject(row: FlatThing): Record<string, unknown> {
   return { environment: row.environment_name, ...row.thing };
 }
 
-export default function IotResultsList({ items }: { items: IotSearchResultItem[] }) {
+interface Props {
+  items: IotSearchResultItem[];
+  /** Reports the checked rows up to the page, which feeds them to the AI assistant. */
+  onSelectionChange?: (rows: Record<string, unknown>[]) => void;
+}
+
+export default function IotResultsList({ items, onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState<Record<string, DetailState>>({});
 
@@ -46,6 +52,7 @@ export default function IotResultsList({ items }: { items: IotSearchResultItem[]
     rows: flat,
     keyOf: (r) => r.key,
     toObject: rowToObject,
+    onSelectionChange,
     resetOn: items,
   });
   const displayRows = selection.visibleRows;
