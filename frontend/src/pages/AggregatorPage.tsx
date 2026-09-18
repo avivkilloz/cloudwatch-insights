@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, PointerEvent as ReactPointerEvent } from "react";
 import { api, SavedSession } from "../api";
 import { useAuth } from "../AuthContext";
 import AiAssistantWidget from "../components/AiAssistantWidget";
@@ -115,8 +115,35 @@ export default function AggregatorPage() {
     [syncSummaries],
   );
 
-  // Which pane is mid-drag, and which one it's currently hovering over. Only
-  // the highlight lives in state; the order itself is `services`.
+  // Reordering by dragging is built on pointer events rather than HTML5
+  // drag-and-drop, which went wrong in two ways that both ended in a pane you
+  // could only un-stick by reloading. Its dragover handler had to call
+  // preventDefault() to accept a drop, but it read which pane was being
+  // dragged from React state set during dragstart -- on a page holding six
+  // embedded pages that re-render can outlast the whole gesture, so the drop
+  // was silently refused; and nothing but a dragend that never came would
+  // clear the drag. Pointer events have no browser-level drag session to get
+  // stuck in: setPointerCapture guarantees we see the release, and every exit
+  // path runs the same cleanup.
+  //
+  // The live drag lives in a ref so each handler reads what the one before it
+  // actually wrote; the state below only drives the CSS.
+  const dragRef = useRef<{
+    id: ServiceId;
+    startX: number;
+    startY: number;
+    /** False until the pointer passes the threshold -- below it this is a click. */
+    moved: boolean;
+    /** The pane the pointer is currently over, if any. */
+    over: ServiceId | null;
+    /** Where the pointer last was, so the auto-scroll tick can re-hit-test. */
+    x: number;
+    y: number;
+  } | null>(null);
+  const autoScroll = useRef<number | null>(null);
+  // A drag ends with a click on the title bar, which would otherwise minimise
+  // the pane it just moved.
+  const suppressClick = useRef(false);
   const [dragging, setDragging] = useState<ServiceId | null>(null);
   const [dropTarget, setDropTarget] = useState<ServiceId | null>(null);
 
@@ -162,6 +189,109 @@ export default function AggregatorPage() {
       return next;
     });
   }
+
+  /** How far the pointer has to travel before this is a drag and not a click. */
+  const DRAG_THRESHOLD_PX = 5;
+  // Holding near the top or bottom edge scrolls, so panes that started off the
+  // screen are still reachable -- a native drag does this for you, a
+  // pointer-based one has to do it itself.
+  const AUTO_SCROLL_EDGE_PX = 70;
+  const AUTO_SCROLL_STEP_PX = 18;
+  const AUTO_SCROLL_INTERVAL_MS = 16;
+
+  /** The app scrolls inside .content, not the window. */
+  function scroller(): HTMLElement | null {
+    return document.querySelector<HTMLElement>(".content");
+  }
+
+  function autoScrollTick() {
+    const drag = dragRef.current;
+    const el = scroller();
+    if (!drag || !drag.moved || !el) return;
+    const r = el.getBoundingClientRect();
+    let dy = 0;
+    if (drag.y < r.top + AUTO_SCROLL_EDGE_PX) dy = -AUTO_SCROLL_STEP_PX;
+    else if (drag.y > r.bottom - AUTO_SCROLL_EDGE_PX) dy = AUTO_SCROLL_STEP_PX;
+    if (!dy) return;
+    const before = el.scrollTop;
+    el.scrollTop += dy;
+    // At either end there's nothing left to scroll, so nothing moved under
+    // the pointer either.
+    if (el.scrollTop !== before) updateDropTarget(drag);
+  }
+
+  /** Which pane is under a point, hit-tested by geometry so it works the same
+   * whether the panes are in columns or stacked, and while the pointer is
+   * captured by the title bar it started on. */
+  function paneUnder(x: number, y: number): ServiceId | null {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-pane-id]"))) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return (el.dataset.paneId as ServiceId) ?? null;
+      }
+    }
+    return null;
+  }
+
+  /** Re-hit-tests under the pointer and updates the highlight, doing nothing
+   * (and so not re-rendering six embedded pages) when it hasn't changed. */
+  function updateDropTarget(drag: NonNullable<typeof dragRef.current>) {
+    const over = paneUnder(drag.x, drag.y);
+    const next = over && over !== drag.id ? over : null;
+    if (next === drag.over) return;
+    drag.over = next;
+    setDropTarget(next);
+  }
+
+  function startDrag(e: ReactPointerEvent<HTMLElement>, id: ServiceId) {
+    // Left button only, and never from the buttons sitting on the title bar.
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    // A drag that ended over another pane never delivers the click it was
+    // meant to suppress, so clear it here rather than waiting for one.
+    suppressClick.current = false;
+    dragRef.current = { id, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, moved: false, over: null };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function moveDrag(e: ReactPointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      setDragging(drag.id);
+      autoScroll.current = window.setInterval(autoScrollTick, AUTO_SCROLL_INTERVAL_MS);
+    }
+    updateDropTarget(drag);
+  }
+
+  /** The single exit. `commit` is false when the drag was cancelled rather
+   * than released, so the state still clears but nothing moves. */
+  function endDrag(commit: boolean) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (autoScroll.current !== null) {
+      window.clearInterval(autoScroll.current);
+      autoScroll.current = null;
+    }
+    setDragging(null);
+    setDropTarget(null);
+    if (!drag?.moved) return;
+    suppressClick.current = true;
+    if (commit && drag.over) dropService(drag.id, drag.over);
+  }
+
+  // Escape cancels a drag in progress, the way a native one would.
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") endDrag(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   function toggleMinimized(id: ServiceId) {
     setMinimized((prev) => {
@@ -281,45 +411,37 @@ export default function AggregatorPage() {
             return (
               <section
                 key={s.id}
+                // The drop zone is the whole pane, not just its title bar, so
+                // there's something to aim at once a pane is minimised too.
+                // paneUnder() hit-tests these.
+                data-pane-id={s.id}
                 className={
                   "aggregator-pane" +
                   (collapsed ? " collapsed" : "") +
                   (dragging === s.id ? " dragging" : "") +
-                  (dropTarget === s.id && dragging !== s.id ? " drop-target" : "")
+                  (dropTarget === s.id ? " drop-target" : "")
                 }
-                // The drop zone is the whole pane, not just its title bar, so
-                // there's something to aim at once a pane is minimised too.
-                onDragOver={(e) => {
-                  if (!dragging || dragging === s.id) return;
-                  e.preventDefault();
-                  setDropTarget(s.id);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (dragging) dropService(dragging, s.id);
-                  setDragging(null);
-                  setDropTarget(null);
-                }}
               >
                 {/* The whole title bar toggles, so the buttons on it have to
                     stop their click bubbling -- otherwise minimise would fire
                     twice and cancel itself out, and closing would also toggle.
-                    It's also the drag handle: a completed drag doesn't fire a
-                    click, so reordering doesn't minimise the pane on the way. */}
+                    It's also the drag handle: a short press is a click and
+                    toggles, anything past the threshold is a drag and the
+                    click it ends with is swallowed rather than minimising the
+                    pane that was just moved. */}
                 <header
                   className="aggregator-pane-header"
-                  draggable
-                  onDragStart={(e) => {
-                    setDragging(s.id);
-                    e.dataTransfer.effectAllowed = "move";
-                    // Firefox won't start a drag without some payload set.
-                    e.dataTransfer.setData("text/plain", s.id);
+                  onPointerDown={(e) => startDrag(e, s.id)}
+                  onPointerMove={moveDrag}
+                  onPointerUp={() => endDrag(true)}
+                  onPointerCancel={() => endDrag(false)}
+                  onClick={() => {
+                    if (suppressClick.current) {
+                      suppressClick.current = false;
+                      return;
+                    }
+                    toggleMinimized(s.id);
                   }}
-                  onDragEnd={() => {
-                    setDragging(null);
-                    setDropTarget(null);
-                  }}
-                  onClick={() => toggleMinimized(s.id)}
                   title={`${collapsed ? "Expand" : "Minimise"} ${s.label} — drag to reorder`}
                 >
                   <span className="aggregator-drag-handle" aria-hidden="true">
