@@ -23,6 +23,18 @@ regions** by assuming a role you configure in each target account.
   Expand a certificate to see its attached policies (document included) and
   which things use it. Read-only — nothing in this tab creates, updates, or
   deletes anything in your AWS accounts.
+
+  That detail normally only exists for rows you've expanded, because it costs
+  one AWS call each. Once you check some rows, an **Include shadows,
+  certificates & jobs** option appears (on the certificates side, **Include
+  attached things**) — turn it on and the app fetches the detail for exactly
+  the checked rows, then carries it into the export *and* into what the AI
+  assistant sees, so you can export a full fleet snapshot or ask "what
+  firmware are these actually on?" rather than being limited to the search
+  summary. Fetching is bounded to a few requests at a time and shares the
+  same cache as expanding a row, so a row you already opened is free and a
+  row fetched for an export is already there when you open it. Rows whose
+  detail can't be fetched are called out and fall back to their summary.
 - **Tables tab**: pick one environment (DynamoDB tables are inherently
   single-account/region, so unlike Logs/IoT this page doesn't fan out
   across several at once), load its table list, and pick a table to see
