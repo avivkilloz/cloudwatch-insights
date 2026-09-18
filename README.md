@@ -52,14 +52,23 @@ regions** by assuming a role you configure in each target account.
   attribute per call, unlike the Tables/IoT search boxes. Leave it blank
   to list all users. Expand a user to see every attribute Cognito
   returned for them, plus status/enabled/created/last-modified.
-- **Result row selection** (Logs tab): every result row has a checkbox, plus
-  a "Select all" checkbox above the list that selects/deselects every
-  currently-shown row. Selecting rows enables **Hide selected**, which
-  removes them from view (a "Show N hidden" button brings them all back);
-  hiding makes room for the next-best row within the current Limit rather
-  than just leaving a gap. Selection also feeds the AI assistant below —
-  see "About results" and "Build query". A new query run, or deselecting
-  everything, clears the selection.
+- **Result row selection**, on every tab that returns a list of results —
+  Logs (both backends), IoT (things and certificates), Tables, Buckets and
+  Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
+  list that selects/deselects every currently-shown row. Selecting rows:
+  - enables **Hide selected**, which removes them from view so you can whittle
+    a noisy result set down to what matters (a "Show N hidden" button brings
+    them all back). On the Logs tab, hiding also makes room for the
+    next-best row within the current Limit rather than just leaving a gap;
+  - narrows **export** — the button becomes "Export N selected" and writes
+    only the checked rows, instead of everything on screen;
+  - feeds the **AI assistant** (Logs tab) — see "About results" and
+    "Build query".
+
+  A fresh search clears the selection; loading another page of results
+  (the "Load more" buttons on Tables, Buckets and Cognito) keeps it, since
+  those append rather than replace. Checking a row never expands it, so you
+  can select and inspect independently.
 - **Grouping and the `@log` field** (Logs tab, CloudWatch backend): the
   default query includes `@log` alongside `@timestamp`/`@message`, so when
   a query spans multiple log groups, each row shows a tag naming which one
@@ -130,7 +139,8 @@ regions** by assuming a role you configure in each target account.
   next to the result count on the Logs tab (both CloudWatch and OpenSearch
   backends), IoT tab (Things and Certificates), Tables, Buckets, and Cognito
   exports exactly the rows currently on screen — after any sort, hide, or
-  search/filter you've applied, not a raw re-fetch. Entirely client-side, no
+  search/filter you've applied, not a raw re-fetch — or, when you have rows
+  checked, just those. Entirely client-side, no
   backend involved: the file is built from data already loaded into the page
   and downloaded straight from the browser. CSV/JSON are generated inline;
   the `.xlsx` writer is loaded on demand so its bundle cost is only paid by

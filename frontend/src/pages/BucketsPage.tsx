@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
 import ExportMenu from "../components/ExportMenu";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
 const SESSION_PAGE = "buckets";
 
@@ -62,6 +63,9 @@ export default function BucketsPage() {
   const [isBrowsing, setIsBrowsing] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
+  // Bumped only when a fresh browse/search replaces the listing, so that
+  // "Load more" (which appends) doesn't throw away the checked files.
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   const [savedBuckets, setSavedBuckets] = useState<SavedSession<BucketShortcutState>[]>([]);
 
@@ -117,6 +121,7 @@ export default function BucketsPage() {
       setFolders((prev) => (loadMore ? [...prev, ...resp.folders] : resp.folders));
       setFiles((prev) => (loadMore ? [...prev, ...resp.files] : resp.files));
       setContinuationToken(resp.continuation_token);
+      if (!loadMore) setResultsVersion((v) => v + 1);
     } catch (e: any) {
       setBrowseError(e.message);
     } finally {
@@ -170,6 +175,16 @@ export default function BucketsPage() {
     }
     setTimeout(() => setCopiedMessage(null), 2000);
   }
+
+  // Folders are navigation targets rather than data, so only files are
+  // selectable -- matching what export already covers.
+  const selection = useRowSelection({
+    rows: files,
+    keyOf: (f) => f.key,
+    toObject: (f) => ({ ...f }),
+    resetOn: resultsVersion,
+  });
+  const displayFiles = selection.visibleRows;
 
   return (
     <div>
@@ -280,10 +295,17 @@ export default function BucketsPage() {
 
           {(folders.length > 0 || files.length > 0) && (
             <div className="toolbar">
+              <SelectAllCheckbox selection={selection} displayed={displayFiles} />
               <span className="muted">
-                {folders.length} folder(s), {files.length} file(s)
+                {folders.length} folder(s), {displayFiles.length} file(s)
+                {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
               </span>
-              <ExportMenu rows={files} filename={`bucket-${bucket}`} />
+              <HideSelectedButtons selection={selection} />
+              <ExportMenu
+                rows={displayFiles}
+                selectedRows={selection.selectedObjects}
+                filename={`bucket-${bucket}`}
+              />
             </div>
           )}
 
@@ -300,12 +322,13 @@ export default function BucketsPage() {
             </div>
           ))}
 
-          {files.map((f) => {
+          {displayFiles.map((f) => {
             const uri = `s3://${bucket}/${f.key}`;
             const url = `https://${bucket}.s3.${bucketRegion}.amazonaws.com/${encodeKeyForUrl(f.key)}`;
             return (
               <div className="result-row" key={f.key}>
                 <div className="result-row-summary" style={{ cursor: "default" }}>
+                  <RowCheckbox selection={selection} row={f} />
                   <span className="tag">{formatSize(f.size)}</span>
                   <span className="msg">{activeSearch ? f.key : f.name}</span>
                   <span className="muted">{formatTimestamp(f.last_modified)}</span>

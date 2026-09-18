@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ResultField } from "../api";
 import ExportMenu from "./ExportMenu";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "./rowSelection";
 
 // Loosened to the fields this component actually renders, rather than the
 // CloudWatch-specific QueryResultItem shape -- so it also accepts
@@ -91,8 +92,6 @@ function rowToObject(row: FlatRow): Record<string, unknown> {
 export default function ResultsView({ items, limit, sortField, sortDirection = "desc", onSelectionChange }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
   const flatRows: FlatRow[] = [];
   items.forEach((item, itemIdx) => {
@@ -107,17 +106,13 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
     });
   });
 
-  // A new result set makes any previous selection/hides meaningless (their
-  // row keys won't match anything here) -- clear them explicitly rather
-  // than leaving stale state around.
-  useEffect(() => {
-    setSelectedKeys(new Set());
-    setHiddenKeys(new Set());
-    onSelectionChange?.([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
-
-  const visibleRows = flatRows.filter((r) => !hiddenKeys.has(r.key));
+  const selection = useRowSelection({
+    rows: flatRows,
+    keyOf: (r) => r.key,
+    toObject: rowToObject,
+    onSelectionChange,
+    resetOn: items,
+  });
 
   // Each target is independently capped at `limit` rows by the backend, so
   // with multiple environments selected the merged set can add up to more
@@ -125,7 +120,9 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
   // and cap it to the same limit so what's on screen matches what was asked
   // for -- hiding a row makes room for the next one rather than just
   // leaving a gap.
-  const sortedRows = sortField ? sortRows(visibleRows, sortField, sortDirection) : visibleRows;
+  const sortedRows = sortField
+    ? sortRows(selection.visibleRows, sortField, sortDirection)
+    : selection.visibleRows;
   const truncated = limit != null && sortedRows.length > limit;
   const displayRows = truncated ? sortedRows.slice(0, limit) : sortedRows;
 
@@ -136,39 +133,6 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
       else next.add(key);
       return next;
     });
-  }
-
-  function reportSelection(keys: Set<string>) {
-    onSelectionChange?.(flatRows.filter((r) => keys.has(r.key)).map(rowToObject));
-  }
-
-  function toggleSelect(key: string) {
-    const next = new Set(selectedKeys);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setSelectedKeys(next);
-    reportSelection(next);
-  }
-
-  function toggleSelectAll() {
-    const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedKeys.has(r.key));
-    const next = new Set(selectedKeys);
-    if (allSelected) displayRows.forEach((r) => next.delete(r.key));
-    else displayRows.forEach((r) => next.add(r.key));
-    setSelectedKeys(next);
-    reportSelection(next);
-  }
-
-  function hideSelected() {
-    const nextHidden = new Set(hiddenKeys);
-    selectedKeys.forEach((k) => nextHidden.add(k));
-    setHiddenKeys(nextHidden);
-    setSelectedKeys(new Set());
-    reportSelection(new Set());
-  }
-
-  function showAllHidden() {
-    setHiddenKeys(new Set());
   }
 
   const errors = items.filter((i) => i.error);
@@ -189,20 +153,15 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
           }, {})
         );
 
-  const allDisplayedSelected = displayRows.length > 0 && displayRows.every((r) => selectedKeys.has(r.key));
-
   return (
     <div>
       <div className="toolbar">
-        <label className="checkbox-item" title="Select all currently shown rows">
-          <input type="checkbox" checked={allDisplayedSelected} onChange={toggleSelectAll} disabled={displayRows.length === 0} />
-          Select all
-        </label>
+        <SelectAllCheckbox selection={selection} displayed={displayRows} />
         <span className="muted">
           {truncated
             ? `Showing most recent ${displayRows.length} of ${sortedRows.length} row(s) across ${items.length} target(s)`
             : `${displayRows.length} row(s) across ${items.length} target(s)`}
-          {hiddenKeys.size > 0 && ` (${hiddenKeys.size} hidden)`}
+          {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
         </span>
         <label className="row" style={{ gap: 6 }}>
           <span className="muted">Group by</span>
@@ -212,17 +171,12 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
             <option value="log">Log group</option>
           </select>
         </label>
-        {selectedKeys.size > 0 && (
-          <button className="secondary" onClick={hideSelected}>
-            Hide selected ({selectedKeys.size})
-          </button>
-        )}
-        {hiddenKeys.size > 0 && (
-          <button className="secondary" onClick={showAllHidden}>
-            Show {hiddenKeys.size} hidden
-          </button>
-        )}
-        <ExportMenu rows={displayRows.map(rowToObject)} filename="logs-results" />
+        <HideSelectedButtons selection={selection} />
+        <ExportMenu
+          rows={displayRows.map(rowToObject)}
+          selectedRows={selection.selectedObjects}
+          filename="logs-results"
+        />
       </div>
       {errors.length > 0 && (
         <div className="panel" style={{ borderColor: "var(--error)" }}>
@@ -245,12 +199,7 @@ export default function ResultsView({ items, limit, sortField, sortDirection = "
             return (
               <div className="result-row" key={row.key}>
                 <div className="result-row-summary" onClick={() => toggle(row.key)}>
-                  <input
-                    type="checkbox"
-                    checked={selectedKeys.has(row.key)}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={() => toggleSelect(row.key)}
-                  />
+                  <RowCheckbox selection={selection} row={row} />
                   <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
                   {ts && <span className="tag">{ts}</span>}
                   {groupBy !== "environment" && <span className="tag">{row.environment_name}</span>}

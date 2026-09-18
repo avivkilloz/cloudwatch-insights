@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, IotCertificateDetail, IotCertificateInfo, IotCertificateSearchResultItem } from "../api";
 import ExportMenu from "./ExportMenu";
 import IotCertificateDetailPanel from "./IotCertificateDetailPanel";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "./rowSelection";
 
 interface FlatCert {
   key: string;
@@ -21,6 +22,10 @@ function certStatusTagClass(status: string): string {
   return "tag pending";
 }
 
+function rowToObject(row: FlatCert): Record<string, unknown> {
+  return { environment: row.environment_name, ...row.cert };
+}
+
 export default function IotCertResultsList({ items }: { items: IotCertificateSearchResultItem[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState<Record<string, DetailState>>({});
@@ -36,6 +41,14 @@ export default function IotCertResultsList({ items }: { items: IotCertificateSea
       });
     });
   });
+
+  const selection = useRowSelection({
+    rows: flat,
+    keyOf: (r) => r.key,
+    toObject: rowToObject,
+    resetOn: items,
+  });
+  const displayRows = selection.visibleRows;
 
   const errors = items.filter((i) => i.error);
 
@@ -63,11 +76,15 @@ export default function IotCertResultsList({ items }: { items: IotCertificateSea
   return (
     <div>
       <div className="toolbar">
+        <SelectAllCheckbox selection={selection} displayed={displayRows} />
         <span className="muted">
-          {flat.length} certificate(s) across {items.length} target(s)
+          {displayRows.length} certificate(s) across {items.length} target(s)
+          {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
         </span>
+        <HideSelectedButtons selection={selection} />
         <ExportMenu
-          rows={flat.map((row) => ({ environment: row.environment_name, ...row.cert }))}
+          rows={displayRows.map(rowToObject)}
+          selectedRows={selection.selectedObjects}
           filename="iot-certificates"
         />
       </div>
@@ -82,12 +99,13 @@ export default function IotCertResultsList({ items }: { items: IotCertificateSea
         </div>
       )}
       {flat.length === 0 && errors.length === 0 && <p className="muted">No certificates found.</p>}
-      {flat.map((row) => {
+      {displayRows.map((row) => {
         const isOpen = expanded.has(row.key);
         const state = details[row.key];
         return (
           <div className="result-row" key={row.key}>
             <div className="result-row-summary" onClick={() => toggle(row)}>
+              <RowCheckbox selection={selection} row={row} />
               <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
               <span className={certStatusTagClass(row.cert.status)}>{row.cert.status}</span>
               <span className="tag">{row.environment_name}</span>

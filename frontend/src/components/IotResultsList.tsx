@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, IotSearchResultItem, IotThingDetail, IotThingSummary } from "../api";
 import ExportMenu from "./ExportMenu";
 import IotThingDetailPanel from "./IotThingDetailPanel";
+import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "./rowSelection";
 
 interface FlatThing {
   key: string;
@@ -21,6 +22,10 @@ function connectivityTag(thing: IotThingSummary) {
   return <span className="tag">Unknown</span>;
 }
 
+function rowToObject(row: FlatThing): Record<string, unknown> {
+  return { environment: row.environment_name, ...row.thing };
+}
+
 export default function IotResultsList({ items }: { items: IotSearchResultItem[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState<Record<string, DetailState>>({});
@@ -36,6 +41,14 @@ export default function IotResultsList({ items }: { items: IotSearchResultItem[]
       });
     });
   });
+
+  const selection = useRowSelection({
+    rows: flat,
+    keyOf: (r) => r.key,
+    toObject: rowToObject,
+    resetOn: items,
+  });
+  const displayRows = selection.visibleRows;
 
   const errors = items.filter((i) => i.error);
 
@@ -63,11 +76,15 @@ export default function IotResultsList({ items }: { items: IotSearchResultItem[]
   return (
     <div>
       <div className="toolbar">
+        <SelectAllCheckbox selection={selection} displayed={displayRows} />
         <span className="muted">
-          {flat.length} thing(s) across {items.length} target(s)
+          {displayRows.length} thing(s) across {items.length} target(s)
+          {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
         </span>
+        <HideSelectedButtons selection={selection} />
         <ExportMenu
-          rows={flat.map((row) => ({ environment: row.environment_name, ...row.thing }))}
+          rows={displayRows.map(rowToObject)}
+          selectedRows={selection.selectedObjects}
           filename="iot-things"
         />
       </div>
@@ -82,12 +99,13 @@ export default function IotResultsList({ items }: { items: IotSearchResultItem[]
         </div>
       )}
       {flat.length === 0 && errors.length === 0 && <p className="muted">No things found.</p>}
-      {flat.map((row) => {
+      {displayRows.map((row) => {
         const isOpen = expanded.has(row.key);
         const state = details[row.key];
         return (
           <div className="result-row" key={row.key}>
             <div className="result-row-summary" onClick={() => toggle(row)}>
+              <RowCheckbox selection={selection} row={row} />
               <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
               {connectivityTag(row.thing)}
               <span className="tag">{row.environment_name}</span>
