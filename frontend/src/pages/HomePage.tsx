@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
-import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { GROUP_BLURB, GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 
 /**
  * The landing view: a card per session type, grouped by what it's for.
  *
- * Clicking a card opens that session. Ticking several and pressing "Open in
- * Aggregator" opens one Aggregator session with exactly those panes -- the
+ * Clicking a card opens that session. Ticking several raises a floating
+ * Aggregate button -- in the same corner as the ✦ Ask AI button on every other
+ * page -- which opens one Aggregator session with exactly those panes. The
  * Aggregator itself is unchanged, so panes can still be added and removed once
  * it's open.
  */
@@ -49,34 +50,13 @@ export default function HomePage() {
 
   return (
     <div className="home">
-      <div className="panel">
-        <h2>Start a session</h2>
-        <p className="muted">
-          Open any of these on its own, or tick several and open them together in one Aggregator session — you can
-          still add and remove panes once it's running. Everything you open gets a tab above and keeps its state, so a
-          refresh puts you back where you were.
-        </p>
-        {aggregator && (
-          <div className="toolbar">
-            <button onClick={openAggregator} disabled={picked.size === 0}>
-              Open {picked.size > 0 ? picked.size : ""} in Aggregator
-            </button>
-            {picked.size > 0 && (
-              <button className="secondary" onClick={() => setPicked(new Set())}>
-                Clear selection
-              </button>
-            )}
-            {picked.size === 0 && <span className="muted">Tick the cards you want side by side.</span>}
-          </div>
-        )}
-      </div>
-
       {GROUP_ORDER.map((group) => {
         const inGroup = types.filter((t) => t.group === group);
         if (inGroup.length === 0) return null;
         return (
           <div className="panel" key={group}>
-            <h2>{group}</h2>
+            <h2 style={{ marginBottom: 4 }}>{group}</h2>
+            <p className="muted home-group-blurb">{GROUP_BLURB[group]}</p>
             <div className="home-cards">
               {inGroup.map((t) => {
                 const selectable = pickable.includes(t);
@@ -99,6 +79,28 @@ export default function HomePage() {
           </div>
         );
       })}
+
+      {/* Only once something is ticked: an always-present button that does
+          nothing most of the time is just noise in the corner. */}
+      {aggregator && picked.size > 0 && (
+        <div className="home-aggregate-fab">
+          <button
+            className="ai-widget-button"
+            onClick={openAggregator}
+            title={`Open one Aggregator session with the ${picked.size} ticked page${picked.size === 1 ? "" : "s"} side by side`}
+          >
+            ⊞ Aggregate {picked.size}
+          </button>
+          <button
+            className="home-aggregate-clear"
+            onClick={() => setPicked(new Set())}
+            title="Clear the selection"
+            aria-label="Clear the selection"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

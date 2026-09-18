@@ -148,35 +148,62 @@ export default function JwtTool() {
 
   return (
     <div>
-      <div className="toolbar">
-        <button className={mode === "decode" ? "" : "secondary"} onClick={() => setMode("decode")}>
-          Decode
-        </button>
-        <button className={mode === "encode" ? "" : "secondary"} onClick={() => setMode("encode")}>
-          Encode
-        </button>
+      <div className="panel">
+        <h2>Mode</h2>
+        <div className="toolbar">
+          <button className={mode === "decode" ? "" : "secondary"} onClick={() => setMode("decode")}>
+            Decode
+          </button>
+          <button className={mode === "encode" ? "" : "secondary"} onClick={() => setMode("encode")}>
+            Encode
+          </button>
+        </div>
+        <p className="muted" style={{ margin: "10px 0 0" }}>
+          Everything here runs in your browser — the token, secret and payload never leave this page. Only symmetric
+          (HS256/384/512) signing and verification are supported; RS/ES-signed tokens can still be decoded, but their
+          signature can't be verified here.
+        </p>
       </div>
 
       {mode === "decode" ? (
-        <div>
-          <span className="field-label">JWT</span>
-          <textarea rows={4} value={token} onChange={(e) => setToken(e.target.value)} placeholder="Paste a JWT to decode…" />
-          {decodeError && <p className="error-text">{decodeError}</p>}
-          {decodedHeader != null && (
-            <>
-              <span className="field-label">Header</span>
-              <pre className="tool-json-output">{JSON.stringify(decodedHeader, null, 2)}</pre>
-            </>
+        <>
+          <div className="panel">
+            <h2>Token</h2>
+            <textarea
+              rows={4}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste a JWT to decode…"
+            />
+            {decodeError && (
+              <p className="error-text" style={{ marginBottom: 0 }}>
+                {decodeError}
+              </p>
+            )}
+          </div>
+
+          {(decodedHeader != null || decodedPayload != null) && (
+            <div className="panel">
+              <h2>Decoded</h2>
+              {decodedHeader != null && (
+                <>
+                  <span className="field-label">Header</span>
+                  <pre className="tool-json-output">{JSON.stringify(decodedHeader, null, 2)}</pre>
+                </>
+              )}
+              {decodedPayload != null && (
+                <>
+                  <span className="field-label">Payload</span>
+                  <pre className="tool-json-output">{JSON.stringify(decodedPayload, null, 2)}</pre>
+                </>
+              )}
+            </div>
           )}
-          {decodedPayload != null && (
-            <>
-              <span className="field-label">Payload</span>
-              <pre className="tool-json-output">{JSON.stringify(decodedPayload, null, 2)}</pre>
-            </>
-          )}
+
           {decodedHeader != null && (
-            <div style={{ marginTop: 4 }}>
-              <span className="field-label">Verify signature (optional, HS256/384/512 only)</span>
+            <div className="panel">
+              <h2>Verify signature</h2>
+              <span className="field-label">Secret — optional, HS256/384/512 only</span>
               <div className="row">
                 <input
                   type="text"
@@ -196,55 +223,61 @@ export default function JwtTool() {
               </div>
             </div>
           )}
-        </div>
+        </>
       ) : (
-        <div>
-          <div className="row" style={{ marginBottom: 10, alignItems: "flex-start" }}>
-            <div>
-              <span className="field-label">Algorithm</span>
-              <select value={encAlg} onChange={(e) => setEncAlg(e.target.value as HmacAlg)}>
-                <option value="HS256">HS256</option>
-                <option value="HS384">HS384</option>
-                <option value="HS512">HS512</option>
-              </select>
-            </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <span className="field-label">Secret</span>
-              <input type="text" value={encSecret} onChange={(e) => setEncSecret(e.target.value)} style={{ width: "100%" }} />
+        <>
+          <div className="panel">
+            <h2>Signing</h2>
+            <div className="row" style={{ alignItems: "flex-start" }}>
+              <div>
+                <span className="field-label">Algorithm</span>
+                <select value={encAlg} onChange={(e) => setEncAlg(e.target.value as HmacAlg)}>
+                  <option value="HS256">HS256</option>
+                  <option value="HS384">HS384</option>
+                  <option value="HS512">HS512</option>
+                </select>
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span className="field-label">Secret</span>
+                <input
+                  type="text"
+                  value={encSecret}
+                  onChange={(e) => setEncSecret(e.target.value)}
+                  style={{ width: "100%" }}
+                />
+              </div>
             </div>
           </div>
-          <span className="field-label">Header</span>
-          <textarea rows={3} value={encHeader} onChange={(e) => setEncHeader(e.target.value)} />
-          <span className="field-label">Payload</span>
-          <textarea rows={6} value={encPayload} onChange={(e) => setEncPayload(e.target.value)} />
-          <div className="toolbar" style={{ marginTop: 10 }}>
-            <button onClick={generateToken} disabled={encoding}>
-              {encoding ? "Signing…" : "Generate token"}
-            </button>
-            {encError && <span className="error-text">{encError}</span>}
+
+          <div className="panel">
+            <h2>Claims</h2>
+            <span className="field-label">Header</span>
+            <textarea rows={3} value={encHeader} onChange={(e) => setEncHeader(e.target.value)} />
+            <span className="field-label">Payload</span>
+            <textarea rows={6} value={encPayload} onChange={(e) => setEncPayload(e.target.value)} />
+            <div className="toolbar" style={{ marginTop: 10 }}>
+              <button onClick={generateToken} disabled={encoding}>
+                {encoding ? "Signing…" : "Generate token"}
+              </button>
+              {encError && <span className="error-text">{encError}</span>}
+            </div>
           </div>
+
           {encResult && (
-            <div style={{ marginTop: 10 }}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <span className="field-label" style={{ margin: 0 }}>
-                  Token
-                </span>
+            <div className="panel">
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+                <h2 style={{ margin: 0 }}>Token</h2>
                 <button className="secondary" onClick={copyResult}>
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
-              <pre className="tool-json-output" style={{ wordBreak: "break-all" }}>
+              <pre className="tool-json-output" style={{ wordBreak: "break-all", marginBottom: 0 }}>
                 {encResult}
               </pre>
             </div>
           )}
-        </div>
+        </>
       )}
-      <p className="muted" style={{ marginTop: 4 }}>
-        Everything here runs in your browser -- the token, secret, and payload never leave this page. Only symmetric
-        (HS256/384/512) signing and verification are supported; RS/ES-signed tokens can still be decoded, but their
-        signature can't be verified here.
-      </p>
     </div>
   );
 }

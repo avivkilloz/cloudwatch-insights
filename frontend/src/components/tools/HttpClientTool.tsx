@@ -156,87 +156,107 @@ export default function HttpClientTool() {
 
   return (
     <div>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <select value={method} onChange={(e) => setMethod(e.target.value as HttpMethod)}>
-          {METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          placeholder="https://api.example.com/resource"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          style={{ flex: 1, minWidth: 240 }}
-        />
-        <button onClick={send} disabled={sending}>
-          {sending ? "Sending…" : "Send"}
-        </button>
-      </div>
-
-      <div className="row" style={{ marginBottom: 10 }}>
-        <select
-          onChange={(e) => {
-            if (e.target.value) loadSavedRequest(Number(e.target.value));
-            e.target.value = "";
-          }}
-          defaultValue=""
-        >
-          <option value="" disabled>
-            Load saved request…
-          </option>
-          {savedRequests.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <button className="secondary" onClick={saveCurrentRequest}>
-          Save request
-        </button>
-      </div>
-
-      <span className="field-label">Headers</span>
-      {headerRows.map((row) => (
-        <div className="row" key={row.id} style={{ marginBottom: 6 }}>
+      <div className="panel">
+        <h2>Request</h2>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <select value={method} onChange={(e) => setMethod(e.target.value as HttpMethod)}>
+            {METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
           <input
             type="text"
-            placeholder="Header name"
-            value={row.key}
-            onChange={(e) => updateHeader(row.id, "key", e.target.value)}
-            style={{ width: 200 }}
+            placeholder="https://api.example.com/resource"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            style={{ flex: 1, minWidth: 240 }}
           />
-          <input
-            type="text"
-            placeholder="Value"
-            value={row.value}
-            onChange={(e) => updateHeader(row.id, "value", e.target.value)}
-            style={{ flex: 1, minWidth: 200 }}
-          />
-          <button className="danger" onClick={() => removeHeaderRow(row.id)}>
-            Remove
+          <button onClick={send} disabled={sending}>
+            {sending ? "Sending…" : "Send"}
           </button>
         </div>
-      ))}
-      <button className="secondary" onClick={addHeaderRow} style={{ marginBottom: 10 }}>
-        Add header
-      </button>
+
+        <div className="row">
+          <select
+            onChange={(e) => {
+              if (e.target.value) loadSavedRequest(Number(e.target.value));
+              e.target.value = "";
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load saved request…
+            </option>
+            {savedRequests.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={saveCurrentRequest}>
+            Save request
+          </button>
+        </div>
+
+        <p className="muted" style={{ margin: "10px 0 0" }}>
+          Requests are sent from the backend, not your browser, so CORS doesn't apply — but for the same reason the
+          backend refuses to reach loopback, private and link-local addresses (cloud metadata endpoints included), so
+          this can't be used to reach internal infrastructure. Redirects are shown as-is rather than followed.
+        </p>
+      </div>
+
+      <div className="panel">
+        <h2>Headers</h2>
+        {headerRows.map((row) => (
+          <div className="row" key={row.id} style={{ marginBottom: 6 }}>
+            <input
+              type="text"
+              placeholder="Header name"
+              value={row.key}
+              onChange={(e) => updateHeader(row.id, "key", e.target.value)}
+              style={{ width: 200 }}
+            />
+            <input
+              type="text"
+              placeholder="Value"
+              value={row.value}
+              onChange={(e) => updateHeader(row.id, "value", e.target.value)}
+              style={{ flex: 1, minWidth: 200 }}
+            />
+            <button className="danger" onClick={() => removeHeaderRow(row.id)}>
+              Remove
+            </button>
+          </div>
+        ))}
+        <button className="secondary" onClick={addHeaderRow}>
+          Add header
+        </button>
+      </div>
 
       {!BODYLESS_METHODS.includes(method) && (
-        <>
-          <span className="field-label">Body</span>
+        <div className="panel">
+          <h2>Body</h2>
           <textarea rows={6} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Request body (raw)…" />
-        </>
+        </div>
       )}
 
-      {error && <p className="error-text">{error}</p>}
-      {assistantError && <p className="error-text">{assistantError}</p>}
+      {(error || assistantError) && (
+        <div className="panel">
+          {error && <p className="error-text" style={{ margin: 0 }}>{error}</p>}
+          {assistantError && (
+            <p className="error-text" style={{ margin: error ? "6px 0 0" : 0 }}>
+              {assistantError}
+            </p>
+          )}
+        </div>
+      )}
 
       {response && (
-        <div style={{ marginTop: 14 }}>
-          <div className="toolbar">
+        <div className="panel">
+          <div className="toolbar" style={{ marginBottom: 10 }}>
+            <h2 style={{ margin: 0 }}>Response</h2>
             <span className={`tag ${statusTag(response.status_code)}`}>
               {response.status_code} {response.status_text}
             </span>
@@ -244,7 +264,7 @@ export default function HttpClientTool() {
             {response.body_truncated && <span className="tag pending">response truncated</span>}
           </div>
 
-          <span className="field-label">Response headers</span>
+          <span className="field-label">Headers</span>
           <table>
             <tbody>
               {response.headers.map((h, i) => (
@@ -256,20 +276,15 @@ export default function HttpClientTool() {
             </tbody>
           </table>
 
-          <span className="field-label">Response body</span>
-          <pre className="tool-json-output">{prettyBody(response.body)}</pre>
+          <span className="field-label">Body</span>
+          <pre className="tool-json-output" style={{ marginBottom: 0 }}>
+            {prettyBody(response.body)}
+          </pre>
         </div>
       )}
 
-      <p className="muted" style={{ marginTop: 4 }}>
-        Requests are sent from the backend (not your browser), so CORS doesn't apply -- but for the same reason, the
-        backend refuses to reach loopback, private, and link-local addresses (including cloud metadata endpoints), so
-        this can't be used to reach internal infrastructure. Redirects are shown as-is rather than followed
-        automatically.
-      </p>
-
       {/* Scoped to this tool rather than the Tools page as a whole: it's
-          rendered from the card body, so the floating button is there exactly
+          rendered from the tool itself, so the floating button is there exactly
           while the HTTP client is open. Unlike every other page's assistant,
           the suggestion it applies is a whole request rather than a query
           string -- see httpRequestJson.ts. */}

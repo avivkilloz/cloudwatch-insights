@@ -19,7 +19,7 @@ import { SessionType } from "./SessionContext";
  * other way is a cycle that fails at module-evaluation time.
  */
 
-export type SessionGroup = "Services" | "Tools" | "Assistant";
+export type SessionGroup = "Platform" | "Services" | "Tools";
 
 export interface SessionTypeDef {
   type: SessionType;
@@ -27,6 +27,9 @@ export interface SessionTypeDef {
   group: SessionGroup;
   /** One line for the home card. */
   description: string;
+  /** A sentence or two shown at the top of the page itself, saying what the
+   * page is for. Longer than `description`, which has a card to fit into. */
+  help: string;
   render: () => JSX.Element;
   enabledFor: (user: any) => boolean;
   /** The SavedSession.page key this type's saved sessions live under. Types
@@ -42,6 +45,10 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "Logs",
     group: "Services",
     description: "CloudWatch Logs Insights or OpenSearch, across environments.",
+    help:
+      "Run one query across several AWS accounts and regions at once, against either CloudWatch Logs Insights or " +
+      "OpenSearch, and read the merged results newest-first. Pick the environments and log groups, write the query " +
+      "or have the assistant write it, then run it.",
     render: () => <InsightsPage />,
     enabledFor: (u) => !!u?.logs_enabled,
     savedPage: "logs",
@@ -52,6 +59,9 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "IoT",
     group: "Services",
     description: "Search things by fleet index, or certificates by status.",
+    help:
+      "Search AWS IoT Core across environments — things by fleet-index query, or certificates by status. Expanding a " +
+      "result fetches its detail: shadows, attached certificates and their policies, and recent jobs.",
     render: () => <IotPage />,
     enabledFor: (u) => !!u?.iot_enabled,
     savedPage: "iot",
@@ -59,9 +69,12 @@ export const PANE_TYPES: SessionTypeDef[] = [
   },
   {
     type: "tables",
-    label: "Tables",
+    label: "DynamoDB",
     group: "Services",
     description: "Scan and filter a DynamoDB table.",
+    help:
+      "Browse a DynamoDB table in any environment: see its keys and item count, then scan it with an optional filter " +
+      "and page through the items. Expanding a row shows the whole item.",
     render: () => <TablesPage />,
     enabledFor: (u) => !!u?.tables_enabled,
     savedPage: "tables-session",
@@ -69,9 +82,12 @@ export const PANE_TYPES: SessionTypeDef[] = [
   },
   {
     type: "buckets",
-    label: "Buckets",
+    label: "S3",
     group: "Services",
     description: "Browse an S3 bucket and search object names.",
+    help:
+      "Browse an S3 bucket like a file tree, walking into folders, or search object names across a prefix. Sizes and " +
+      "last-modified times come back with each object.",
     render: () => <BucketsPage />,
     enabledFor: (u) => !!u?.buckets_enabled,
     savedPage: "buckets-session",
@@ -82,6 +98,9 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "Cognito",
     group: "Services",
     description: "Find users in a Cognito user pool.",
+    help:
+      "Find users in a Cognito user pool by any attribute — email, username, phone — and open one to see its full " +
+      "attribute set, status, and group memberships.",
     render: () => <CognitoPage />,
     enabledFor: (u) => !!u?.cognito_enabled,
     savedPage: "cognito-session",
@@ -92,6 +111,9 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "HTTP client",
     group: "Tools",
     description: "Send a request and inspect the response, Postman-style.",
+    help:
+      "Send an HTTP request and inspect the whole response — status, headers and body. Requests go out from the " +
+      "backend, which refuses private and link-local addresses, so this cannot be used to reach inside the cluster.",
     render: () => <HttpClientTool />,
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,
@@ -101,6 +123,9 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "MQTT tester",
     group: "Tools",
     description: "Subscribe and publish on an environment's IoT Core endpoint.",
+    help:
+      "Connect to an environment's AWS IoT Core endpoint over a presigned WebSocket, subscribe to topic filters and " +
+      "publish messages. Everything received is listed newest-first while the connection is open.",
     render: () => <MqttTool />,
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,
@@ -110,6 +135,9 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "JWT",
     group: "Tools",
     description: "Decode a token, or build and sign a new one.",
+    help:
+      "Decode a JSON Web Token to read its header and claims, and optionally verify an HMAC signature against a " +
+      "secret — or go the other way and build and sign a new token. Everything happens in your browser.",
     render: () => <JwtTool />,
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,
@@ -119,6 +147,7 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "Base64",
     group: "Tools",
     description: "Convert text to and from Base64.",
+    help: "Convert text to and from Base64, with a URL-safe variant for values that travel in query strings.",
     render: () => <Base64Tool />,
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,
@@ -128,6 +157,7 @@ export const PANE_TYPES: SessionTypeDef[] = [
     label: "Diff",
     group: "Tools",
     description: "Compare two blocks of text line by line.",
+    help: "Compare two blocks of text line by line and see exactly what was added, removed and left alone.",
     render: () => <DiffTool />,
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,

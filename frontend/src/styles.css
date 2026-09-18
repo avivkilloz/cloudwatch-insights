@@ -419,7 +419,72 @@ button,
   color: var(--text-dim);
 }
 
+/* ---- Page header ---- */
+
+/* Drawn by the shell from the session registry, so every page says what it is
+   without each page component repeating itself. Deliberately not a .panel:
+   it introduces the card stack below rather than being another card in it. */
+.page-intro {
+  margin: 0 2px 14px;
+}
+
+.page-intro-title {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.page-intro-help {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 /* ---- Home cards ---- */
+
+.home-group-blurb {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Same corner as the ✦ Ask AI button on every other page, so the one floating
+   action is always in the same place. */
+.home-aggregate-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-aggregate-fab .ai-widget-button {
+  position: static;
+  right: auto;
+  bottom: auto;
+}
+
+.home-aggregate-clear {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.home-aggregate-clear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 
 .home-cards {
   display: grid;

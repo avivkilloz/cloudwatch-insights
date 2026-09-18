@@ -201,21 +201,23 @@ export default function DiffTool() {
 
   return (
     <div>
-      <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <span className="field-label">Original</span>
-          <textarea rows={10} value={left} onChange={(e) => setLeft(e.target.value)} style={{ width: "100%" }} />
-        </div>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <span className="field-label">Changed</span>
-          <textarea rows={10} value={right} onChange={(e) => setRight(e.target.value)} style={{ width: "100%" }} />
+      <div className="panel">
+        <h2>Text to compare</h2>
+        <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <span className="field-label">Original</span>
+            <textarea rows={10} value={left} onChange={(e) => setLeft(e.target.value)} style={{ width: "100%" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <span className="field-label">Changed</span>
+            <textarea rows={10} value={right} onChange={(e) => setRight(e.target.value)} style={{ width: "100%" }} />
+          </div>
         </div>
       </div>
-      <div style={{ marginTop: 10 }}>
-        <div className="toolbar" style={{ justifyContent: "space-between" }}>
-          <span className="field-label" style={{ margin: 0 }}>
-            Diff
-          </span>
+
+      <div className="panel">
+        <div className="toolbar" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+          <h2 style={{ margin: 0 }}>Diff</h2>
           {hasInput && (
             <div className="row" style={{ gap: 8 }}>
               {(removedCount > 0 || addedCount > 0) && (
@@ -233,7 +235,9 @@ export default function DiffTool() {
           )}
         </div>
         {!hasInput ? (
-          <p className="muted">Paste text into both boxes above to see the diff.</p>
+          <p className="muted" style={{ margin: 0 }}>
+            Paste text into both boxes above to see the diff.
+          </p>
         ) : viewMode === "split" ? (
           <div className="diff-output">
             {rows.map((row, i) => (

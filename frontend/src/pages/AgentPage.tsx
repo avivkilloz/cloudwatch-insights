@@ -60,15 +60,10 @@ export default function AgentPage() {
 
   return (
     <div className="agent-session">
+      {/* What the agent is now lives in the page header the shell draws from
+          the registry; this panel keeps only the part that is a warning. */}
       <div className="panel">
-        <h2>Agent</h2>
-        <p className="muted">
-          Ask about anything in the platform, and — once this is connected — have it do the work: open the sessions you
-          need, run the searches, and answer across all of them at once. It sees the workspace from outside, unlike the{" "}
-          <strong>✦ Ask AI</strong> assistant inside a service session, which only ever sees that session's own query
-          and rows.
-        </p>
-        <p className="error-text" style={{ marginBottom: 0 }}>
+        <p className="error-text" style={{ margin: 0 }}>
           Not connected to a model yet — it will say so rather than guess.
         </p>
       </div>
