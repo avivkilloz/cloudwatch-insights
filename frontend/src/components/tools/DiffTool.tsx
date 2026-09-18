@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSessionState } from "../../sessions/SessionContext";
 import { diffChars, diffLines, Change } from "diff";
 
 type ViewMode = "unified" | "split" | "compact";
@@ -173,9 +174,9 @@ function buildCompactItems(rows: DiffRow[], expandedGroups: Set<number>): Displa
 }
 
 export default function DiffTool() {
-  const [left, setLeft] = useState("");
-  const [right, setRight] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("unified");
+  const [left, setLeft] = useSessionState("left", "");
+  const [right, setRight] = useSessionState("right", "");
+  const [viewMode, setViewMode] = useSessionState<ViewMode>("viewMode", "unified");
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
 
   const hasInput = left.length > 0 || right.length > 0;

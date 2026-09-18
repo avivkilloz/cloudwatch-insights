@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import RestoredResultsNote from "../components/RestoredResultsNote";
+import { useSessionState } from "../sessions/SessionContext";
 import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
@@ -15,27 +17,30 @@ interface TableShortcutState {
 
 export default function TablesPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [environmentId, setEnvironmentId] = useState<number | "">("");
+  const [environmentId, setEnvironmentId] = useSessionState<number | "">("environmentId", "");
 
-  const [tables, setTables] = useState<string[]>([]);
+  const [tables, setTables] = useSessionState<string[]>("tables", []);
   const [tablesLoading, setTablesLoading] = useState(false);
   const [tablesError, setTablesError] = useState<string | null>(null);
 
-  const [tableName, setTableName] = useState("");
-  const [tableInfo, setTableInfo] = useState<DynamoTableInfo | null>(null);
+  const [tableName, setTableName] = useSessionState("tableName", "");
+  const [tableInfo, setTableInfo] = useSessionState<DynamoTableInfo | null>("tableInfo", null);
 
-  const [queryString, setQueryString] = useState("");
-  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [queryString, setQueryString] = useSessionState("queryString", "");
+  const [limit, setLimit] = useSessionState("limit", DEFAULT_LIMIT);
 
-  const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [lastEvaluatedKey, setLastEvaluatedKey] = useState<string | null>(null);
-  const [scannedCount, setScannedCount] = useState(0);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [items, setItems] = useSessionState<Record<string, unknown>[]>("items", []);
+  const [lastEvaluatedKey, setLastEvaluatedKey] = useSessionState<string | null>("lastEvaluatedKey", null);
+  const [scannedCount, setScannedCount] = useSessionState("scannedCount", 0);
+  const [expanded, setExpanded] = useSessionState<Set<number>>("expanded", () => new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   // Bumped only when a fresh scan replaces the items, so that "Load more"
   // (which appends) doesn't throw away the rows the user has checked.
-  const [resultsVersion, setResultsVersion] = useState(0);
+  const [resultsVersion, setResultsVersion] = useSessionState("resultsVersion", 0);
+  // When these results came back, so a restored session can say how old they
+  // are rather than passing them off as current.
+  const [ranAt, setRanAt] = useSessionState<number | null>("ranAt", null);
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   const [savedTables, setSavedTables] = useState<SavedSession<TableShortcutState>[]>([]);
@@ -116,6 +121,7 @@ export default function TablesPage() {
       setScannedCount((prev) => (loadMore ? prev + resp.scanned_count : resp.scanned_count));
       if (!loadMore) {
         setExpanded(new Set());
+        setRanAt(Date.now());
         setResultsVersion((v) => v + 1);
       }
     } catch (e: any) {
@@ -234,6 +240,7 @@ export default function TablesPage() {
       {tableName && (
         <div className="panel">
           <h2>2. Search items</h2>
+          <RestoredResultsNote ranAt={ranAt} onRerun={() => runScan(false)} />
           <p className="muted">
             Filter with <code>field:value</code> tokens (exact match, ANDed), e.g. <code>status:ACTIVE region:us</code>
             . This scans the table and filters server-side — leave blank to browse it unfiltered.

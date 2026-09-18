@@ -7,6 +7,7 @@ import {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from "react";
+import { useSessionState } from "../sessions/SessionContext";
 import { api, AiAssistMode, AiChatMessage, AiDomain } from "../api";
 import { useAiPaneRegistry } from "./aiPanes";
 import MarkdownLite from "./MarkdownLite";
@@ -187,8 +188,8 @@ export default function AiAssistantWidget({
   const paneId = useId();
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<AiAssistMode>(modes[0]);
-  const [threads, setThreads] = useState(EMPTY_THREADS);
+  const [mode, setMode] = useSessionState<AiAssistMode>("ai.mode", modes[0]);
+  const [threads, setThreads] = useSessionState("ai.threads", EMPTY_THREADS);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSessionState } from "../../sessions/SessionContext";
 
 type Mode = "encode" | "decode";
 
@@ -20,9 +21,9 @@ function fromBase64(input: string): string {
 }
 
 export default function Base64Tool() {
-  const [mode, setMode] = useState<Mode>("encode");
-  const [input, setInput] = useState("");
-  const [urlSafe, setUrlSafe] = useState(false);
+  const [mode, setMode] = useSessionState<Mode>("mode", "encode");
+  const [input, setInput] = useSessionState("input", "");
+  const [urlSafe, setUrlSafe] = useSessionState("urlSafe", false);
   const [copied, setCopied] = useState(false);
 
   let output = "";

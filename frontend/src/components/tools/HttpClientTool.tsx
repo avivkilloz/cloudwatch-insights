@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSessionState } from "../../sessions/SessionContext";
 import { api, HttpMethod, HttpToolResponse, SavedSession, ToolHeader } from "../../api";
 import AiAssistantWidget from "../AiAssistantWidget";
 import { BODYLESS_METHODS, HTTP_METHODS, parseSuggestedRequest, serializeRequest } from "./httpRequestJson";
@@ -36,13 +37,13 @@ function statusTag(statusCode: number): string {
 }
 
 export default function HttpClientTool() {
-  const [method, setMethod] = useState<HttpMethod>("GET");
-  const [url, setUrl] = useState("");
-  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([{ id: nextHeaderId++, key: "", value: "" }]);
-  const [body, setBody] = useState("");
+  const [method, setMethod] = useSessionState<HttpMethod>("method", "GET");
+  const [url, setUrl] = useSessionState("url", "");
+  const [headerRows, setHeaderRows] = useSessionState<HeaderRow[]>("headerRows", () => [{ id: nextHeaderId++, key: "", value: "" }]);
+  const [body, setBody] = useSessionState("body", "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [response, setResponse] = useState<HttpToolResponse | null>(null);
+  const [response, setResponse] = useSessionState<HttpToolResponse | null>("response", null);
 
   const [savedRequests, setSavedRequests] = useState<SavedSession<SavedHttpRequestState>[]>([]);
 
@@ -50,8 +51,8 @@ export default function HttpClientTool() {
   // in its "About results" mode. Bumped alongside it so that sending a new
   // request drops the old thread rather than letting it keep answering from
   // a response that's no longer on screen.
-  const [exchange, setExchange] = useState<Record<string, unknown>[]>([]);
-  const [exchangeVersion, setExchangeVersion] = useState(0);
+  const [exchange, setExchange] = useSessionState<Record<string, unknown>[]>("exchange", []);
+  const [exchangeVersion, setExchangeVersion] = useSessionState("exchangeVersion", 0);
   const [assistantError, setAssistantError] = useState<string | null>(null);
 
   useEffect(() => {

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import RestoredResultsNote from "../components/RestoredResultsNote";
+import { useSessionState } from "../sessions/SessionContext";
 import {
   api,
   Environment,
@@ -42,22 +44,25 @@ const QUERY_EXAMPLES: Record<IotSearchMode, string[]> = {
 
 export default function IotPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<Set<number>>(new Set());
+  const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useSessionState<Set<number>>("selectedEnvironmentIds", () => new Set());
 
-  const [searchMode, setSearchMode] = useState<IotSearchMode>("things");
-  const [queryString, setQueryString] = useState(DEFAULT_QUERY.things);
-  const [maxResults, setMaxResults] = useState(DEFAULT_MAX_RESULTS);
+  const [searchMode, setSearchMode] = useSessionState<IotSearchMode>("searchMode", "things");
+  const [queryString, setQueryString] = useSessionState("queryString", DEFAULT_QUERY.things);
+  const [maxResults, setMaxResults] = useSessionState("maxResults", DEFAULT_MAX_RESULTS);
   const [showExamples, setShowExamples] = useState(false);
 
   const [savedSearches, setSavedSearches] = useState<IotSavedSearch[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession<IotSessionState>[]>([]);
 
-  const [thingResults, setThingResults] = useState<IotSearchResultItem[]>([]);
-  const [certResults, setCertResults] = useState<IotCertificateSearchResultItem[]>([]);
+  const [thingResults, setThingResults] = useSessionState<IotSearchResultItem[]>("thingResults", []);
+  const [certResults, setCertResults] = useSessionState<IotCertificateSearchResultItem[]>("certResults", []);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
-  const [resultsVersion, setResultsVersion] = useState(0);
+  const [resultsVersion, setResultsVersion] = useSessionState("resultsVersion", 0);
+  // When these results came back, so a restored session can say how old they
+  // are rather than passing them off as current.
+  const [ranAt, setRanAt] = useSessionState<number | null>("ranAt", null);
 
   useEffect(() => {
     api.listEnvironments().then(setEnvironments);
@@ -82,6 +87,7 @@ export default function IotPage() {
     setCertResults([]);
     setSearchError(null);
     setResultsVersion((v) => v + 1);
+    setRanAt(null);
   }
 
   async function runSearch() {
@@ -113,6 +119,7 @@ export default function IotPage() {
         });
         setCertResults(resp.results);
       }
+      setRanAt(Date.now());
       setResultsVersion((v) => v + 1);
     } catch (e: any) {
       setSearchError(e.message);
@@ -300,6 +307,7 @@ export default function IotPage() {
 
       <div className="panel">
         <h2>3. Results</h2>
+        <RestoredResultsNote ranAt={ranAt} onRerun={runSearch} />
         {searchMode === "things" ? (
           <IotResultsList items={thingResults} onSelectionChange={setSelectedRows} />
         ) : (

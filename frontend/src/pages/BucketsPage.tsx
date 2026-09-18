@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import RestoredResultsNote from "../components/RestoredResultsNote";
+import { useSessionState } from "../sessions/SessionContext";
 import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
@@ -46,27 +48,30 @@ function breadcrumbSegments(prefix: string): { label: string; prefix: string }[]
 
 export default function BucketsPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [environmentId, setEnvironmentId] = useState<number | "">("");
+  const [environmentId, setEnvironmentId] = useSessionState<number | "">("environmentId", "");
 
-  const [buckets, setBuckets] = useState<S3BucketInfo[]>([]);
+  const [buckets, setBuckets] = useSessionState<S3BucketInfo[]>("buckets", []);
   const [bucketsLoading, setBucketsLoading] = useState(false);
   const [bucketsError, setBucketsError] = useState<string | null>(null);
 
-  const [bucket, setBucket] = useState("");
-  const [bucketRegion, setBucketRegion] = useState("");
-  const [prefix, setPrefix] = useState("");
-  const [search, setSearch] = useState("");
-  const [activeSearch, setActiveSearch] = useState("");
+  const [bucket, setBucket] = useSessionState("bucket", "");
+  const [bucketRegion, setBucketRegion] = useSessionState("bucketRegion", "");
+  const [prefix, setPrefix] = useSessionState("prefix", "");
+  const [search, setSearch] = useSessionState("search", "");
+  const [activeSearch, setActiveSearch] = useSessionState("activeSearch", "");
 
-  const [folders, setFolders] = useState<S3FolderInfo[]>([]);
-  const [files, setFiles] = useState<S3FileInfo[]>([]);
-  const [continuationToken, setContinuationToken] = useState<string | null>(null);
+  const [folders, setFolders] = useSessionState<S3FolderInfo[]>("folders", []);
+  const [files, setFiles] = useSessionState<S3FileInfo[]>("files", []);
+  const [continuationToken, setContinuationToken] = useSessionState<string | null>("continuationToken", null);
   const [isBrowsing, setIsBrowsing] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
   // Bumped only when a fresh browse/search replaces the listing, so that
   // "Load more" (which appends) doesn't throw away the checked files.
-  const [resultsVersion, setResultsVersion] = useState(0);
+  const [resultsVersion, setResultsVersion] = useSessionState("resultsVersion", 0);
+  // When these results came back, so a restored session can say how old they
+  // are rather than passing them off as current.
+  const [ranAt, setRanAt] = useSessionState<number | null>("ranAt", null);
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
 
   const [savedBuckets, setSavedBuckets] = useState<SavedSession<BucketShortcutState>[]>([]);
@@ -123,7 +128,10 @@ export default function BucketsPage() {
       setFolders((prev) => (loadMore ? [...prev, ...resp.folders] : resp.folders));
       setFiles((prev) => (loadMore ? [...prev, ...resp.files] : resp.files));
       setContinuationToken(resp.continuation_token);
-      if (!loadMore) setResultsVersion((v) => v + 1);
+      if (!loadMore) {
+        setRanAt(Date.now());
+        setResultsVersion((v) => v + 1);
+      }
     } catch (e: any) {
       setBrowseError(e.message);
     } finally {
@@ -255,6 +263,7 @@ export default function BucketsPage() {
       {bucket && (
         <div className="panel">
           <h2>2. Browse</h2>
+          <RestoredResultsNote ranAt={ranAt} />
           <div className="row" style={{ marginBottom: 10, gap: 4 }}>
             <button className="secondary" onClick={() => openFolder("")}>
               {bucket}

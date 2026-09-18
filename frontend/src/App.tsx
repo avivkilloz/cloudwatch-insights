@@ -4,16 +4,18 @@ import { useAuth } from "./AuthContext";
 import AggregatorPage from "./pages/AggregatorPage";
 import BucketsPage from "./pages/BucketsPage";
 import CognitoPage from "./pages/CognitoPage";
+import HomePage, { HomeMessage } from "./pages/HomePage";
 import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
 import IotPage from "./pages/IotPage";
 import LoginPage from "./pages/LoginPage";
 import TablesPage from "./pages/TablesPage";
 import ToolsPage from "./pages/ToolsPage";
+import SessionTabs from "./components/SessionTabs";
 import UserMenu from "./components/UserMenu";
+import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
+import { PersistedSession } from "./sessions/storage";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
-
-type Tab = "insights" | "iot" | "tables" | "buckets" | "cognito" | "aggregator" | "tools" | "settings";
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -63,14 +65,38 @@ export default function App() {
   if (!user) return <LoginPage />;
 
   return (
-    <AppShell
-      appTitle={appTitle}
-      appLogoUrl={settings.app_logo_url}
-      theme={theme}
-      onThemeChange={setTheme}
-      onSettingsChange={setSettings}
-    />
+    <SessionsProvider userId={user.id}>
+      <AppShell
+        appTitle={appTitle}
+        appLogoUrl={settings.app_logo_url}
+        theme={theme}
+        onThemeChange={setTheme}
+        onSettingsChange={setSettings}
+      />
+    </SessionsProvider>
   );
+}
+
+/** Each session type's page. Rendered inside a SessionScopeProvider, so the
+ * pages themselves only have to swap useState for useSessionState to have
+ * their state survive a refresh -- they never touch the store directly. */
+function renderSession(type: SessionType) {
+  switch (type) {
+    case "logs":
+      return <InsightsPage />;
+    case "iot":
+      return <IotPage />;
+    case "tables":
+      return <TablesPage />;
+    case "buckets":
+      return <BucketsPage />;
+    case "cognito":
+      return <CognitoPage />;
+    case "aggregator":
+      return <AggregatorPage />;
+    case "tools":
+      return <ToolsPage />;
+  }
 }
 
 interface ShellProps {
@@ -83,58 +109,119 @@ interface ShellProps {
 
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>("insights");
-
-  const TOGGLEABLE_TABS: { id: Tab; label: string; enabled: boolean; render: () => JSX.Element }[] = [
-    { id: "insights", label: "Logs", enabled: !!user?.logs_enabled, render: () => <InsightsPage /> },
-    { id: "iot", label: "IoT", enabled: !!user?.iot_enabled, render: () => <IotPage /> },
-    { id: "tables", label: "Tables", enabled: !!user?.tables_enabled, render: () => <TablesPage /> },
-    { id: "buckets", label: "Buckets", enabled: !!user?.buckets_enabled, render: () => <BucketsPage /> },
-    { id: "cognito", label: "Cognito", enabled: !!user?.cognito_enabled, render: () => <CognitoPage /> },
-    { id: "aggregator", label: "Aggregator", enabled: !!user?.aggregator_enabled, render: () => <AggregatorPage /> },
-    { id: "tools", label: "Tools", enabled: !!user?.tools_enabled, render: () => <ToolsPage /> },
-  ];
-
-  // A tab that's just been disabled (e.g. by an admin changing this user's
-  // group) shouldn't leave the user stranded on a page that's no longer
-  // reachable.
-  useEffect(() => {
-    const current = TOGGLEABLE_TABS.find((t) => t.id === tab);
-    if (current && !current.enabled) setTab("settings");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, user]);
+  const { sessions, activeId, view, ready, show } = useSessions();
+  const [prompt, setPrompt] = useState("");
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [homeMessages, setHomeMessages] = useState<HomeMessage[]>([]);
 
   async function handleLogout() {
     await logout();
   }
 
+  function askAgent() {
+    const text = prompt.trim();
+    if (!text) return;
+    setPendingPrompt(text);
+    setPrompt("");
+    show("home");
+  }
+
+  // Nothing renders until the workspace has been read back, so a restored
+  // session never flashes as empty first.
+  if (!ready) return null;
+
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <button className="brand" onClick={() => show("home")} title="Home">
           {appLogoUrl && <img className="brand-logo" src={appLogoUrl} alt="" />}
           {appTitle}
+        </button>
+        {/* Where the service tabs used to be. Those are sessions now, in the
+            bar below; this is the way in to the agent that works across them. */}
+        <div className="agent-bar">
+          <input
+            type="text"
+            className="agent-input"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") askAgent();
+            }}
+            placeholder="Ask the agent…"
+            aria-label="Ask the agent"
+          />
         </div>
-        <nav className="tabs">
-          {TOGGLEABLE_TABS.map(
-            (t) =>
-              t.enabled && (
-                <button key={t.id} className={tab === t.id ? "tab active" : "tab"} onClick={() => setTab(t.id)}>
-                  {t.label}
-                </button>
-              )
-          )}
-        </nav>
         <div className="topbar-right">
-          {user && <UserMenu user={user} onOpenSettings={() => setTab("settings")} onLogout={handleLogout} />}
+          {user && <UserMenu user={user} onOpenSettings={() => show("settings")} onLogout={handleLogout} />}
         </div>
       </header>
+
+      <SessionTabs />
+
       <main className="content">
-        {TOGGLEABLE_TABS.map((t) => tab === t.id && t.enabled && <div key={t.id}>{t.render()}</div>)}
-        {tab === "settings" && (
+        {view === "home" && (
+          <HomePage
+            messages={homeMessages}
+            onMessagesChange={setHomeMessages}
+            pendingPrompt={pendingPrompt}
+            onPendingPromptHandled={() => setPendingPrompt(null)}
+          />
+        )}
+        {view === "settings" && (
           <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
+        {/* Every open session stays mounted, hidden rather than unmounted, so
+            switching tabs never interrupts a running query or throws away a
+            scroll position -- the same reason Aggregator panes stay mounted. */}
+        {sessions.map((session) => (
+          <SessionBody
+            key={session.id}
+            session={session}
+            hidden={view !== "session" || activeId !== session.id}
+          />
+        ))}
       </main>
+    </div>
+  );
+}
+
+function SessionBody({ session, hidden }: { session: PersistedSession; hidden: boolean }) {
+  const { user } = useAuth();
+  // An admin can revoke a service while a session for it is open; the session
+  // stays in the strip (closing it silently would lose work the user can't see
+  // to save) but says why it won't render.
+  const enabled: Record<SessionType, boolean> = {
+    logs: !!user?.logs_enabled,
+    iot: !!user?.iot_enabled,
+    tables: !!user?.tables_enabled,
+    buckets: !!user?.buckets_enabled,
+    cognito: !!user?.cognito_enabled,
+    aggregator: !!user?.aggregator_enabled,
+    tools: !!user?.tools_enabled,
+  };
+
+  return (
+    <div className="session-body" hidden={hidden}>
+      <SessionScopeProvider session={session}>
+        {session.truncated && (
+          <div className="panel">
+            <p className="muted" style={{ margin: 0 }}>
+              This session's results were too large to keep between page loads, so only its inputs came back. Run the
+              search again to repopulate it.
+            </p>
+          </div>
+        )}
+        {enabled[session.type as SessionType] ? (
+          renderSession(session.type as SessionType)
+        ) : (
+          <div className="panel">
+            <p className="muted" style={{ margin: 0 }}>
+              This session's service is no longer enabled for your account.
+            </p>
+          </div>
+        )}
+      </SessionScopeProvider>
     </div>
   );
 }

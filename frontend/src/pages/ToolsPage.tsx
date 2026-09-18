@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSessionState } from "../sessions/SessionContext";
 import ToolCard from "../components/ToolCard";
 import Base64Tool from "../components/tools/Base64Tool";
 import DiffTool from "../components/tools/DiffTool";
@@ -47,7 +48,7 @@ const TOOLS: { id: ToolId; icon: string; title: string; description: string; ren
 ];
 
 export default function ToolsPage() {
-  const [expanded, setExpanded] = useState<Set<ToolId>>(new Set());
+  const [expanded, setExpanded] = useSessionState<Set<ToolId>>("expanded", () => new Set());
 
   function toggle(id: ToolId) {
     setExpanded((prev) => {
