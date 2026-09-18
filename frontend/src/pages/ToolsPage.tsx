@@ -58,9 +58,16 @@ export default function ToolsPage() {
     });
   }
 
+  // Collapsed tools stay in their fixed order up top; an expanded one drops
+  // to the bottom (after every other tool, expanded or not) instead of
+  // pushing open in place, so opening one doesn't reshuffle the tools above
+  // it. Array.prototype.sort is stable, so each group keeps its own
+  // original relative order.
+  const orderedTools = [...TOOLS].sort((a, b) => Number(expanded.has(a.id)) - Number(expanded.has(b.id)));
+
   return (
     <div className="tools-grid">
-      {TOOLS.map((t) => (
+      {orderedTools.map((t) => (
         <ToolCard
           key={t.id}
           icon={t.icon}
