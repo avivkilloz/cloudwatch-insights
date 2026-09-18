@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, IotSearchResultItem, IotThingDetail, IotThingSummary } from "../api";
+import ExportMenu from "./ExportMenu";
 import IotThingDetailPanel from "./IotThingDetailPanel";
 
 interface FlatThing {
@@ -65,6 +66,10 @@ export default function IotResultsList({ items }: { items: IotSearchResultItem[]
         <span className="muted">
           {flat.length} thing(s) across {items.length} target(s)
         </span>
+        <ExportMenu
+          rows={flat.map((row) => ({ environment: row.environment_name, ...row.thing }))}
+          filename="iot-things"
+        />
       </div>
       {errors.length > 0 && (
         <div className="panel" style={{ borderColor: "var(--error)" }}>

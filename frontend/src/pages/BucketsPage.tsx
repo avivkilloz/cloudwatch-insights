@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
+import ExportMenu from "../components/ExportMenu";
 
 const SESSION_PAGE = "buckets";
 
@@ -275,6 +276,15 @@ export default function BucketsPage() {
             <p className="muted">
               Searching recursively under "{prefix || "/"}" for filenames containing "{activeSearch}".
             </p>
+          )}
+
+          {(folders.length > 0 || files.length > 0) && (
+            <div className="toolbar">
+              <span className="muted">
+                {folders.length} folder(s), {files.length} file(s)
+              </span>
+              <ExportMenu rows={files} filename={`bucket-${bucket}`} />
+            </div>
           )}
 
           {folders.length === 0 && files.length === 0 && !isBrowsing && (

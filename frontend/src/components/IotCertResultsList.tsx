@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, IotCertificateDetail, IotCertificateInfo, IotCertificateSearchResultItem } from "../api";
+import ExportMenu from "./ExportMenu";
 import IotCertificateDetailPanel from "./IotCertificateDetailPanel";
 
 interface FlatCert {
@@ -65,6 +66,10 @@ export default function IotCertResultsList({ items }: { items: IotCertificateSea
         <span className="muted">
           {flat.length} certificate(s) across {items.length} target(s)
         </span>
+        <ExportMenu
+          rows={flat.map((row) => ({ environment: row.environment_name, ...row.cert }))}
+          filename="iot-certificates"
+        />
       </div>
       {errors.length > 0 && (
         <div className="panel" style={{ borderColor: "var(--error)" }}>

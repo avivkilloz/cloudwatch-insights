@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, CognitoUserInfo, CognitoUserPoolInfo, Environment } from "../api";
+import ExportMenu from "../components/ExportMenu";
 
 function formatTimestamp(epochSeconds: number | null): string {
   if (epochSeconds == null) return "—";
@@ -144,6 +145,13 @@ export default function CognitoPage() {
             </button>
             {searchError && <span className="error-text">{searchError}</span>}
           </div>
+
+          {users.length > 0 && (
+            <div className="toolbar">
+              <span className="muted">{users.length} user(s) loaded</span>
+              <ExportMenu rows={users} filename="cognito-users" />
+            </div>
+          )}
 
           {users.length === 0 && !isSearching && <p className="muted">No users loaded yet — click Search.</p>}
           {users.map((u, i) => {
