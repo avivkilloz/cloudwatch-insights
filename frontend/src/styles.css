@@ -232,6 +232,29 @@ button.brand:hover {
   width: 100%;
 }
 
+/* One height for every control in the session strip, so tabs, + and
+   Save session line up whatever their label. */
+:root {
+  --session-control-h: 28px;
+}
+
+/* UI chrome is chrome, not content. Without this a click-drag that starts on
+   a heading, a label or a button drags the text instead, which opens a native
+   browser drag session: the browser owns the mouse until that session ends,
+   so a drag that never delivers its dragend leaves the page looking frozen
+   until a reload. Results, log lines, code blocks and inputs are deliberately
+   left selectable -- copying those is the point of the app. */
+h2,
+h3,
+label,
+button,
+.tab,
+.home-card-title,
+.home-card-desc,
+.session-menu-heading {
+  user-select: none;
+}
+
 /* ---- Session strip ---- */
 
 /* Reads as the top of the body rather than a second header: no background of
@@ -240,18 +263,45 @@ button.brand:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 14px 20px 0;
+  /* The bottom padding is the gap between the strip and the page under it:
+     with no rule between them, the separation has to come from space. */
+  padding: 14px 20px 14px;
   background: transparent;
   overflow-x: auto;
+  /* Chrome, not content: a stray click-drag across the strip should never
+     start a native text drag, which hands the mouse to the browser for the
+     whole gesture. */
+  user-select: none;
+}
+
+/* Every control in the strip is laid out to one height rather than left to
+   its own text metrics -- an uppercase label, a "+" glyph and a word each
+   grow a differently sized line box, which is what made the row ragged. */
+.session-tab,
+.session-add-button,
+.session-save-button {
+  box-sizing: border-box;
+  height: var(--session-control-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .session-tab {
-  display: flex;
-  align-items: center;
   border: 1px solid var(--border);
-  border-radius: 6px;
   background: transparent;
-  white-space: nowrap;
+}
+
+.session-tab.dragging {
+  opacity: 0.45;
+}
+
+.session-tab.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .session-tab:hover {
@@ -270,17 +320,23 @@ button.brand:hover {
 
 .session-tab-label,
 .session-tab-close {
+  /* The tab owns the height; these just fill it, so no per-label line box can
+     push one tab taller than its neighbours. */
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
   font-size: 12.5px;
-  padding: 5px 4px 5px 10px;
+  line-height: 1;
+  padding: 0 4px 0 10px;
 }
 
 .session-tab-close {
-  padding: 5px 8px 5px 4px;
+  padding: 0 8px 0 4px;
   opacity: 0.6;
 }
 
@@ -293,14 +349,16 @@ button.brand:hover {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-dim);
-  padding: 4px 10px;
+  padding: 0 10px;
   font-size: 12.5px;
+  line-height: 1;
 }
 
 .session-add-button {
+  /* Larger glyph, same box: the height comes from the shared rule above, so
+     the bigger font can't grow the button the way it used to. */
   font-size: 15px;
-  line-height: 1.15;
-  padding: 3px 10px;
+  min-width: var(--session-control-h);
 }
 
 .session-add-button:hover,
@@ -422,11 +480,6 @@ button.brand:hover {
   font-size: 11.5px;
   color: var(--text-dim);
   cursor: pointer;
-}
-
-.home,
-.agent-session {
-  max-width: 1100px;
 }
 
 .topbar-right {
