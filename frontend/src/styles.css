@@ -266,8 +266,11 @@ button,
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 14px 20px 0;
-  padding: 8px 10px;
+  /* Narrower side margins than the body's 20px, so the strip is wider than
+     the cards under it and reads as a band across the top of the page rather
+     than another card in the same column. */
+  margin: 14px 10px 0;
+  padding: 8px 12px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
