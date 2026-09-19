@@ -139,7 +139,7 @@ def get_indices(
 ):
     try:
         environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(db, environment)
+        role_name = resolve_role_name(current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

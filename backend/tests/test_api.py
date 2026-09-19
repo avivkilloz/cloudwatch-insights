@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import client
+from tests.conftest import TEST_ROLE_NAME, client
 
 
 def _client_without_cookies() -> TestClient:
@@ -299,6 +299,46 @@ def test_opensearch_indices_rejects_unconfigured_environment():
         json={"environment_id": 999999, "domain_endpoint": "search-x.us-east-1.es.amazonaws.com"},
     )
     assert resp.status_code == 400
+
+
+def test_opensearch_indices_resolves_the_role_for_a_real_environment(monkeypatch):
+    """Reaches list_indices with an environment that actually resolves.
+
+    The test above it passes an id that doesn't exist, so resolve_environment
+    raises first and nothing after it ever runs -- which is how a wrong
+    resolve_role_name() call in this endpoint survived: every caller of this
+    route in production hit a TypeError, and every test stopped one line
+    short of it.
+    """
+    from app import opensearch_client
+
+    resp = client.post(
+        "/api/environments",
+        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
+    )
+    assert resp.status_code == 201
+    environment_id = resp.json()["id"]
+
+    seen = {}
+
+    def fake_list_indices(account_id, region, role_name, domain_endpoint):
+        seen.update(account_id=account_id, region=region, role_name=role_name, endpoint=domain_endpoint)
+        return [{"index": "logs-2024.01", "docs_count": 12, "store_size": "345kb"}]
+
+    monkeypatch.setattr(opensearch_client, "list_indices", fake_list_indices)
+
+    resp = client.post(
+        "/api/opensearch/indices",
+        json={"environment_id": environment_id, "domain_endpoint": "search-x.us-east-1.es.amazonaws.com"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["indices"][0]["index"] == "logs-2024.01"
+    # The role came from the caller's group, not from the environment row.
+    assert seen["role_name"] == TEST_ROLE_NAME
+    assert seen["account_id"] == "111122223333"
+    assert seen["endpoint"] == "search-x.us-east-1.es.amazonaws.com"
+
+    client.delete(f"/api/environments/{environment_id}")
 
 
 def test_opensearch_search_reports_error_for_unconfigured_environment():
