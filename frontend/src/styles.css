@@ -270,7 +270,9 @@ button,
      the cards under it and reads as a band across the top of the page rather
      than another card in the same column. */
   margin: 14px 10px 0;
-  padding: 8px 12px;
+  /* The horizontal padding matches the gap between tabs, so the space before
+     the first tab is the same as the space between any two of them. */
+  padding: 8px 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
