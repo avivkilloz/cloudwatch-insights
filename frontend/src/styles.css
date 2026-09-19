@@ -379,10 +379,11 @@ button,
   color: var(--accent);
 }
 
+/* Portalled to the body and positioned from the ⋮'s own rectangle: as a child
+   of the rail it was clipped by the rail's scrolling and stayed trapped
+   inside the panel. */
 .rail-row-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
+  position: fixed;
   z-index: 1200;
   min-width: 156px;
   padding: 4px;

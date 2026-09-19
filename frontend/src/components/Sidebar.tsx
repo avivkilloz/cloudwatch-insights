@@ -1,4 +1,5 @@
-import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, SavedSession } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
@@ -24,6 +25,8 @@ const CATALOGUE_STORAGE_KEY = "cwi-rail-catalogue";
 
 const SAVED_STATE_VERSION = 2;
 const VERSION_KEY = "__savedStateVersion";
+/** Kept in step with `.rail-row-menu`'s min-width, to keep the menu on screen. */
+const MENU_WIDTH_PX = 156;
 
 /**
  * Templates written before sessions held their own state used a hand-rolled
@@ -82,18 +85,24 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { sessions, activeId, view, open, close, activate, rename, reorder, show, captureInputs } = useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Where to paint the open ⋮ menu. It is portalled to the body: the rail
+  // scrolls, and an absolutely-positioned child of a scrolling box is clipped
+  // by it -- which is what hid the menu inside the panel.
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   // Bumped when a template is written, so the list below refetches. Session
   // count alone doesn't change when you save one, so without this a template
   // you just saved wouldn't appear until something else moved.
   const [savedVersion, setSavedVersion] = useState(0);
-  // The catalogue is the old + menu, inlined. Open by default -- the point of
-  // the panel is that everything you can reach is in it -- and folded only if
-  // you fold it, which is remembered so a long session list stays readable.
+  // The catalogue is the old + menu, inlined. Folded by default so the rail
+  // opens on what you have rather than everything you could have; unfolding it
+  // is remembered, so it stays open once you ask for it.
   const [catalogue, setCatalogue] = useState(() => {
     try {
-      return window.localStorage.getItem(CATALOGUE_STORAGE_KEY) !== "closed";
+      return window.localStorage.getItem(CATALOGUE_STORAGE_KEY) === "open";
     } catch {
-      return true;
+      return false;
     }
   });
   useEffect(() => {
@@ -127,6 +136,21 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, sessions.length, savedVersion]);
 
+  /** Paint the menu just under its ⋮, and keep it inside the window. Measured
+   * from the menu itself once it is up, so a menu wider than the rail overhangs
+   * the page rather than running off the edge of the screen. */
+  const placeMenu = useCallback(() => {
+    const button = menuButtonRef.current;
+    if (!button) return;
+    const r = button.getBoundingClientRect();
+    const width = menuRef.current?.offsetWidth || MENU_WIDTH_PX;
+    setMenuPos({ left: Math.max(4, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 4 });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (menuFor) placeMenu();
+  }, [menuFor, placeMenu]);
+
   // One ⋮ menu at a time, and a click anywhere else closes it.
   useEffect(() => {
     if (!menuFor) return;
@@ -139,11 +163,18 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     }
     document.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", placeMenu);
+    // The menu is fixed to the viewport, so anything that moves the ⋮ under it
+    // has to move it too -- and the rail scrolls the button into view the moment
+    // it takes focus, which is every time the menu opens.
+    document.addEventListener("scroll", placeMenu, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", placeMenu);
+      document.removeEventListener("scroll", placeMenu, true);
     };
-  }, [menuFor]);
+  }, [menuFor, placeMenu]);
 
   // Sessions reorder by dragging, as they did in the strip this replaced.
   // Pointer events rather than HTML5 drag-and-drop: a native drag hands the
@@ -167,8 +198,10 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   }
 
   function startDrag(e: ReactPointerEvent<HTMLElement>, id: string) {
-    // Left button only, and never from the ⋮ that opens the row's menu.
-    if (e.button !== 0 || (e.target as HTMLElement).closest(".rail-row-more")) return;
+    // Left button only, and never from the row's ⋮ or the menu it opens --
+    // the menu is portalled to the body but is still a React child of the row,
+    // so its events bubble through here.
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".rail-row-more, .rail-row-menu")) return;
     suppressClick.current = false;
     dragRef.current = { id, startY: e.clientY, y: e.clientY, moved: false, over: null };
   }
@@ -264,7 +297,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
         <span className="rail-row-label">Home</span>
       </button>
 
-      <div className="rail-heading">Open</div>
+      <div className="rail-heading">Sessions</div>
       {sessions.length === 0 && <div className="rail-empty">Nothing open yet.</div>}
       {sessions.map((s) => {
         const def = sessionType(s.type);
@@ -300,28 +333,33 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
             </button>
             <button
               className="rail-row-more"
-              onClick={() => setMenuFor((v) => (v === s.id ? null : s.id))}
+              ref={menuFor === s.id ? menuButtonRef : undefined}
+              onClick={(e) => {
+                menuButtonRef.current = e.currentTarget;
+                setMenuFor((v) => (v === s.id ? null : s.id));
+              }}
               aria-label={`More for ${s.title}`}
               aria-expanded={menuFor === s.id}
               title="More"
             >
               ⋮
             </button>
-            {menuFor === s.id && (
-              <div className="rail-row-menu">
-                {def?.savedPage && (
-                  <button onClick={() => saveAsTemplate(s.id)}>Save as template…</button>
-                )}
-                <button
-                  onClick={() => {
-                    close(s.id);
-                    setMenuFor(null);
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            )}
+            {menuFor === s.id &&
+              menuPos &&
+              createPortal(
+                <div className="rail-row-menu" ref={menuRef} style={{ left: menuPos.left, top: menuPos.top }}>
+                  {def?.savedPage && <button onClick={() => saveAsTemplate(s.id)}>Save as template…</button>}
+                  <button
+                    onClick={() => {
+                      close(s.id);
+                      setMenuFor(null);
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>,
+                document.body,
+              )}
           </div>
         );
       })}
