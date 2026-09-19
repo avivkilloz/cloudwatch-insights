@@ -9,9 +9,9 @@ regions** by assuming a role you configure in each target account.
 The app is organised around **sessions** rather than a fixed set of tabs.
 
 - The **header** holds the app title on the left, an **agent prompt bar** in
-  the middle, and your avatar on the right. The title takes you **home**;
-  typing a question in the bar opens an **agent session** with that question
-  already asked.
+  the middle, and your avatar on the right. The title **shows and hides the
+  side panel**; typing a question in the bar opens an **agent session** with
+  that question already asked.
 - **Home** is a card per session type, grouped into **Platform**, **Services**
   and **Tools**, in that order. *Platform* holds the Aggregator and the Agent —
   this app's own features, as against the pages below them, each of which is a
@@ -24,22 +24,22 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   is for, drawn from the session-type registry so each page says it once and
   says it the same way. Aggregator panes don't repeat it — they already sit
   under their own title bar.
-- Below the header, a **session strip** holds whichever sessions you have open,
-  with a **+** at the end of them (so on the left when there are none). It's
-  deliberately flat — no background or rule of its own, so it reads as the top
-  of the page rather than a second header. **+** lists every session type —
-  the **Aggregator** and **Agent** first, then CloudWatch, OpenSearch, IoT,
-  DynamoDB, S3 and
-  Cognito, then each **tool** on its own (HTTP client, MQTT tester, JWT,
-  Base64, Diff) — plus your saved sessions. Picking one starts a session and gives it a tab; a second
-  CloudWatch session is called "CloudWatch 2" rather than colliding. Click a tab
-  to switch
-  to it, double-click to rename it, drag to reorder, **✕** to close.
-  **Save session** at the right of the strip saves the active one. Reordering
-  is pointer-driven, like the Aggregator's panes, rather than the browser's
-  own drag-and-drop — see the note under *Aggregator* for why.
-- Every open session **stays mounted**: switching tabs never interrupts a
-  running query or loses a scroll position.
+- A **side panel** down the left holds everything you can reach, in one list:
+  **Home** at the top, then the sessions you have **open**, then your saved
+  **templates**, then **＋ Add**, which folds out the full catalogue grouped
+  into *Platform*, *Services* and *Tools*. Clicking anything in the catalogue
+  starts that session; a second CloudWatch session is called "CloudWatch 2"
+  rather than colliding. Click an open session to switch to it, double-click to
+  rename it, and use the **⋮** beside it to save it as a template or close it.
+
+  It's a vertical card in the page background rather than the panel colour, so
+  it reads as part of the surface the body's cards sit on. It replaced a
+  horizontal strip of tabs: a row runs out of width at about six, and this app
+  is built around having several sessions open at once. Clicking the app title
+  hides it entirely when a page needs the room, and that choice is remembered
+  per browser.
+- Every open session **stays mounted**: switching between them never
+  interrupts a running query or loses a scroll position.
 - **A refresh puts you back where you were.** Open sessions, which one you
   were looking at, and each session's whole state — the inputs, the rows on
   screen, and its AI assistant conversation — are kept in the browser
@@ -262,12 +262,12 @@ from the avatar menu and is not a session; the strip stays above it.
   a saved bucket/table is still created from its own page's "Save"
   button, since that's what captures the current state in the first place.
   (Cognito has no saved-item concept of its own today.)
-- **Saved sessions**, distinct from saved queries/searches: the log and
-  IoT tabs each have a "Save session" button that snapshots the page's
-  *entire* working state — selected environments, log groups, query text,
-  time range, limit, sort, search mode, and so on — not just the query
-  text, so you can resume an investigation later exactly where you left
-  it. Load one back via that page's "Load saved session" dropdown. Any
+- **Templates**, distinct from saved queries/searches: **⋮ → Save as
+  template** on any session in the side panel keeps that session's *inputs* —
+  selected environments, log groups, query text, time range, limit, sort,
+  search mode, and so on, including each Aggregator pane's — but not its
+  results. Opening one from the panel's **Templates** list starts a fresh
+  session seeded with them; nothing about the saved copy changes as you work. Any
   future page can plug into the same mechanism — a saved session is just a
   page name plus an opaque JSON blob that page defines for itself, which
   is also what the Tools page's saved HTTP requests and saved MQTT topics,
