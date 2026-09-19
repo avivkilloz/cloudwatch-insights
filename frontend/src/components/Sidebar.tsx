@@ -19,6 +19,9 @@ function nextTitle(label: string, taken: string[]): string {
  * (a session's own state bag) from the hand-rolled per-page shapes that came
  * before it. Guessing from the keys doesn't work: a legacy Aggregator save and
  * a current one both have `services`, and guessing threw the rest away. */
+/** Whether the catalogue is folded. A per-browser preference, like the rail itself. */
+const CATALOGUE_STORAGE_KEY = "cwi-rail-catalogue";
+
 const SAVED_STATE_VERSION = 2;
 const VERSION_KEY = "__savedStateVersion";
 
@@ -79,9 +82,23 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { sessions, activeId, view, open, close, activate, rename, show, captureInputs } = useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  // The catalogue is the old + menu, inlined. It starts open when there is
-  // nothing else to look at, so a new workspace shows what it can do.
-  const [catalogue, setCatalogue] = useState(sessions.length === 0);
+  // The catalogue is the old + menu, inlined. Open by default -- the point of
+  // the panel is that everything you can reach is in it -- and folded only if
+  // you fold it, which is remembered so a long session list stays readable.
+  const [catalogue, setCatalogue] = useState(() => {
+    try {
+      return window.localStorage.getItem(CATALOGUE_STORAGE_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CATALOGUE_STORAGE_KEY, catalogue ? "open" : "closed");
+    } catch {
+      // best-effort persistence only
+    }
+  }, [catalogue]);
 
   const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
 
