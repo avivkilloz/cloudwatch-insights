@@ -232,6 +232,23 @@ button.brand:hover {
   width: 100%;
 }
 
+/* UI chrome is chrome, not content. Without this a click-drag that starts on
+   a heading, a label or a button drags the text instead, which opens a native
+   browser drag session: the browser owns the mouse until that session ends,
+   so a drag that never delivers its dragend leaves the page looking frozen
+   until a reload. Results, log lines, code blocks and inputs are deliberately
+   left selectable -- copying those is the point of the app. */
+h2,
+h3,
+label,
+button,
+.tab,
+.home-card-title,
+.home-card-desc,
+.rail-heading {
+  user-select: none;
+}
+
 /* ---- Left rail ---- */
 
 /* A vertical card in the page background rather than the panel colour, so it
@@ -304,6 +321,15 @@ button.brand:hover {
 
 .rail-row.active .rail-row-label {
   color: var(--accent-text);
+}
+
+.rail-row.dragging {
+  opacity: 0.45;
+}
+
+.rail-row.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .rail-row-label {

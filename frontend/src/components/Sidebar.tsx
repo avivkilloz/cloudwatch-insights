@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { api, SavedSession } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
@@ -79,7 +79,7 @@ function migrateLegacyState(page: string, state: Record<string, any>): Record<st
  */
 export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { user } = useAuth();
-  const { sessions, activeId, view, open, close, activate, rename, show, captureInputs } = useSessions();
+  const { sessions, activeId, view, open, close, activate, rename, reorder, show, captureInputs } = useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   // Bumped when a template is written, so the list below refetches. Session
@@ -145,6 +145,79 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     };
   }, [menuFor]);
 
+  // Sessions reorder by dragging, as they did in the strip this replaced.
+  // Pointer events rather than HTML5 drag-and-drop: a native drag hands the
+  // mouse to the browser for the whole gesture, and one that never delivers
+  // its dragend leaves the page looking frozen until a reload. Vertical here,
+  // since the rail is a column.
+  const dragRef = useRef<{ id: string; startY: number; moved: boolean; over: string | null; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const DRAG_THRESHOLD_PX = 5;
+
+  /** Which open session is under a y, hit-tested by geometry so it works the
+   * same while the pointer is captured by the row it started on. */
+  function rowUnder(y: number): string | null {
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-session-id]"))) {
+      const r = el.getBoundingClientRect();
+      if (y >= r.top && y <= r.bottom) return el.dataset.sessionId ?? null;
+    }
+    return null;
+  }
+
+  function startDrag(e: ReactPointerEvent<HTMLElement>, id: string) {
+    // Left button only, and never from the ⋮ that opens the row's menu.
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".rail-row-more")) return;
+    suppressClick.current = false;
+    dragRef.current = { id, startY: e.clientY, y: e.clientY, moved: false, over: null };
+  }
+
+  function moveDrag(e: ReactPointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    drag.y = e.clientY;
+    if (!drag.moved) {
+      if (Math.abs(e.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      // Captured only now: while an element holds the capture the browser
+      // retargets the compatibility mouse events to it too, and capturing up
+      // front would send the click to the row instead of its label.
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDragging(drag.id);
+    }
+    const over = rowUnder(drag.y);
+    const next = over && over !== drag.id ? over : null;
+    if (next === drag.over) return;
+    drag.over = next;
+    setDropTarget(next);
+  }
+
+  /** The single exit. `commit` is false when the drag was cancelled rather
+   * than released, so the state clears but nothing moves. */
+  function endDrag(commit: boolean) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setDragging(null);
+    setDropTarget(null);
+    if (!drag?.moved) return;
+    suppressClick.current = true;
+    if (commit && drag.over) {
+      const to = sessions.findIndex((s) => s.id === drag.over);
+      if (to >= 0) reorder(drag.id, to);
+    }
+  }
+
+  // Escape cancels a drag in progress, the way a native one would.
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") endDrag(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function startSession(type: SessionType, label: string, state?: Record<string, unknown>) {
     open(type, nextTitle(label, sessions.map((s) => s.title)), state);
   }
@@ -196,10 +269,27 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       {sessions.map((s) => {
         const def = sessionType(s.type);
         return (
-          <div key={s.id} className={`rail-row${view === "session" && activeId === s.id ? " active" : ""}`}>
+          <div
+            key={s.id}
+            data-session-id={s.id}
+            className={
+              `rail-row${view === "session" && activeId === s.id ? " active" : ""}` +
+              `${dragging === s.id ? " dragging" : ""}${dropTarget === s.id ? " drop-target" : ""}`
+            }
+            onPointerDown={(e) => startDrag(e, s.id)}
+            onPointerMove={moveDrag}
+            onPointerUp={() => endDrag(true)}
+            onPointerCancel={() => endDrag(false)}
+          >
             <button
               className="rail-row-label"
-              onClick={() => activate(s.id)}
+              onClick={() => {
+                if (suppressClick.current) {
+                  suppressClick.current = false;
+                  return;
+                }
+                activate(s.id);
+              }}
               onDoubleClick={() => {
                 const name = prompt("Rename session:", s.title);
                 if (name?.trim()) rename(s.id, name.trim());
@@ -242,7 +332,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
           {saved.map(({ entry, type }) => (
             <button
               key={`${entry.page}:${entry.id}`}
-              className="rail-row"
+              className="rail-row rail-row-template"
               onClick={() => openSaved(entry, type)}
               title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
             >
