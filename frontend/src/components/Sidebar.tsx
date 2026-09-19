@@ -82,6 +82,10 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { sessions, activeId, view, open, close, activate, rename, show, captureInputs } = useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Bumped when a template is written, so the list below refetches. Session
+  // count alone doesn't change when you save one, so without this a template
+  // you just saved wouldn't appear until something else moved.
+  const [savedVersion, setSavedVersion] = useState(0);
   // The catalogue is the old + menu, inlined. Open by default -- the point of
   // the panel is that everything you can reach is in it -- and folded only if
   // you fold it, which is remembered so a long session list stays readable.
@@ -121,7 +125,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, sessions.length]);
+  }, [expanded, sessions.length, savedVersion]);
 
   // One ⋮ menu at a time, and a click anywhere else closes it.
   useEffect(() => {
@@ -171,6 +175,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       name: name.trim(),
       state: { ...state, [VERSION_KEY]: SAVED_STATE_VERSION },
     });
+    setSavedVersion((v) => v + 1);
     setMenuFor(null);
   }
 
