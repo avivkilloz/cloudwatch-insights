@@ -272,14 +272,10 @@ export default function AggregatorPage() {
   return (
     <>
       <div className="panel">
-        <h2>Session</h2>
-        <p className="muted">
-          Pick what you're debugging across — any of the search tabs, plus whichever individual tools you want beside
-          them — and work with them side by side, each in its own pane with its own state. Drag a pane by its title bar
-          to reorder them, or use the arrows on it. The AI assistant spans all of them: ask about the rows you've
-          checked across every service at once, or have it write a query for any one of them using what you selected in
-          the others as examples.
-        </p>
+        {/* "Panes" rather than "Session": this card is not the session, it is
+            the controls for which panes are in it and how they are arranged.
+            What the Aggregator is for is said once, in the page header. */}
+        <h2>Panes</h2>
         {/* Two rows rather than one long one -- ten checkboxes in a single
             line reads as an undifferentiated list, and "a search page" and
             "a tool" are different kinds of thing to reach for. */}

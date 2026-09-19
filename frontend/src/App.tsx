@@ -137,7 +137,19 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       <main className="content">
         {view === "home" && <HomePage />}
         {view === "settings" && (
-          <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
+          <>
+            {/* Settings is a view rather than a session type, so it has no
+                registry entry to draw a header from -- it says it here
+                instead, in the same shape every session page uses. */}
+            <div className="page-intro">
+              <h1 className="page-intro-title">Settings</h1>
+              <p className="page-intro-help">
+                Your account and how the app looks, the environments and saved items you work with, and — if you are an
+                admin — the users, groups and which pages each group can see.
+              </p>
+            </div>
+            <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
+          </>
         )}
         {/* Every open session stays mounted, hidden rather than unmounted, so
             switching tabs never interrupts a running query or throws away a

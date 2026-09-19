@@ -254,7 +254,14 @@ export default function SessionTabs() {
   function openSaved(entry: SavedSession<Record<string, unknown>>, type: SessionType) {
     // A saved session is a template: its inputs seed a brand-new session, and
     // nothing about the saved copy changes as you work in it.
-    startSession(type, entry.name, migrateLegacyState(entry.page, entry.state as Record<string, any>));
+    const state = migrateLegacyState(entry.page, entry.state as Record<string, any>);
+    // Everything saved from the old combined Logs page lives under "logs",
+    // whichever backend it was using. Its own state says which, so an
+    // OpenSearch one opens on the OpenSearch page rather than silently
+    // becoming a CloudWatch session with an unusable query.
+    const resolved: SessionType =
+      entry.page === "logs" && state.backend === "opensearch" ? "logs-opensearch" : type;
+    startSession(resolved, entry.name, state);
   }
 
   async function saveActive() {

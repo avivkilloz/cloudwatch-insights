@@ -20,7 +20,7 @@ const TAB_TOGGLES: {
     | "tools_enabled";
   label: string;
 }[] = [
-  { key: "logs_enabled", label: "Logs" },
+  { key: "logs_enabled", label: "CloudWatch + OpenSearch" },
   { key: "iot_enabled", label: "IoT" },
   { key: "tables_enabled", label: "DynamoDB" },
   { key: "buckets_enabled", label: "S3" },

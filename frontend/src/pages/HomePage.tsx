@@ -66,11 +66,18 @@ export default function HomePage() {
                       <span className="home-card-title">{t.label}</span>
                       <span className="home-card-desc">{t.description}</span>
                     </button>
+                    {/* Sits over the card's top-right corner, level with the
+                        title. It is outside the open button rather than inside
+                        it, so ticking it never also opens the session. */}
                     {selectable && aggregator && (
-                      <label className="home-card-pick" title={`Include ${t.label} when opening an Aggregator`}>
-                        <input type="checkbox" checked={picked.has(t.type)} onChange={() => toggle(t.type)} />
-                        Aggregate
-                      </label>
+                      <input
+                        className="home-card-pick"
+                        type="checkbox"
+                        checked={picked.has(t.type)}
+                        onChange={() => toggle(t.type)}
+                        aria-label={`Include ${t.label} when opening an Aggregator`}
+                        title={`Include ${t.label} when opening an Aggregator`}
+                      />
                     )}
                   </div>
                 );
@@ -89,7 +96,7 @@ export default function HomePage() {
             onClick={openAggregator}
             title={`Open one Aggregator session with the ${picked.size} ticked page${picked.size === 1 ? "" : "s"} side by side`}
           >
-            ⊞ Aggregate {picked.size}
+            Aggregate {picked.size}
           </button>
           <button
             className="home-aggregate-clear"

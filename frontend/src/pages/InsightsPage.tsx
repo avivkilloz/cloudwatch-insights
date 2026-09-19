@@ -70,7 +70,14 @@ function openSearchTargets(selection: OpenSearchSelectionMap): OpenSearchTarget[
   return targets;
 }
 
-export default function InsightsPage() {
+/**
+ * CloudWatch Logs Insights and OpenSearch were one page with a switch at the
+ * top. They are two session types now, so which one this is arrives as a prop
+ * and never changes for the life of the session -- the shared query editor,
+ * environment picker, time range and results view are all that they had in
+ * common, and that is what this still is.
+ */
+export default function InsightsPage({ backend }: { backend: LogsBackend }) {
   // useSessionState is useState that survives a reload, keyed within this
   // session. Everything the user chose or is looking at uses it; anything
   // refetched on mount (environments, saved lists) or only true right now
@@ -88,8 +95,7 @@ export default function InsightsPage() {
     {},
   );
 
-  const [backend, setBackend] = useSessionState<LogsBackend>("backend", "cloudwatch");
-  const [queryString, setQueryString] = useSessionState("queryString", DEFAULT_QUERY.cloudwatch);
+  const [queryString, setQueryString] = useSessionState("queryString", DEFAULT_QUERY[backend]);
   const [limit, setLimit] = useSessionState("limit", DEFAULT_LIMIT);
   const [timestampField, setTimestampField] = useSessionState("timestampField", DEFAULT_TIMESTAMP_FIELD);
   const [sortField, setSortField] = useSessionState("sortField", "@timestamp");
@@ -125,19 +131,6 @@ export default function InsightsPage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
-
-  function switchBackend(next: LogsBackend) {
-    if (next === backend) return;
-    setBackend(next);
-    // Only replace the query text if it's still the other backend's default
-    // (or blank) -- a query the user actually wrote is left alone.
-    if (!queryString.trim() || queryString === DEFAULT_QUERY[backend]) {
-      setQueryString(DEFAULT_QUERY[next]);
-    }
-    setResults([]);
-    setOsResults([]);
-    setResultsVersion((v) => v + 1);
-  }
 
   function toggleEnvironment(id: number) {
     setSelectedEnvironmentIds((prev) => {
@@ -314,23 +307,6 @@ export default function InsightsPage() {
 
   return (
     <div>
-      <div className="panel">
-        <h2>Backend</h2>
-        <div className="toolbar">
-          <button className={backend === "cloudwatch" ? "" : "secondary"} onClick={() => switchBackend("cloudwatch")}>
-            CloudWatch
-          </button>
-          <button className={backend === "opensearch" ? "" : "secondary"} onClick={() => switchBackend("opensearch")}>
-            OpenSearch
-          </button>
-        </div>
-        <p className="muted">
-          {backend === "cloudwatch"
-            ? "Search CloudWatch Logs Insights log groups using their pipe-based query syntax."
-            : "Search AWS-provisioned OpenSearch domains using Lucene query_string syntax (the same as OpenSearch Dashboards' search bar). Requires each domain's access policy to allow the app's assumed role and its endpoint to be reachable from the backend."}
-        </p>
-      </div>
-
       <div className="panel">
         <h2>1. Choose environments</h2>
         <EnvironmentSelector

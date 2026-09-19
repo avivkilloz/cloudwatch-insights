@@ -229,7 +229,10 @@ export default function DiffTool() {
               <select value={viewMode} onChange={(e) => setViewMode(e.target.value as ViewMode)}>
                 <option value="unified">Unified</option>
                 <option value="split">Split</option>
-                <option value="compact">Compact</option>
+                {/* Named for what it does: it is identical to Unified until
+                    there are more than nine consecutive unchanged lines to
+                    fold away, which is why the two can look the same. */}
+                <option value="compact">Compact — fold unchanged runs</option>
               </select>
             </div>
           )}
