@@ -5,7 +5,10 @@ import { openingExchange } from "./pages/AgentPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
-import SessionTabs from "./components/SessionTabs";
+import Sidebar from "./components/Sidebar";
+
+/** Whether the left rail is showing. A per-browser preference, not workspace state. */
+const RAIL_STORAGE_KEY = "cwi-rail";
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
 import { SESSION_TYPES, sessionType } from "./sessions/registry";
@@ -101,6 +104,23 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     open("agent", title, { "agent.messages": openingExchange(text) });
   }
 
+  // Remembered per browser: collapsing the rail is a working preference, not
+  // workspace data, so it never goes near the session store.
+  const [railOpen, setRailOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(RAIL_STORAGE_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RAIL_STORAGE_KEY, railOpen ? "open" : "closed");
+    } catch {
+      // best-effort persistence only
+    }
+  }, [railOpen]);
+
   // Nothing renders until the workspace has been read back, so a restored
   // session never flashes as empty first.
   if (!ready) return null;
@@ -108,7 +128,12 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   return (
     <div className="app">
       <header className="topbar">
-        <button className="brand" onClick={() => show("home")} title="Home">
+        <button
+          className="brand"
+          onClick={() => setRailOpen((v) => !v)}
+          aria-expanded={railOpen}
+          title={railOpen ? "Hide the side panel" : "Show the side panel"}
+        >
           {appLogoUrl && <img className="brand-logo" src={appLogoUrl} alt="" />}
           {appTitle}
         </button>
@@ -132,9 +157,10 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
         </div>
       </header>
 
-      <SessionTabs />
+      <div className="shell">
+        <Sidebar open={railOpen} />
 
-      <main className="content">
+        <main className="content">
         {view === "home" && <HomePage />}
         {view === "settings" && (
           <>
@@ -160,8 +186,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             session={session}
             hidden={view !== "session" || activeId !== session.id}
           />
-        ))}
-      </main>
+          ))}
+        </main>
+      </div>
     </div>
   );
 }

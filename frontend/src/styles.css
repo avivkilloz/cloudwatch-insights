@@ -232,12 +232,6 @@ button.brand:hover {
   width: 100%;
 }
 
-/* One height for every control in the session strip, so tabs, + and
-   Save session line up whatever their label. */
-:root {
-  --session-control-h: 28px;
-}
-
 /* UI chrome is chrome, not content. Without this a click-drag that starts on
    a heading, a label or a button drags the text instead, which opens a native
    browser drag session: the browser owns the mouse until that session ends,
@@ -251,181 +245,195 @@ button,
 .tab,
 .home-card-title,
 .home-card-desc,
-.session-menu-heading {
+.rail-heading {
   user-select: none;
 }
 
-/* ---- Session strip ---- */
+/* ---- Left rail ---- */
 
-/* Reads as the top of the body rather than a second header: no background of
-   its own, no rule under it, and tabs shaped like the Settings page's. */
-/* Shaped like the cards in the body -- same border, radius and padding -- but
-   filled with the page background rather than the panel colour, so it reads as
-   part of the surface the cards sit on rather than as another card. */
-.session-bar {
+/* A vertical card in the page background rather than the panel colour, so it
+   reads as part of the surface the body's cards sit on -- the same trade the
+   horizontal strip made before it became this. */
+.shell {
+  flex: 1;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  /* Narrower side margins than the body's 20px, so the strip is wider than
-     the cards under it and reads as a band across the top of the page rather
-     than another card in the same column. */
-  margin: 8px 10px 0;
-  /* The horizontal padding matches the gap between tabs, so the space before
-     the first tab is the same as the space between any two of them. */
+  min-height: 0;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+
+.rail {
+  flex: none;
+  width: 212px;
+  overflow-y: auto;
+  align-self: flex-start;
+  max-height: calc(100vh - 78px);
   padding: 8px 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow-x: auto;
-  /* Chrome, not content: a stray click-drag across the strip should never
-     start a native text drag, which hands the mouse to the browser for the
-     whole gesture. */
+  /* Chrome, not content: a stray click-drag across the rail should never start
+     a native text drag, which hands the mouse to the browser for the gesture. */
   user-select: none;
 }
 
-/* Every control in the strip is laid out to one height rather than left to
-   its own text metrics -- an uppercase label, a "+" glyph and a word each
-   grow a differently sized line box, which is what made the row ragged. */
-.session-tab,
-.session-add-button,
-.session-save-button {
-  box-sizing: border-box;
-  height: var(--session-control-h);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.session-tab {
-  border: 1px solid var(--border);
-  background: transparent;
-}
-
-.session-tab.dragging {
-  opacity: 0.45;
-}
-
-.session-tab.drop-target {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.session-tab:hover {
-  border-color: var(--accent);
-}
-
-.session-tab.active {
-  border-color: var(--accent);
-  background: var(--accent-dim);
-}
-
-.session-tab.active .session-tab-label,
-.session-tab.active .session-tab-close {
-  color: var(--accent-text);
-}
-
-.session-tab-label,
-.session-tab-close {
-  /* The tab owns the height; these just fill it, so no per-label line box can
-     push one tab taller than its neighbours. */
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  background: none;
-  border: none;
-  color: var(--text);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12.5px;
-  line-height: 1;
-  padding: 0 4px 0 10px;
-}
-
-.session-tab-close {
-  padding: 0 8px 0 4px;
-  opacity: 0.6;
-}
-
-.session-tab-close:hover {
-  opacity: 1;
-}
-
-.session-add-button,
-.session-save-button {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  padding: 0 10px;
-  font-size: 12.5px;
-  line-height: 1;
-}
-
-.session-add-button {
-  /* Larger glyph, same box: the height comes from the shared rule above, so
-     the bigger font can't grow the button the way it used to. */
-  font-size: 15px;
-  min-width: var(--session-control-h);
-}
-
-.session-add-button:hover,
-.session-save-button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.session-save-button {
-  margin-left: auto;
-}
-
-/* Portalled to the body and positioned from the button's own rectangle: as a
-   child of the strip it was clipped by the strip's horizontal scrolling and
-   disappeared behind the page. */
-.session-menu {
-  position: fixed;
-  z-index: 1200;
-  min-width: 230px;
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.session-menu-heading {
-  padding: 6px 8px 4px;
+.rail-heading {
+  padding: 10px 8px 4px;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
 }
 
-.session-menu-item {
-  display: block;
+.rail-empty {
+  padding: 2px 8px 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* One row shape for every kind of entry -- where you are, what's open, what
+   you could open -- so the rail reads as one list rather than three widgets. */
+.rail-row {
+  position: relative;
+  display: flex;
+  align-items: center;
   width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 6px;
+  background: none;
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
+  text-align: left;
 }
 
-.session-menu-item:hover {
+.rail-row:hover {
   background: var(--panel-alt);
 }
 
-.session-menu-empty {
-  padding: 4px 8px 8px;
-  font-size: 12px;
+.rail-row.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+}
+
+.rail-row.active .rail-row-label {
+  color: var(--accent-text);
+}
+
+.rail-row.dragging {
+  opacity: 0.45;
+}
+
+.rail-row.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.rail-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.rail-row-kind {
+  flex: none;
+  padding-right: 8px;
+  font-size: 10.5px;
   color: var(--text-dim);
+}
+
+.rail-row-more {
+  flex: none;
+  width: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+}
+
+/* Revealed on hover or while its own menu is open, so a column of ⋮ doesn't
+   compete with the session names. */
+.rail-row:hover .rail-row-more,
+.rail-row-more[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.rail-row-more:hover {
+  color: var(--accent);
+}
+
+.rail-row-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1200;
+  min-width: 156px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.rail-row-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.rail-row-menu button:hover {
+  background: var(--panel-alt);
+}
+
+.rail-add {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.rail-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rail-add-caret {
+  font-size: 10px;
 }
 
 /* ---- Page header ---- */
@@ -591,11 +599,11 @@ button,
 
 .content {
   flex: 1;
+  min-width: 0;
   overflow: auto;
-  /* The session strip above carries its own margin, so this is the gap between
-     the strip's card and the first card of the page -- kept tight, to match
-     the gap between the header and the strip. */
-  padding: 8px 20px 20px;
+  /* .shell owns the gap to the rail and to the header; this is only the page's
+     own breathing room inside its column. */
+  padding: 0 10px 20px;
 }
 
 h2 {
