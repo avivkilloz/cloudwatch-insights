@@ -269,7 +269,7 @@ button,
   /* Narrower side margins than the body's 20px, so the strip is wider than
      the cards under it and reads as a band across the top of the page rather
      than another card in the same column. */
-  margin: 14px 10px 0;
+  margin: 8px 10px 0;
   /* The horizontal padding matches the gap between tabs, so the space before
      the first tab is the same as the space between any two of them. */
   padding: 8px 6px;
@@ -593,8 +593,9 @@ button,
   flex: 1;
   overflow: auto;
   /* The session strip above carries its own margin, so this is the gap between
-     the strip's card and the first card of the page. */
-  padding: 14px 20px 20px;
+     the strip's card and the first card of the page -- kept tight, to match
+     the gap between the header and the strip. */
+  padding: 8px 20px 20px;
 }
 
 h2 {
