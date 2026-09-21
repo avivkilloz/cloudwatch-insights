@@ -1,11 +1,19 @@
 import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, SavedSession } from "../api";
+import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
-import { decode, encode } from "../sessions/storage";
+import { encode } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES, sessionType, sessionTypeLabel } from "../sessions/registry";
+import {
+  SAVED_STATE_VERSION,
+  Template,
+  VERSION_KEY,
+  templateState,
+  templateType,
+  useTemplates,
+} from "../sessions/templates";
 
 /** Stamped into every saved template so the reader can tell the current shape
  * (a session's own state bag) from the hand-rolled per-page shapes that came
@@ -14,53 +22,8 @@ import { GROUP_ORDER, SESSION_TYPES, sessionType, sessionTypeLabel } from "../se
 /** Whether the catalogue is folded. A per-browser preference, like the rail itself. */
 const CATALOGUE_STORAGE_KEY = "cwi-rail-catalogue";
 
-const SAVED_STATE_VERSION = 2;
-const VERSION_KEY = "__savedStateVersion";
 /** Kept in step with `.rail-row-menu`'s min-width, to keep the menu on screen. */
 const MENU_WIDTH_PX = 156;
-
-/**
- * Templates written before sessions held their own state used a hand-rolled
- * shape per page. Mapping the ones that existed costs little and beats opening
- * a session that silently ignores everything it was given.
- */
-function migrateLegacyState(page: string, state: Record<string, any>): Record<string, unknown> {
-  if (!state || typeof state !== "object") return {};
-  if (state[VERSION_KEY] === SAVED_STATE_VERSION) {
-    const { [VERSION_KEY]: _version, ...rest } = state;
-    // Round-tripped through the workspace codec, which tags Sets and Maps.
-    // Plain JSON.stringify flattens a Set to {}, and a page that then calls
-    // .has() on it takes the whole app down.
-    return decode<Record<string, unknown>>(JSON.stringify(rest));
-  }
-  if (page === "logs" && Array.isArray(state.environment_ids)) {
-    return {
-      backend: state.backend ?? "cloudwatch",
-      selectedEnvironmentIds: new Set(state.environment_ids),
-      logGroupSelection: state.log_group_selection ?? {},
-      queryString: state.query_string ?? "",
-      limit: state.limit,
-      timestampField: state.timestamp_field,
-      sortField: state.sort_field,
-      sortDirection: state.sort_direction,
-      preset: state.preset,
-      customStart: state.custom_start,
-      customEnd: state.custom_end,
-    };
-  }
-  if (page === "iot" && Array.isArray(state.environment_ids)) {
-    return {
-      selectedEnvironmentIds: new Set(state.environment_ids),
-      searchMode: state.search_mode ?? "things",
-      queryString: state.query_string ?? "",
-      maxResults: state.max_results,
-    };
-  }
-  if (page === "aggregator" && Array.isArray(state.services)) {
-    return { services: state.services, layout: state.layout ?? "columns" };
-  }
-  return state;
-}
 
 /**
  * The left rail: where you are, what you have open, and everything you could
@@ -75,7 +38,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { user } = useAuth();
   const { sessions, activeId, view, open, closed, reopen, remove, activate, rename, reorder, show, captureInputs } =
     useSessions();
-  const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
+  const { templates, reload: reloadTemplates } = useTemplates();
   const [menuFor, setMenuFor] = useState<string | null>(null);
   // Which row is being renamed in place. Closing a session lives in the strip
   // above the body now, so the ⋮ is only what you do to the session itself.
@@ -86,10 +49,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  // Bumped when a template is written, so the list below refetches. Session
-  // count alone doesn't change when you save one, so without this a template
-  // you just saved wouldn't appear until something else moved.
-  const [savedVersion, setSavedVersion] = useState(0);
   // The catalogue is the old + menu, inlined. Folded by default so the rail
   // opens on what you have rather than everything you could have; unfolding it
   // is remembered, so it stays open once you ask for it.
@@ -109,27 +68,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   }, [catalogue]);
 
   const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
-
-  useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
-    Promise.all(
-      types
-        .filter((t) => t.savedPage)
-        .map((t) =>
-          api
-            .listSavedSessions<Record<string, unknown>>(t.savedPage!)
-            .then((list) => list.map((entry) => ({ entry, type: t.type })))
-            .catch(() => []),
-        ),
-    ).then((lists) => {
-      if (!cancelled) setSaved(lists.flat());
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, sessions.length, savedVersion]);
 
   /** Paint the menu just under its ⋮, and keep it inside the window. Measured
    * from the menu itself once it is up, so a menu wider than the rail overhangs
@@ -250,15 +188,10 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     open(type, nextTitle(label, sessions.map((s) => s.title)), state);
   }
 
-  function openSaved(entry: SavedSession<Record<string, unknown>>, type: SessionType) {
+  function openTemplate({ entry, type }: Template) {
     // A template seeds a brand-new session; nothing about the saved copy
     // changes as you work in it.
-    const state = migrateLegacyState(entry.page, entry.state as Record<string, any>);
-    // Everything saved from the old combined Logs page lives under "logs",
-    // whichever backend it was using. Its own state says which.
-    const resolved: SessionType =
-      entry.page === "logs" && state.backend === "opensearch" ? "logs-opensearch" : type;
-    startSession(resolved, entry.name, state);
+    startSession(templateType(entry, type), entry.name, templateState(entry));
   }
 
   async function saveAsTemplate(id: string) {
@@ -276,7 +209,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       name: name.trim(),
       state: { ...state, [VERSION_KEY]: SAVED_STATE_VERSION },
     });
-    setSavedVersion((v) => v + 1);
+    reloadTemplates();
     setMenuFor(null);
   }
 
@@ -304,8 +237,12 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
         <span className="rail-row-label">Home</span>
       </button>
 
+      {/* One list: every session you have. The ones on the strip read at full
+          strength, the ones you closed are dimmed -- closing takes a session
+          off the strip, it does not take it away from you. Only Delete does
+          that, which is why it is the one that asks. */}
       <div className="rail-heading">Sessions</div>
-      {sessions.length === 0 && <div className="rail-empty">Nothing open yet.</div>}
+      {sessions.length + closed.length === 0 && <div className="rail-empty">No sessions yet.</div>}
       {sessions.map((s) => {
         const def = sessionType(s.type);
         return (
@@ -405,51 +342,33 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
         );
       })}
 
-      {closed.length > 0 && (
-        <>
-          {/* Closing is meant to be a cheap thing to do, which it only is if
-              undoing it is cheap too. Capped by the server, so this stays a
-              short list you can scan rather than a history. */}
-          <div className="rail-heading">Recently closed</div>
-          {closed.map((s) => (
-            <div key={s.id} data-closed-session-id={s.id} className="rail-row rail-row-closed">
-              <button className="rail-row-label" onClick={() => reopen(s.id)} title={`Reopen ${s.title}`}>
-                {s.title}
-              </button>
-              {/* Its own class rather than the ⋮'s: this one deletes on the
-                  spot, and anything hunting for "the row's menu button" should
-                  not find it. */}
-              <button
-                className="rail-row-forget"
-                onClick={() => {
-                  if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
-                }}
-                aria-label={`Delete ${s.title}`}
-                title="Throw the session away for good"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </>
-      )}
-
-      {saved.length > 0 && (
-        <>
-          <div className="rail-heading">Templates</div>
-          {saved.map(({ entry, type }) => (
-            <button
-              key={`${entry.page}:${entry.id}`}
-              className="rail-row rail-row-template"
-              onClick={() => openSaved(entry, type)}
-              title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
-            >
-              <span className="rail-row-label">{entry.name}</span>
-              <span className="rail-row-kind">{sessionTypeLabel(type)}</span>
-            </button>
-          ))}
-        </>
-      )}
+      {/* Closed, in the same list and dimmed. No state loaded until one is
+          clicked: nothing trims this, so fetching every session's rows on every
+          page load would get slower the longer you had used the app. */}
+      {closed.map((s) => (
+        <div key={s.client_id} data-closed-session-id={s.client_id} className="rail-row rail-row-closed">
+          <button
+            className="rail-row-label"
+            onClick={() => reopen(s.client_id)}
+            title={`${s.title} (${sessionTypeLabel(s.type as SessionType)}) — closed; click to open it again`}
+          >
+            {s.title}
+          </button>
+          {/* Its own class rather than the ⋮'s: this one deletes on the spot,
+              and anything hunting for "the row's menu button" should not find
+              it. */}
+          <button
+            className="rail-row-forget"
+            onClick={() => {
+              if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.client_id);
+            }}
+            aria-label={`Delete ${s.title}`}
+            title="Throw the session away for good"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
 
       {/* The catalogue is what the + menu used to hold. It lives in the rail
           rather than a popover so everything you can open is in one place. */}
@@ -463,26 +382,48 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
         <span className="rail-add-caret">{catalogue ? "▾" : "▸"}</span>
       </button>
 
-      {catalogue &&
-        GROUP_ORDER.map((group) => {
-          const inGroup = types.filter((t) => t.group === group);
-          if (inGroup.length === 0) return null;
-          return (
-            <div key={group}>
-              <div className="rail-heading">{group}</div>
-              {inGroup.map((t) => (
+      {catalogue && (
+        <>
+          {GROUP_ORDER.map((group) => {
+            const inGroup = types.filter((t) => t.group === group);
+            if (inGroup.length === 0) return null;
+            return (
+              <div key={group}>
+                <div className="rail-heading">{group}</div>
+                {inGroup.map((t) => (
+                  <button
+                    key={t.type}
+                    className="rail-row rail-row-type"
+                    onClick={() => startSession(t.type, t.label)}
+                    title={t.description}
+                  >
+                    <span className="rail-row-label">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {/* Templates belong here rather than in a list of their own: opening
+              one starts a new session, exactly like every other thing under
+              Add. It is only the seed that differs. */}
+          {templates.length > 0 && (
+            <div>
+              <div className="rail-heading">Templates</div>
+              {templates.map(({ entry, type }) => (
                 <button
-                  key={t.type}
-                  className="rail-row rail-row-type"
-                  onClick={() => startSession(t.type, t.label)}
-                  title={t.description}
+                  key={`${entry.page}:${entry.id}`}
+                  className="rail-row rail-row-type rail-row-template"
+                  onClick={() => openTemplate({ entry, type })}
+                  title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
                 >
-                  <span className="rail-row-label">{t.label}</span>
+                  <span className="rail-row-label">{entry.name}</span>
+                  <span className="rail-row-kind">{sessionTypeLabel(type)}</span>
                 </button>
               ))}
             </div>
-          );
-        })}
+          )}
+        </>
+      )}
     </nav>
   );
 }

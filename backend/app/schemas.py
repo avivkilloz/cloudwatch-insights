@@ -680,6 +680,19 @@ class LiveSessionOut(BaseModel):
     closed_at: Optional[datetime] = None
 
 
+class LiveSessionSummary(BaseModel):
+    """A closed session as the side panel lists it: enough to show and reopen,
+    without its rows. Nothing trims the closed list, so sending every session's
+    state on every page load would make the app slower the longer you used it."""
+
+    model_config = ConfigDict(from_attributes=True)
+    client_id: str
+    type: str
+    title: str
+    truncated: bool
+    closed_at: Optional[datetime] = None
+
+
 class LiveSessionOrder(BaseModel):
     """The open sessions in the order they should appear. Ids the caller does
     not own are ignored rather than rejected: a stale tab reordering a session

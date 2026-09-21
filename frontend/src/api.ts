@@ -64,6 +64,18 @@ export interface SavedSession<T = Record<string, unknown>> {
  * silently -- handing the page back a selection it can no longer read. The
  * backend stores it as opaque JSON either way.
  */
+/** A closed session as the side panel lists it. No `state`: nothing trims the
+ * closed list, so sending every session's rows on every page load would make
+ * the app slower the longer you had used it. The rows arrive with
+ * `getLiveSession` when one is actually reopened. */
+export interface LiveSessionSummary {
+  client_id: string;
+  type: string;
+  title: string;
+  truncated: boolean;
+  closed_at: string | null;
+}
+
 export interface LiveSession {
   client_id: string;
   type: string;
@@ -531,7 +543,9 @@ export const api = {
     req<SavedSession<T>>(`/saved-sessions/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSavedSession: (id: number) => req<void>(`/saved-sessions/${id}`, { method: "DELETE" }),
 
-  listLiveSessions: (closed = false) => req<LiveSession[]>(`/live-sessions${closed ? "?closed=true" : ""}`),
+  listLiveSessions: () => req<LiveSession[]>("/live-sessions"),
+  listClosedLiveSessions: () => req<LiveSessionSummary[]>("/live-sessions/closed"),
+  getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
   putLiveSession: (clientId: string, payload: Omit<LiveSession, "client_id" | "closed_at">) =>
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
       method: "PUT",

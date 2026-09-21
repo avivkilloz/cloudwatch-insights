@@ -10,7 +10,7 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { api } from "../api";
+import { LiveSessionSummary, api } from "../api";
 import {
   EMPTY_WORKSPACE,
   PersistedSession,
@@ -98,12 +98,14 @@ interface SessionsApi {
    * renders (and immediately re-persists) an empty workspace over a real one. */
   ready: boolean;
   open: (type: SessionType, title: string, state?: Record<string, unknown>) => string;
-  /** Takes a session off the panel but keeps it, in `closed`, to reopen. */
+  /** Takes a session off the strip of tabs. It stays in `closed`, which the
+   * side panel lists alongside the open ones, so nothing is lost. */
   close: (id: string) => void;
-  /** Sessions closed but kept, most recently closed first. Capped by the
-   * server, so this is a short list rather than a history. */
-  closed: PersistedSession[];
-  /** Puts a closed session back on the panel, with the state it had. */
+  /** Sessions that are not currently open, most recently closed first. Names
+   * only: their state is fetched when one is reopened, since nothing trims
+   * this list and loading every session's rows on boot would not scale. */
+  closed: LiveSessionSummary[];
+  /** Puts a closed session back on the strip, with the state it had. */
   reopen: (id: string) => void;
   /** Throws a session away for good, open or closed. The only thing here that
    * loses work, which is why it is not what the ✕ used to do. */
@@ -134,7 +136,7 @@ let sessionCounter = 0;
 
 export function SessionsProvider({ userId, children }: { userId: number; children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace>(EMPTY_WORKSPACE);
-  const [closed, setClosed] = useState<PersistedSession[]>([]);
+  const [closed, setClosed] = useState<LiveSessionSummary[]>([]);
   const [ready, setReady] = useState(false);
   // One per mounted provider, and never in state: it is bookkeeping about what
   // the server has been told, and re-rendering the workspace on every reply
@@ -143,6 +145,10 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // Set by the first local change, so a slow server reply can't land on top of
   // something typed while it was in flight.
   const touched = useRef(false);
+  // reopen reads the closed list without depending on it, so it does not get a
+  // new identity every time a session is closed.
+  const closedRef = useRef<LiveSessionSummary[]>([]);
+  closedRef.current = closed;
 
   useEffect(() => {
     let cancelled = false;
@@ -162,12 +168,12 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       try {
         const [openRows, closedRows] = await Promise.all([
           api.listLiveSessions(),
-          api.listLiveSessions(true),
+          api.listClosedLiveSessions(),
         ]);
         if (cancelled) return;
         open = openRows.map(fromWire);
         sync.adopt(openRows);
-        setClosed(closedRows.map(fromWire));
+        setClosed(closedRows);
       } catch {
         // Offline, or a backend that has not been migrated yet. Keep working
         // against the local copy; the next flush pushes it up.
@@ -272,44 +278,67 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       touched.current = true;
       setWorkspace((w) => {
         const session = w.sessions.find((s) => s.id === id);
-        // Straight to the front of Recently closed, optimistically: waiting for
-        // the server would make a click that is meant to feel instant wait on
-        // the network, and the list is re-read on the next load anyway.
-        if (session) setClosed((c) => [session, ...c.filter((s) => s.id !== id)]);
+        // Moved across optimistically: a ✕ should feel instant rather than wait
+        // on the network, and the list is re-read on the next load anyway.
+        if (session) {
+          setClosed((c) => [
+            { client_id: id, type: session.type, title: session.title, truncated: !!session.truncated, closed_at: null },
+            ...c.filter((s) => s.client_id !== id),
+          ]);
+        }
         return withoutSession(w, id);
       });
-      // The row stays on the server; only its closed_at changes. A session
-      // that never reached the server has nothing to close, so a 404 here is
-      // the expected outcome rather than a failure.
+      // The row stays on the server; only its closed_at changes. Queued behind
+      // any sync already running: a PUT landing after this would clear
+      // closed_at and quietly reopen the session. A session that never reached
+      // the server has nothing to close, so a 404 here is the expected outcome
+      // rather than a failure.
       sync.forget(id);
-      api.closeLiveSession(id).catch(() => undefined);
+      sync.enqueue(() => api.closeLiveSession(id));
     },
     [sync],
   );
 
-  const reopen = useCallback((id: string) => {
-    touched.current = true;
-    setClosed((c) => {
-      const session = c.find((s) => s.id === id);
-      if (!session) return c;
-      // Putting it back in the panel is enough to reopen it on the server too:
-      // the next flush PUTs it, and a PUT clears closed_at.
-      setWorkspace((w) =>
-        w.sessions.some((s) => s.id === id)
-          ? { ...w, activeId: id, view: "session" }
-          : { ...w, sessions: [...w.sessions, session], activeId: id, view: "session" },
-      );
-      return c.filter((s) => s.id !== id);
-    });
-  }, []);
+  const reopen = useCallback(
+    (id: string) => {
+      touched.current = true;
+      const summary = closedRef.current.find((s) => s.client_id === id);
+      if (!summary) return;
+      setClosed((c) => c.filter((s) => s.client_id !== id));
+
+      function put(session: PersistedSession) {
+        setWorkspace((w) =>
+          w.sessions.some((s) => s.id === id)
+            ? { ...w, activeId: id, view: "session" }
+            : { ...w, sessions: [...w.sessions, session], activeId: id, view: "session" },
+        );
+      }
+
+      // The state has to be in hand *before* the session goes on the strip.
+      // Putting it there first and filling it in when the request lands would
+      // show the page for a moment with nothing in it -- and worse, leave it
+      // that way: useSessionState seeds from the session's bag when it mounts,
+      // so a bag that arrives afterwards never reaches the mounted page.
+      api
+        .getLiveSession(id)
+        .then((row) => put(fromWire(row)))
+        .catch(() => {
+          // Offline, or a session that never reached the server. Open it with
+          // what the panel knows rather than not at all; `truncated` is what
+          // already exists to explain an empty one.
+          put({ id, type: summary.type, title: summary.title, state: {}, truncated: true });
+        });
+    },
+    [],
+  );
 
   const remove = useCallback(
     (id: string) => {
       touched.current = true;
       setWorkspace((w) => withoutSession(w, id));
-      setClosed((c) => c.filter((s) => s.id !== id));
+      setClosed((c) => c.filter((s) => s.client_id !== id));
       sync.forget(id);
-      api.deleteLiveSession(id).catch(() => undefined);
+      sync.enqueue(() => api.deleteLiveSession(id));
     },
     [sync],
   );

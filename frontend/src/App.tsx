@@ -12,6 +12,7 @@ import Sidebar from "./components/Sidebar";
 const RAIL_STORAGE_KEY = "cwi-rail";
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
+import { TemplatesProvider } from "./sessions/templates";
 import { SESSION_TYPES, sessionType } from "./sessions/registry";
 import { PersistedSession } from "./sessions/storage";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
@@ -65,13 +66,17 @@ export default function App() {
 
   return (
     <SessionsProvider userId={user.id}>
-      <AppShell
-        appTitle={appTitle}
-        appLogoUrl={settings.app_logo_url}
-        theme={theme}
-        onThemeChange={setTheme}
-        onSettingsChange={setSettings}
-      />
+      {/* Templates are offered in two places -- the panel's catalogue and the
+          strip's ＋ -- so they are fetched once here rather than per list. */}
+      <TemplatesProvider>
+        <AppShell
+          appTitle={appTitle}
+          appLogoUrl={settings.app_logo_url}
+          theme={theme}
+          onThemeChange={setTheme}
+          onSettingsChange={setSettings}
+        />
+      </TemplatesProvider>
     </SessionsProvider>
   );
 }
@@ -158,13 +163,13 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       <div className="shell">
         <Sidebar open={railOpen} />
 
-        {/* The strip and the body share a column, so the strip lines up with
-            the cards under it and the rail stands beside both rather than
-            underneath a full-width header. */}
-        <div className="column">
+        {/* The strip lives inside the scrolling body, not above it: a classic
+            scrollbar takes its width out of .content, so a strip outside it
+            ended up wider than the cards by exactly the scrollbar. Sticky, so
+            it still behaves like a header. */}
+        <main className="content">
           <SessionBar railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
 
-          <main className="content">
         {view === "home" && <HomePage />}
         {view === "settings" && (
           <>
@@ -191,8 +196,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             hidden={view !== "session" || activeId !== session.id}
           />
           ))}
-          </main>
-        </div>
+        </main>
       </div>
     </div>
   );

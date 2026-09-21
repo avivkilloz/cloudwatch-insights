@@ -2,15 +2,16 @@
 
 Their neighbour, /api/saved-sessions, holds named templates someone chose to
 keep. These are the opposite: the working state of sessions that are already
-open, written back on every change. The tests below are mostly about the two
-things that distinguishes them -- that closing keeps the row and deleting does
-not, and that one user never sees another's.
+open, written back on every change. The tests below are mostly about what
+distinguishes them -- that closing keeps the row and only deleting removes it,
+that the closed listing leaves the rows out, and that one user never sees
+another's.
 """
 
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.routers.live_sessions import MAX_CLOSED_SESSIONS, MAX_STATE_BYTES
+from app.routers.live_sessions import MAX_STATE_BYTES
 from tests.conftest import client
 
 
@@ -36,7 +37,7 @@ def _open_ids() -> list[str]:
 
 
 def _closed_ids() -> list[str]:
-    resp = client.get("/api/live-sessions?closed=true")
+    resp = client.get("/api/live-sessions/closed")
     assert resp.status_code == 200, resp.text
     return [s["client_id"] for s in resp.json()]
 
@@ -96,8 +97,9 @@ def test_closing_keeps_the_session_and_deleting_removes_it():
     assert _open_ids() == ["s2"]
     assert _closed_ids() == ["s1"]
 
-    # Its state is still there to reopen from.
-    assert client.get("/api/live-sessions?closed=true").json()[0]["type"] == "logs-cloudwatch"
+    # Its state is still there to reopen from -- fetched one at a time, since
+    # the listing deliberately leaves it out.
+    assert client.get("/api/live-sessions/closed").json()[0]["type"] == "logs-cloudwatch"
 
     assert client.delete("/api/live-sessions/s1").status_code == 204
     assert _closed_ids() == []
@@ -114,16 +116,44 @@ def test_writing_to_a_closed_session_reopens_it():
     assert _closed_ids() == []
 
 
-def test_recently_closed_is_capped_at_the_most_recent():
-    for n in range(MAX_CLOSED_SESSIONS + 5):
+def test_nothing_is_deleted_by_closing_more_sessions():
+    """Closing is how a session is put away, not how it is got rid of, so the
+    list of closed ones is never trimmed behind the owner's back."""
+    for n in range(40):
         _put(f"s{n}")
         assert client.post(f"/api/live-sessions/s{n}/close").status_code == 200
 
     closed = _closed_ids()
-    assert len(closed) == MAX_CLOSED_SESSIONS
-    # Most recently closed first, and the oldest five are gone.
-    assert closed[0] == f"s{MAX_CLOSED_SESSIONS + 4}"
-    assert "s0" not in closed
+    assert len(closed) == 40
+    # Most recently closed first, and the very first one is still there.
+    assert closed[0] == "s39"
+    assert "s0" in closed
+
+
+def test_the_closed_listing_leaves_the_rows_out():
+    big = {"queryString": "fields @message", "results": [{"@message": "x"} for _ in range(50)]}
+    _put("s1", title="Heavy", state=big)
+    client.post("/api/live-sessions/s1/close")
+
+    (summary,) = client.get("/api/live-sessions/closed").json()
+    assert summary["title"] == "Heavy"
+    assert summary["closed_at"] is not None
+    # Enough to list and reopen it, and nothing that grows with the results.
+    assert "state" not in summary
+
+    # The state comes back in full when the session is actually reopened.
+    full = client.get("/api/live-sessions/s1")
+    assert full.status_code == 200, full.text
+    assert full.json()["state"] == big
+
+
+def test_one_session_cannot_be_read_by_another_user():
+    group = client.post("/api/user-groups", json={"name": "Viewers"})
+    client.post("/api/users", json={"username": "eve", "password": "eve-pass", "group_id": group.json()["id"]})
+    eve = _login_as("eve", "eve-pass")
+
+    _put("s1", state={"secret": "the admin's rows"})
+    assert eve.get("/api/live-sessions/s1").status_code == 404
 
 
 def test_state_over_the_ceiling_is_refused_with_its_size():

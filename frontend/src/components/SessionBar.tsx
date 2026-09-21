@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
-import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { GROUP_ORDER, SESSION_TYPES, sessionTypeLabel } from "../sessions/registry";
+import { templateState, templateType, useTemplates } from "../sessions/templates";
 
 /**
  * The strip above the body: the rail's toggle, what is open, and a + to open
@@ -19,6 +20,7 @@ import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
   const { user } = useAuth();
   const { sessions, activeId, view, open, close, activate } = useSessions();
+  const { templates } = useTemplates();
   const [adding, setAdding] = useState(false);
   // Portalled and positioned from the + itself, for the reason the rail's ⋮
   // menu is: an absolutely-positioned child of a scrolling box gets clipped by
@@ -127,6 +129,32 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                 </div>
               );
             })}
+            {/* Templates sit with the session types because opening one does
+                the same thing: it starts a new session. Only the seed is
+                different. */}
+            {templates.length > 0 && (
+              <div>
+                <div className="session-add-heading">Templates</div>
+                {templates.map(({ entry, type }) => (
+                  <button
+                    key={`${entry.page}:${entry.id}`}
+                    className="session-add-item session-add-template"
+                    onClick={() => {
+                      open(
+                        templateType(entry, type),
+                        nextTitle(entry.name, sessions.map((s) => s.title)),
+                        templateState(entry),
+                      );
+                      setAdding(false);
+                    }}
+                    title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
+                  >
+                    <span className="session-add-name">{entry.name}</span>
+                    <span className="session-add-kind">{sessionTypeLabel(type)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>,
           document.body,
         )}

@@ -7,14 +7,13 @@ already open -- written back whenever the browser has something new, so a
 refresh, another browser or another machine puts you back where you were.
 
 The browser owns the ids and the ordering; this module owns durability and
-scoping. A session is closed by keeping the row and stamping `closed_at`, so it
-can be reopened from "Recently closed"; deleting is what actually removes it.
+scoping. Closing a session keeps the row and stamps `closed_at`: it leaves the
+strip of tabs but stays in the side panel's list, ready to reopen. Deleting is
+the only thing that removes one.
 """
 
 import datetime
 import json
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -23,10 +22,13 @@ from ..db import get_db
 
 router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 
-# How many closed sessions to keep per user. "Recently closed" is an undo for a
-# ✕ you didn't mean, not an archive -- past this the oldest are dropped so the
-# table doesn't grow without bound for someone who opens and closes all day.
-MAX_CLOSED_SESSIONS = 20
+# Nothing here trims itself. Closing a session is how you put it away, not how
+# you get rid of it -- the panel lists closed sessions alongside open ones, and
+# deleting is the only thing that removes one. A cap would mean a session the
+# owner considers kept disappearing without them asking.
+#
+# What that would otherwise cost is paid for in the listing below: a closed
+# session's rows are not sent until it is reopened.
 
 # A hard ceiling on one session's state. The browser already drops a session's
 # results at its own, lower cap and flags it as truncated; this is the backstop
@@ -46,24 +48,41 @@ def _owned(db: Session, user: models.User, client_id: str) -> models.LiveSession
     return row
 
 
+def _mine(db: Session, user: models.User):
+    return db.query(models.LiveSession).filter(models.LiveSession.user_id == user.id)
+
+
 @router.get("", response_model=list[schemas.LiveSessionOut])
 def list_live_sessions(
-    closed: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """The caller's open sessions in panel order, or -- with `closed=true` --
-    the ones they closed, most recently closed first."""
-    query = db.query(models.LiveSession).filter(models.LiveSession.user_id == current_user.id)
-    if closed:
-        return (
-            query.filter(models.LiveSession.closed_at.isnot(None))
-            .order_by(models.LiveSession.closed_at.desc())
-            .all()
-        )
+    """The caller's open sessions, in panel order, with their state: these are
+    the tabs the browser has to put back on screen."""
     return (
-        query.filter(models.LiveSession.closed_at.is_(None))
+        _mine(db, current_user)
+        .filter(models.LiveSession.closed_at.is_(None))
         .order_by(models.LiveSession.position, models.LiveSession.id)
+        .all()
+    )
+
+
+@router.get("/closed", response_model=list[schemas.LiveSessionSummary])
+def list_closed_live_sessions(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """The closed ones, most recently closed first -- names only.
+
+    Nothing trims this list, so it is the one that grows, and sending every
+    closed session's rows on every page load would make opening the app cost
+    more the longer you had used it. The panel only needs the names; the state
+    comes with `GET /{client_id}` when one is actually reopened.
+    """
+    return (
+        _mine(db, current_user)
+        .filter(models.LiveSession.closed_at.isnot(None))
+        .order_by(models.LiveSession.closed_at.desc())
         .all()
     )
 
@@ -83,7 +102,7 @@ def reorder_live_sessions(
         if row is not None:
             row.position = position
     db.commit()
-    return list_live_sessions(closed=None, db=db, current_user=current_user)
+    return list_live_sessions(db=db, current_user=current_user)
 
 
 @router.put("/{client_id}", response_model=schemas.LiveSessionOut)
@@ -135,23 +154,19 @@ def close_live_session(
     row = _owned(db, current_user, client_id)
     row.closed_at = datetime.datetime.utcnow()
     db.commit()
-
-    # Trim the tail rather than the whole table: only this user's closed rows,
-    # oldest first, and only the ones past the cap.
-    stale = (
-        db.query(models.LiveSession)
-        .filter(models.LiveSession.user_id == current_user.id, models.LiveSession.closed_at.isnot(None))
-        .order_by(models.LiveSession.closed_at.desc())
-        .offset(MAX_CLOSED_SESSIONS)
-        .all()
-    )
-    for old in stale:
-        db.delete(old)
-    if stale:
-        db.commit()
-
     db.refresh(row)
     return row
+
+
+@router.get("/{client_id}", response_model=schemas.LiveSessionOut)
+def get_live_session(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """One session with its whole state. What reopening a closed session reads,
+    since the closed listing deliberately leaves the state out."""
+    return _owned(db, current_user, client_id)
 
 
 @router.delete("/{client_id}", status_code=204)

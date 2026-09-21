@@ -265,16 +265,6 @@ button,
   padding: 16px 10px 0;
 }
 
-/* The session strip and the body, stacked. The strip is outside .content so it
-   stays put while the page scrolls, and inside this column so it starts where
-   the body's cards start rather than reaching across the rail. */
-.column {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 
 .rail {
   flex: none;
@@ -333,8 +323,13 @@ button,
   border-color: var(--accent-dim);
 }
 
-.rail-row.active /* The Home row's icon: sits inside the row's own padding, so the row stays the
-   same height as every other one. */
+.rail-row.active .rail-row-label {
+  color: var(--accent-text);
+}
+
+/* The Home row's icon: sits inside the row's own padding, so the row stays the
+   same height as every other one, and at the same inset whether or not Home is
+   the row you are on. */
 .rail-row-icon {
   flex: none;
   margin-left: 8px;
@@ -668,18 +663,25 @@ button,
 
 /* ---- the session strip ------------------------------------------------- */
 
-/* A card like the ones below it, and inset by the same 10px .content pads its
-   own children by, so its edges line up with theirs. */
+/* A card among the cards: same scroll box, so it is exactly as wide as they
+   are whether or not a scrollbar is showing. Sticky rather than scrolling
+   away, since it is the tabs you switch with.
+   The ring of page background is what the body scrolls behind: without it the
+   card's rounded corners would show content passing underneath. */
 .session-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
-  margin: 0 10px 16px;
+  margin: 0 0 16px;
   padding: 5px 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
+  box-shadow: 0 0 0 6px var(--bg);
 }
 
 /* Sized to its tabs rather than filling the row, so + stays next to the last
@@ -815,6 +817,28 @@ button,
   font-family: inherit;
   font-size: 12.5px;
   text-align: left;
+}
+
+/* A template row carries which kind of session it starts, so two templates
+   with similar names are still tellable apart. */
+.session-add-template {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.session-add-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-add-kind {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-dim);
 }
 
 .session-add-item:hover {
