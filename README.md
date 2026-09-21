@@ -26,13 +26,15 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   under their own title bar.
 - A **side panel** down the left holds everything you can reach, in one list:
   **Home** (with a house icon, so it reads as the way back rather than another
-  session) at the top, then the sessions you have **open**, then **Recently
-  closed**, then your saved **templates**, then **＋ Add**, which folds out the
-  full catalogue grouped into *Platform*, *Services* and *Tools*. Clicking
-  anything in the catalogue starts that session; a second CloudWatch session is
-  called "CloudWatch 2" rather than colliding. Click an open session to switch
-  to it, drag it to reorder, and use the **⋮** beside it to **rename** it in
-  place, save it as a template, or delete it.
+  session) at the top, then **Sessions** — *every* session you have, the ones
+  on the strip at full strength and the ones you have closed dimmed — then **＋
+  Add**, which folds out everything you could open: the catalogue grouped into
+  *Platform*, *Services* and *Tools*, and your saved **templates**, since
+  opening one of those starts a new session exactly like the rest. A second
+  CloudWatch session is called "CloudWatch 2" rather than colliding. Click a
+  session to switch to it (or, if it is closed, to open it again), drag it to
+  reorder, and use the **⋮** beside it to **rename** it in place, save it as a
+  template, or delete it.
 
   It's a vertical card in the page background rather than the panel colour, so
   it reads as part of the surface the body's cards sit on.
@@ -63,10 +65,11 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   too large to keep (past a 4 MB cap) drops its results, keeps its inputs, and
   says so rather than coming back looking empty.
 - **Closing is not deleting.** The **✕** on a tab takes that session off the
-  strip and drops it into **Recently closed** in the panel, where one click
-  puts it back with its state. *Delete*, in the panel's **⋮**, is the one that
-  throws it away, and it asks first. Recently closed is capped at 20, so it's
-  an undo rather than an archive.
+  strip; it stays in the panel, dimmed, and one click puts it back with its
+  state. *Delete*, in the panel's **⋮**, is the only thing that throws a
+  session away, and it asks first — nothing is ever removed on your behalf.
+  A closed session's rows are not loaded until you actually reopen it, so the
+  list costs nothing to carry however long it gets.
 - **Saved sessions** are the other half, and deliberately different: they're
   named **templates** stored per user on the server, holding a session's
   *inputs* only. Saving takes the session's own state and strips its outputs —

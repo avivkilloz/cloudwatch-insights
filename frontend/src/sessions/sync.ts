@@ -89,7 +89,22 @@ export class WorkspaceSync {
    * what makes an offline spell catch up by itself rather than lose the work.
    */
   flush(sessions: PersistedSession[]): Promise<void> {
-    this.inFlight = this.inFlight.then(() => this.push(sessions)).catch(() => undefined);
+    return this.enqueue(() => this.push(sessions));
+  }
+
+  /**
+   * Runs something after whatever this is already doing.
+   *
+   * Closing and deleting go through here rather than straight to the API. A
+   * flush can be in flight when you close a session, and a PUT that lands after
+   * the close clears `closed_at` again -- the session reopens itself. Ordering
+   * them on one chain is what stops that.
+   */
+  enqueue(task: () => Promise<unknown>): Promise<void> {
+    this.inFlight = this.inFlight.then(task).then(
+      () => undefined,
+      () => undefined,
+    );
     return this.inFlight;
   }
 
