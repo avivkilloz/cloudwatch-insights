@@ -5,9 +5,14 @@
  * only a page's *inputs* -- they're templates you start from. Open sessions
  * are the opposite: everything, including the rows currently on screen and the
  * assistant conversation about them, so a refresh puts you back exactly where
- * you were. That's far too much to push to the server on every keystroke, and
- * it's per-browser working state rather than data worth syncing, so it goes in
- * IndexedDB.
+ * you were.
+ *
+ * Those now live in Postgres too (see ./sync and the live-sessions router), so
+ * they follow you to another browser. IndexedDB stays in front of it as the
+ * local copy: it is there on the first paint, before any request has come
+ * back, and it is what you keep working against when the network isn't there.
+ * Which session is *active* is deliberately local-only -- that's which tab
+ * this browser is looking at, not something to follow you to another machine.
  */
 
 const DB_NAME = "cloud-insights-sessions";
@@ -81,12 +86,74 @@ export function decode<T>(text: string): T {
  * UI can own up to it.
  */
 export function encodeWorkspace(workspace: Workspace): string {
-  const sessions = workspace.sessions.map((session) => {
-    const encoded = encode(session.state);
-    if (encoded.length <= MAX_SESSION_BYTES) return session;
-    return { ...session, state: {}, truncated: true };
-  });
-  return encode({ ...workspace, sessions });
+  return encode({ ...workspace, sessions: workspace.sessions.map(capSession) });
+}
+
+/**
+ * One session, cut down to fit under the cap.
+ *
+ * The results are what get big, and they are also the part you can rerun --
+ * so they go first and the inputs stay, leaving a session you can put straight
+ * back rather than a blank one. If even the inputs are over the cap (nothing
+ * a page writes should be, but a pasted payload in the HTTP tool could),
+ * everything goes. Either way `truncated` is how the session owns up to it
+ * instead of coming back looking like it found nothing.
+ *
+ * Used by both stores, so IndexedDB and the server agree on what a session
+ * holds rather than each keeping a different half of it.
+ */
+export function capSession(session: PersistedSession): PersistedSession {
+  if (encode(session.state).length <= MAX_SESSION_BYTES) return session;
+
+  const inputs = Object.fromEntries(Object.entries(session.state).filter(([key]) => isInputStateKey(key)));
+  if (encode(inputs).length <= MAX_SESSION_BYTES) return { ...session, state: inputs, truncated: true };
+  return { ...session, state: {}, truncated: true };
+}
+
+// Keys a page writes as a *result* rather than an input. A saved session is a
+// template you start from, so it keeps what you chose and not what came back:
+// restoring someone else's rows, or a "fetched 3 days ago" marker, from a
+// template would be worse than an empty session.
+//
+// Matched on the last dot-separated segment, so an Aggregator pane's prefixed
+// keys ("<paneId>.results") are covered by the same list.
+const OUTPUT_STATE_KEYS = new Set([
+  // Result sets.
+  "results",
+  "osResults",
+  "thingResults",
+  "certResults",
+  "items",
+  "users",
+  "folders",
+  "files",
+  "exchange",
+  "response",
+  // Pagination cursors and counters that only mean something with the rows
+  // they came with.
+  "lastEvaluatedKey",
+  "paginationToken",
+  "continuationToken",
+  "scannedCount",
+  "expanded",
+  "ranAt",
+  "resultsVersion",
+  "exchangeVersion",
+  // Lists refetched on mount from the environment rather than chosen.
+  "tables",
+  "buckets",
+  "userPools",
+  "tableInfo",
+  // The assistant conversation belongs to the rows it was about.
+  "threads",
+  "mode",
+  "messages",
+  "openingPrompt",
+]);
+
+export function isInputStateKey(key: string): boolean {
+  const leaf = key.slice(key.lastIndexOf(".") + 1);
+  return !OUTPUT_STATE_KEYS.has(leaf);
 }
 
 // ---------------------------------------------------------------------------

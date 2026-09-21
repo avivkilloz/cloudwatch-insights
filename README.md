@@ -40,13 +40,24 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   per browser.
 - Every open session **stays mounted**: switching between them never
   interrupts a running query or loses a scroll position.
-- **A refresh puts you back where you were.** Open sessions, which one you
-  were looking at, and each session's whole state — the inputs, the rows on
-  screen, and its AI assistant conversation — are kept in the browser
-  (IndexedDB, per user) and restored. Restored rows say **when they were
-  fetched**, with a "Run again" button, so AWS data from yesterday is never
-  shown as though it were current. A session whose results were too large to
-  keep (past a 4 MB cap) comes back with its inputs and says so.
+- **A refresh puts you back where you were, and so does another machine.**
+  Each open session's whole state — the inputs, the rows on screen, and its AI
+  assistant conversation — is **autosaved to the server** as you work. There is
+  no save button: the session in front of you *is* the saved one. Sessions are
+  per user, kept in Postgres, and mirrored in the browser (IndexedDB) so the
+  panel is populated on the first paint and you keep working through an outage;
+  whatever the browser has catches up once the server is back. Which session
+  you were *looking at* stays local — that's what this browser is showing, not
+  something to follow you elsewhere.
+  Restored rows say **when they were fetched**, with a "Run again" button, so
+  AWS data from yesterday is never shown as though it were current. A session
+  too large to keep (past a 4 MB cap) drops its results, keeps its inputs, and
+  says so rather than coming back looking empty.
+- **Closing is not deleting.** A session's **⋮** offers *Close* — it leaves the
+  panel and drops into **Recently closed**, where one click puts it back with
+  its state — and *Delete*, which is the one that throws it away and asks
+  first. Recently closed is capped at 20, so it's an undo rather than an
+  archive.
 - **Saved sessions** are the other half, and deliberately different: they're
   named **templates** stored per user on the server, holding a session's
   *inputs* only. Saving takes the session's own state and strips its outputs —

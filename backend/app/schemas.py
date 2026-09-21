@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -646,6 +647,45 @@ class SavedSessionUpdate(BaseModel):
 class SavedSessionOut(SavedSessionBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
+
+
+# ---- Live sessions ----
+#
+# The sessions currently open in someone's side panel, autosaved. Distinct
+# from a SavedSession, which is a named template you start a new session from:
+# nobody names these and nobody presses save. `client_id` is the id the browser
+# generated for the session, `state` is the page's own free-form JSON, and
+# `truncated` says the browser dropped the results to stay under its size cap.
+#
+# Which session is *active* deliberately isn't here: that's which tab you are
+# looking at in this browser, not something to follow you to another machine.
+
+
+class LiveSessionUpsert(BaseModel):
+    type: str
+    title: str
+    position: int = 0
+    state: dict = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class LiveSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    client_id: str
+    type: str
+    title: str
+    position: int
+    state: dict
+    truncated: bool
+    closed_at: Optional[datetime] = None
+
+
+class LiveSessionOrder(BaseModel):
+    """The open sessions in the order they should appear. Ids the caller does
+    not own are ignored rather than rejected: a stale tab reordering a session
+    that another tab has since deleted shouldn't fail the whole request."""
+
+    client_ids: list[str]
 
 
 # ---- AI assistant ----

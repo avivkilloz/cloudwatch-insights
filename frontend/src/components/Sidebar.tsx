@@ -82,7 +82,8 @@ function migrateLegacyState(page: string, state: Record<string, any>): Record<st
  */
 export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { user } = useAuth();
-  const { sessions, activeId, view, open, close, activate, rename, reorder, show, captureInputs } = useSessions();
+  const { sessions, activeId, view, open, close, closed, reopen, remove, activate, rename, reorder, show, captureInputs } =
+    useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   // Where to paint the open ⋮ menu. It is portalled to the body: the rail
@@ -354,8 +355,21 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
                       close(s.id);
                       setMenuFor(null);
                     }}
+                    title="Take it off the panel; it stays under Recently closed"
                   >
                     Close
+                  </button>
+                  {/* The only thing in here that loses work, so it says so and
+                      asks first -- Close is the one that is meant to be cheap. */}
+                  <button
+                    className="rail-row-menu-danger"
+                    onClick={() => {
+                      setMenuFor(null);
+                      if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
+                    }}
+                    title="Throw the session away for good"
+                  >
+                    Delete
                   </button>
                 </div>,
                 document.body,
@@ -363,6 +377,35 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
           </div>
         );
       })}
+
+      {closed.length > 0 && (
+        <>
+          {/* Closing is meant to be a cheap thing to do, which it only is if
+              undoing it is cheap too. Capped by the server, so this stays a
+              short list you can scan rather than a history. */}
+          <div className="rail-heading">Recently closed</div>
+          {closed.map((s) => (
+            <div key={s.id} data-closed-session-id={s.id} className="rail-row rail-row-closed">
+              <button className="rail-row-label" onClick={() => reopen(s.id)} title={`Reopen ${s.title}`}>
+                {s.title}
+              </button>
+              {/* Its own class rather than the ⋮'s: this one deletes on the
+                  spot, and anything hunting for "the row's menu button" should
+                  not find it. */}
+              <button
+                className="rail-row-forget"
+                onClick={() => {
+                  if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
+                }}
+                aria-label={`Delete ${s.title}`}
+                title="Throw the session away for good"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </>
+      )}
 
       {saved.length > 0 && (
         <>

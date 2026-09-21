@@ -355,7 +355,14 @@ button,
   color: var(--text-dim);
 }
 
-.rail-row-more {
+/* Closed but kept. Dimmed so the panel still reads as "what I have open"
+   first and "what I just closed" second. */
+.rail-row-closed .rail-row-label {
+  color: var(--text-dim);
+}
+
+.rail-row-more,
+.rail-row-forget {
   flex: none;
   width: 22px;
   padding: 0;
@@ -371,12 +378,17 @@ button,
 /* Revealed on hover or while its own menu is open, so a column of ⋮ doesn't
    compete with the session names. */
 .rail-row:hover .rail-row-more,
+.rail-row:hover .rail-row-forget,
 .rail-row-more[aria-expanded="true"] {
   opacity: 1;
 }
 
 .rail-row-more:hover {
   color: var(--accent);
+}
+
+.rail-row-forget:hover {
+  color: var(--error);
 }
 
 /* Portalled to the body and positioned from the ⋮'s own rectangle: as a child
@@ -405,6 +417,11 @@ button,
   font-family: inherit;
   font-size: 12.5px;
   text-align: left;
+}
+
+/* The one item in the menu that loses work. */
+.rail-row-menu button.rail-row-menu-danger {
+  color: var(--error);
 }
 
 .rail-row-menu button:hover {

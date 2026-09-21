@@ -54,6 +54,29 @@ export interface SavedSession<T = Record<string, unknown>> {
   state: T;
 }
 
+/**
+ * One of the sessions open in the side panel, as the server last heard about
+ * it. A SavedSession above is a named template you start a session *from*;
+ * this is the live working state of a session already open, autosaved.
+ *
+ * `state` is a page's own bag, tag-encoded by sessions/storage before it is
+ * sent: pages keep Sets and Maps, and plain JSON turns those into `{}`
+ * silently -- handing the page back a selection it can no longer read. The
+ * backend stores it as opaque JSON either way.
+ */
+export interface LiveSession {
+  client_id: string;
+  type: string;
+  title: string;
+  position: number;
+  state: Record<string, unknown>;
+  /** The browser dropped this session's results to stay under its size cap,
+   * so the page can say so rather than looking like it found nothing. */
+  truncated: boolean;
+  /** Null while it is open; set once it is closed but still reopenable. */
+  closed_at: string | null;
+}
+
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
  * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
  * aren't interchangeable. */
@@ -507,6 +530,19 @@ export const api = {
   updateSavedSession: <T = Record<string, unknown>>(id: number, payload: Partial<{ name: string; state: T }>) =>
     req<SavedSession<T>>(`/saved-sessions/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSavedSession: (id: number) => req<void>(`/saved-sessions/${id}`, { method: "DELETE" }),
+
+  listLiveSessions: (closed = false) => req<LiveSession[]>(`/live-sessions${closed ? "?closed=true" : ""}`),
+  putLiveSession: (clientId: string, payload: Omit<LiveSession, "client_id" | "closed_at">) =>
+    req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  reorderLiveSessions: (client_ids: string[]) =>
+    req<LiveSession[]>("/live-sessions/reorder", { method: "POST", body: JSON.stringify({ client_ids }) }),
+  closeLiveSession: (clientId: string) =>
+    req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
+  deleteLiveSession: (clientId: string) =>
+    req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
 
   listTables: (environmentId: number) =>
     req<{ tables: string[] }>(`/tables/list?environment_id=${environmentId}`),

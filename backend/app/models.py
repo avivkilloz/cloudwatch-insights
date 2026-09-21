@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Text, DateTime
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Text, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -144,3 +144,45 @@ class SavedSession(Base):
     name = Column(String, nullable=False)
     state = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class LiveSession(Base):
+    """One of the sessions open in someone's side panel, as their browser last
+    left it.
+
+    The neighbouring SavedSession is a *template*: a name you choose, holding a
+    page's inputs, that you start a fresh session from. This is the opposite --
+    nobody names it and nobody saves it, it is just the working state of a
+    session that is already open, written back on every change so it survives a
+    refresh, a different browser or a different machine.
+
+    `client_id` is the id the browser generated for the session, not a database
+    key: it is what the open workspace refers to itself by, so a browser that
+    goes offline mid-edit and syncs later still addresses the same row.
+    `state` is the page's own free-form JSON, opaque here, and `truncated` says
+    the browser dropped the results to fit -- so the session can own up to it
+    rather than coming back looking like an empty result set.
+
+    `closed_at` set means closed but kept: the row stays so the session can be
+    reopened from "Recently closed". Deleting is what actually removes it.
+    """
+
+    __tablename__ = "live_sessions"
+    __table_args__ = (UniqueConstraint("user_id", "client_id", name="uq_live_sessions_user_client"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    client_id = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    # Where it sits in the side panel. Rewritten wholesale when sessions are
+    # dragged, so gaps and duplicates don't matter -- only the order does.
+    position = Column(Integer, nullable=False, server_default="0")
+    state = Column(JSON, nullable=False, default=dict)
+    # SQLAlchemy auto-quotes a plain string server_default as a SQL string
+    # literal -- do not wrap this in extra quotes, that would double-quote it.
+    truncated = Column(Boolean, nullable=False, server_default="false")
+    closed_at = Column(DateTime, nullable=True, index=True)
+    updated_at = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
