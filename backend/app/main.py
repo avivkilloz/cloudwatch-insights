@@ -10,6 +10,7 @@ from .routers import (
     cognito,
     environments,
     iot,
+    live_sessions,
     log_groups,
     opensearch,
     queries,
@@ -51,6 +52,7 @@ app.include_router(queries.router)
 app.include_router(opensearch.router)
 app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
+app.include_router(live_sessions.router)
 app.include_router(iot.router)
 app.include_router(tables.router)
 app.include_router(buckets.router)

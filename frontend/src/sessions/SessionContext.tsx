@@ -10,7 +10,16 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { EMPTY_WORKSPACE, PersistedSession, Workspace, loadWorkspace, saveWorkspace } from "./storage";
+import { api } from "../api";
+import {
+  EMPTY_WORKSPACE,
+  PersistedSession,
+  Workspace,
+  isInputStateKey,
+  loadWorkspace,
+  saveWorkspace,
+} from "./storage";
+import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire } from "./sync";
 
 /** Which kinds of session the + button can start. Values are stored, so
  * renaming one orphans existing open sessions -- add rather than rename.
@@ -89,7 +98,16 @@ interface SessionsApi {
    * renders (and immediately re-persists) an empty workspace over a real one. */
   ready: boolean;
   open: (type: SessionType, title: string, state?: Record<string, unknown>) => string;
+  /** Takes a session off the panel but keeps it, in `closed`, to reopen. */
   close: (id: string) => void;
+  /** Sessions closed but kept, most recently closed first. Capped by the
+   * server, so this is a short list rather than a history. */
+  closed: PersistedSession[];
+  /** Puts a closed session back on the panel, with the state it had. */
+  reopen: (id: string) => void;
+  /** Throws a session away for good, open or closed. The only thing here that
+   * loses work, which is why it is not what the ✕ used to do. */
+  remove: (id: string) => void;
   activate: (id: string) => void;
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
@@ -97,52 +115,6 @@ interface SessionsApi {
   /** This session's state with its outputs stripped -- what a saved session
    * stores. */
   captureInputs: (id: string) => Record<string, unknown>;
-}
-
-// Keys a page writes as a *result* rather than an input. A saved session is a
-// template you start from, so it keeps what you chose and not what came back:
-// restoring someone else's rows, or a "fetched 3 days ago" marker, from a
-// template would be worse than an empty session.
-//
-// Matched on the last dot-separated segment, so an Aggregator pane's prefixed
-// keys ("<paneId>.results") are covered by the same list.
-const OUTPUT_STATE_KEYS = new Set([
-  // Result sets.
-  "results",
-  "osResults",
-  "thingResults",
-  "certResults",
-  "items",
-  "users",
-  "folders",
-  "files",
-  "exchange",
-  "response",
-  // Pagination cursors and counters that only mean something with the rows
-  // they came with.
-  "lastEvaluatedKey",
-  "paginationToken",
-  "continuationToken",
-  "scannedCount",
-  "expanded",
-  "ranAt",
-  "resultsVersion",
-  "exchangeVersion",
-  // Lists refetched on mount from the environment rather than chosen.
-  "tables",
-  "buckets",
-  "userPools",
-  "tableInfo",
-  // The assistant conversation belongs to the rows it was about.
-  "threads",
-  "mode",
-  "messages",
-  "openingPrompt",
-]);
-
-export function isInputStateKey(key: string): boolean {
-  const leaf = key.slice(key.lastIndexOf(".") + 1);
-  return !OUTPUT_STATE_KEYS.has(leaf);
 }
 
 const SessionsContext = createContext<SessionsApi | null>(null);
@@ -162,20 +134,70 @@ let sessionCounter = 0;
 
 export function SessionsProvider({ userId, children }: { userId: number; children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace>(EMPTY_WORKSPACE);
+  const [closed, setClosed] = useState<PersistedSession[]>([]);
   const [ready, setReady] = useState(false);
+  // One per mounted provider, and never in state: it is bookkeeping about what
+  // the server has been told, and re-rendering the workspace on every reply
+  // would be a lot of renders for nothing on screen.
+  const sync = useMemo(() => new WorkspaceSync(), []);
+  // Set by the first local change, so a slow server reply can't land on top of
+  // something typed while it was in flight.
+  const touched = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    loadWorkspace(userId).then((loaded) => {
+    setClosed([]);
+    touched.current = false;
+
+    (async () => {
+      // The local copy first, so the panel is populated on the first paint
+      // rather than after a round trip.
+      const local = migrateSessionTypes(await loadWorkspace(userId));
       if (cancelled) return;
-      setWorkspace(migrateSessionTypes(loaded));
+      setWorkspace(local);
       setReady(true);
-    });
+
+      let open: PersistedSession[];
+      try {
+        const [openRows, closedRows] = await Promise.all([
+          api.listLiveSessions(),
+          api.listLiveSessions(true),
+        ]);
+        if (cancelled) return;
+        open = openRows.map(fromWire);
+        sync.adopt(openRows);
+        setClosed(closedRows.map(fromWire));
+      } catch {
+        // Offline, or a backend that has not been migrated yet. Keep working
+        // against the local copy; the next flush pushes it up.
+        return;
+      }
+
+      // Someone who had sessions before this existed, or who worked through an
+      // outage, has them only in this browser -- adopting the empty server list
+      // would throw them away. Keep the local ones and let the sync push them.
+      if (open.length === 0 && local.sessions.length > 0) return;
+      // And don't overwrite work done in the moment the request was in flight.
+      if (touched.current) return;
+
+      setWorkspace((w) => {
+        const ids = new Set(open.map((session) => session.id));
+        const activeId = w.activeId && ids.has(w.activeId) ? w.activeId : open[0]?.id ?? null;
+        return {
+          sessions: open,
+          activeId,
+          // Which tab this browser was on is local; falling back to home when
+          // the session it pointed at is gone.
+          view: w.view === "session" && !activeId ? "home" : w.view,
+        };
+      });
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, sync]);
 
   // Persist on a trailing debounce. Writing only after `ready` matters: the
   // first render holds an empty workspace, and saving that would wipe the one
@@ -203,7 +225,25 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     return () => window.removeEventListener("pagehide", flush);
   }, [workspace, ready, userId]);
 
+  // And the same to the server, on a longer debounce: the local copy is
+  // already safe by the time this fires, so this is about durability and
+  // reaching your other browser rather than about not losing the last
+  // keystroke. Only what changed goes; WorkspaceSync works that out.
+  const syncPending = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    if (syncPending.current !== null) window.clearTimeout(syncPending.current);
+    syncPending.current = window.setTimeout(() => {
+      syncPending.current = null;
+      sync.flush(workspace.sessions);
+    }, SYNC_DEBOUNCE_MS);
+    return () => {
+      if (syncPending.current !== null) window.clearTimeout(syncPending.current);
+    };
+  }, [workspace.sessions, ready, sync]);
+
   const open = useCallback((type: SessionType, title: string, state: Record<string, unknown> = {}) => {
+    touched.current = true;
     const id = `s${Date.now().toString(36)}${(sessionCounter++).toString(36)}`;
     setWorkspace((w) => ({
       ...w,
@@ -214,28 +254,72 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     return id;
   }, []);
 
-  const close = useCallback((id: string) => {
-    setWorkspace((w) => {
-      const index = w.sessions.findIndex((s) => s.id === id);
-      const sessions = w.sessions.filter((s) => s.id !== id);
-      if (w.activeId !== id) return { ...w, sessions };
-      // Closing the session you're looking at lands on its neighbour rather
-      // than dumping you back on the home page.
-      const next = sessions[Math.min(index, sessions.length - 1)];
-      return {
-        ...w,
-        sessions,
-        activeId: next?.id ?? null,
-        view: next ? "session" : "home",
-      };
+  /** Drops a session from the panel, and returns the workspace without it.
+   * Shared by close and remove, which differ only in what becomes of the row
+   * on the server. */
+  function withoutSession(w: Workspace, id: string): Workspace {
+    const index = w.sessions.findIndex((s) => s.id === id);
+    const sessions = w.sessions.filter((s) => s.id !== id);
+    if (w.activeId !== id) return { ...w, sessions };
+    // Closing the session you're looking at lands on its neighbour rather
+    // than dumping you back on the home page.
+    const next = sessions[Math.min(index, sessions.length - 1)];
+    return { ...w, sessions, activeId: next?.id ?? null, view: next ? "session" : "home" };
+  }
+
+  const close = useCallback(
+    (id: string) => {
+      touched.current = true;
+      setWorkspace((w) => {
+        const session = w.sessions.find((s) => s.id === id);
+        // Straight to the front of Recently closed, optimistically: waiting for
+        // the server would make a click that is meant to feel instant wait on
+        // the network, and the list is re-read on the next load anyway.
+        if (session) setClosed((c) => [session, ...c.filter((s) => s.id !== id)]);
+        return withoutSession(w, id);
+      });
+      // The row stays on the server; only its closed_at changes. A session
+      // that never reached the server has nothing to close, so a 404 here is
+      // the expected outcome rather than a failure.
+      sync.forget(id);
+      api.closeLiveSession(id).catch(() => undefined);
+    },
+    [sync],
+  );
+
+  const reopen = useCallback((id: string) => {
+    touched.current = true;
+    setClosed((c) => {
+      const session = c.find((s) => s.id === id);
+      if (!session) return c;
+      // Putting it back in the panel is enough to reopen it on the server too:
+      // the next flush PUTs it, and a PUT clears closed_at.
+      setWorkspace((w) =>
+        w.sessions.some((s) => s.id === id)
+          ? { ...w, activeId: id, view: "session" }
+          : { ...w, sessions: [...w.sessions, session], activeId: id, view: "session" },
+      );
+      return c.filter((s) => s.id !== id);
     });
   }, []);
+
+  const remove = useCallback(
+    (id: string) => {
+      touched.current = true;
+      setWorkspace((w) => withoutSession(w, id));
+      setClosed((c) => c.filter((s) => s.id !== id));
+      sync.forget(id);
+      api.deleteLiveSession(id).catch(() => undefined);
+    },
+    [sync],
+  );
 
   const activate = useCallback((id: string) => {
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
   }, []);
 
   const rename = useCallback((id: string, title: string) => {
+    touched.current = true;
     setWorkspace((w) => ({
       ...w,
       sessions: w.sessions.map((s) => (s.id === id ? { ...s, title } : s)),
@@ -243,6 +327,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   }, []);
 
   const reorder = useCallback((id: string, toIndex: number) => {
+    touched.current = true;
     setWorkspace((w) => {
       const from = w.sessions.findIndex((s) => s.id === id);
       if (from < 0 || toIndex < 0 || toIndex >= w.sessions.length) return w;
@@ -267,6 +352,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   // Pages call this (through useSessionState) on every change they want kept.
   const writeState = useCallback((sessionId: string, key: string, value: unknown) => {
+    touched.current = true;
     setWorkspace((w) => {
       const session = w.sessions.find((s) => s.id === sessionId);
       if (!session || Object.is(session.state[key], value)) return w;
@@ -279,7 +365,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     });
   }, []);
 
-  const api = useMemo<SessionsApi>(
+  // Named `sessionsApi` rather than `api`: the module-level `api` is the HTTP
+  // client, and shadowing it here would quietly break the calls above.
+  const sessionsApi = useMemo<SessionsApi>(
     () => ({
       sessions: workspace.sessions,
       activeId: workspace.activeId,
@@ -287,17 +375,20 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       ready,
       open,
       close,
+      closed,
+      reopen,
+      remove,
       activate,
       rename,
       reorder,
       show,
       captureInputs,
     }),
-    [workspace, ready, open, close, activate, rename, reorder, show, captureInputs],
+    [workspace, closed, ready, open, close, reopen, remove, activate, rename, reorder, show, captureInputs],
   );
 
   return (
-    <SessionsContext.Provider value={api}>
+    <SessionsContext.Provider value={sessionsApi}>
       <WriteStateContext.Provider value={writeState}>{children}</WriteStateContext.Provider>
     </SessionsContext.Provider>
   );

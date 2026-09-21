@@ -3,18 +3,9 @@ import { createPortal } from "react-dom";
 import { api, SavedSession } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
+import { nextTitle } from "../sessions/naming";
 import { decode, encode } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES, sessionType, sessionTypeLabel } from "../sessions/registry";
-
-/** "Logs", then "Logs 2", "Logs 3" -- several sessions of one kind is the
- * point, so they have to be tellable apart at a glance. */
-function nextTitle(label: string, taken: string[]): string {
-  if (!taken.includes(label)) return label;
-  for (let n = 2; ; n++) {
-    const candidate = `${label} ${n}`;
-    if (!taken.includes(candidate)) return candidate;
-  }
-}
 
 /** Stamped into every saved template so the reader can tell the current shape
  * (a session's own state bag) from the hand-rolled per-page shapes that came
@@ -82,9 +73,13 @@ function migrateLegacyState(page: string, state: Record<string, any>): Record<st
  */
 export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { user } = useAuth();
-  const { sessions, activeId, view, open, close, activate, rename, reorder, show, captureInputs } = useSessions();
+  const { sessions, activeId, view, open, closed, reopen, remove, activate, rename, reorder, show, captureInputs } =
+    useSessions();
   const [saved, setSaved] = useState<{ entry: SavedSession<Record<string, unknown>>; type: SessionType }[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Which row is being renamed in place. Closing a session lives in the strip
+  // above the body now, so the ⋮ is only what you do to the session itself.
+  const [renaming, setRenaming] = useState<string | null>(null);
   // Where to paint the open ⋮ menu. It is portalled to the body: the rail
   // scrolls, and an absolutely-positioned child of a scrolling box is clipped
   // by it -- which is what hid the menu inside the panel.
@@ -290,10 +285,22 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   return (
     <nav className="rail" aria-label="Sessions">
       <button
-        className={`rail-row${view === "home" ? " active" : ""}`}
+        className={`rail-row rail-row-home${view === "home" ? " active" : ""}`}
         onClick={() => show("home")}
         title="The home page: every service, tool and platform feature"
       >
+        {/* Every other row in the rail is a session or a session type; the icon
+            is what tells this one apart at a glance. */}
+        <svg className="rail-row-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path
+            d="M2.5 7 8 2.5 13.5 7v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V7Z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+          <path d="M6.4 14V9.6h3.2V14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+        </svg>
         <span className="rail-row-label">Home</span>
       </button>
 
@@ -314,23 +321,44 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
             onPointerUp={() => endDrag(true)}
             onPointerCancel={() => endDrag(false)}
           >
-            <button
-              className="rail-row-label"
-              onClick={() => {
-                if (suppressClick.current) {
-                  suppressClick.current = false;
-                  return;
-                }
-                activate(s.id);
-              }}
-              onDoubleClick={() => {
-                const name = prompt("Rename session:", s.title);
-                if (name?.trim()) rename(s.id, name.trim());
-              }}
-              title={`${s.title} (${sessionTypeLabel(s.type)}) — double-click to rename`}
-            >
-              {s.title}
-            </button>
+            {renaming === s.id ? (
+              // In place rather than a prompt() box: you can see the row you
+              // are naming, and the rest of the panel stays readable.
+              <input
+                className="rail-row-rename"
+                autoFocus
+                defaultValue={s.title}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") {
+                    // Cleared first so the blur below commits nothing.
+                    setRenaming(null);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (renaming !== s.id) return;
+                  const name = e.target.value.trim();
+                  if (name && name !== s.title) rename(s.id, name);
+                  setRenaming(null);
+                }}
+                aria-label={`Rename ${s.title}`}
+              />
+            ) : (
+              <button
+                className="rail-row-label"
+                onClick={() => {
+                  if (suppressClick.current) {
+                    suppressClick.current = false;
+                    return;
+                  }
+                  activate(s.id);
+                }}
+                onDoubleClick={() => setRenaming(s.id)}
+                title={`${s.title} (${sessionTypeLabel(s.type)}) — double-click to rename`}
+              >
+                {s.title}
+              </button>
+            )}
             <button
               className="rail-row-more"
               ref={menuFor === s.id ? menuButtonRef : undefined}
@@ -348,14 +376,27 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
               menuPos &&
               createPortal(
                 <div className="rail-row-menu" ref={menuRef} style={{ left: menuPos.left, top: menuPos.top }}>
-                  {def?.savedPage && <button onClick={() => saveAsTemplate(s.id)}>Save as template…</button>}
                   <button
                     onClick={() => {
-                      close(s.id);
                       setMenuFor(null);
+                      setRenaming(s.id);
                     }}
+                    title="Rename it here in the panel"
                   >
-                    Close
+                    Rename
+                  </button>
+                  {def?.savedPage && <button onClick={() => saveAsTemplate(s.id)}>Save as template…</button>}
+                  {/* The only thing in here that loses work, so it says so and
+                      asks first -- Close is the one that is meant to be cheap. */}
+                  <button
+                    className="rail-row-menu-danger"
+                    onClick={() => {
+                      setMenuFor(null);
+                      if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
+                    }}
+                    title="Throw the session away for good"
+                  >
+                    Delete
                   </button>
                 </div>,
                 document.body,
@@ -363,6 +404,35 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
           </div>
         );
       })}
+
+      {closed.length > 0 && (
+        <>
+          {/* Closing is meant to be a cheap thing to do, which it only is if
+              undoing it is cheap too. Capped by the server, so this stays a
+              short list you can scan rather than a history. */}
+          <div className="rail-heading">Recently closed</div>
+          {closed.map((s) => (
+            <div key={s.id} data-closed-session-id={s.id} className="rail-row rail-row-closed">
+              <button className="rail-row-label" onClick={() => reopen(s.id)} title={`Reopen ${s.title}`}>
+                {s.title}
+              </button>
+              {/* Its own class rather than the ⋮'s: this one deletes on the
+                  spot, and anything hunting for "the row's menu button" should
+                  not find it. */}
+              <button
+                className="rail-row-forget"
+                onClick={() => {
+                  if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
+                }}
+                aria-label={`Delete ${s.title}`}
+                title="Throw the session away for good"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </>
+      )}
 
       {saved.length > 0 && (
         <>
