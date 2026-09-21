@@ -25,19 +25,28 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   says it the same way. Aggregator panes don't repeat it — they already sit
   under their own title bar.
 - A **side panel** down the left holds everything you can reach, in one list:
-  **Home** at the top, then the sessions you have **open**, then your saved
-  **templates**, then **＋ Add**, which folds out the full catalogue grouped
-  into *Platform*, *Services* and *Tools*. Clicking anything in the catalogue
-  starts that session; a second CloudWatch session is called "CloudWatch 2"
-  rather than colliding. Click an open session to switch to it, double-click to
-  rename it, and use the **⋮** beside it to save it as a template or close it.
+  **Home** (with a house icon, so it reads as the way back rather than another
+  session) at the top, then the sessions you have **open**, then **Recently
+  closed**, then your saved **templates**, then **＋ Add**, which folds out the
+  full catalogue grouped into *Platform*, *Services* and *Tools*. Clicking
+  anything in the catalogue starts that session; a second CloudWatch session is
+  called "CloudWatch 2" rather than colliding. Click an open session to switch
+  to it, drag it to reorder, and use the **⋮** beside it to **rename** it in
+  place, save it as a template, or delete it.
 
   It's a vertical card in the page background rather than the panel colour, so
-  it reads as part of the surface the body's cards sit on. It replaced a
-  horizontal strip of tabs: a row runs out of width at about six, and this app
-  is built around having several sessions open at once. Clicking the app title
-  hides it entirely when a page needs the room, and that choice is remembered
-  per browser.
+  it reads as part of the surface the body's cards sit on.
+- A **session strip** sits above the body, in the same column as the cards and
+  exactly as wide as them, holding the tabs you have in front of you: a button
+  that hides and shows the side panel, then a tab per open session with a **✕**
+  to close it, then **＋** for the same catalogue as a menu.
+
+  The two aren't a duplicate of each other. The panel is the whole workspace —
+  what is open, what you closed, your templates, everything you could open —
+  and a row of tabs runs out of width at about six. The strip is only what is
+  in front of you, which is why **closing** lives on a tab there and the
+  panel's **⋮** is for what you do to the session itself. Hiding the panel is
+  remembered per browser; the app title in the top bar takes you **home**.
 - Every open session **stays mounted**: switching between them never
   interrupts a running query or loses a scroll position.
 - **A refresh puts you back where you were, and so does another machine.**
@@ -53,11 +62,11 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   AWS data from yesterday is never shown as though it were current. A session
   too large to keep (past a 4 MB cap) drops its results, keeps its inputs, and
   says so rather than coming back looking empty.
-- **Closing is not deleting.** A session's **⋮** offers *Close* — it leaves the
-  panel and drops into **Recently closed**, where one click puts it back with
-  its state — and *Delete*, which is the one that throws it away and asks
-  first. Recently closed is capped at 20, so it's an undo rather than an
-  archive.
+- **Closing is not deleting.** The **✕** on a tab takes that session off the
+  strip and drops it into **Recently closed** in the panel, where one click
+  puts it back with its state. *Delete*, in the panel's **⋮**, is the one that
+  throws it away, and it asks first. Recently closed is capped at 20, so it's
+  an undo rather than an archive.
 - **Saved sessions** are the other half, and deliberately different: they're
   named **templates** stored per user on the server, holding a session's
   *inputs* only. Saving takes the session's own state and strips its outputs —

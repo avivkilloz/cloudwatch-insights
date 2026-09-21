@@ -259,7 +259,21 @@ button,
   display: flex;
   min-height: 0;
   gap: 8px;
-  padding: 8px 10px 0;
+  /* The top gap matches .panel's margin-bottom: the space under the header
+     reads as the same rhythm as the space between two cards, rather than a
+     tighter one nobody chose. */
+  padding: 16px 10px 0;
+}
+
+/* The session strip and the body, stacked. The strip is outside .content so it
+   stays put while the page scrolls, and inside this column so it starts where
+   the body's cards start rather than reaching across the rail. */
+.column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .rail {
@@ -319,7 +333,35 @@ button,
   border-color: var(--accent-dim);
 }
 
-.rail-row.active .rail-row-label {
+.rail-row.active /* The Home row's icon: sits inside the row's own padding, so the row stays the
+   same height as every other one. */
+.rail-row-icon {
+  flex: none;
+  margin-left: 8px;
+  margin-right: -4px;
+  color: var(--text-dim);
+}
+
+.rail-row.active .rail-row-icon {
+  color: var(--accent-text);
+}
+
+/* Renaming in place: the same box the label occupied, so the row does not jump
+   when it turns into a field. */
+.rail-row-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 4px;
+  padding: 3px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.rail-row-label {
   color: var(--accent-text);
 }
 
@@ -622,6 +664,161 @@ button,
   /* .shell owns the gap to the rail and to the header; this is only the page's
      own breathing room inside its column. */
   padding: 0 10px 20px;
+}
+
+/* ---- the session strip ------------------------------------------------- */
+
+/* A card like the ones below it, and inset by the same 10px .content pads its
+   own children by, so its edges line up with theirs. */
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin: 0 10px 16px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+/* Sized to its tabs rather than filling the row, so + stays next to the last
+   one; it scrolls instead of pushing + off the end once there are many. */
+.session-bar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.session-bar-empty {
+  padding: 0 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.session-bar-rail,
+.session-bar-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.session-bar-rail:hover,
+.session-bar-add:hover,
+.session-bar-add[aria-expanded="true"] {
+  background: var(--panel-alt);
+  color: var(--accent);
+}
+
+/* Keeps the strip one row tall whether or not it holds any tabs. */
+.session-tab {
+  display: flex;
+  align-items: center;
+  flex: none;
+  max-width: 190px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.session-tab:hover {
+  background: var(--panel-alt);
+}
+
+.session-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+}
+
+.session-tab.active .session-tab-label,
+.session-tab.active .session-tab-close {
+  color: var(--accent-text);
+}
+
+.session-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 2px 5px 8px;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.session-tab-close {
+  flex: none;
+  padding: 0 7px 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.session-tab-close:hover {
+  color: var(--error);
+}
+
+/* Portalled to the body, like the rail's ⋮ menu and for the same reason: the
+   tab strip scrolls, and a child of a scrolling box is clipped by it. */
+.session-add-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 200px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.session-add-heading {
+  padding: 8px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.session-add-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.session-add-item:hover {
+  background: var(--panel-alt);
 }
 
 h2 {

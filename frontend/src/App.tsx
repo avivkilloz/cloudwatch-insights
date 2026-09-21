@@ -5,6 +5,7 @@ import { openingExchange } from "./pages/AgentPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
+import SessionBar from "./components/SessionBar";
 import Sidebar from "./components/Sidebar";
 
 /** Whether the left rail is showing. A per-browser preference, not workspace state. */
@@ -128,12 +129,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   return (
     <div className="app">
       <header className="topbar">
-        <button
-          className="brand"
-          onClick={() => setRailOpen((v) => !v)}
-          aria-expanded={railOpen}
-          title={railOpen ? "Hide the side panel" : "Show the side panel"}
-        >
+        {/* The panel has its own toggle in the strip below now, so the brand
+            is free to do the obvious thing and take you home. */}
+        <button className="brand" onClick={() => show("home")} title="Go to the home page">
           {appLogoUrl && <img className="brand-logo" src={appLogoUrl} alt="" />}
           {appTitle}
         </button>
@@ -160,7 +158,13 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       <div className="shell">
         <Sidebar open={railOpen} />
 
-        <main className="content">
+        {/* The strip and the body share a column, so the strip lines up with
+            the cards under it and the rail stands beside both rather than
+            underneath a full-width header. */}
+        <div className="column">
+          <SessionBar railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
+
+          <main className="content">
         {view === "home" && <HomePage />}
         {view === "settings" && (
           <>
@@ -187,7 +191,8 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             hidden={view !== "session" || activeId !== session.id}
           />
           ))}
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
