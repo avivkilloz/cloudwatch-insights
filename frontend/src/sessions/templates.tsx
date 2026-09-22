@@ -14,8 +14,9 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { SavedSession, User, api } from "../api";
 import { useAuth } from "../AuthContext";
-import { SessionType } from "./SessionContext";
-import { SESSION_TYPES } from "./registry";
+import { SessionType, useSessions } from "./SessionContext";
+import { SESSION_TYPES, sessionType } from "./registry";
+import { encode } from "./storage";
 import { decode } from "./storage";
 
 /** Stamped into every saved template so the reader can tell the current shape
@@ -132,4 +133,39 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   const value = useMemo(() => ({ templates, reload }), [templates, reload]);
   return <TemplatesContext.Provider value={value}>{children}</TemplatesContext.Provider>;
+}
+
+/**
+ * Writing a session out as a template.
+ *
+ * Offered from the panel's ⋮ and the strip's, so it lives beside the code that
+ * reads templates back rather than in whichever menu grew it first. What is
+ * kept is the session's *inputs* -- captureInputs strips the rows, the
+ * fetched-at markers and the assistant thread -- because a template is
+ * something you start from, not someone else's results.
+ *
+ * Returns false when there was nothing to do: the session is gone, its kind has
+ * no page to save under, or the name was left blank.
+ */
+export function useSaveAsTemplate(): (id: string) => Promise<boolean> {
+  const { sessions, captureInputs } = useSessions();
+  const { reload } = useTemplates();
+
+  return async (id: string) => {
+    const session = sessions.find((s) => s.id === id);
+    const def = session && sessionType(session.type);
+    if (!session || !def?.savedPage) return false;
+    const name = window.prompt("Save as template:", session.title);
+    if (!name?.trim()) return false;
+    // Encoded with the tags, then parsed back to a plain object so the API's
+    // own JSON.stringify has nothing left to lose.
+    const state = JSON.parse(encode(captureInputs(id)));
+    await api.createSavedSession({
+      page: def.savedPage,
+      name: name.trim(),
+      state: { ...state, [VERSION_KEY]: SAVED_STATE_VERSION },
+    });
+    reload();
+    return true;
+  };
 }

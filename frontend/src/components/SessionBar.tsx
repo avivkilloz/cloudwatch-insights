@@ -1,60 +1,34 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
 import { GROUP_ORDER, SESSION_TYPES, sessionTypeLabel } from "../sessions/registry";
 import { templateState, templateType, useTemplates } from "../sessions/templates";
+import Popover from "./Popover";
+import SessionMenuItems from "./SessionMenuItems";
 
 /**
- * The strip above the body: the rail's toggle, what is open, and a + to open
+ * The strip above the body: the panel's toggle, what is open, and a ＋ to open
  * more.
  *
  * It sits in the body's column rather than across the top of the window, so it
- * lines up with the cards below it and the rail stands beside both. The rail
- * and this overlap on purpose -- the rail is the whole workspace (what is open,
- * what you closed, your templates, everything you could open), while this is
- * only the sessions in front of you, and closing one lives here. That keeps the
- * rail's ⋮ for the things you do to a session rather than to a tab.
+ * lines up with the cards below it and the panel stands beside both. The panel
+ * and this overlap on purpose -- the panel is the whole workspace (every
+ * session you have, plus everything you could open), while this is only the
+ * ones in front of you. So closing lives here, on a ✕ per tab; and the ⋮ at the
+ * end offers the same things the panel's rows do, for the session on screen.
  */
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
   const { user } = useAuth();
-  const { sessions, activeId, view, open, close, activate } = useSessions();
+  const { sessions, activeId, view, open, close, activate, rename } = useSessions();
   const { templates } = useTemplates();
-  const [adding, setAdding] = useState(false);
-  // Portalled and positioned from the + itself, for the reason the rail's ⋮
-  // menu is: an absolutely-positioned child of a scrolling box gets clipped by
-  // it, and the tab strip scrolls.
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
-  const addRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  // Set when the current tab is being renamed in place, from the ⋮ below.
+  const [renaming, setRenaming] = useState(false);
 
   const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
-
-  useLayoutEffect(() => {
-    const button = addRef.current;
-    if (!adding || !button) return;
-    const r = button.getBoundingClientRect();
-    const width = menuRef.current?.offsetWidth || 220;
-    setMenuPos({ left: Math.max(4, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 4 });
-  }, [adding]);
-
-  useEffect(() => {
-    if (!adding) return;
-    function onDown(e: MouseEvent) {
-      if ((e.target as HTMLElement).closest(".session-add-menu, .session-bar-add")) return;
-      setAdding(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setAdding(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [adding]);
+  // Only ever the tab you are looking at: the ⋮ here is about what is on
+  // screen, and the panel is where you reach the rest.
+  const current = view === "session" ? sessions.find((s) => s.id === activeId) : undefined;
 
   return (
     <div className="session-bar">
@@ -80,10 +54,30 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
             data-bar-session-id={s.id}
             className={`session-tab${view === "session" && activeId === s.id ? " active" : ""}`}
           >
-            <button className="session-tab-label" onClick={() => activate(s.id)} title={s.title}>
-              {s.title}
-            </button>
-            {/* Closing lives here, not in the rail: this strip is the tabs in
+            {renaming && current?.id === s.id ? (
+              <input
+                className="session-tab-rename"
+                autoFocus
+                defaultValue={s.title}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  // Cleared first, so the blur that follows commits nothing.
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+                onBlur={(e) => {
+                  if (!renaming) return;
+                  const name = e.target.value.trim();
+                  if (name && name !== s.title) rename(s.id, name);
+                  setRenaming(false);
+                }}
+                aria-label={`Rename ${s.title}`}
+              />
+            ) : (
+              <button className="session-tab-label" onClick={() => activate(s.id)} title={s.title}>
+                {s.title}
+              </button>
+            )}
+            {/* Closing lives here, not in the panel: this strip is the tabs in
                 front of you, and a ✕ on a tab is what people reach for. */}
             <button className="session-tab-close" onClick={() => close(s.id)} aria-label={`Close ${s.title}`} title="Close">
               ✕
@@ -92,21 +86,15 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
         ))}
       </div>
 
-      <button
-        className="session-bar-add"
-        ref={addRef}
-        onClick={() => setAdding((v) => !v)}
-        aria-expanded={adding}
-        aria-label="Open a new session"
-        title="Open a new session"
+      <Popover
+        glyph="＋"
+        label="Open a new session"
+        buttonClass="session-bar-add"
+        menuClass="session-add-menu"
+        width={220}
       >
-        ＋
-      </button>
-
-      {adding &&
-        menuPos &&
-        createPortal(
-          <div className="session-add-menu" ref={menuRef} style={{ left: menuPos.left, top: menuPos.top }}>
+        {(closeMenu) => (
+          <>
             {GROUP_ORDER.map((group) => {
               const inGroup = types.filter((t) => t.group === group);
               if (inGroup.length === 0) return null;
@@ -119,7 +107,7 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                       className="session-add-item"
                       onClick={() => {
                         open(t.type as SessionType, nextTitle(t.label, sessions.map((s) => s.title)));
-                        setAdding(false);
+                        closeMenu();
                       }}
                       title={t.description}
                     >
@@ -145,7 +133,7 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                         nextTitle(entry.name, sessions.map((s) => s.title)),
                         templateState(entry),
                       );
-                      setAdding(false);
+                      closeMenu();
                     }}
                     title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
                   >
@@ -155,9 +143,26 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                 ))}
               </div>
             )}
-          </div>,
-          document.body,
+          </>
         )}
+      </Popover>
+
+      {/* At the far end, and only when a session is showing: it acts on that
+          one. The panel's ⋮ reaches any of them. */}
+      {current && (
+        <Popover
+          glyph="⋮"
+          label={`More for ${current.title}`}
+          title="More"
+          buttonClass="session-bar-more"
+          menuClass="rail-row-menu"
+          width={156}
+        >
+          {(closeMenu) => (
+            <SessionMenuItems session={current} onRename={() => setRenaming(true)} close={closeMenu} />
+          )}
+        </Popover>
+      )}
     </div>
   );
 }

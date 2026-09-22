@@ -266,12 +266,27 @@ button,
 }
 
 
-.rail {
+/* The panel and the page's title, stacked. Full height so the title card stays
+   put at the bottom of the column; the panel above it takes the room it needs
+   and scrolls only once there is no more. */
+.rail-column {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
   width: 212px;
+  /* .shell has no bottom padding -- .content wants to fill to the edge and
+     scroll -- so the column keeps itself off the window's edge. */
+  padding-bottom: 10px;
+}
+
+.rail {
+  /* Shrinks before the title card does, because the title is one short block
+     and the list of sessions is the part that can grow without limit. */
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  align-self: flex-start;
-  max-height: calc(100vh - 78px);
   padding: 8px 6px;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -279,6 +294,31 @@ button,
   /* Chrome, not content: a stray click-drag across the rail should never start
      a native text drag, which hands the mouse to the browser for the gesture. */
   user-select: none;
+}
+
+/* What you are looking at, and what it is for. It used to sit above the body's
+   first card, which put a paragraph between you and the thing you came to use. */
+.page-info {
+  flex: none;
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.page-info-title {
+  margin: 0 0 5px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.page-info-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 
 .rail-heading {
@@ -496,24 +536,6 @@ button,
 /* Drawn by the shell from the session registry, so every page says what it is
    without each page component repeating itself. Deliberately not a .panel:
    it introduces the card stack below rather than being another card in it. */
-.page-intro {
-  margin: 0 2px 14px;
-}
-
-.page-intro-title {
-  font-size: 19px;
-  font-weight: 600;
-  margin: 0 0 4px;
-}
-
-.page-intro-help {
-  margin: 0;
-  max-width: 78ch;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text-dim);
-}
-
 /* ---- Home cards ---- */
 
 .home-group-blurb {
@@ -703,7 +725,8 @@ button,
 }
 
 .session-bar-rail,
-.session-bar-add {
+.session-bar-add,
+.session-bar-more {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -723,9 +746,30 @@ button,
 
 .session-bar-rail:hover,
 .session-bar-add:hover,
-.session-bar-add[aria-expanded="true"] {
+.session-bar-more:hover,
+.session-bar-add[aria-expanded="true"],
+.session-bar-more[aria-expanded="true"] {
   background: var(--panel-alt);
   color: var(--accent);
+}
+
+/* Pushed to the far end: it acts on the session on screen, not on the list. */
+.session-bar-more {
+  margin-left: auto;
+}
+
+/* Renaming a tab in place, the same box its name occupied. */
+.session-tab-rename {
+  min-width: 0;
+  width: 120px;
+  margin: 2px 4px;
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
 }
 
 /* Keeps the strip one row tall whether or not it holds any tabs. */
