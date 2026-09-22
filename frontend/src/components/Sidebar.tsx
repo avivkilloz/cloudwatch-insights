@@ -1,28 +1,17 @@
-import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { api } from "../api";
+import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
-import { encode } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES, sessionType, sessionTypeLabel } from "../sessions/registry";
-import {
-  SAVED_STATE_VERSION,
-  Template,
-  VERSION_KEY,
-  templateState,
-  templateType,
-  useTemplates,
-} from "../sessions/templates";
+import { Template, templateState, templateType, useTemplates } from "../sessions/templates";
+import Popover from "./Popover";
+import SessionMenuItems from "./SessionMenuItems";
 
-/** Stamped into every saved template so the reader can tell the current shape
- * (a session's own state bag) from the hand-rolled per-page shapes that came
- * before it. Guessing from the keys doesn't work: a legacy Aggregator save and
- * a current one both have `services`, and guessing threw the rest away. */
 /** Whether the catalogue is folded. A per-browser preference, like the rail itself. */
 const CATALOGUE_STORAGE_KEY = "cwi-rail-catalogue";
 
-/** Kept in step with `.rail-row-menu`'s min-width, to keep the menu on screen. */
+/** Kept in step with `.rail-row-menu`'s min-width, so the menu stays on screen
+ * before it has been measured. */
 const MENU_WIDTH_PX = 156;
 
 /**
@@ -38,18 +27,14 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
   const { user } = useAuth();
   const { sessions, activeId, view, open, closed, reopen, remove, activate, rename, reorder, show, captureInputs } =
     useSessions();
-  const { templates, reload: reloadTemplates } = useTemplates();
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  // Which row is being renamed in place. Closing a session lives in the strip
-  // above the body now, so the ⋮ is only what you do to the session itself.
+  const { templates } = useTemplates();
+  const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
+
+  // Which row is being renamed in place. Started from the row's ⋮ or from a
+  // double-click on its name.
   const [renaming, setRenaming] = useState<string | null>(null);
-  // Where to paint the open ⋮ menu. It is portalled to the body: the rail
-  // scrolls, and an absolutely-positioned child of a scrolling box is clipped
-  // by it -- which is what hid the menu inside the panel.
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  // The catalogue is the old + menu, inlined. Folded by default so the rail
+
+  // The catalogue is the old + menu, inlined. Folded by default so the panel
   // opens on what you have rather than everything you could have; unfolding it
   // is remembered, so it stays open once you ask for it.
   const [catalogue, setCatalogue] = useState(() => {
@@ -66,48 +51,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       // best-effort persistence only
     }
   }, [catalogue]);
-
-  const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
-
-  /** Paint the menu just under its ⋮, and keep it inside the window. Measured
-   * from the menu itself once it is up, so a menu wider than the rail overhangs
-   * the page rather than running off the edge of the screen. */
-  const placeMenu = useCallback(() => {
-    const button = menuButtonRef.current;
-    if (!button) return;
-    const r = button.getBoundingClientRect();
-    const width = menuRef.current?.offsetWidth || MENU_WIDTH_PX;
-    setMenuPos({ left: Math.max(4, Math.min(r.left, window.innerWidth - width - 8)), top: r.bottom + 4 });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (menuFor) placeMenu();
-  }, [menuFor, placeMenu]);
-
-  // One ⋮ menu at a time, and a click anywhere else closes it.
-  useEffect(() => {
-    if (!menuFor) return;
-    function onDown(e: MouseEvent) {
-      if ((e.target as HTMLElement).closest(".rail-row-menu, .rail-row-more")) return;
-      setMenuFor(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuFor(null);
-    }
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", placeMenu);
-    // The menu is fixed to the viewport, so anything that moves the ⋮ under it
-    // has to move it too -- and the rail scrolls the button into view the moment
-    // it takes focus, which is every time the menu opens.
-    document.addEventListener("scroll", placeMenu, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", placeMenu);
-      document.removeEventListener("scroll", placeMenu, true);
-    };
-  }, [menuFor, placeMenu]);
 
   // Sessions reorder by dragging, as they did in the strip this replaced.
   // Pointer events rather than HTML5 drag-and-drop: a native drag hands the
@@ -194,25 +137,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     startSession(templateType(entry, type), entry.name, templateState(entry));
   }
 
-  async function saveAsTemplate(id: string) {
-    const session = sessions.find((s) => s.id === id);
-    if (!session) return;
-    const def = sessionType(session.type);
-    if (!def?.savedPage) return;
-    const name = prompt("Save as template:", session.title);
-    if (!name?.trim()) return;
-    // Encoded with the tags, then parsed back to a plain object so the API's
-    // own JSON.stringify has nothing left to lose.
-    const state = JSON.parse(encode(captureInputs(id)));
-    await api.createSavedSession({
-      page: def.savedPage,
-      name: name.trim(),
-      state: { ...state, [VERSION_KEY]: SAVED_STATE_VERSION },
-    });
-    reloadTemplates();
-    setMenuFor(null);
-  }
-
   if (!expanded) return null;
 
   return (
@@ -296,48 +220,16 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
                 {s.title}
               </button>
             )}
-            <button
-              className="rail-row-more"
-              ref={menuFor === s.id ? menuButtonRef : undefined}
-              onClick={(e) => {
-                menuButtonRef.current = e.currentTarget;
-                setMenuFor((v) => (v === s.id ? null : s.id));
-              }}
-              aria-label={`More for ${s.title}`}
-              aria-expanded={menuFor === s.id}
+            <Popover
+              glyph="⋮"
+              label={`More for ${s.title}`}
               title="More"
+              buttonClass="rail-row-more"
+              menuClass="rail-row-menu"
+              width={MENU_WIDTH_PX}
             >
-              ⋮
-            </button>
-            {menuFor === s.id &&
-              menuPos &&
-              createPortal(
-                <div className="rail-row-menu" ref={menuRef} style={{ left: menuPos.left, top: menuPos.top }}>
-                  <button
-                    onClick={() => {
-                      setMenuFor(null);
-                      setRenaming(s.id);
-                    }}
-                    title="Rename it here in the panel"
-                  >
-                    Rename
-                  </button>
-                  {def?.savedPage && <button onClick={() => saveAsTemplate(s.id)}>Save as template…</button>}
-                  {/* The only thing in here that loses work, so it says so and
-                      asks first -- Close is the one that is meant to be cheap. */}
-                  <button
-                    className="rail-row-menu-danger"
-                    onClick={() => {
-                      setMenuFor(null);
-                      if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.id);
-                    }}
-                    title="Throw the session away for good"
-                  >
-                    Delete
-                  </button>
-                </div>,
-                document.body,
-              )}
+              {(close) => <SessionMenuItems session={s} onRename={() => setRenaming(s.id)} close={close} />}
+            </Popover>
           </div>
         );
       })}

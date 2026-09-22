@@ -5,6 +5,7 @@ import { openingExchange } from "./pages/AgentPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
+import PageInfo from "./components/PageInfo";
 import SessionBar from "./components/SessionBar";
 import Sidebar from "./components/Sidebar";
 
@@ -161,7 +162,16 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       </header>
 
       <div className="shell">
-        <Sidebar open={railOpen} />
+        {/* The panel and the page's own title share a column: "what I have"
+            above, "what I am looking at" below. Below rather than above so the
+            panel's own rows stay put instead of shifting down whenever a
+            description is longer. */}
+        {railOpen && (
+          <div className="rail-column">
+            <Sidebar open={railOpen} />
+            <PageInfo />
+          </div>
+        )}
 
         {/* The strip lives inside the scrolling body, not above it: a classic
             scrollbar takes its width out of .content, so a strip outside it
@@ -172,19 +182,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
 
         {view === "home" && <HomePage />}
         {view === "settings" && (
-          <>
-            {/* Settings is a view rather than a session type, so it has no
-                registry entry to draw a header from -- it says it here
-                instead, in the same shape every session page uses. */}
-            <div className="page-intro">
-              <h1 className="page-intro-title">Settings</h1>
-              <p className="page-intro-help">
-                Your account and how the app looks, the environments and saved items you work with, and — if you are an
-                admin — the users, groups and which pages each group can see.
-              </p>
-            </div>
-            <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
-          </>
+          <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
         {/* Every open session stays mounted, hidden rather than unmounted, so
             switching tabs never interrupts a running query or throws away a
@@ -222,14 +220,8 @@ function SessionBody({ session, hidden }: { session: PersistedSession; hidden: b
         )}
         {def && def.enabledFor(user) ? (
           <>
-            {/* Rendered here rather than inside each page, so every session
-                gets the same header and an Aggregator pane -- which renders
-                the page component directly -- doesn't get a second one under
-                its own title bar. */}
-            <div className="page-intro">
-              <h1 className="page-intro-title">{def.label}</h1>
-              <p className="page-intro-help">{def.help}</p>
-            </div>
+            {/* No title here: it lives in the card under the side panel, so
+                the body starts with the thing you came to use. */}
             {def.render()}
           </>
         ) : (

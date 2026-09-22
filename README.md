@@ -20,10 +20,12 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   bottom-right corner — the same corner as **✦ Ask AI** on every other page —
   which opens one Aggregator session with exactly those panes; you can still
   add and remove panes once it's running.
-- Every session page opens with its **name and a short description** of what it
-  is for, drawn from the session-type registry so each page says it once and
-  says it the same way. Aggregator panes don't repeat it — they already sit
-  under their own title bar.
+- **What you are looking at, and what it is for**, is a card under the side
+  panel rather than a paragraph above the body's first card — so the body
+  starts with the thing you came to use. It covers the home page and settings
+  as well as sessions, which is why it hangs off the panel rather than off a
+  session, and it shows and hides with the panel. Aggregator panes don't repeat
+  it — they already sit under their own title bar.
 - A **side panel** down the left holds everything you can reach, in one list:
   **Home** (with a house icon, so it reads as the way back rather than another
   session) at the top, then **Sessions** — *every* session you have, the ones
@@ -41,7 +43,9 @@ The app is organised around **sessions** rather than a fixed set of tabs.
 - A **session strip** sits above the body, in the same column as the cards and
   exactly as wide as them, holding the tabs you have in front of you: a button
   that hides and shows the side panel, then a tab per open session with a **✕**
-  to close it, then **＋** for the same catalogue as a menu.
+  to close it, then **＋** for the same catalogue as a menu, and at the far end
+  a **⋮** for the session currently on screen — the same rename / save as
+  template / delete the panel's rows offer, without going looking for the row.
 
   The two aren't a duplicate of each other. The panel is the whole workspace —
   what is open, what you closed, your templates, everything you could open —
