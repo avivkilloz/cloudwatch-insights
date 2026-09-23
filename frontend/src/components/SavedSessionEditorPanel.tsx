@@ -31,6 +31,12 @@ function emptyStateFor(kind: SessionEditorKind): Record<string, unknown> {
   return {};
 }
 
+/** The one line beside the name on a collapsed row, or "" for none.
+ *
+ * A JSON state has no such line: it is a page's whole saved state, and
+ * printing it here filled the row with braces and squeezed the name --
+ * the thing you are actually looking for -- down to nothing. Expanding the
+ * row is what shows it, in the editor that can also change it. */
 function summaryFor(kind: SessionEditorKind, state: Record<string, unknown>): string {
   if (kind === "http") {
     const s = state as unknown as HttpRequestState;
@@ -39,7 +45,7 @@ function summaryFor(kind: SessionEditorKind, state: Record<string, unknown>): st
   if (kind === "mqtt-topic") {
     return String((state as unknown as MqttTopicState).topic ?? "");
   }
-  return JSON.stringify(state);
+  return "";
 }
 
 function HttpStateEditor({ value, onChange }: { value: HttpRequestState; onChange: (next: HttpRequestState) => void }) {
@@ -217,7 +223,9 @@ export default function SavedSessionEditorPanel({ description, kind, items, onCr
             <div className="result-row-summary" onClick={() => toggleExpanded(item.id)}>
               <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
               <span className="msg">{item.name}</span>
-              {!isOpen && <span className="muted">{summaryFor(kind, item.state)}</span>}
+              {!isOpen && summaryFor(kind, item.state) && (
+                <span className="muted saved-item-summary">{summaryFor(kind, item.state)}</span>
+              )}
             </div>
             {isOpen && (
               <div className="result-row-detail">

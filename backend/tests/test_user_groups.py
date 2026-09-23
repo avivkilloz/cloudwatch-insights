@@ -135,3 +135,30 @@ def test_duplicate_group_name_rejected():
     client.post("/api/user-groups", json={"name": "Ops"})
     resp = client.post("/api/user-groups", json={"name": "Ops"})
     assert resp.status_code == 400
+
+
+def test_cloudwatch_and_opensearch_are_separate_permissions():
+    """They are two pages and two sets of credentials, so one flag covering
+    both could not express "CloudWatch only" -- which is the common case for
+    a group whose accounts have no OpenSearch domain at all."""
+    group = client.post(
+        "/api/user-groups",
+        json={"name": "LogsOnly", "role_name": "ReadOnly", "opensearch_enabled": False},
+    ).json()
+    assert group["logs_enabled"] is True
+    assert group["opensearch_enabled"] is False
+
+    client.post("/api/users", json={"username": "lena", "password": "x", "group_id": group["id"]})
+    me = _login_as("lena", "x").get("/api/auth/me").json()
+    # The frontend reads these to decide which panes it offers, so the split
+    # has to survive the trip through /api/auth/me as well as the group API.
+    assert me["logs_enabled"] is True
+    assert me["opensearch_enabled"] is False
+
+    # And each can be turned round independently of the other.
+    updated = client.put(
+        f"/api/user-groups/{group['id']}",
+        json={"logs_enabled": False, "opensearch_enabled": True},
+    ).json()
+    assert updated["logs_enabled"] is False
+    assert updated["opensearch_enabled"] is True

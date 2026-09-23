@@ -357,8 +357,12 @@ control:
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
-- **Which pages** are visible (CloudWatch + OpenSearch, IoT, DynamoDB, S3,
-  Cognito, Tools —
+- **Which pages** are visible (CloudWatch, OpenSearch, IoT, DynamoDB, S3,
+  Cognito, Tools — CloudWatch and OpenSearch are two permissions rather than
+  one, since they are two pages and two sets of credentials and a group's
+  accounts may have no OpenSearch domain at all. A database written before
+  they were split starts each group's OpenSearch flag at whatever its logs
+  flag said, so nobody gains a page they were not given.
   Settings itself is handled separately, see below).
 
 Everything about the current user lives behind their **avatar**, top right of

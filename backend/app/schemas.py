@@ -45,6 +45,7 @@ class SettingsUpdate(BaseModel):
 
 TAB_FIELDS = [
     "logs_enabled",
+    "opensearch_enabled",
     "iot_enabled",
     "tables_enabled",
     "buckets_enabled",
@@ -58,6 +59,7 @@ class UserGroupBase(BaseModel):
     name: str
     role_name: Optional[str] = None
     logs_enabled: bool = True
+    opensearch_enabled: bool = True
     iot_enabled: bool = True
     tables_enabled: bool = True
     buckets_enabled: bool = True
@@ -76,6 +78,7 @@ class UserGroupUpdate(BaseModel):
     name: Optional[str] = None
     role_name: Optional[str] = None
     logs_enabled: Optional[bool] = None
+    opensearch_enabled: Optional[bool] = None
     iot_enabled: Optional[bool] = None
     tables_enabled: Optional[bool] = None
     buckets_enabled: Optional[bool] = None
@@ -119,6 +122,7 @@ class UserOut(BaseModel):
     # UserGroupOut) because /api/auth/me is how a non-admin user, who can't
     # call the admin-only /api/user-groups, finds out which tabs they can see.
     logs_enabled: bool
+    opensearch_enabled: bool
     iot_enabled: bool
     tables_enabled: bool
     buckets_enabled: bool

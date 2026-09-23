@@ -62,7 +62,14 @@ def ensure_columns():
     its REFERENCES constraint as a separate ALTER TABLE right after --
     create_all() sets this up natively for brand-new tables, but an ADD
     COLUMN here never carries one implicitly.
+
+    Returns the "table.column" names it added, so a caller can backfill a
+    column whose server_default is not the right answer for rows that
+    already existed. A column is only ever added once, so that backfill runs
+    once too -- rerunning it on every start would undo whatever was chosen
+    afterwards.
     """
+    added: set[str] = set()
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     with engine.begin() as conn:
@@ -91,6 +98,7 @@ def ensure_columns():
                 if not column.nullable:
                     clause += " NOT NULL"
                 conn.execute(text(clause))
+                added.add(f"{table.name}.{column.name}")
                 for fk in column.foreign_keys:
                     constraint_name = f"{table.name}_{column.name}_fkey"
                     fk_clause = (
@@ -100,3 +108,4 @@ def ensure_columns():
                     if fk.ondelete:
                         fk_clause += f" ON DELETE {fk.ondelete}"
                     conn.execute(text(fk_clause))
+    return added

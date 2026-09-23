@@ -16,6 +16,7 @@ def _group_out(db: Session, group: models.UserGroup) -> schemas.UserGroupOut:
         role_name=group.role_name,
         is_admin=group.is_admin,
         logs_enabled=group.logs_enabled,
+        opensearch_enabled=group.opensearch_enabled,
         iot_enabled=group.iot_enabled,
         tables_enabled=group.tables_enabled,
         buckets_enabled=group.buckets_enabled,

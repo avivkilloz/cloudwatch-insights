@@ -20,6 +20,7 @@ export interface UserGroup {
   role_name: string | null;
   is_admin: boolean;
   logs_enabled: boolean;
+  opensearch_enabled: boolean;
   iot_enabled: boolean;
   tables_enabled: boolean;
   buckets_enabled: boolean;
@@ -39,6 +40,7 @@ export interface User {
   is_admin: boolean;
   avatar_url: string | null;
   logs_enabled: boolean;
+  opensearch_enabled: boolean;
   iot_enabled: boolean;
   tables_enabled: boolean;
   buckets_enabled: boolean;

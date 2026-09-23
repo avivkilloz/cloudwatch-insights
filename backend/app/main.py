@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from . import bootstrap, models
 from .db import Base, SessionLocal, engine, ensure_columns
@@ -24,7 +25,16 @@ from .routers import (
 )
 
 Base.metadata.create_all(bind=engine)
-ensure_columns()
+_added_columns = ensure_columns()
+
+# CloudWatch and OpenSearch used to share one flag, so a database written
+# before the split says nothing about OpenSearch on its own. Its column
+# defaults to true for brand-new groups, which would hand OpenSearch to every
+# group that had logs turned off -- so on the upgrade that adds it, it starts
+# out saying exactly what logs_enabled said.
+if "user_groups.opensearch_enabled" in _added_columns:
+    with engine.begin() as _conn:
+        _conn.execute(text("UPDATE user_groups SET opensearch_enabled = logs_enabled"))
 
 _bootstrap_db = SessionLocal()
 try:
