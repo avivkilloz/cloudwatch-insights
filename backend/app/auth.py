@@ -74,6 +74,7 @@ def user_out(user: models.User) -> schemas.UserOut:
         is_admin=bool(group and group.is_admin),
         avatar_url=user.avatar_url,
         logs_enabled=group.logs_enabled if group else False,
+        opensearch_enabled=group.opensearch_enabled if group else False,
         iot_enabled=group.iot_enabled if group else False,
         tables_enabled=group.tables_enabled if group else False,
         buckets_enabled=group.buckets_enabled if group else False,

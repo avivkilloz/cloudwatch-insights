@@ -66,7 +66,7 @@ export const PANE_TYPES: SessionTypeDef[] = [
       "OpenSearch Dashboards' search bar — and read the merged results newest-first. Each domain's access policy has " +
       "to allow the app's assumed role, and its endpoint has to be reachable from the backend.",
     render: () => <InsightsPage backend="opensearch" />,
-    enabledFor: (u) => !!u?.logs_enabled,
+    enabledFor: (u) => !!u?.opensearch_enabled,
     savedPage: "logs-opensearch",
     paneable: true,
   },

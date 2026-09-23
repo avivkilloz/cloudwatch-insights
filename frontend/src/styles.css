@@ -1078,6 +1078,16 @@ th {
   text-overflow: ellipsis;
 }
 
+/* Beside the name, never instead of it: the name has the row's flexible
+   width and this takes only what is left, elided rather than wrapping. */
+.result-row-summary .saved-item-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .result-row-detail {
   padding: 10px 14px;
   border-top: 1px solid var(--border);

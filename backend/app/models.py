@@ -26,6 +26,11 @@ class UserGroup(Base):
     # environment regardless of the group_environment_access list.
     is_admin = Column(Boolean, nullable=False, server_default="false")
     logs_enabled = Column(Boolean, nullable=False, server_default="true")
+    # CloudWatch and OpenSearch are two pages and two sets of credentials, so
+    # a group can have one without the other. Older databases carried both
+    # under logs_enabled; the column is backfilled from it when it is added,
+    # in main.py, so nobody silently gains a page they were not given.
+    opensearch_enabled = Column(Boolean, nullable=False, server_default="true")
     iot_enabled = Column(Boolean, nullable=False, server_default="true")
     tables_enabled = Column(Boolean, nullable=False, server_default="true")
     buckets_enabled = Column(Boolean, nullable=False, server_default="true")

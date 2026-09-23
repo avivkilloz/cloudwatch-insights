@@ -12,6 +12,7 @@ const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 const TAB_TOGGLES: {
   key:
     | "logs_enabled"
+    | "opensearch_enabled"
     | "iot_enabled"
     | "tables_enabled"
     | "buckets_enabled"
@@ -20,7 +21,10 @@ const TAB_TOGGLES: {
     | "tools_enabled";
   label: string;
 }[] = [
-  { key: "logs_enabled", label: "CloudWatch + OpenSearch" },
+  // Two pages, two sets of credentials: a group can be given one without the
+  // other, which one flag covering both could not say.
+  { key: "logs_enabled", label: "CloudWatch" },
+  { key: "opensearch_enabled", label: "OpenSearch" },
   { key: "iot_enabled", label: "IoT" },
   { key: "tables_enabled", label: "DynamoDB" },
   { key: "buckets_enabled", label: "S3" },
@@ -67,6 +71,7 @@ function emptyGroupDraft(): GroupDraft {
     role_name: "",
     environment_ids: [],
     logs_enabled: true,
+    opensearch_enabled: true,
     iot_enabled: true,
     tables_enabled: true,
     buckets_enabled: true,
@@ -82,6 +87,7 @@ function groupToDraft(g: UserGroup): GroupDraft {
     role_name: g.role_name ?? "",
     environment_ids: g.environment_ids,
     logs_enabled: g.logs_enabled,
+    opensearch_enabled: g.opensearch_enabled,
     iot_enabled: g.iot_enabled,
     tables_enabled: g.tables_enabled,
     buckets_enabled: g.buckets_enabled,
