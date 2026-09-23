@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { IotSavedSearch, SavedQuery, SavedSession } from "../api";
+import { SESSION_SAVED_PAGE } from "../sessions/registry";
+import { TEMPLATE_PAGES } from "../sessions/templates";
 import SavedItemsPanel from "./SavedItemsPanel";
 import SavedSessionEditorPanel from "./SavedSessionEditorPanel";
 
@@ -22,24 +24,23 @@ interface Props {
 }
 
 type TabId =
+  | "session-templates"
   | "logs-queries"
   | "iot-searches"
-  | "logs-sessions"
-  | "opensearch-sessions"
-  | "iot-sessions"
-  | "aggregator-sessions"
   | "buckets"
   | "tables"
   | "http-requests"
   | "mqtt-topics";
 
+/* Templates first: a whole session is the biggest thing you can save, and the
+   rest are inputs you load inside one. The per-service "sessions" tabs that
+   used to sit here are gone -- a service is a pane now, not a session, so
+   nothing has written one since; the ones saved back then are listed under
+   Session templates, which is also where Add offers them. */
 const TABS: { id: TabId; label: string }[] = [
+  { id: "session-templates", label: "Session Templates" },
   { id: "logs-queries", label: "Log Queries" },
   { id: "iot-searches", label: "IoT Searches" },
-  { id: "logs-sessions", label: "CloudWatch Sessions" },
-  { id: "opensearch-sessions", label: "OpenSearch Sessions" },
-  { id: "iot-sessions", label: "IoT Sessions" },
-  { id: "aggregator-sessions", label: "Aggregator Sessions" },
   { id: "buckets", label: "S3" },
   { id: "tables", label: "DynamoDB" },
   { id: "http-requests", label: "HTTP Requests" },
@@ -47,7 +48,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export default function SavedItemsHub(props: Props) {
-  const [tab, setTab] = useState<TabId>("logs-queries");
+  const [tab, setTab] = useState<TabId>("session-templates");
 
   return (
     <div className="panel">
@@ -59,6 +60,17 @@ export default function SavedItemsHub(props: Props) {
           </button>
         ))}
       </div>
+
+      {tab === "session-templates" && (
+        <SavedSessionEditorPanel
+          description="A saved session: which panes it opens, how they're laid out and the inputs they start with, written by &quot;Save as template…&quot; in a session's ⋮ menu. These are what the panel's Add list offers — starting one makes a new session seeded from it, and nothing you then do changes the copy here. Templates saved when a single service was a session are listed here too; each opens as a session holding that one pane. The raw JSON below is editable directly."
+          kind="json"
+          items={props.savedSessions.filter((s) => TEMPLATE_PAGES.includes(s.page))}
+          onCreate={(name, state) => props.onCreateSession(SESSION_SAVED_PAGE, name, state)}
+          onUpdate={props.onUpdateSession}
+          onDelete={props.onDeleteSession}
+        />
+      )}
 
       {tab === "logs-queries" && (
         <SavedItemsPanel
@@ -99,50 +111,6 @@ export default function SavedItemsHub(props: Props) {
             defaultValue: "things",
             getValue: (item) => item.search_mode,
           }}
-        />
-      )}
-
-      {tab === "logs-sessions" && (
-        <SavedSessionEditorPanel
-          description="The inputs of a CloudWatch session — environments, log groups, query, time range and so on — saved with &quot;Save session&quot; in the session strip. The raw JSON below is editable directly. Sessions saved before CloudWatch and OpenSearch became separate pages are listed here too, and open on whichever page their own state says they were using."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "logs")}
-          onCreate={(name, state) => props.onCreateSession("logs", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
-        />
-      )}
-
-      {tab === "opensearch-sessions" && (
-        <SavedSessionEditorPanel
-          description="The inputs of an OpenSearch session — environments, indices, query, time range and so on — saved with &quot;Save session&quot; in the session strip. The raw JSON below is editable directly."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "logs-opensearch")}
-          onCreate={(name, state) => props.onCreateSession("logs-opensearch", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
-        />
-      )}
-
-      {tab === "iot-sessions" && (
-        <SavedSessionEditorPanel
-          description="A full working-state snapshot from the IoT page, created via its &quot;Save session&quot; button. The raw JSON below is editable directly; load it on the IoT page to see it applied."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "iot")}
-          onCreate={(name, state) => props.onCreateSession("iot", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
-        />
-      )}
-
-      {tab === "aggregator-sessions" && (
-        <SavedSessionEditorPanel
-          description="Which services an Aggregator session opens and how they're laid out, created via the Aggregator page's &quot;Save session&quot; button. The raw JSON below is editable directly; load it on the Aggregator page to see it applied."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "aggregator")}
-          onCreate={(name, state) => props.onCreateSession("aggregator", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
         />
       )}
 

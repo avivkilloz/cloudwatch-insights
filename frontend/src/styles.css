@@ -258,11 +258,11 @@ button,
   flex: 1;
   display: flex;
   min-height: 0;
-  gap: 8px;
-  /* The top gap matches .panel's margin-bottom: the space under the header
-     reads as the same rhythm as the space between two cards, rather than a
-     tighter one nobody chose. */
-  padding: 16px 10px 0;
+  /* One spacing everywhere: the gap to the window's edges, the gap between the
+     panel and the body, and the gap between two cards are all .panel's
+     margin-bottom. Anything tighter reads as a second rhythm nobody chose. */
+  gap: 16px;
+  padding: 16px 16px 0;
 }
 
 
@@ -273,12 +273,13 @@ button,
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* The same gap the body's cards have between them. */
+  gap: 16px;
   min-height: 0;
   width: 212px;
   /* .shell has no bottom padding -- .content wants to fill to the edge and
      scroll -- so the column keeps itself off the window's edge. */
-  padding-bottom: 10px;
+  padding-bottom: 16px;
 }
 
 .rail {
@@ -678,32 +679,38 @@ button,
   flex: 1;
   min-width: 0;
   overflow: auto;
-  /* .shell owns the gap to the rail and to the header; this is only the page's
-     own breathing room inside its column. */
-  padding: 0 10px 20px;
+  /* .shell owns every gap around this column, so the cards sit flush with it:
+     a padding here would make the body's left gap wider than the rail's. */
+  padding: 0 0 20px;
 }
 
 /* ---- the session strip ------------------------------------------------- */
 
 /* A card among the cards: same scroll box, so it is exactly as wide as they
-   are whether or not a scrollbar is showing. Sticky rather than scrolling
-   away, since it is the tabs you switch with.
-   The ring of page background is what the body scrolls behind: without it the
-   card's rounded corners would show content passing underneath. */
-.session-bar {
+   are whether or not a scrollbar is showing.
+   The dock is what sticks, and it carries the page background so the body
+   scrolls behind the strip rather than showing through its rounded corners --
+   the ring of box-shadow that used to do that job only worked while .content
+   had side padding for it to spill into. The gap below is a card gap, so it is
+   the dock's padding rather than a margin on the strip: a margin would scroll
+   away from the strip it belongs to. */
+.session-bar-dock {
   position: sticky;
   top: 0;
   z-index: 20;
+  flex: none;
+  padding-bottom: 16px;
+  background: var(--bg);
+}
+
+.session-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: none;
-  margin: 0 0 16px;
   padding: 5px 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 0 0 6px var(--bg);
 }
 
 /* Sized to its tabs rather than filling the row, so + stays next to the last
@@ -1316,7 +1323,8 @@ th {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 10px;
+  /* A card gap: the tabs are a card's worth of row above the pane below them. */
+  margin-bottom: 16px;
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -1891,8 +1899,17 @@ th {
   margin-bottom: 4px;
 }
 
+/* The label is the field, so the input fills it -- otherwise the input keeps
+   its intrinsic width and Create sits a hundred pixels away from the box it
+   belongs to, with the label's empty tail in between. */
 .home-new-row .field {
+  display: block;
   width: 280px;
+}
+
+.home-new-row .field input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .home-create {
