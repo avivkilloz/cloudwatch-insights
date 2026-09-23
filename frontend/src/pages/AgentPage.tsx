@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import MarkdownLite from "../components/MarkdownLite";
-import { useSessionState, useSessions } from "../sessions/SessionContext";
+import { useSessions } from "../sessions/SessionContext";
 import { sessionTypeLabel } from "../sessions/registry";
 
 /**
- * A conversation with the platform agent, as its own session.
+ * A conversation with the platform agent.
  *
- * It's a different thing from the ✦ Ask AI assistant inside a service session:
- * that one sees one session's query and rows, this one sees the workspace from
- * outside and will be able to act on it.
+ * A page rather than a session, because there is one agent and it sees across
+ * everything -- you go to it rather than having several. It's a different thing
+ * from the ✦ Ask AI assistant inside a session: that one sees one session's own
+ * panes, this one sees the workspace from outside and will be able to act on it.
  *
  * The agent isn't wired to a model yet, and this deliberately doesn't fake
  * one -- a chat that invents answers about someone's AWS accounts is worse
@@ -28,20 +29,14 @@ export const AGENT_NOT_WIRED =
   "once. That's different from the **✦ Ask AI** assistant inside a service " +
   "session, which only ever sees that session's own query and rows.";
 
-/** The messages an agent session starts with when it was opened by a question
- * typed in the header. */
-export function openingExchange(question: string): AgentMessage[] {
-  return [
-    { role: "user", content: question },
-    { role: "agent", content: AGENT_NOT_WIRED },
-  ];
-}
-
-export default function AgentPage() {
+export default function AgentPage({ ask, onAsked }: { ask?: string | null; onAsked?: () => void } = {}) {
   const { sessions } = useSessions();
-  // Persisted like any other session state, so the conversation survives a
-  // reload the same way a query and its results do.
-  const [messages, setMessages] = useSessionState<AgentMessage[]>("agent.messages", []);
+  // Plain state, not session state: a page has no session to hang off. The
+  // shell keeps this page mounted so the conversation survives moving around
+  // the app; it does not survive a reload, which is honest for something not
+  // connected to a model. Storing a transcript of "I can't answer that" would
+  // be the wrong thing to make durable.
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -56,7 +51,15 @@ export default function AgentPage() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
 
-  const others = sessions.filter((s) => s.type !== "agent");
+  // A question typed into the header bar arrives here.
+  useEffect(() => {
+    if (!ask) return;
+    send(ask);
+    onAsked?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ask]);
+
+  const others = sessions;
 
   return (
     <div className="agent-session">
@@ -72,7 +75,7 @@ export default function AgentPage() {
         <h2>What it can see</h2>
         {others.length === 0 ? (
           <p className="muted">
-            No other sessions open. Start one from <strong>+</strong>, or from the cards on the home page.
+            No sessions open. Start one from the home page.
           </p>
         ) : (
           <table>

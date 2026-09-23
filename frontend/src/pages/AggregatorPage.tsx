@@ -496,7 +496,11 @@ export default function AggregatorPage() {
         </div>
       </AiPaneRegistryContext.Provider>
 
-      {open.length > 0 && (
+      {/* Registered panes, not open ones. A pane registers itself when it has
+          something to ask about -- a query to build, or rows to ask about. A
+          session holding only a JWT decoder has neither, and an ✦ Ask AI button
+          that can do nothing is worse than no button. */}
+      {summaries.length > 0 && (
         <AiAssistantWidget
           domain={activePane?.domain ?? "logs-cloudwatch"}
           askDomain="aggregator"

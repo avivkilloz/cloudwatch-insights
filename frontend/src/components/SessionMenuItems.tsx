@@ -1,6 +1,5 @@
 import { PersistedSession } from "../sessions/storage";
 import { useSessions } from "../sessions/SessionContext";
-import { sessionType } from "../sessions/registry";
 import { useSaveAsTemplate } from "../sessions/templates";
 
 /**
@@ -25,7 +24,6 @@ export default function SessionMenuItems({
 }) {
   const { remove } = useSessions();
   const saveAsTemplate = useSaveAsTemplate();
-  const def = sessionType(session.type);
 
   return (
     <>
@@ -38,16 +36,17 @@ export default function SessionMenuItems({
       >
         Rename
       </button>
-      {def?.savedPage && (
-        <button
-          onClick={() => {
-            close();
-            saveAsTemplate(session.id);
-          }}
-        >
-          Save as template…
-        </button>
-      )}
+      {/* Always offered: every session is an Aggregator, so there is one kind
+          of thing to save and one key it is saved under. It used to depend on
+          the session's type having a page to save against. */}
+      <button
+        onClick={() => {
+          close();
+          saveAsTemplate(session.id);
+        }}
+      >
+        Save as template…
+      </button>
       {/* The only one here that loses work, so it says so and asks first. */}
       <button
         className="rail-row-menu-danger"

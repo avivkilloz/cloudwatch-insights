@@ -1,33 +1,30 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
+import { nextTitle } from "../sessions/naming";
 import { GROUP_BLURB, GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { PAGES } from "./pageTypes";
 
 /**
- * The landing view: a card per session type, grouped by what it's for.
+ * The landing view, and the only place a session is started.
  *
- * Clicking a card opens that session. Ticking several raises a floating
- * Aggregate button -- in the same corner as the ✦ Ask AI button on every other
- * page -- which opens one Aggregator session with exactly those panes. The
- * Aggregator itself is unchanged, so panes can still be added and removed once
- * it's open.
+ * A session is an Aggregator holding panes, so starting one is choosing what
+ * goes in it and what to call it -- which is what the card at the top is. The
+ * cards below it are the rest of the platform: pages you go to rather than
+ * open a copy of.
+ *
+ * Nothing here opens a session by itself any more. Ticking a card and pressing
+ * Create is the one way in, so "what is this session for" is answered when it
+ * is made rather than left as "CloudWatch 3".
  */
 export default function HomePage() {
   const { user } = useAuth();
-  const { sessions, open } = useSessions();
+  const { sessions, open, show } = useSessions();
   const [picked, setPicked] = useState<Set<SessionType>>(new Set());
+  const [name, setName] = useState("");
 
-  const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
-  const aggregator = types.find((t) => t.type === "aggregator");
-
-  function nextTitle(label: string): string {
-    const taken = sessions.map((s) => s.title);
-    if (!taken.includes(label)) return label;
-    for (let n = 2; ; n++) {
-      const candidate = `${label} ${n}`;
-      if (!taken.includes(candidate)) return candidate;
-    }
-  }
+  const panes = SESSION_TYPES.filter((t) => t.enabledFor(user));
+  const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
 
   function toggle(type: SessionType) {
     setPicked((prev) => {
@@ -38,76 +35,110 @@ export default function HomePage() {
     });
   }
 
-  function openAggregator() {
-    if (!aggregator || picked.size === 0) return;
-    // The Aggregator reads `services` as its open panes, so seeding that key
-    // is all it takes -- no special entry point into the page itself.
-    open("aggregator", nextTitle("Aggregator"), { services: Array.from(picked) });
-    setPicked(new Set());
+  /** What the session is called if you don't say: the one pane in it, or how
+   * many there are. Better than "Session 4", which tells you nothing in a
+   * list of them. */
+  function defaultName(): string {
+    const chosen = panes.filter((t) => picked.has(t.type));
+    if (chosen.length === 1) return chosen[0].label;
+    if (chosen.length > 1) return `${chosen[0].label} +${chosen.length - 1}`;
+    return "Session";
   }
 
-  const pickable = types.filter((t) => t.paneable);
+  function create() {
+    const title = nextTitle(name.trim() || defaultName(), sessions.map((s) => s.title));
+    // The Aggregator reads `services` as its panes and `layout` as how they are
+    // arranged, so seeding those is all it takes -- no special way in.
+    open(title, { services: Array.from(picked), layout: "tabs", activePane: Array.from(picked)[0] ?? null });
+    setPicked(new Set());
+    setName("");
+  }
 
   return (
     <div className="home">
-      {GROUP_ORDER.map((group) => {
-        const inGroup = types.filter((t) => t.group === group);
-        if (inGroup.length === 0) return null;
-        return (
-          <div className="panel" key={group}>
-            <h2 style={{ marginBottom: 4 }}>{group}</h2>
-            <p className="muted home-group-blurb">{GROUP_BLURB[group]}</p>
-            <div className="home-cards">
-              {inGroup.map((t) => {
-                const selectable = pickable.includes(t);
-                return (
+      <div className="panel">
+        <h2 style={{ marginBottom: 4 }}>New session</h2>
+        <p className="muted home-group-blurb">
+          Pick what it should hold — as many as you like, and you can add and remove them later. One assistant sees
+          across all of them at once.
+        </p>
+
+        <div className="home-new-row">
+          <label className="field">
+            <span className="field-label">Name</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") create();
+              }}
+              placeholder={defaultName()}
+              aria-label="Name for the new session"
+            />
+          </label>
+          <button className="home-create" onClick={create} title="Start a session holding what you have ticked">
+            Create
+          </button>
+        </div>
+
+        {GROUP_ORDER.map((group) => {
+          const inGroup = panes.filter((t) => t.group === group);
+          if (inGroup.length === 0) return null;
+          return (
+            <div key={group}>
+              <h3 style={{ margin: "14px 0 2px", fontSize: 13 }}>{group}</h3>
+              <p className="muted home-group-blurb">{GROUP_BLURB[group]}</p>
+              <div className="home-cards">
+                {inGroup.map((t) => (
                   <div key={t.type} className={`home-card${picked.has(t.type) ? " picked" : ""}`}>
-                    <button className="home-card-open" onClick={() => open(t.type, nextTitle(t.label))}>
+                    {/* The whole card toggles: there is nothing else it could
+                        do now that a card no longer opens anything by itself. */}
+                    <button className="home-card-open" onClick={() => toggle(t.type)} aria-pressed={picked.has(t.type)}>
                       <span className="home-card-title">{t.label}</span>
                       <span className="home-card-desc">{t.description}</span>
                     </button>
-                    {/* Sits over the card's top-right corner, level with the
-                        title. It is outside the open button rather than inside
-                        it, so ticking it never also opens the session. */}
-                    {selectable && aggregator && (
-                      <input
-                        className="home-card-pick"
-                        type="checkbox"
-                        checked={picked.has(t.type)}
-                        onChange={() => toggle(t.type)}
-                        aria-label={`Include ${t.label} when opening an Aggregator`}
-                        title={`Include ${t.label} when opening an Aggregator`}
-                      />
-                    )}
+                    <input
+                      className="home-card-pick"
+                      type="checkbox"
+                      checked={picked.has(t.type)}
+                      onChange={() => toggle(t.type)}
+                      aria-label={`Include ${t.label} in the new session`}
+                      title={`Include ${t.label} in the new session`}
+                    />
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
 
-      {/* Only once something is ticked: an always-present button that does
-          nothing most of the time is just noise in the corner. */}
-      {aggregator && picked.size > 0 && (
-        <div className="home-aggregate-fab">
-          <button
-            className="ai-widget-button"
-            onClick={openAggregator}
-            title={`Open one Aggregator session with the ${picked.size} ticked page${picked.size === 1 ? "" : "s"} side by side`}
-          >
-            Aggregate {picked.size}
-          </button>
-          <button
-            className="home-aggregate-clear"
-            onClick={() => setPicked(new Set())}
-            title="Clear the selection"
-            aria-label="Clear the selection"
-          >
-            ✕
-          </button>
+        <p className="muted" style={{ margin: "14px 0 0", fontSize: 12 }}>
+          {picked.size === 0
+            ? "Nothing ticked — Create makes an empty session you can fill from inside it."
+            : `Create makes a session holding ${picked.size} page${picked.size === 1 ? "" : "s"}.`}
+        </p>
+      </div>
+
+      {/* The rest of the platform: pages, not sessions. You go to one rather
+          than having several open, which is why they are not in the panel's
+          list of sessions. */}
+      <div className="panel">
+        <h2 style={{ marginBottom: 4 }}>Platform</h2>
+        <p className="muted home-group-blurb">
+          The app's own pages. Unlike a session you don't open copies of these — there is one of each, and you go to it.
+        </p>
+        <div className="home-cards">
+          {pages.map((p) => (
+            <div key={p.id} className="home-card">
+              <button className="home-card-open" onClick={() => show(p.id)}>
+                <span className="home-card-title">{p.label}</span>
+                <span className="home-card-desc">{p.description}</span>
+              </button>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

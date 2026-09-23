@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
-import { openingExchange } from "./pages/AgentPage";
+import AgentPage from "./pages/AgentPage";
+import AggregatorPage from "./pages/AggregatorPage";
 import HomePage from "./pages/HomePage";
+import { PAGES } from "./pages/pageTypes";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
 import PageInfo from "./components/PageInfo";
@@ -14,7 +16,6 @@ const RAIL_STORAGE_KEY = "cwi-rail";
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
 import { TemplatesProvider } from "./sessions/templates";
-import { SESSION_TYPES, sessionType } from "./sessions/registry";
 import { PersistedSession } from "./sessions/storage";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
 
@@ -99,16 +100,18 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     await logout();
   }
 
+  // A question typed in the header goes to the agent page and arrives as its
+  // next message, rather than being answered somewhere with no history. The
+  // agent is one page rather than something you have several of, so it is a
+  // handoff rather than a new session.
+  const [agentAsk, setAgentAsk] = useState<string | null>(null);
+
   function askAgent() {
     const text = prompt.trim();
     if (!text) return;
     setPrompt("");
-    // A question in the header starts an agent session and arrives as its
-    // first message, rather than being answered somewhere with no history.
-    const taken = sessions.map((s) => s.title);
-    let title = "Agent";
-    for (let n = 2; taken.includes(title); n++) title = `Agent ${n}`;
-    open("agent", title, { "agent.messages": openingExchange(text) });
+    setAgentAsk(text);
+    show("agent");
   }
 
   // Remembered per browser: collapsing the rail is a working preference, not
@@ -184,6 +187,17 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
         {view === "settings" && (
           <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
+        {/* The agent stays mounted like a session does: its conversation is not
+            stored anywhere, so unmounting it on the way to a session and back
+            would be the one place in the app where leaving loses your work. */}
+        <div hidden={view !== "agent"}>
+          <AgentPage ask={agentAsk} onAsked={() => setAgentAsk(null)} />
+        </div>
+        {PAGES.filter((p) => p.render && p.id !== "agent").map((p) => (
+          <div key={p.id} hidden={view !== p.id}>
+            {p.render!()}
+          </div>
+        ))}
         {/* Every open session stays mounted, hidden rather than unmounted, so
             switching tabs never interrupts a running query or throws away a
             scroll position -- the same reason Aggregator panes stay mounted. */}
@@ -201,12 +215,6 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
 }
 
 function SessionBody({ session, hidden }: { session: PersistedSession; hidden: boolean }) {
-  const { user } = useAuth();
-  // An admin can revoke a service while a session for it is open; the session
-  // stays in the strip (closing it silently would lose work the user can't see
-  // to save) but says why it won't render.
-  const def = sessionType(session.type);
-
   return (
     <div className="session-body" hidden={hidden}>
       <SessionScopeProvider session={session}>
@@ -218,21 +226,10 @@ function SessionBody({ session, hidden }: { session: PersistedSession; hidden: b
             </p>
           </div>
         )}
-        {def && def.enabledFor(user) ? (
-          <>
-            {/* No title here: it lives in the card under the side panel, so
-                the body starts with the thing you came to use. */}
-            {def.render()}
-          </>
-        ) : (
-          <div className="panel">
-            <p className="muted" style={{ margin: 0 }}>
-              {def
-                ? "This session's service is no longer enabled for your account."
-                : "This session is of a kind this version no longer knows how to open."}
-            </p>
-          </div>
-        )}
+        {/* Every session is an Aggregator. Which panes it holds is its own
+            state, and the page itself is what says a service is no longer
+            enabled -- it only offers the ones you can see. */}
+        <AggregatorPage />
       </SessionScopeProvider>
     </div>
   );

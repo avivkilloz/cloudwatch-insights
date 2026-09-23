@@ -10,30 +10,33 @@ The app is organised around **sessions** rather than a fixed set of tabs.
 
 - The **header** holds the app title on the left, an **agent prompt bar** in
   the middle, and your avatar on the right. The title **shows and hides the
-  side panel**; typing a question in the bar opens an **agent session** with
-  that question already asked.
-- **Home** is a card per session type, grouped into **Platform**, **Services**
-  and **Tools**, in that order. *Platform* holds the Aggregator and the Agent —
-  this app's own features, as against the pages below them, each of which is a
-  window onto something that exists outside it. Click a card to open that
-  session. Tick several and a floating **Aggregate** button appears in the
-  bottom-right corner — the same corner as **✦ Ask AI** on every other page —
-  which opens one Aggregator session with exactly those panes; you can still
-  add and remove panes once it's running.
+  side panel**; typing a question in the bar takes you to the **Agent** page
+  with that question already asked.
+- **A session is one thing, and it holds as many pages as you like.** There is
+  no separate "Aggregator" to open alongside single-service sessions — every
+  session is one, which is what made working across services the normal case
+  rather than a mode you had to choose up front.
+- **Home** is where a session is made: name it, tick the **Services** and
+  **Tools** it should hold, press **Create**. Tick nothing and you get an empty
+  one to fill from inside. Leave the name blank and it is named after what is
+  in it. Below that, **Platform** holds the app's own pages — **Agent**,
+  **Settings**, and **Dashboards**, **Workflows**, **Chat** and **Code**, which
+  are named but not built. You go to one of these; you don't open copies of
+  them, which is why they are not in the panel's list of sessions.
 - **What you are looking at, and what it is for**, is a card under the side
   panel rather than a paragraph above the body's first card — so the body
   starts with the thing you came to use. It covers the home page and settings
   as well as sessions, which is why it hangs off the panel rather than off a
-  session, and it shows and hides with the panel. Aggregator panes don't repeat
-  it — they already sit under their own title bar.
+  session, and it shows and hides with the panel. For a session it carries the
+  name you gave it and says which panes it holds.
 - A **side panel** down the left holds everything you can reach, in one list:
   **Home** (with a house icon, so it reads as the way back rather than another
   session) at the top, then **Sessions** — *every* session you have, the ones
   on the strip at full strength and the ones you have closed dimmed — then **＋
-  Add**, which folds out everything you could open: the catalogue grouped into
-  *Platform*, *Services* and *Tools*, and your saved **templates**, since
-  opening one of those starts a new session exactly like the rest. A second
-  CloudWatch session is called "CloudWatch 2" rather than colliding. Click a
+  Add**, holding **Start new session…** (which takes you to the card on Home
+  that makes one) and your saved **templates**, since opening one of those
+  starts a session exactly like pressing Create does. A second session named
+  the same is called "CloudWatch 2" rather than colliding. Click a
   session to switch to it (or, if it is closed, to open it again), drag it to
   reorder, and use the **⋮** beside it to **rename** it in place, save it as a
   template, or delete it.
@@ -43,7 +46,7 @@ The app is organised around **sessions** rather than a fixed set of tabs.
 - A **session strip** sits above the body, in the same column as the cards and
   exactly as wide as them, holding the tabs you have in front of you: a button
   that hides and shows the side panel, then a tab per open session with a **✕**
-  to close it, then **＋** for the same catalogue as a menu, and at the far end
+  to close it, then **＋** for the same Add list as a menu, and at the far end
   a **⋮** for the session currently on screen — the same rename / save as
   template / delete the panel's rows offer, without going looking for the row.
 
