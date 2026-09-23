@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
-import { nextTitle } from "../sessions/naming";
+import { defaultSessionName, useStartSession } from "../sessions/start";
 import { GROUP_BLURB, GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { PAGES } from "./pageTypes";
 
@@ -19,7 +19,8 @@ import { PAGES } from "./pageTypes";
  */
 export default function HomePage() {
   const { user } = useAuth();
-  const { sessions, open, show } = useSessions();
+  const { show } = useSessions();
+  const { start } = useStartSession();
   const [picked, setPicked] = useState<Set<SessionType>>(new Set());
   const [name, setName] = useState("");
 
@@ -35,21 +36,14 @@ export default function HomePage() {
     });
   }
 
-  /** What the session is called if you don't say: the one pane in it, or how
-   * many there are. Better than "Session 4", which tells you nothing in a
-   * list of them. */
-  function defaultName(): string {
-    const chosen = panes.filter((t) => picked.has(t.type));
-    if (chosen.length === 1) return chosen[0].label;
-    if (chosen.length > 1) return `${chosen[0].label} +${chosen.length - 1}`;
-    return "Session";
+  /** In the order they are offered, not the order they were ticked, so the
+   * session's tabs read the same way the cards below do. */
+  function chosen(): SessionType[] {
+    return panes.filter((t) => picked.has(t.type)).map((t) => t.type);
   }
 
   function create() {
-    const title = nextTitle(name.trim() || defaultName(), sessions.map((s) => s.title));
-    // The Aggregator reads `services` as its panes and `layout` as how they are
-    // arranged, so seeding those is all it takes -- no special way in.
-    open(title, { services: Array.from(picked), layout: "tabs", activePane: Array.from(picked)[0] ?? null });
+    start(chosen(), name);
     setPicked(new Set());
     setName("");
   }
@@ -73,7 +67,7 @@ export default function HomePage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") create();
               }}
-              placeholder={defaultName()}
+              placeholder={defaultSessionName(chosen())}
               aria-label="Name for the new session"
             />
           </label>

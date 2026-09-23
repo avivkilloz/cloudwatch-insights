@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useAuth } from "../AuthContext";
 import { useSessions } from "../sessions/SessionContext";
-import { nextTitle } from "../sessions/naming";
-import { templateState, useTemplates } from "../sessions/templates";
+import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { useStartSession } from "../sessions/start";
+import { useTemplates } from "../sessions/templates";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -17,8 +19,10 @@ import SessionMenuItems from "./SessionMenuItems";
  * end offers the same things the panel's rows do, for the session on screen.
  */
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
-  const { sessions, activeId, view, open, close, activate, rename, show } = useSessions();
+  const { sessions, activeId, view, close, activate, rename, show } = useSessions();
   const { templates } = useTemplates();
+  const { startOne, startFromTemplate } = useStartSession();
+  const { user } = useAuth();
   // Set when the current tab is being renamed in place, from the ⋮ below.
   const [renaming, setRenaming] = useState(false);
 
@@ -27,119 +31,147 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
   const current = view === "session" ? sessions.find((s) => s.id === activeId) : undefined;
 
   return (
-    <div className="session-bar">
-      <button
-        className="session-bar-rail"
-        onClick={onToggleRail}
-        aria-expanded={railOpen}
-        aria-label={railOpen ? "Hide the side panel" : "Show the side panel"}
-        title={railOpen ? "Hide the side panel" : "Show the side panel"}
-      >
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-          <line x1="6.5" y1="2.5" x2="6.5" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
-          {railOpen && <rect x="2.5" y="3.5" width="3" height="9" fill="currentColor" opacity="0.5" />}
-        </svg>
-      </button>
+    /* The dock is what sticks and what carries the page background; the
+       strip inside it is a plain card, the same width as the cards below. */
+    <div className="session-bar-dock">
+      <div className="session-bar">
+        <button
+          className="session-bar-rail"
+          onClick={onToggleRail}
+          aria-expanded={railOpen}
+          aria-label={railOpen ? "Hide the side panel" : "Show the side panel"}
+          title={railOpen ? "Hide the side panel" : "Show the side panel"}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <line x1="6.5" y1="2.5" x2="6.5" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
+            {railOpen && <rect x="2.5" y="3.5" width="3" height="9" fill="currentColor" opacity="0.5" />}
+          </svg>
+        </button>
 
-      <div className="session-bar-tabs">
-        {sessions.length === 0 && <span className="session-bar-empty">Nothing open yet.</span>}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            data-bar-session-id={s.id}
-            className={`session-tab${view === "session" && activeId === s.id ? " active" : ""}`}
-          >
-            {renaming && current?.id === s.id ? (
-              <input
-                className="session-tab-rename"
-                autoFocus
-                defaultValue={s.title}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                  // Cleared first, so the blur that follows commits nothing.
-                  if (e.key === "Escape") setRenaming(false);
-                }}
-                onBlur={(e) => {
-                  if (!renaming) return;
-                  const name = e.target.value.trim();
-                  if (name && name !== s.title) rename(s.id, name);
-                  setRenaming(false);
-                }}
-                aria-label={`Rename ${s.title}`}
-              />
-            ) : (
-              <button className="session-tab-label" onClick={() => activate(s.id)} title={s.title}>
-                {s.title}
-              </button>
-            )}
-            {/* Closing lives here, not in the panel: this strip is the tabs in
-                front of you, and a ✕ on a tab is what people reach for. */}
-            <button className="session-tab-close" onClick={() => close(s.id)} aria-label={`Close ${s.title}`} title="Close">
-              ✕
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <Popover
-        glyph="＋"
-        label="Open a new session"
-        buttonClass="session-bar-add"
-        menuClass="session-add-menu"
-        width={220}
-      >
-        {(closeMenu) => (
-          <>
-            {/* A session is named and filled on the home page, so this is the
-                way there rather than a second copy of that form in a menu. */}
-            <button
-              className="session-add-item"
-              onClick={() => {
-                show("home");
-                closeMenu();
-              }}
+        <div className="session-bar-tabs">
+          {sessions.length === 0 && <span className="session-bar-empty">Nothing open yet.</span>}
+          {sessions.map((s) => (
+            <div
+              key={s.id}
+              data-bar-session-id={s.id}
+              className={`session-tab${view === "session" && activeId === s.id ? " active" : ""}`}
             >
-              Start new session…
-            </button>
-            {templates.length > 0 && (
-              <div>
-                <div className="session-add-heading">Templates</div>
-                {templates.map(({ entry }) => (
-                  <button
-                    key={`${entry.page}:${entry.id}`}
-                    className="session-add-item session-add-template"
-                    onClick={() => {
-                      open(nextTitle(entry.name, sessions.map((s) => s.title)), templateState(entry));
-                      closeMenu();
-                    }}
-                    title={`Start a session from "${entry.name}"`}
-                  >
-                    <span className="session-add-name">{entry.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </Popover>
+              {renaming && current?.id === s.id ? (
+                <input
+                  className="session-tab-rename"
+                  autoFocus
+                  defaultValue={s.title}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    // Cleared first, so the blur that follows commits nothing.
+                    if (e.key === "Escape") setRenaming(false);
+                  }}
+                  onBlur={(e) => {
+                    if (!renaming) return;
+                    const name = e.target.value.trim();
+                    if (name && name !== s.title) rename(s.id, name);
+                    setRenaming(false);
+                  }}
+                  aria-label={`Rename ${s.title}`}
+                />
+              ) : (
+                <button className="session-tab-label" onClick={() => activate(s.id)} title={s.title}>
+                  {s.title}
+                </button>
+              )}
+              {/* Closing lives here, not in the panel: this strip is the tabs in
+                  front of you, and a ✕ on a tab is what people reach for. */}
+              <button className="session-tab-close" onClick={() => close(s.id)} aria-label={`Close ${s.title}`} title="Close">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
 
-      {/* At the far end, and only when a session is showing: it acts on that
-          one. The panel's ⋮ reaches any of them. */}
-      {current && (
         <Popover
-          glyph="⋮"
-          label={`More for ${current.title}`}
-          title="More"
-          buttonClass="session-bar-more"
-          menuClass="rail-row-menu"
-          width={156}
+          glyph="＋"
+          label="Open a new session"
+          buttonClass="session-bar-add"
+          menuClass="session-add-menu"
+          width={220}
         >
           {(closeMenu) => (
-            <SessionMenuItems session={current} onRename={() => setRenaming(true)} close={closeMenu} />
+            <>
+              {/* A session is named and filled on the home page, so this is the
+                  way there rather than a second copy of that form in a menu. */}
+              <button
+                className="session-add-item"
+                onClick={() => {
+                  show("home");
+                  closeMenu();
+                }}
+              >
+                Start new session…
+              </button>
+              {/* The same offer the panel's Add list makes, for when the panel
+                  is hidden: one click for a session on that one service or tool. */}
+              {GROUP_ORDER.map((group) => {
+                const inGroup = SESSION_TYPES.filter((t) => t.group === group && t.enabledFor(user));
+                if (inGroup.length === 0) return null;
+                return (
+                  <div key={group}>
+                    <div className="session-add-heading">{group}</div>
+                    {inGroup.map((t) => (
+                      <button
+                        key={t.type}
+                        className="session-add-item"
+                        onClick={() => {
+                          startOne(t.type);
+                          closeMenu();
+                        }}
+                        title={`Start a session on ${t.label} — ${t.description}`}
+                      >
+                        <span className="session-add-name">{t.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+              {templates.length > 0 && (
+                <div>
+                  <div className="session-add-heading">Templates</div>
+                  {templates.map((template) => (
+                    <button
+                      key={`${template.entry.page}:${template.entry.id}`}
+                      className="session-add-item session-add-template"
+                      onClick={() => {
+                        startFromTemplate(template);
+                        closeMenu();
+                      }}
+                      title={`Start a session from "${template.entry.name}"`}
+                    >
+                      <span className="session-add-name">{template.entry.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </Popover>
-      )}
+
+        {/* At the far end, and only when a session is showing: it acts on that
+            one. The panel's ⋮ reaches any of them. */}
+        {current && (
+          <Popover
+            glyph="⋮"
+            label={`More for ${current.title}`}
+            title="More"
+            buttonClass="session-bar-more"
+            menuClass="rail-row-menu"
+            width={156}
+          >
+            {(closeMenu) => (
+              <SessionMenuItems session={current} onRename={() => setRenaming(true)} close={closeMenu} />
+            )}
+          </Popover>
+        )}
+      </div>
     </div>
   );
 }

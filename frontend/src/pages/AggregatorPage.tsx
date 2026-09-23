@@ -34,7 +34,7 @@ const SERVICES = PANE_TYPES.map((t) => ({
 export default function AggregatorPage() {
   const { user } = useAuth();
   const [services, setServices] = useSessionState<ServiceId[]>("services", []);
-  const [layout, setLayout] = useSessionState<Layout>("layout", "columns");
+  const [layout, setLayout] = useSessionState<Layout>("layout", "tabs");
   // Which pane the tabs layout is showing. Kept even while another layout is
   // in use, so switching back lands where you left it.
   const [activePaneId, setActivePaneId] = useSessionState<ServiceId | null>("activePane", null);
@@ -323,14 +323,16 @@ export default function AggregatorPage() {
         })}
         <div className="toolbar">
           <span className="muted">Layout</span>
+          {/* Tabs first because it is what a new session starts in: the order
+              here is the order you are likely to want them. */}
+          <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
+            Tabs
+          </button>
           <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
             Side by side
           </button>
           <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
             Stacked
-          </button>
-          <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
-            Tabs
           </button>
         </div>
       </div>

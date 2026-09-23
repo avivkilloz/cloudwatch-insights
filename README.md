@@ -34,9 +34,13 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   session) at the top, then **Sessions** — *every* session you have, the ones
   on the strip at full strength and the ones you have closed dimmed — then **＋
   Add**, holding **Start new session…** (which takes you to the card on Home
-  that makes one) and your saved **templates**, since opening one of those
-  starts a session exactly like pressing Create does. A second session named
-  the same is called "CloudWatch 2" rather than colliding. Click a
+  that makes one), every **service** and **tool** — clicking one opens a
+  session named after it holding just that pane, which is the one-click way in
+  when you don't need to pick several or name it yourself — and your saved
+  **templates**, since opening one of those starts a session exactly like
+  pressing Create does. The strip's **＋** offers the same three, for when the
+  panel is hidden. A second session named the same is called "CloudWatch 2"
+  rather than colliding. Click a
   session to switch to it (or, if it is closed, to open it again), drag it to
   reorder, and use the **⋮** beside it to **rename** it in place, save it as a
   template, or delete it.
@@ -165,14 +169,15 @@ from the avatar menu and is not a session; the strip stays above it.
   produced the log line you're reading, or decode the JWT it came in with,
   without losing either side. The picker keeps them in their own row, so
   "a search page" and "a tool" stay distinguishable. Three
-  layouts: **Side by side** lays them out in columns that wrap onto as many
-  rows as your screen needs (so a fourth and fifth service move down rather
-  than off the side), **Stacked** puts them one above the other full
-  width, and **Tabs** shows one at a time behind a row of tabs — a pane then
-  fills the session and reads like a page of its own, since the tab is its
-  name and its ✕ and it needs no title bar of its own.
+  layouts, offered in that order: **Tabs** (what a new session starts in) shows
+  one pane at a time behind a row of tabs — a pane then fills the session and
+  reads like a page of its own, since the tab is its name and its ✕ and it
+  needs no title bar of its own; **Side by side** lays them out in columns that
+  wrap onto as many rows as your screen needs (so a fourth and fifth service
+  move down rather than off the side); and **Stacked** puts them one above the
+  other full width.
 
-  In the first two, each pane minimises to just its title bar and expands
+  In the latter two, each pane minimises to just its title bar and expands
   again — click anywhere on its title bar, or the **−/+** button on it —
   independently, so minimising one says nothing about the others. Every pane
   stays mounted throughout, in every layout: the pane behind an unselected
@@ -205,8 +210,9 @@ from the avatar menu and is not a session; the strip stays above it.
   becomes another "Build for" target, and the exchange it last sent pools into
   the cross-service question tagged `HTTP client`, so "does this 500 line up
   with those log errors?" is one question. A
-  session (which panes, in which order, and which layout) can be saved and
-  reloaded like any other, and is managed under **Saved items → Aggregator Sessions**.
+  session (which panes, in which order, and which layout) can be saved as a
+  template from its **⋮**, and those are managed under **Saved items → Session
+  Templates**.
 - **Result row selection**, on every tab that returns a list of results —
   CloudWatch, OpenSearch, IoT (things and certificates), DynamoDB, S3 and
   Cognito. Every row has a checkbox, plus a "Select all" checkbox above the
@@ -283,14 +289,17 @@ from the avatar menu and is not a session; the strip stays above it.
   searches, session templates, saved buckets/tables, saved HTTP
   requests, and saved MQTT topics — is **per user** (each user only ever
   sees and manages their own) and is managed from one **Saved items** panel
-  under the **Saved** section of Settings, with a tab for each kind (Log
-  Queries, IoT Searches, CloudWatch Sessions, OpenSearch Sessions, IoT Sessions,
-  Aggregator Sessions,
-  S3, DynamoDB, HTTP Requests, MQTT Topics). Every kind supports full editing there, not just
+  under the **Saved** section of Settings, with a tab for each kind (Session
+  Templates first, then Log Queries, IoT Searches,
+  S3, DynamoDB, HTTP Requests, MQTT Topics). The per-service session tabs
+  (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
+  than a session now, so nothing writes one, and the ones saved back then are
+  listed under Session Templates — which is also where Add offers them.
+  Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
   method/URL/headers/body through the same form the HTTP Client tool itself
-  uses; saved MQTT topics edit the topic string; saved log/IoT sessions and
+  uses; saved MQTT topics edit the topic string; session templates and
   saved buckets/tables (see below) edit their underlying JSON state
   directly, since their shape is page-defined and too open-ended for a
   bespoke form. Only the query/search and HTTP-request/MQTT-topic tabs

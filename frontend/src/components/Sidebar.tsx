@@ -1,7 +1,9 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { SessionType, useSessions } from "../sessions/SessionContext";
-import { nextTitle } from "../sessions/naming";
-import { Template, templateState, useTemplates } from "../sessions/templates";
+import { useAuth } from "../AuthContext";
+import { useSessions } from "../sessions/SessionContext";
+import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { useStartSession } from "../sessions/start";
+import { useTemplates } from "../sessions/templates";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -23,9 +25,10 @@ const MENU_WIDTH_PX = 156;
  */
 export default function Sidebar({ open: expanded }: { open: boolean }) {
 
-  const { sessions, activeId, view, open, closed, reopen, remove, activate, rename, reorder, show, captureInputs } =
-    useSessions();
+  const { sessions, activeId, view, closed, reopen, remove, activate, rename, reorder, show } = useSessions();
   const { templates } = useTemplates();
+  const { startOne, startFromTemplate } = useStartSession();
+  const { user } = useAuth();
 
   // Which row is being renamed in place. Started from the row's ⋮ or from a
   // double-click on its name.
@@ -123,12 +126,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
-
-  function openTemplate({ entry }: Template) {
-    // A template seeds a brand-new session; nothing about the saved copy
-    // changes as you work in it.
-    open(nextTitle(entry.name, sessions.map((s) => s.title)), templateState(entry));
-  }
 
   if (!expanded) return null;
 
@@ -274,17 +271,40 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
           <button className="rail-row rail-row-type rail-row-new" onClick={() => show("home")}>
             <span className="rail-row-label">Start new session…</span>
           </button>
+          {/* One click for the common case: a session holding the one service
+              or tool you clicked, named after it. Anything more -- several
+              panes, or a name of your own -- is the card on the home page,
+              which is what the row above goes to. */}
+          {GROUP_ORDER.map((group) => {
+            const inGroup = SESSION_TYPES.filter((t) => t.group === group && t.enabledFor(user));
+            if (inGroup.length === 0) return null;
+            return (
+              <div key={group}>
+                <div className="rail-heading">{group}</div>
+                {inGroup.map((t) => (
+                  <button
+                    key={t.type}
+                    className="rail-row rail-row-type"
+                    onClick={() => startOne(t.type)}
+                    title={`Start a session on ${t.label} — ${t.description}`}
+                  >
+                    <span className="rail-row-label">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
           {templates.length > 0 && (
             <div>
               <div className="rail-heading">Templates</div>
-              {templates.map(({ entry, type }) => (
+              {templates.map((template) => (
                 <button
-                  key={`${entry.page}:${entry.id}`}
+                  key={`${template.entry.page}:${template.entry.id}`}
                   className="rail-row rail-row-type rail-row-template"
-                  onClick={() => openTemplate({ entry, type })}
-                  title={`Start a session from "${entry.name}"`}
+                  onClick={() => startFromTemplate(template)}
+                  title={`Start a session from "${template.entry.name}"`}
                 >
-                  <span className="rail-row-label">{entry.name}</span>
+                  <span className="rail-row-label">{template.entry.name}</span>
                 </button>
               ))}
             </div>
