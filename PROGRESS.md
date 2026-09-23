@@ -56,10 +56,11 @@ restarting the branch from `main`
 
 ## Known issues
 
-- **smoke29 and smoke21 are occasionally flaky**, in different places each run
-  (a fresh profile reading the server's session list before it has landed; a
-  click timing out under load). Both pass on a re-run; treat a single failure in
-  those two as noise and re-run before investigating.
+- **smoke21 occasionally fails** on a click that times out under load; it
+  passes on a re-run. smoke29 used to fail the same way — a fresh profile read
+  the server's session list before it had landed — and was fixed by waiting for
+  the row rather than reading the rail the instant it renders. Prefer that fix
+  to calling a suite flaky.
 - **Templates accumulate.** Nothing prunes saved templates, and the dev database
   has ~20 junk ones from test runs ("Agg save 17899…", "Legacy CloudWatch
   template"). Harmless, but it makes the Add list and the Session Templates tab
@@ -118,15 +119,16 @@ cd backend && DATABASE_URL="postgresql+psycopg2://cloudwatch_insights:cloudwatch
 cd frontend && npx tsc --noEmit && npm run build
 ```
 
-**Playwright suites** live in this session's scratchpad, not in the repo:
-`smoke13.mjs`–`smoke36.mjs` under
-`/tmp/claude-0/-home-user-cloudwatch-insights/59a25a1c-6369-5276-8959-89f7ab3bccda/scratchpad/`.
-They import Playwright from `/opt/node22/lib/node_modules/playwright/index.mjs`,
-target `http://127.0.0.1:5179`, log in as `admin` / `SmokeTestPass123!`, and
-each clears both the server's live sessions and IndexedDB first. Run one with
-`node smokeNN.mjs`; a full pass is a `for` loop over 13–36 and takes ~25
-minutes. **The scratchpad does not survive the session** — if they are still
-wanted, copy them into the repo (they were deliberately kept out of it so far).
+**Browser suites** now live in the repo at `frontend/e2e/` (they were in the
+session scratchpad until the end of this session). `node e2e/run-all.mjs` from
+`frontend/` runs all 24 — about 25 minutes, one line per suite — and
+`node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
+the dev stack up and they clear the workspace first, so point them at a scratch
+database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
+`E2E_USER`/`E2E_PASSWORD`, `E2E_PLAYWRIGHT`, `E2E_CHROMIUM`) and, more usefully,
+the list of traps that have already cost a release. Playwright is deliberately
+not a dependency of the package; in this container:
+`E2E_PLAYWRIGHT=/opt/node22/lib/node_modules/playwright/index.mjs`.
 Each suite's header comment says what it covers; 35 covers the spacing/Add round
 and 36 the permission split and saved-row naming.
 
@@ -137,5 +139,5 @@ and 36 the permission split and saved-row naming.
    every round.
 3. Optional, only if the user wants them: prune the junk templates from the dev
    database; refresh the templates context after a delete in Settings; decide
-   whether the Playwright suites should live in the repo (and, if so, whether CI
-   should run them).
+   whether CI should run the browser suites (it does not — they need a backend,
+   a seeded Postgres and an admin login, which is its own piece of work).

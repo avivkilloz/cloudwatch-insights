@@ -143,10 +143,11 @@ credentials per service.
   across accounts are reported per account rather than failing the whole call.
 - **Testing:** backend is pytest against a **real Postgres** (`backend/tests`,
   one file per area; `conftest.py` resets the schema and logs in as admin before
-  each test). The frontend has no unit tests — it is verified with **Playwright
-  smoke suites run against the app** (see PROGRESS.md for where they live and
-  how to run them). Verify UI work by driving the running app, not by reading
-  the diff.
+  each test). The frontend has no unit tests — it is verified by the
+  **browser suites in `frontend/e2e/`** (`node e2e/run-all.mjs`; that folder's
+  README carries the configuration and the traps that have already cost a
+  release). Verify UI work by driving the running app, not by reading the
+  diff.
 - **CSS:** one `styles.css`, theme tokens on `:root`. When inserting a rule with
   a script, **never anchor on a bare selector prefix** — `.rail-row-label {`
   also matches inside `.rail-row.active .rail-row-label {`, which silently
