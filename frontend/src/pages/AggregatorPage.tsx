@@ -14,7 +14,12 @@ import {
 import { PANE_TYPES } from "../sessions/paneTypes";
 
 type ServiceId = string;
-type Layout = "columns" | "stacked";
+/** How the open panes are arranged.
+ *
+ * "tabs" is the odd one out: the others show every pane at once, it shows one.
+ * All of them stay mounted either way -- a pane you cannot see may still have a
+ * search running, and unmounting it to save some DOM would throw that away. */
+type Layout = "columns" | "stacked" | "tabs";
 
 // Panes are session types that make sense side by side -- the registry says
 // which, so a new tool or service shows up here without a second list.
@@ -30,6 +35,9 @@ export default function AggregatorPage() {
   const { user } = useAuth();
   const [services, setServices] = useSessionState<ServiceId[]>("services", []);
   const [layout, setLayout] = useSessionState<Layout>("layout", "columns");
+  // Which pane the tabs layout is showing. Kept even while another layout is
+  // in use, so switching back lands where you left it.
+  const [activePaneId, setActivePaneId] = useSessionState<ServiceId | null>("activePane", null);
   // Panes collapsed to just their header. Independent per pane -- minimising
   // one says nothing about the others, unlike a single "focused" pane would.
   const [minimized, setMinimized] = useSessionState<Set<ServiceId>>("minimized", () => new Set());
@@ -102,8 +110,16 @@ export default function AggregatorPage() {
     .map((id) => SERVICES.find((s) => s.id === id))
     .filter((s): s is (typeof SERVICES)[number] => !!s);
 
+  // Falls back to the first rather than showing nothing: the remembered pane
+  // may have been closed since, and a session with panes should never look
+  // empty because a stored id no longer matches one.
+  const shownPane = open.find((s) => s.id === activePaneId) ?? open[0];
+
   function toggleService(id: ServiceId) {
     setServices((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
+    // Opening a pane selects it, which is what you meant by opening it; closing
+    // the selected one hands the choice back to the fallback above.
+    setActivePaneId((prev) => (prev === id ? null : services.includes(id) ? prev : id));
     // Closing a pane shouldn't leave it minimised for the next time it's opened.
     setMinimized((prev) => {
       if (!prev.has(id)) return prev;
@@ -261,7 +277,13 @@ export default function AggregatorPage() {
     return out;
   }
 
-  const activeSummary = summaries.find((s) => s.id === target) ?? summaries[0];
+  // Which pane the assistant's "Build for" is aimed at. In tabs there is only
+  // one pane on screen, so that is the obvious default; in the other layouts,
+  // where they are all visible, the first is as good a guess as any.
+  const activeSummary =
+    summaries.find((s) => s.id === target) ??
+    (layout === "tabs" ? summaries.find((s) => s.id === shownPane?.id) : undefined) ??
+    summaries[0];
   const activePane = activeSummary ? panesRef.current.get(activeSummary.id) : undefined;
   const totalSelected = summaries.reduce((n, s) => n + s.selectedCount, 0);
   const contributing = summaries.filter((s) => s.selectedCount > 0);
@@ -307,6 +329,9 @@ export default function AggregatorPage() {
           <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
             Stacked
           </button>
+          <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
+            Tabs
+          </button>
         </div>
       </div>
 
@@ -323,9 +348,45 @@ export default function AggregatorPage() {
           layouts, so its results and any in-flight search survive, which is the
           whole point of working across services at once. */}
       <AiPaneRegistryContext.Provider value={registry}>
-        <div className={layout === "columns" ? "aggregator-columns" : "aggregator-stack"}>
+        {/* One tab per pane. Only in this layout: the others show everything at
+            once, so there is nothing to choose between. */}
+        {layout === "tabs" && open.length > 0 && (
+          <div className="aggregator-tabs" role="tablist">
+            {open.map((s) => (
+              <div key={s.id} className={`aggregator-tab${shownPane?.id === s.id ? " active" : ""}`}>
+                <button
+                  className="aggregator-tab-label"
+                  role="tab"
+                  aria-selected={shownPane?.id === s.id}
+                  onClick={() => setActivePaneId(s.id)}
+                >
+                  {s.label}
+                </button>
+                <button
+                  className="aggregator-tab-close"
+                  onClick={() => toggleService(s.id)}
+                  aria-label={`Close ${s.label}`}
+                  title={`Close ${s.label}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          className={
+            layout === "columns" ? "aggregator-columns" : layout === "tabs" ? "aggregator-tabbed" : "aggregator-stack"
+          }
+        >
           {open.map((s, i) => {
-            const collapsed = minimized.has(s.id);
+            // In tabs, the tab is the pane's header and its ✕ closes it, so the
+            // title bar would only repeat itself; minimising has nothing to
+            // mean when one pane fills the view either.
+            const tabbed = layout === "tabs";
+            const hidden = tabbed ? shownPane?.id !== s.id : false;
+            const collapsed = !tabbed && minimized.has(s.id);
             // Which way "earlier" and "later" actually look depends on the
             // layout, so the arrows follow it rather than always saying up/down.
             const back = layout === "columns" ? "left" : "up";
@@ -337,8 +398,13 @@ export default function AggregatorPage() {
                 // there's something to aim at once a pane is minimised too.
                 // paneUnder() hit-tests these.
                 data-pane-id={s.id}
+                // Hidden rather than unmounted: an unselected pane may have a
+                // search running, and its results are half the point of having
+                // several open.
+                hidden={hidden}
                 className={
                   "aggregator-pane" +
+                  (tabbed ? " tabbed" : "") +
                   (collapsed ? " collapsed" : "") +
                   (dragging === s.id ? " dragging" : "") +
                   (dropTarget === s.id ? " drop-target" : "")
@@ -351,6 +417,7 @@ export default function AggregatorPage() {
                     toggles, anything past the threshold is a drag and the
                     click it ends with is swallowed rather than minimising the
                     pane that was just moved. */}
+                {!tabbed && (
                 <header
                   className="aggregator-pane-header"
                   onPointerDown={(e) => startDrag(e, s.id)}
@@ -417,6 +484,7 @@ export default function AggregatorPage() {
                     ✕
                   </button>
                 </header>
+                )}
                 <div className="aggregator-pane-body" hidden={collapsed}>
                   {/* Panes are whole pages, so their state keys have to be
                       kept apart within this one session. */}

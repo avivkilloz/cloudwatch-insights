@@ -1308,6 +1308,102 @@ th {
   border-radius: 8px;
 }
 
+/* ---- the tabs layout ---------------------------------------------------- */
+
+/* One tab per open pane. Scrolls rather than wrapping, so the panes below stay
+   where they are however many are open. */
+.aggregator-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.aggregator-tab {
+  display: flex;
+  align-items: center;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.aggregator-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+}
+
+.aggregator-tab.active .aggregator-tab-label,
+.aggregator-tab.active .aggregator-tab-close {
+  color: var(--accent-text);
+}
+
+.aggregator-tab-label {
+  padding: 6px 4px 6px 10px;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.aggregator-tab-close {
+  padding: 0 9px 0 5px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.aggregator-tab-close:hover {
+  color: var(--error);
+}
+
+/* .aggregator-pane sets `display: flex`, which beats the browser's own
+   `[hidden] { display: none }` -- so an unselected pane would stay on screen
+   under the selected one. This is what actually hides it. */
+.aggregator-pane[hidden] {
+  display: none;
+}
+
+/* The selected pane fills the session. It carries no title bar of its own --
+   the tab above is its name and its ✕ -- so it needs no frame either. */
+.aggregator-tabbed {
+  display: block;
+}
+
+.aggregator-pane.tabbed {
+  border: none;
+  background: none;
+  /* The other layouts cap a pane's height so several fit on screen and each
+     scrolls its own body. One pane on its own has the whole session, and
+     should scroll with the page like any other. */
+  max-height: none;
+}
+
+.aggregator-pane.tabbed > .aggregator-pane-body {
+  overflow: visible;
+  padding: 0;
+}
+
+/* Its panels draw their own cards again: there is no pane card around them
+   here for a second border to sit inside. */
+.aggregator-pane.tabbed > .aggregator-pane-body > .panel {
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.aggregator-pane-header {
+  border-bottom: none;
+  border-radius: 8px;
+}
+
 .aggregator-pane-header {
   display: flex;
   align-items: center;

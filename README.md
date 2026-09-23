@@ -161,15 +161,21 @@ from the avatar menu and is not a session; the strip stays above it.
   usually the point of a session rather than a bonus: replay the call that
   produced the log line you're reading, or decode the JWT it came in with,
   without losing either side. The picker keeps them in their own row, so
-  "a search page" and "a tool" stay distinguishable. Two
+  "a search page" and "a tool" stay distinguishable. Three
   layouts: **Side by side** lays them out in columns that wrap onto as many
   rows as your screen needs (so a fourth and fifth service move down rather
-  than off the side), and **Stacked** puts them one above the other full
-  width. In either layout each pane minimises to just its title bar and
-  expands again — click anywhere on its title bar, or the **−/+** button on
-  it — independently, so minimising one says nothing about the others. Every pane stays mounted throughout, so
-  minimising one or switching layout never discards its results or interrupts
-  a running query.
+  than off the side), **Stacked** puts them one above the other full
+  width, and **Tabs** shows one at a time behind a row of tabs — a pane then
+  fills the session and reads like a page of its own, since the tab is its
+  name and its ✕ and it needs no title bar of its own.
+
+  In the first two, each pane minimises to just its title bar and expands
+  again — click anywhere on its title bar, or the **−/+** button on it —
+  independently, so minimising one says nothing about the others. Every pane
+  stays mounted throughout, in every layout: the pane behind an unselected
+  tab is hidden, not unmounted, so switching layout or tab never discards its
+  results or interrupts a running query. Which tab you were on is part of the
+  session, so it comes back with it.
 
   Panes can be **reordered**: drag one by its title bar onto another to drop
   it into that slot, or use the arrows on the title bar to nudge it one place
