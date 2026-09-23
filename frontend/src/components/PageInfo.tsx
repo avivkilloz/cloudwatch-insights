@@ -1,6 +1,6 @@
-import { useAuth } from "../AuthContext";
 import { useSessions } from "../sessions/SessionContext";
-import { sessionType } from "../sessions/registry";
+import { sessionTypeLabel } from "../sessions/registry";
+import { pageDef } from "../pages/pageTypes";
 
 /**
  * What you are looking at, and what it is for.
@@ -15,41 +15,26 @@ import { sessionType } from "../sessions/registry";
  * It shows and hides with the panel, so collapsing for room takes this with it.
  */
 
-const HOME = {
-  title: "Home",
-  help:
-    "Everything you can open, grouped by what it is for. Pick a card to start a session, or tick several and " +
-    "aggregate them into one.",
-};
-
-const SETTINGS = {
-  title: "Settings",
-  help:
-    "Your account and how the app looks, the environments and saved items you work with, and — if you are an " +
-    "admin — the users, groups and which pages each group can see.",
-};
-
 /** The title and help for whatever is on screen, or null if nothing is. */
 export function usePageInfo(): { title: string; help: string } | null {
-  const { user } = useAuth();
   const { sessions, activeId, view } = useSessions();
 
-  if (view === "home") return HOME;
-  if (view === "settings") return SETTINGS;
+  const page = pageDef(view);
+  if (page) return { title: page.label, help: page.help };
 
   const session = sessions.find((s) => s.id === activeId);
   if (!session) return null;
-  const def = sessionType(session.type);
-
-  // The same two cases the body owns up to: a service an admin has since
-  // revoked, and a session type this version no longer knows.
-  if (!def) {
-    return { title: session.title, help: "This session is of a kind this version no longer knows how to open." };
-  }
-  if (!def.enabledFor(user)) {
-    return { title: def.label, help: "This session's service is no longer enabled for your account." };
-  }
-  return { title: def.label, help: def.help };
+  // Every session is an Aggregator, so the interesting part is which panes are
+  // in it -- the name is the session's own, which you chose.
+  const services = (session.state.services as string[] | undefined) ?? [];
+  const labels = services.map((id) => sessionTypeLabel(id));
+  return {
+    title: session.title,
+    help:
+      labels.length === 0
+        ? "An empty session. Tick a service or tool in the panel above to put something in it."
+        : `${labels.join(", ")} in one session, with one assistant across all of them.`,
+  };
 }
 
 export default function PageInfo() {

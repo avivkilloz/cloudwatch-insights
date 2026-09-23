@@ -15,7 +15,8 @@ import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, 
 import { SavedSession, User, api } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "./SessionContext";
-import { SESSION_TYPES, sessionType } from "./registry";
+import { SESSION_SAVED_PAGE, sessionType } from "./registry";
+import { PANE_TYPES } from "./paneTypes";
 import { encode } from "./storage";
 import { decode } from "./storage";
 
@@ -75,17 +76,32 @@ export interface Template {
   type: SessionType;
 }
 
-/** The state a new session should start with, given the template chosen. */
+/**
+ * The state a new session should start with, given the template chosen.
+ *
+ * Every session is an Aggregator, so a template saved from one page -- back
+ * when a page was a session -- becomes an Aggregator holding that one pane,
+ * with its keys moved under the pane's id. The same shape the workspace
+ * migration gives an old open session, for the same reason: a pane reads its
+ * state under "<paneId>.<key>", so the id and the keys have to move together.
+ */
 export function templateState(entry: SavedSession<Record<string, unknown>>): Record<string, unknown> {
-  return migrateLegacyState(entry.page, entry.state as Record<string, any>);
+  const state = migrateLegacyState(entry.page, entry.state as Record<string, any>);
+  if (entry.page === SESSION_SAVED_PAGE) return state;
+
+  const pane = paneForPage(entry.page, state);
+  if (!pane) return state;
+  const wrapped: Record<string, unknown> = { services: [pane], layout: "tabs", activePane: pane };
+  for (const [key, value] of Object.entries(state)) wrapped[`${pane}.${key}`] = value;
+  return wrapped;
 }
 
-/** Which session type a template opens. Everything saved from the old combined
- * Logs page lives under "logs", whichever backend it was using; its own state
- * says which. */
-export function templateType(entry: SavedSession<Record<string, unknown>>, type: SessionType): SessionType {
-  const state = templateState(entry);
-  return entry.page === "logs" && state.backend === "opensearch" ? "logs-opensearch" : type;
+/** Which pane a template saved from a page becomes. Everything saved from the
+ * old combined Logs page lives under "logs" whichever backend it used; its own
+ * state says which. */
+function paneForPage(page: string, state: Record<string, unknown>): SessionType | undefined {
+  if (page === "logs") return state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch";
+  return PANE_TYPES.find((t) => t.savedPage === page)?.type;
 }
 
 interface TemplatesApi {
@@ -103,12 +119,19 @@ export function useTemplates(): TemplatesApi {
   return useContext(TemplatesContext);
 }
 
-async function fetchTemplates(user: User | null): Promise<Template[]> {
+/** Every page a template could have been saved under: the session's own key,
+ * plus the per-page keys used when a page was a session. Old templates still
+ * open -- they just become a session holding that page. */
+const TEMPLATE_PAGES = [SESSION_SAVED_PAGE, "logs", ...PANE_TYPES.map((t) => t.savedPage)].filter(
+  (p, i, all): p is string => !!p && all.indexOf(p) === i,
+);
+
+async function fetchTemplates(_user: User | null): Promise<Template[]> {
   const lists = await Promise.all(
-    SESSION_TYPES.filter((t) => t.enabledFor(user) && t.savedPage).map((t) =>
+    TEMPLATE_PAGES.map((page) =>
       api
-        .listSavedSessions<Record<string, unknown>>(t.savedPage!)
-        .then((list) => list.map((entry) => ({ entry, type: t.type })))
+        .listSavedSessions<Record<string, unknown>>(page)
+        .then((list) => list.map((entry) => ({ entry, type: "aggregator" as SessionType })))
         .catch(() => [] as Template[]),
     ),
   );
@@ -153,15 +176,14 @@ export function useSaveAsTemplate(): (id: string) => Promise<boolean> {
 
   return async (id: string) => {
     const session = sessions.find((s) => s.id === id);
-    const def = session && sessionType(session.type);
-    if (!session || !def?.savedPage) return false;
+    if (!session) return false;
     const name = window.prompt("Save as template:", session.title);
     if (!name?.trim()) return false;
     // Encoded with the tags, then parsed back to a plain object so the API's
     // own JSON.stringify has nothing left to lose.
     const state = JSON.parse(encode(captureInputs(id)));
     await api.createSavedSession({
-      page: def.savedPage,
+      page: SESSION_SAVED_PAGE,
       name: name.trim(),
       state: { ...state, [VERSION_KEY]: SAVED_STATE_VERSION },
     });

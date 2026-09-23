@@ -25,7 +25,10 @@ const TAB_TOGGLES: {
   { key: "tables_enabled", label: "DynamoDB" },
   { key: "buckets_enabled", label: "S3" },
   { key: "cognito_enabled", label: "Cognito" },
-  { key: "aggregator_enabled", label: "Aggregator" },
+  // No Aggregator row: every session is one now, so a toggle for it would
+  // mean "this group gets no sessions at all". The column is still on the
+  // group -- nothing reads it, and removing it is a database change for no
+  // gain -- but there is nothing here for it to control.
   { key: "tools_enabled", label: "Tools" },
 ];
 

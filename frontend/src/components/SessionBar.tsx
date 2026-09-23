@@ -1,9 +1,7 @@
 import { useState } from "react";
-import { useAuth } from "../AuthContext";
-import { SessionType, useSessions } from "../sessions/SessionContext";
+import { useSessions } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
-import { GROUP_ORDER, SESSION_TYPES, sessionTypeLabel } from "../sessions/registry";
-import { templateState, templateType, useTemplates } from "../sessions/templates";
+import { templateState, useTemplates } from "../sessions/templates";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -19,13 +17,11 @@ import SessionMenuItems from "./SessionMenuItems";
  * end offers the same things the panel's rows do, for the session on screen.
  */
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
-  const { user } = useAuth();
-  const { sessions, activeId, view, open, close, activate, rename } = useSessions();
+  const { sessions, activeId, view, open, close, activate, rename, show } = useSessions();
   const { templates } = useTemplates();
   // Set when the current tab is being renamed in place, from the ⋮ below.
   const [renaming, setRenaming] = useState(false);
 
-  const types = SESSION_TYPES.filter((t) => t.enabledFor(user));
   // Only ever the tab you are looking at: the ⋮ here is about what is on
   // screen, and the panel is where you reach the rest.
   const current = view === "session" ? sessions.find((s) => s.id === activeId) : undefined;
@@ -95,50 +91,31 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
       >
         {(closeMenu) => (
           <>
-            {GROUP_ORDER.map((group) => {
-              const inGroup = types.filter((t) => t.group === group);
-              if (inGroup.length === 0) return null;
-              return (
-                <div key={group}>
-                  <div className="session-add-heading">{group}</div>
-                  {inGroup.map((t) => (
-                    <button
-                      key={t.type}
-                      className="session-add-item"
-                      onClick={() => {
-                        open(t.type as SessionType, nextTitle(t.label, sessions.map((s) => s.title)));
-                        closeMenu();
-                      }}
-                      title={t.description}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
-            {/* Templates sit with the session types because opening one does
-                the same thing: it starts a new session. Only the seed is
-                different. */}
+            {/* A session is named and filled on the home page, so this is the
+                way there rather than a second copy of that form in a menu. */}
+            <button
+              className="session-add-item"
+              onClick={() => {
+                show("home");
+                closeMenu();
+              }}
+            >
+              Start new session…
+            </button>
             {templates.length > 0 && (
               <div>
                 <div className="session-add-heading">Templates</div>
-                {templates.map(({ entry, type }) => (
+                {templates.map(({ entry }) => (
                   <button
                     key={`${entry.page}:${entry.id}`}
                     className="session-add-item session-add-template"
                     onClick={() => {
-                      open(
-                        templateType(entry, type),
-                        nextTitle(entry.name, sessions.map((s) => s.title)),
-                        templateState(entry),
-                      );
+                      open(nextTitle(entry.name, sessions.map((s) => s.title)), templateState(entry));
                       closeMenu();
                     }}
-                    title={`Start a ${sessionTypeLabel(type)} session from "${entry.name}"`}
+                    title={`Start a session from "${entry.name}"`}
                   >
                     <span className="session-add-name">{entry.name}</span>
-                    <span className="session-add-kind">{sessionTypeLabel(type)}</span>
                   </button>
                 ))}
               </div>

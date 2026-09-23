@@ -11,6 +11,7 @@ import {
   SetStateAction,
 } from "react";
 import { LiveSessionSummary, api } from "../api";
+import { PageId } from "../pages/pageTypes";
 import {
   EMPTY_WORKSPACE,
   PersistedSession,
@@ -21,9 +22,15 @@ import {
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire } from "./sync";
 
-/** Which kinds of session the + button can start. Values are stored, so
- * renaming one orphans existing open sessions -- add rather than rename.
- * The registry in ./registry.tsx says what each one is and renders. */
+/** Which panes a session can hold. Values are stored, so renaming one orphans
+ * existing sessions -- add rather than rename. ./registry.tsx says what each
+ * one is and renders.
+ *
+ * "aggregator" is in here for one reason: it is what every session's own `type`
+ * now is. There is no longer an Aggregator you open alongside other things --
+ * a session *is* one, holding whichever of the panes below. "agent" is here
+ * only so sessions stored before it became a page still have a valid type
+ * while they are migrated away on load. */
 export type SessionType =
   /** Legacy: one page with a CloudWatch/OpenSearch switch inside it. Kept in
    * the union so a session stored before the split still has a valid type
@@ -43,52 +50,82 @@ export type SessionType =
   | "tool-diff"
   | "agent";
 
+/** A session's own type. Every session is an Aggregator now, holding panes. */
+export const SESSION_TYPE: SessionType = "aggregator";
+
 /**
- * Splits the old single "logs" session into the two it became.
+ * Brings a stored workspace up to the shape this version expects.
  *
- * Which one it is was already in the session's own state -- the `backend` key
- * the removed switch wrote -- so nothing is guessed and nothing is lost. Runs
- * on every load rather than once: a workspace can come back from an older
- * browser at any time.
+ * Two migrations, in order, because the second depends on the first:
+ *
+ * 1. The old single "logs" page split into CloudWatch and OpenSearch. Which
+ *    one a session was is already in its own state -- the `backend` key the
+ *    removed switch wrote -- so nothing is guessed.
+ * 2. Every session became an Aggregator. A session that was a page becomes one
+ *    holding that page as its only pane: an Aggregator keeps a pane's state
+ *    under "<paneId>.<key>", so every key it owns moves under the pane's id in
+ *    the same step. Tabs, so one pane looks like the page it used to be.
+ *
+ * Agent sessions have nowhere to go -- the agent is a page now, not something
+ * you have several of -- so they are dropped. They only ever held a
+ * conversation with a model that was never connected.
+ *
+ * Runs on every load rather than once: a workspace can come back from an older
+ * browser, or from the server, at any time.
  */
-function migrateSessionTypes(w: Workspace): Workspace {
-  const needsWork = w.sessions.some(
-    (s) => s.type === "logs" || (s.type === "aggregator" && (s.state.services as string[] | undefined)?.includes("logs")),
-  );
-  if (!needsWork) return w;
-
-  return {
-    ...w,
-    sessions: w.sessions.map((s) => {
-      if (s.type === "logs") {
-        return { ...s, type: s.state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch" };
-      }
-      if (s.type !== "aggregator") return s;
-      const services = s.state.services as string[] | undefined;
-      if (!services?.includes("logs")) return s;
-
-      // An Aggregator keeps its panes' state under "<paneId>.<key>", so the
-      // pane's id and every key it owns have to move together -- renaming only
-      // the id would leave the pane on screen with none of its inputs.
-      const next = s.state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch";
-      const backend = s.state["logs.backend"] === "opensearch" ? "logs-opensearch" : next;
-      const state: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(s.state)) {
-        state[key.startsWith("logs.") ? `${backend}.${key.slice("logs.".length)}` : key] = value;
-      }
-      state.services = services.map((id) => (id === "logs" ? backend : id));
-      if (s.state.minimized instanceof Set && s.state.minimized.has("logs")) {
-        const minimized = new Set(s.state.minimized as Set<string>);
-        minimized.delete("logs");
-        minimized.add(backend);
-        state.minimized = minimized;
-      }
-      return { ...s, state };
-    }),
-  };
+export function migrateSessionList(list: PersistedSession[]): PersistedSession[] {
+  const out: PersistedSession[] = [];
+  for (const session of list) {
+    const s = migrateLogsSplit(session);
+    if (s.type === "agent") continue;
+    out.push(s.type === SESSION_TYPE ? s : wrapAsAggregator(s));
+  }
+  return out;
 }
 
-export type ViewKind = "home" | "settings" | "session";
+function migrateSessions(w: Workspace): Workspace {
+  const sessions = migrateSessionList(w.sessions);
+  if (sessions.length === w.sessions.length && sessions.every((s, i) => s === w.sessions[i])) return w;
+  const ids = new Set(sessions.map((s) => s.id));
+  const activeId = w.activeId && ids.has(w.activeId) ? w.activeId : sessions[0]?.id ?? null;
+  return { sessions, activeId, view: w.view === "session" && !activeId ? "home" : w.view };
+}
+
+function migrateLogsSplit(s: PersistedSession): PersistedSession {
+  if (s.type === "logs") {
+    return { ...s, type: s.state.backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch" };
+  }
+  if (s.type !== SESSION_TYPE) return s;
+  const services = s.state.services as string[] | undefined;
+  if (!services?.includes("logs")) return s;
+
+  // Renaming only the pane's id would leave it on screen with none of its
+  // inputs, so the id and every key under it move together.
+  const backend = s.state["logs.backend"] === "opensearch" ? "logs-opensearch" : "logs-cloudwatch";
+  const state: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(s.state)) {
+    state[key.startsWith("logs.") ? `${backend}.${key.slice("logs.".length)}` : key] = value;
+  }
+  state.services = services.map((id) => (id === "logs" ? backend : id));
+  if (s.state.minimized instanceof Set && s.state.minimized.has("logs")) {
+    const minimized = new Set(s.state.minimized as Set<string>);
+    minimized.delete("logs");
+    minimized.add(backend);
+    state.minimized = minimized;
+  }
+  return { ...s, state };
+}
+
+/** One page's session becomes an Aggregator holding that page. */
+function wrapAsAggregator(s: PersistedSession): PersistedSession {
+  const state: Record<string, unknown> = { services: [s.type], layout: "tabs", activePane: s.type };
+  for (const [key, value] of Object.entries(s.state)) state[`${s.type}.${key}`] = value;
+  return { ...s, type: SESSION_TYPE, state };
+}
+
+/** What the body is showing: one of the pages that are not sessions, or the
+ * active session. */
+export type ViewKind = PageId | "session";
 
 interface SessionsApi {
   sessions: PersistedSession[];
@@ -97,7 +134,9 @@ interface SessionsApi {
   /** False until the workspace has been read back from IndexedDB, so nothing
    * renders (and immediately re-persists) an empty workspace over a real one. */
   ready: boolean;
-  open: (type: SessionType, title: string, state?: Record<string, unknown>) => string;
+  /** Starts a session. No type: every session is an Aggregator, and what it
+   * holds is the `services` key in its state. */
+  open: (title: string, state?: Record<string, unknown>) => string;
   /** Takes a session off the strip of tabs. It stays in `closed`, which the
    * side panel lists alongside the open ones, so nothing is lost. */
   close: (id: string) => void;
@@ -159,7 +198,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     (async () => {
       // The local copy first, so the panel is populated on the first paint
       // rather than after a round trip.
-      const local = migrateSessionTypes(await loadWorkspace(userId));
+      const local = migrateSessions(await loadWorkspace(userId));
       if (cancelled) return;
       setWorkspace(local);
       setReady(true);
@@ -171,9 +210,20 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
           api.listClosedLiveSessions(),
         ]);
         if (cancelled) return;
-        open = openRows.map(fromWire);
+        open = migrateSessionList(openRows.map(fromWire));
         sync.adopt(openRows);
-        setClosed(closedRows);
+        // Agent sessions are dropped by the migration above. Taking them off
+        // the server too, rather than only out of this list, is what makes the
+        // drop real: otherwise every load would fetch and discard them again,
+        // and the server would go on reporting sessions nobody can see.
+        const kept = new Set(open.map((session) => session.id));
+        for (const row of openRows) {
+          if (!kept.has(row.client_id)) sync.enqueue(() => api.deleteLiveSession(row.client_id));
+        }
+        for (const row of closedRows) {
+          if (row.type === "agent") sync.enqueue(() => api.deleteLiveSession(row.client_id));
+        }
+        setClosed(closedRows.filter((row) => row.type !== "agent"));
       } catch {
         // Offline, or a backend that has not been migrated yet. Keep working
         // against the local copy; the next flush pushes it up.
@@ -248,12 +298,12 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     };
   }, [workspace.sessions, ready, sync]);
 
-  const open = useCallback((type: SessionType, title: string, state: Record<string, unknown> = {}) => {
+  const open = useCallback((title: string, state: Record<string, unknown> = {}) => {
     touched.current = true;
     const id = `s${Date.now().toString(36)}${(sessionCounter++).toString(36)}`;
     setWorkspace((w) => ({
       ...w,
-      sessions: [...w.sessions, { id, type, title, state }],
+      sessions: [...w.sessions, { id, type: SESSION_TYPE, title, state }],
       activeId: id,
       view: "session",
     }));
@@ -321,7 +371,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       // so a bag that arrives afterwards never reaches the mounted page.
       api
         .getLiveSession(id)
-        .then((row) => put(fromWire(row)))
+        .then((row) => put(migrateSessionList([fromWire(row)])[0] ?? fromWire(row)))
         .catch(() => {
           // Offline, or a session that never reached the server. Open it with
           // what the panel knows rather than not at all; `truncated` is what

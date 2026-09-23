@@ -1391,10 +1391,15 @@ th {
   padding: 0;
 }
 
-/* Its panels draw their own cards again: there is no pane card around them
-   here for a second border to sit inside. */
-.aggregator-pane.tabbed > .aggregator-pane-body > .panel {
+/* Its panels draw their own cards again, at the body's own spacing: there is no
+   pane card around them here for a second border to sit inside, and a pane that
+   fills the session should read exactly like a page. The tighter padding and
+   gap the other layouts use are for panes sharing a screen. */
+/* A descendant selector, not a child one: the pages wrap their cards in a
+   div of their own, so `>` matched nothing. */
+.aggregator-pane.tabbed .aggregator-pane-body .panel {
   padding: 16px;
+  margin-bottom: 16px;
   border: 1px solid var(--border);
   background: var(--panel);
 }
@@ -1873,4 +1878,29 @@ th {
   border-radius: 999px;
   background: var(--panel-alt);
   border: 1px solid var(--border);
+}
+
+/* ---- the new-session card and the pages beside it ----------------------- */
+
+/* The name and the button that uses it, side by side and no wider than the
+   name needs -- the pickers below are the part that fills the card. */
+.home-new-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.home-new-row .field {
+  width: 280px;
+}
+
+.home-create {
+  flex: none;
+}
+
+/* "Start new session…" leads the Add list, so it reads as the way in rather
+   than one more thing among the templates. */
+.rail-row-new .rail-row-label {
+  color: var(--accent);
 }
