@@ -151,6 +151,28 @@ class SavedSession(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class SessionCategory(Base):
+    """A named group of sessions in the side panel, the way a Slack workspace
+    groups channels. Purely organizational -- it holds no state of its own,
+    just a name and where it sits among the user's other categories. A session
+    with no category shows outside any group, the way it always has.
+
+    Deleting a category does not delete the sessions in it: LiveSession.category_id
+    is ON DELETE SET NULL, so they fall back to ungrouped rather than vanishing.
+    """
+
+    __tablename__ = "session_categories"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_session_categories_user_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    # Where it sits in the side panel, same convention as LiveSession.position:
+    # rewritten wholesale on drag, so gaps and duplicates don't matter.
+    position = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class LiveSession(Base):
     """One of the sessions open in someone's side panel, as their browser last
     left it.
@@ -183,6 +205,10 @@ class LiveSession(Base):
     # Where it sits in the side panel. Rewritten wholesale when sessions are
     # dragged, so gaps and duplicates don't matter -- only the order does.
     position = Column(Integer, nullable=False, server_default="0")
+    # Which side-panel category this session sits in, if any. Nullable so a
+    # session made before categories existed -- or never assigned to one --
+    # just shows ungrouped rather than needing a migration to invent one.
+    category_id = Column(Integer, ForeignKey("session_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     state = Column(JSON, nullable=False, default=dict)
     # SQLAlchemy auto-quotes a plain string server_default as a SQL string
     # literal -- do not wrap this in extra quotes, that would double-quote it.

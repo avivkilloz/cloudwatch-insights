@@ -29,6 +29,10 @@ export interface PersistedSession {
   id: string;
   type: string;
   title: string;
+  /** Which side-panel category this session sits in. Undefined/null both mean
+   * "no category" -- undefined for a session from before categories existed,
+   * null once one is explicitly moved back out of a category. */
+  categoryId?: number | null;
   /** Each page's own bag of state, keyed by the names it passes to
    * useSessionState. This module never needs to know the shapes. */
   state: Record<string, unknown>;

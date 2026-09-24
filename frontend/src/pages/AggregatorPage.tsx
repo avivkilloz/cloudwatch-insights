@@ -18,8 +18,38 @@ type ServiceId = string;
  *
  * "tabs" is the odd one out: the others show every pane at once, it shows one.
  * All of them stay mounted either way -- a pane you cannot see may still have a
- * search running, and unmounting it to save some DOM would throw that away. */
-type Layout = "columns" | "stacked" | "tabs";
+ * search running, and unmounting it to save some DOM would throw that away.
+ * "dashboard" is the freeform one: panes sit at whatever position and size you
+ * gave them (see `Rect` below) rather than a fixed row or column. */
+type Layout = "columns" | "stacked" | "tabs" | "dashboard";
+
+/** A dashboard pane's position and size, in pixels within the dashboard
+ * canvas. Stored per pane id, so it survives closing and reopening a pane. */
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const DASHBOARD_PANE_W = 460;
+const DASHBOARD_PANE_H = 340;
+const DASHBOARD_MIN_W = 260;
+const DASHBOARD_MIN_H = 160;
+const DASHBOARD_GAP = 16;
+
+/** Where a pane starts out before it has ever been moved or resized: a loose
+ * grid, three across, so several panes opened at once don't all land in the
+ * same spot on top of each other. */
+function defaultRect(index: number): Rect {
+  const columns = 3;
+  return {
+    x: DASHBOARD_GAP + (index % columns) * (DASHBOARD_PANE_W + DASHBOARD_GAP),
+    y: DASHBOARD_GAP + Math.floor(index / columns) * (DASHBOARD_PANE_H + DASHBOARD_GAP),
+    w: DASHBOARD_PANE_W,
+    h: DASHBOARD_PANE_H,
+  };
+}
 
 // Panes are session types that make sense side by side -- the registry says
 // which, so a new tool or service shows up here without a second list.
@@ -41,6 +71,10 @@ export default function AggregatorPage() {
   // Panes collapsed to just their header. Independent per pane -- minimising
   // one says nothing about the others, unlike a single "focused" pane would.
   const [minimized, setMinimized] = useSessionState<Set<ServiceId>>("minimized", () => new Set());
+  // Where each pane sits on the dashboard canvas. Only meaningful in that
+  // layout, but kept regardless of which one is active -- switching to
+  // dashboard and back shouldn't forget where things were.
+  const [rects, setRects] = useSessionState<Record<ServiceId, Rect>>("dashboardRects", () => ({}));
 
   // Panes register their full context (including the row arrays) here on every
   // render. Keeping it in a ref means that churn never re-renders this page;
@@ -266,6 +300,110 @@ export default function AggregatorPage() {
     });
   }
 
+  // ---- Dashboard layout: freeform position and size -------------------
+
+  /** A pane's rect, falling back to its grid slot if it has never been moved
+   * or resized -- so a pane opened for the first time still lands somewhere
+   * sane without needing to seed `rects` up front. */
+  function rectFor(id: ServiceId, index: number): Rect {
+    return rects[id] ?? defaultRect(index);
+  }
+
+  function updateRect(id: ServiceId, index: number, patch: Partial<Rect>) {
+    setRects((prev) => {
+      const current = prev[id] ?? defaultRect(index);
+      const next = { ...current, ...patch };
+      if (next.x === current.x && next.y === current.y && next.w === current.w && next.h === current.h) return prev;
+      return { ...prev, [id]: next };
+    });
+  }
+
+  // Dragging a pane by its header moves it; dragging its corner handle
+  // resizes it. Both are pointer-captured on the element the gesture started
+  // on, same as the header drag above, so a release anywhere still delivers.
+  // `moved` tracks the same thing it does for the header's reorder drag: below
+  // the threshold this is a click (toggle minimised), past it the trailing
+  // click has to be swallowed via `suppressClick`, or a drag would also
+  // minimise the pane it just repositioned.
+  const dashDragRef = useRef<{
+    id: ServiceId;
+    index: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const dashResizeRef = useRef<{ id: ServiceId; index: number; startX: number; startY: number; originW: number; originH: number } | null>(
+    null,
+  );
+  // Raised above the rest while being moved or resized, so it doesn't render
+  // underneath a pane it is passing over.
+  const [dashActive, setDashActive] = useState<ServiceId | null>(null);
+
+  function startDashDrag(e: ReactPointerEvent<HTMLElement>, id: ServiceId, index: number) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    // A drag that ended without a trailing click (pointer released outside
+    // the header) would otherwise leave this set, swallowing the next
+    // legitimate one.
+    suppressClick.current = false;
+    const rect = rectFor(id, index);
+    dashDragRef.current = { id, index, startX: e.clientX, startY: e.clientY, originX: rect.x, originY: rect.y, moved: false };
+    setDashActive(id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function moveDashDrag(e: ReactPointerEvent<HTMLElement>) {
+    const drag = dashDragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+    drag.moved = true;
+    updateRect(drag.id, drag.index, { x: Math.max(0, drag.originX + dx), y: Math.max(0, drag.originY + dy) });
+  }
+
+  function endDashDrag() {
+    const drag = dashDragRef.current;
+    dashDragRef.current = null;
+    setDashActive(null);
+    if (drag?.moved) suppressClick.current = true;
+  }
+
+  function startDashResize(e: ReactPointerEvent<HTMLElement>, id: ServiceId, index: number) {
+    if (e.button !== 0) return;
+    // The handle sits on the pane, not the header, so nothing here needs to
+    // stop a minimise/drag from also firing -- but the pane's own drag
+    // listener is on the header only, so no propagation guard is needed either.
+    const rect = rectFor(id, index);
+    dashResizeRef.current = { id, index, startX: e.clientX, startY: e.clientY, originW: rect.w, originH: rect.h };
+    setDashActive(id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function moveDashResize(e: ReactPointerEvent<HTMLElement>) {
+    const resize = dashResizeRef.current;
+    if (!resize) return;
+    const w = Math.max(DASHBOARD_MIN_W, resize.originW + (e.clientX - resize.startX));
+    const h = Math.max(DASHBOARD_MIN_H, resize.originH + (e.clientY - resize.startY));
+    updateRect(resize.id, resize.index, { w, h });
+  }
+
+  function endDashResize() {
+    dashResizeRef.current = null;
+    setDashActive(null);
+  }
+
+  // The canvas has to be at least as big as everything on it, or a pane
+  // dragged toward an edge would have nowhere to scroll into.
+  const dashboardExtent = open.reduce(
+    (acc, s, i) => {
+      const r = rectFor(s.id, i);
+      return { w: Math.max(acc.w, r.x + r.w + DASHBOARD_GAP), h: Math.max(acc.h, r.y + r.h + DASHBOARD_GAP) };
+    },
+    { w: 0, h: 400 },
+  );
+
   // Rows from every open pane, each tagged with the service it came from so
   // the assistant can tell a log line from a Cognito user once they're pooled.
   function taggedSelection(): Record<string, unknown>[] {
@@ -334,6 +472,9 @@ export default function AggregatorPage() {
           <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
             Stacked
           </button>
+          <button className={layout === "dashboard" ? "" : "secondary"} onClick={() => setLayout("dashboard")}>
+            Dashboard
+          </button>
         </div>
       </div>
 
@@ -379,20 +520,31 @@ export default function AggregatorPage() {
 
         <div
           className={
-            layout === "columns" ? "aggregator-columns" : layout === "tabs" ? "aggregator-tabbed" : "aggregator-stack"
+            layout === "columns"
+              ? "aggregator-columns"
+              : layout === "tabs"
+                ? "aggregator-tabbed"
+                : layout === "dashboard"
+                  ? "aggregator-dashboard"
+                  : "aggregator-stack"
           }
+          style={layout === "dashboard" ? { minHeight: dashboardExtent.h, minWidth: dashboardExtent.w } : undefined}
         >
           {open.map((s, i) => {
             // In tabs, the tab is the pane's header and its ✕ closes it, so the
             // title bar would only repeat itself; minimising has nothing to
             // mean when one pane fills the view either.
             const tabbed = layout === "tabs";
+            const dashboard = layout === "dashboard";
             const hidden = tabbed ? shownPane?.id !== s.id : false;
             const collapsed = !tabbed && minimized.has(s.id);
             // Which way "earlier" and "later" actually look depends on the
             // layout, so the arrows follow it rather than always saying up/down.
+            // Dashboard has neither -- panes don't have neighbours, they have
+            // a position -- so it hides them rather than picking one.
             const back = layout === "columns" ? "left" : "up";
             const forward = layout === "columns" ? "right" : "down";
+            const rect = dashboard ? rectFor(s.id, i) : null;
             return (
               <section
                 key={s.id}
@@ -407,9 +559,25 @@ export default function AggregatorPage() {
                 className={
                   "aggregator-pane" +
                   (tabbed ? " tabbed" : "") +
+                  (dashboard ? " dashboard-pane" : "") +
                   (collapsed ? " collapsed" : "") +
                   (dragging === s.id ? " dragging" : "") +
-                  (dropTarget === s.id ? " drop-target" : "")
+                  (dropTarget === s.id ? " drop-target" : "") +
+                  (dashActive === s.id ? " dashboard-active" : "")
+                }
+                style={
+                  rect
+                    ? {
+                        left: rect.x,
+                        top: rect.y,
+                        width: rect.w,
+                        // Collapsed panes shrink to their header on the
+                        // dashboard too, the way they flow-shrink elsewhere --
+                        // the stored height is kept, just not applied, so
+                        // expanding it again comes back at the same size.
+                        height: collapsed ? undefined : rect.h,
+                      }
+                    : undefined
                 }
               >
                 {/* The whole title bar toggles, so the buttons on it have to
@@ -418,14 +586,14 @@ export default function AggregatorPage() {
                     It's also the drag handle: a short press is a click and
                     toggles, anything past the threshold is a drag and the
                     click it ends with is swallowed rather than minimising the
-                    pane that was just moved. */}
+                    pane that was just moved (or, on the dashboard, repositioned). */}
                 {!tabbed && (
                 <header
                   className="aggregator-pane-header"
-                  onPointerDown={(e) => startDrag(e, s.id)}
-                  onPointerMove={moveDrag}
-                  onPointerUp={() => endDrag(true)}
-                  onPointerCancel={() => endDrag(false)}
+                  onPointerDown={(e) => (dashboard ? startDashDrag(e, s.id, i) : startDrag(e, s.id))}
+                  onPointerMove={dashboard ? moveDashDrag : moveDrag}
+                  onPointerUp={() => (dashboard ? endDashDrag() : endDrag(true))}
+                  onPointerCancel={() => (dashboard ? endDashDrag() : endDrag(false))}
                   onClick={() => {
                     if (suppressClick.current) {
                       suppressClick.current = false;
@@ -433,36 +601,40 @@ export default function AggregatorPage() {
                     }
                     toggleMinimized(s.id);
                   }}
-                  title={`${collapsed ? "Expand" : "Minimise"} ${s.label} — drag to reorder`}
+                  title={`${collapsed ? "Expand" : "Minimise"} ${s.label} — drag to ${dashboard ? "move" : "reorder"}`}
                 >
                   <span className="aggregator-drag-handle" aria-hidden="true">
                     ⠿
                   </span>
                   <h3>{s.label}</h3>
-                  <button
-                    className="secondary"
-                    disabled={i === 0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveService(s.id, -1);
-                    }}
-                    title={`Move ${s.label} ${back}`}
-                    aria-label={`Move ${s.label} ${back}`}
-                  >
-                    {layout === "columns" ? "◀" : "▲"}
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={i === open.length - 1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveService(s.id, 1);
-                    }}
-                    title={`Move ${s.label} ${forward}`}
-                    aria-label={`Move ${s.label} ${forward}`}
-                  >
-                    {layout === "columns" ? "▶" : "▼"}
-                  </button>
+                  {!dashboard && (
+                    <>
+                      <button
+                        className="secondary"
+                        disabled={i === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveService(s.id, -1);
+                        }}
+                        title={`Move ${s.label} ${back}`}
+                        aria-label={`Move ${s.label} ${back}`}
+                      >
+                        {layout === "columns" ? "◀" : "▲"}
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={i === open.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveService(s.id, 1);
+                        }}
+                        title={`Move ${s.label} ${forward}`}
+                        aria-label={`Move ${s.label} ${forward}`}
+                      >
+                        {layout === "columns" ? "▶" : "▼"}
+                      </button>
+                    </>
+                  )}
                   <button
                     className="secondary"
                     onClick={(e) => {
@@ -492,6 +664,20 @@ export default function AggregatorPage() {
                       kept apart within this one session. */}
                   <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
                 </div>
+                {/* Resize only makes sense once a pane has its own width and
+                    height rather than one dictated by the flow layout, and only
+                    while it's showing a body to resize. */}
+                {dashboard && !collapsed && (
+                  <div
+                    className="aggregator-resize-handle"
+                    onPointerDown={(e) => startDashResize(e, s.id, i)}
+                    onPointerMove={moveDashResize}
+                    onPointerUp={endDashResize}
+                    onPointerCancel={endDashResize}
+                    title={`Resize ${s.label}`}
+                    aria-hidden="true"
+                  />
+                )}
               </section>
             );
           })}

@@ -47,14 +47,15 @@ async function login(browser, seed) {
   // ---------- 3. Platform is pages, not session types ----------
   let page = await login(browser);
   const platform = await page.locator('.panel:has(h2:text-is("Platform")) .home-card-title').allTextContents();
-  check(JSON.stringify(platform) === JSON.stringify(["Agent", "Dashboards", "Workflows", "Chat", "Code", "Settings"]),
+  check(JSON.stringify(platform) === JSON.stringify(["Agent", "Workflows", "Chat", "Code", "Settings"]),
     "Platform offers pages: Agent, the placeholders and Settings", JSON.stringify(platform));
   check(!platform.includes("Aggregator"), "…and no Aggregator, because every session is one");
+  check(!platform.includes("Dashboards"), "…and no Dashboards, folded into the session's own dashboard layout");
 
-  await page.click(`${CARD("Dashboards")} .home-card-open`);
+  await page.click(`${CARD("Workflows")} .home-card-open`);
   await page.waitForTimeout(300);
-  check((await page.locator(".page-info-title").textContent()) === "Dashboards", "A Platform card goes to that page");
-  check((await page.locator(TAB("Dashboards")).count()) === 0, "…without opening a session for it");
+  check((await page.locator(".page-info-title").textContent()) === "Workflows", "A Platform card goes to that page");
+  check((await page.locator(TAB("Workflows")).count()) === 0, "…without opening a session for it");
   check((await page.locator(".content").textContent()).includes("isn't built yet"),
     "…and a placeholder says plainly that it is not built");
 
