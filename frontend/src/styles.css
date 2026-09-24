@@ -1449,29 +1449,84 @@ th {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
+/* One handle per corner -- not just bottom-right, which the floating ✦ Ask AI
+   button (fixed to that same screen corner) can put out of reach for a pane
+   sitting at the bottom-right of the dashboard. */
 .aggregator-resize-handle {
   position: absolute;
-  right: 0;
-  bottom: 0;
   width: 18px;
   height: 18px;
-  cursor: nwse-resize;
   touch-action: none;
+}
+
+.aggregator-resize-handle.se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+.aggregator-resize-handle.nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.aggregator-resize-handle.ne {
+  right: 0;
+  top: 0;
+  cursor: nesw-resize;
+}
+.aggregator-resize-handle.sw {
+  left: 0;
+  bottom: 0;
+  cursor: nesw-resize;
 }
 
 .aggregator-resize-handle::after {
   content: "";
   position: absolute;
-  right: 4px;
-  bottom: 4px;
   width: 8px;
   height: 8px;
+}
+.aggregator-resize-handle.se::after {
+  right: 4px;
+  bottom: 4px;
   border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+}
+.aggregator-resize-handle.nw::after {
+  left: 4px;
+  top: 4px;
+  border-left: 2px solid var(--border);
+  border-top: 2px solid var(--border);
+}
+.aggregator-resize-handle.ne::after {
+  right: 4px;
+  top: 4px;
+  border-right: 2px solid var(--border);
+  border-top: 2px solid var(--border);
+}
+.aggregator-resize-handle.sw::after {
+  left: 4px;
+  bottom: 4px;
+  border-left: 2px solid var(--border);
   border-bottom: 2px solid var(--border);
 }
 
 .aggregator-resize-handle:hover::after {
   border-color: var(--accent);
+}
+
+/* The dashed "cut lines" a drag or resize leaves at the spot it would land in
+   if released now -- the same dashed-outline language `.drop-target` uses
+   elsewhere, just on a phantom rect rather than a real pane, since a
+   dashboard move or resize can land anywhere rather than swap with a
+   neighbour. Sits above even the actively-dragged pane so it's never hidden
+   underneath it. */
+.dashboard-ghost {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 25;
 }
 
 .aggregator-pane {

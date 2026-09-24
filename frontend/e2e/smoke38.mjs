@@ -7,7 +7,9 @@ import { SHOT, check, clearWorkspace, launch, newSession, openApp, report, SHOWN
 
 const PANE = (label) => `.aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
 const HEADER = (label) => `${PANE(label)} .aggregator-pane-header`;
-const RESIZE_HANDLE = (label) => `${PANE(label)} .aggregator-resize-handle`;
+// Bottom-right, matching this suite's own intent (grow down-right); the pane
+// also has nw/ne/sw handles now, so this needs to be specific.
+const RESIZE_HANDLE = (label) => `${PANE(label)} .aggregator-resize-handle.se`;
 
 function overlaps(a, b) {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
