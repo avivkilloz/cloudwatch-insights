@@ -262,7 +262,10 @@ button,
      panel and the body, and the gap between two cards are all .panel's
      margin-bottom. Anything tighter reads as a second rhythm nobody chose. */
   gap: 16px;
-  padding: 16px 16px 0;
+  /* No right padding: that gap is .content's own, inside its scroll box, so
+     the scrollbar sits against the window's edge instead of floating 16px in
+     from it, and the gap lands between the scrollbar and the cards. */
+  padding: 16px 0 0 16px;
 }
 
 
@@ -797,9 +800,12 @@ button,
      `dashboardMaxWidth`) included. */
   scrollbar-width: thin;
   scrollbar-gutter: stable;
-  /* .shell owns every gap around this column, so the cards sit flush with it:
-     a padding here would make the body's left gap wider than the rail's. */
-  padding: 0 0 20px;
+  /* .shell owns the gaps on the left and top (the one between this column and
+     the rail's is its `gap`); the right one is here, inside the scroll box,
+     so the scrollbar is at the window's edge and every card -- the strip, the
+     "Panes" card, a dashboard pane pushed all the way right -- keeps the same
+     16px from it rather than touching it. */
+  padding: 0 16px 20px 0;
 }
 
 /* ---- the session strip ------------------------------------------------- */

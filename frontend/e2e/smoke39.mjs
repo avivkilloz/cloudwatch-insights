@@ -51,6 +51,12 @@ const run = async () => {
   const handleCount = await page.locator(`${PANE("CloudWatch")} .aggregator-resize-handle`).count();
   check(handleCount === 8, "Each dashboard pane has a resize handle on every corner and edge", handleCount);
 
+  // A new pane starts flush in the canvas's top-left corner, where up-left
+  // has nowhere to grow; move it into open space first -- under OpenSearch
+  // (second column), far enough right and down to clear IoT and OpenSearch
+  // by more than the gap once the nw handle grows it up-left.
+  const cwStart = await page.locator(HEADER("CloudWatch")).boundingBox();
+  await dragTo(page, cwStart, cwStart.x + 560, cwStart.y + 400);
   const cwBefore = await box("CloudWatch");
   const nw = await page.locator(HANDLE("CloudWatch", "nw")).boundingBox();
   await dragTo(page, nw, nw.x - 60, nw.y - 40);

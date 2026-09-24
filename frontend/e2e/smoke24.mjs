@@ -46,8 +46,11 @@ const V = ".session-body:not([hidden])";
     const home = document.querySelector(".session-body:not([hidden]) .home") || document.querySelector(".home");
     const content = document.querySelector(".content");
     const cs = getComputedStyle(home);
+    // Each side separately: .content pads only its right (the gap between the
+    // cards and its scrollbar), not both.
+    const pad = getComputedStyle(content);
     return { maxWidth: cs.maxWidth, home: home.getBoundingClientRect().width,
-             avail: content.clientWidth - parseFloat(getComputedStyle(content).paddingLeft) * 2 };
+             avail: content.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight) };
   });
   check(homeW.maxWidth === "none" && Math.abs(homeW.home - homeW.avail) < 2,
     "Home fills the content width like every other page", JSON.stringify(homeW));
