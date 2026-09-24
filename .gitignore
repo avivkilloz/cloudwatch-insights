@@ -6,3 +6,6 @@ frontend/dist/
 *.tsbuildinfo
 .env
 *.log
+
+# Screenshots the browser suites take while you watch them run.
+frontend/e2e/screenshots/
