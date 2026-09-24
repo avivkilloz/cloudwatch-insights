@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-24, mid-session on the round that follows PR #74._
+_Last updated: 2026-09-24, mid-session on the round that follows PR #75._
 
 ## Where things stand
 
@@ -29,17 +29,38 @@ edges/gaps), #74 (dashboard panes resize from any corner instead of just
 bottom-right; dragging toward the bottom edge auto-scrolls; moving/resizing
 keeps a minimum gap, shown while dragging as a dashed "cut lines" preview;
 the resize-handle corner glyphs were dropped in favour of the cursor
-changing shape).
-
-**In this round (not yet merged), boundary fixes for #74's dashboard layout:**
-resizing (not just dragging) is now blocked from crossing the canvas's own
-edges — growing a pane's top edge could push it up over the "Panes" card
-above the canvas, and growing (or dragging) its right edge could push it past
-the canvas's own width, forcing the page into horizontal scroll. Both are
-capped now, on whichever edge the gesture actually moves. Also: resize
+changing shape), #75 (resizing, not just dragging, is now blocked from
+crossing the canvas's own edges — growing a pane's top edge could push it up
+over the "Panes" card, growing or dragging its right edge could push it past
+the canvas's width and force the page into horizontal scroll; resize
 handles now cover the four edges as well as the four corners, each moving
-only the one dimension it sits on (width for e/w, height for n/s). All in
-`frontend/src/pages/AggregatorPage.tsx` and `styles.css`.
+only the one dimension it sits on).
+
+**In this round (not yet merged), two more dashboard-layout complaints:** a
+newly-opened pane could land on top of another still-default-positioned one,
+or past the canvas's actual width, because the old placement formula
+(`defaultRect`) picked a fixed three-column slot from a pane's index without
+checking any pane's *actual current* rect, only the ones explicitly moved —
+two never-moved panes could silently collide, and a canvas narrower than
+three columns could get a pane placed past its right edge. Replaced with
+`dashboardRects()`/`firstAvailableRect()` (`AggregatorPage.tsx`): every open
+pane's rect is now resolved together, in open order, into the first slot
+(sized to however many columns the canvas actually fits) that doesn't come
+within the standard gap of anything already placed — a pane keeps its stored
+position if it has one, and only a pane with none goes looking for a slot.
+Separately: the canvas's own right edge (and so its drag/resize/placement
+boundary) used to shift whenever a vertical scrollbar appeared or
+disappeared, since nothing reserved that space in advance — `.content` now
+sets `scrollbar-gutter: stable` (`styles.css`), so that edge never moves
+purely because a pane added at the bottom made the canvas tall enough to
+scroll; `scrollbar-width: thin` plus subtracting the standard gap from
+`dashboardMaxWidth()`'s boundary also gives panes visible breathing room
+from the scrollbar rather than appearing to touch it. New coverage:
+`frontend/e2e/smoke41.mjs`; `smoke38`/`smoke39`/`smoke40`'s `PANE` selector
+is now scoped to `SHOWN` (an existing documented trap they were exposed to
+by their own mid-test `clearWorkspace()` calls, not something this round's
+change caused), and two of smoke38's sub-tests now use a fresh, isolated
+session rather than positions from the now-narrower-when-warranted packing.
 
 ## Done and working
 
@@ -50,18 +71,23 @@ Everything below is merged and verified against the running app.
   side-by-side/stacked, panes reorder by dragging (pointer events, with edge
   auto-scroll) and minimise individually. In **dashboard**, panes get a
   freeform pixel position and size instead (`dashboardRects` in session
-  state): dragging a header moves a pane, a handle on any corner or edge
-  resizes it (an edge handle moves only that one dimension), both snap to a
-  20px grid and to neighbouring panes' edges/gaps, and neither a drag nor a
-  resize is allowed to end with two panes closer than the standard 16px gap
-  — it slides along whichever axis is still free, or holds at the last
-  position that kept the gap. Neither can cross the canvas's own edges
-  either: not left/top (where the "Panes" card is) or right (which would
-  force the page into horizontal scroll); there's no ceiling on the bottom
-  edge, which the canvas grows and auto-scrolls to reach instead. While
-  dragging or resizing, the pane itself follows the raw pointer and a dashed
-  "cut lines" outline shows the snapped, gap- and boundary-respecting spot it
-  will actually land in on release. Sessions autosave to `live_sessions`
+  state, resolved together for every open pane in open order — a pane keeps
+  a stored position if it has one, otherwise it gets the first slot that
+  doesn't come within the standard gap of anything already placed): dragging
+  a header moves a pane, a handle on any corner or edge resizes it (an edge
+  handle moves only that one dimension), both snap to a 20px grid and to
+  neighbouring panes' edges/gaps, and neither a drag nor a resize is allowed
+  to end with two panes closer than the standard 16px gap — it slides along
+  whichever axis is still free, or holds at the last position that kept the
+  gap. Neither can cross the canvas's own edges either: not left/top (where
+  the "Panes" card is) or right (which would force the page into horizontal
+  scroll, and is sized to whatever the canvas's own `clientWidth` actually
+  is, which `scrollbar-gutter: stable` keeps from shifting when a vertical
+  scrollbar appears or disappears); there's no ceiling on the bottom edge,
+  which the canvas grows and auto-scrolls to reach instead. While dragging or
+  resizing, the pane itself follows the raw pointer and a dashed "cut lines"
+  outline shows the snapped, gap- and boundary-respecting spot it will
+  actually land in on release. Sessions autosave to `live_sessions`
   (1.2 s debounce),
   survive a reload, follow you to a fresh browser profile, and split Close
   (kept, dimmed in the panel, still inside its category if it had one) from
@@ -85,14 +111,15 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 163 backend tests green; 28 Playwright suites green.
+- **Tests:** 163 backend tests green; 29 Playwright suites green.
 
 ## In progress / where I left off
 
 Nothing half-written — the tree is clean, verified against the running app,
 and the only thing outstanding is the PR carrying this round's fixes
-(dashboard canvas-boundary clamping for drag and resize, and edge resize
-handles). Start the next round by restarting the branch from `main`
+(first-available-slot pane placement, and a stable scrollbar-gutter'd canvas
+edge with visible breathing room from the scrollbar). Start the next round by
+restarting the branch from `main`
 (`git fetch origin main && git checkout -B <branch> origin/main`).
 
 ## Known issues

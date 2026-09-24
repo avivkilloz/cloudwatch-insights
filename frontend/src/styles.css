@@ -790,6 +790,13 @@ button,
   flex: 1;
   min-width: 0;
   overflow: auto;
+  /* Thin, and always reserved (whether or not there's enough to scroll):
+     without a reserved gutter, a vertical scrollbar appearing shrinks this
+     column's width out from under whatever's already laid out against it --
+     the dashboard layout's own right edge (AggregatorPage.tsx,
+     `dashboardMaxWidth`) included. */
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
   /* .shell owns every gap around this column, so the cards sit flush with it:
      a padding here would make the body's left gap wider than the rail's. */
   padding: 0 0 20px;
