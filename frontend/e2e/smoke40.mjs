@@ -71,6 +71,12 @@ const run = async () => {
   await page.screenshot({ path: `${SHOT}/40-drag-blocked.png` });
 
   // ---------- 3. an edge handle resizes only its own axis ----------
+  // Sections 1b/2 left the pane spanning the canvas's full width, so the west
+  // edge has nowhere to grow: narrow it from the east and move it right first.
+  const eHandle3 = await page.locator(HANDLE("CloudWatch", "e")).boundingBox();
+  await dragTo(page, eHandle3, eHandle3.x - 300, eHandle3.y);
+  const header3 = await page.locator(HEADER("CloudWatch")).boundingBox();
+  await dragTo(page, header3, header3.x + 200, header3.y);
   const before = await box("CloudWatch");
   const wHandle = await page.locator(HANDLE("CloudWatch", "w")).boundingBox();
   await dragTo(page, wHandle, wHandle.x - 60, wHandle.y);
