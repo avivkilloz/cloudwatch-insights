@@ -88,6 +88,24 @@ def test_deleting_a_category_ungroups_its_sessions_instead_of_deleting_them():
     assert restored["category_id"] is None
 
 
+def test_a_closed_session_keeps_its_category_in_the_summary():
+    """The side panel groups closed sessions under their category too, dimmed
+    rather than pulled into a separate list -- which only works if the closed
+    listing says which category each one was in."""
+    category = _create("Prod")
+    _put_session("s1", category_id=category["id"])
+    assert client.post("/api/live-sessions/s1/close").status_code == 200
+
+    (summary,) = client.get("/api/live-sessions/closed").json()
+    assert summary["category_id"] == category["id"]
+
+    # And an uncategorized one still reads as uncategorized once closed.
+    _put_session("s2")
+    client.post("/api/live-sessions/s2/close")
+    by_id = {s["client_id"]: s for s in client.get("/api/live-sessions/closed").json()}
+    assert by_id["s2"]["category_id"] is None
+
+
 def test_categories_are_scoped_per_user():
     _create("Prod")
 

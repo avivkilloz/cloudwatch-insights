@@ -51,6 +51,109 @@ function defaultRect(index: number): Rect {
   };
 }
 
+// ---- Dashboard: no two panes may occupy the same space, and moving or
+// resizing one snaps -- to a plain grid, and to whatever it is already close
+// to lining up with -- so relocating panes feels intentional rather than
+// like placing them freehand pixel by pixel.
+
+/** Coarse alignment for a drag or resize: fine enough that a mouse-pixel nudge
+ * doesn't fight it, coarse enough to read as a deliberate snap rather than a
+ * coincidence. */
+const DASHBOARD_GRID = 20;
+
+/** How close (px) a pane's edge has to come to another's, while being dragged
+ * or resized, before it snaps flush against it or into the usual gap past it
+ * -- the "smart guide" a design tool gives you, without drawing the guide. */
+const DASHBOARD_SNAP_PX = 10;
+
+/** A minimised pane shrinks to just its header on the dashboard (see the
+ * render below, which leaves its height unset while collapsed); this is that
+ * header's footprint for collision and snapping, so a pane being dragged
+ * doesn't detour around room a collapsed neighbour no longer occupies. */
+const DASHBOARD_HEADER_H = 40;
+
+function rectsOverlap(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/** The plain grid, or -- if it is close enough -- whichever candidate is
+ * nearest to where the pointer actually put things. Falls back to the grid
+ * alone once nothing offered is within snapping distance. */
+function snapAxis(value: number, candidates: number[]): number {
+  let best = Math.round(value / DASHBOARD_GRID) * DASHBOARD_GRID;
+  let bestDelta = Math.abs(best - value);
+  for (const candidate of candidates) {
+    const delta = Math.abs(candidate - value);
+    if (delta <= DASHBOARD_SNAP_PX && delta < bestDelta) {
+      best = candidate;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+/** Left-edge positions a moving pane's own left edge would snap to: flush
+ * against a neighbour's near or far edge, or the usual gap past either one. */
+function xCandidates(neighbors: Rect[], width: number): number[] {
+  const out: number[] = [];
+  for (const n of neighbors) out.push(n.x, n.x + n.w - width, n.x + n.w + DASHBOARD_GAP, n.x - width - DASHBOARD_GAP);
+  return out;
+}
+function yCandidates(neighbors: Rect[], height: number): number[] {
+  const out: number[] = [];
+  for (const n of neighbors) out.push(n.y, n.y + n.h - height, n.y + n.h + DASHBOARD_GAP, n.y - height - DASHBOARD_GAP);
+  return out;
+}
+/** Widths (from a fixed left edge) that put a resizing pane's right edge
+ * flush against a neighbour's edge, or the usual gap short of it. */
+function widthCandidates(neighbors: Rect[], originX: number): number[] {
+  const out: number[] = [];
+  for (const n of neighbors) {
+    out.push(n.x - originX - DASHBOARD_GAP, n.x - originX, n.x + n.w - originX, n.x + n.w - originX + DASHBOARD_GAP);
+  }
+  return out;
+}
+function heightCandidates(neighbors: Rect[], originY: number): number[] {
+  const out: number[] = [];
+  for (const n of neighbors) {
+    out.push(n.y - originY - DASHBOARD_GAP, n.y - originY, n.y + n.h - originY, n.y + n.h - originY + DASHBOARD_GAP);
+  }
+  return out;
+}
+
+/** Applies a drag's desired x/y, but never lets the pane land on top of
+ * another. If the full move would overlap, it tries sliding along just one
+ * axis -- the way a window bumps a wall but keeps going along it when you
+ * drag diagonally past a neighbour -- before giving up and leaving the pane
+ * wherever it last legally was. */
+function resolveMove(
+  prev: { x: number; y: number },
+  size: { w: number; h: number },
+  target: { x: number; y: number },
+  neighbors: Rect[],
+): { x: number; y: number } {
+  const blocked = (x: number, y: number) => neighbors.some((n) => rectsOverlap({ x, y, ...size }, n));
+  if (!blocked(target.x, target.y)) return target;
+  if (!blocked(target.x, prev.y)) return { x: target.x, y: prev.y };
+  if (!blocked(prev.x, target.y)) return { x: prev.x, y: target.y };
+  return prev;
+}
+
+/** Same idea for a resize: the top-left corner is fixed, so it is the width
+ * and height that give way when the grown rect would overlap a neighbour. */
+function resolveResize(
+  prev: { w: number; h: number },
+  origin: { x: number; y: number },
+  target: { w: number; h: number },
+  neighbors: Rect[],
+): { w: number; h: number } {
+  const blocked = (w: number, h: number) => neighbors.some((n) => rectsOverlap({ ...origin, w, h }, n));
+  if (!blocked(target.w, target.h)) return target;
+  if (!blocked(target.w, prev.h)) return { w: target.w, h: prev.h };
+  if (!blocked(prev.w, target.h)) return { w: prev.w, h: target.h };
+  return prev;
+}
+
 // Panes are session types that make sense side by side -- the registry says
 // which, so a new tool or service shows up here without a second list.
 const SERVICES = PANE_TYPES.map((t) => ({
@@ -304,9 +407,24 @@ export default function AggregatorPage() {
 
   /** A pane's rect, falling back to its grid slot if it has never been moved
    * or resized -- so a pane opened for the first time still lands somewhere
-   * sane without needing to seed `rects` up front. */
+   * sane without needing to seed `rects` up front. That fallback slot is
+   * nudged down past anything already explicitly placed there, so a freshly
+   * opened pane never starts life sitting on top of one someone has since
+   * dragged into its way -- the grid's own slots never collide with each
+   * other by construction, so only explicitly-placed neighbours need checking. */
   function rectFor(id: ServiceId, index: number): Rect {
-    return rects[id] ?? defaultRect(index);
+    const stored = rects[id];
+    if (stored) return stored;
+    let candidate = defaultRect(index);
+    const placed = Object.entries(rects)
+      .filter(([placedId]) => placedId !== id)
+      .map(([, r]) => r);
+    let guard = 0;
+    while (placed.some((r) => rectsOverlap(candidate, r)) && guard < 50) {
+      candidate = { ...candidate, y: candidate.y + DASHBOARD_PANE_H + DASHBOARD_GAP };
+      guard += 1;
+    }
+    return candidate;
   }
 
   function updateRect(id: ServiceId, index: number, patch: Partial<Rect>) {
@@ -318,6 +436,24 @@ export default function AggregatorPage() {
     });
   }
 
+  /** A pane's footprint for collision and snapping purposes: its stored rect,
+   * shrunk to just its header while minimised (see the render below), since
+   * that is the room it actually occupies on the dashboard. */
+  function footprint(id: ServiceId, index: number): Rect {
+    const r = rectFor(id, index);
+    return minimized.has(id) ? { ...r, h: DASHBOARD_HEADER_H } : r;
+  }
+
+  /** Every other open pane's current footprint, for checking one being
+   * dragged or resized against. */
+  function neighborFootprints(excludeId: ServiceId): Rect[] {
+    const out: Rect[] = [];
+    open.forEach((s, i) => {
+      if (s.id !== excludeId) out.push(footprint(s.id, i));
+    });
+    return out;
+  }
+
   // Dragging a pane by its header moves it; dragging its corner handle
   // resizes it. Both are pointer-captured on the element the gesture started
   // on, same as the header drag above, so a release anywhere still delivers.
@@ -325,6 +461,13 @@ export default function AggregatorPage() {
   // the threshold this is a click (toggle minimised), past it the trailing
   // click has to be swallowed via `suppressClick`, or a drag would also
   // minimise the pane it just repositioned.
+  //
+  // Both also carry a `last*` field alongside their `origin*`: the target
+  // position/size is recomputed from the gesture's start plus the pointer's
+  // total travel on every move (so a frame that never arrives during a fast
+  // drag isn't lost), but when that target is blocked the pane has to stay
+  // wherever it last actually got to, not snap back to where the gesture
+  // began -- `last*` is that place.
   const dashDragRef = useRef<{
     id: ServiceId;
     index: number;
@@ -332,11 +475,24 @@ export default function AggregatorPage() {
     startY: number;
     originX: number;
     originY: number;
+    w: number;
+    h: number;
+    lastX: number;
+    lastY: number;
     moved: boolean;
   } | null>(null);
-  const dashResizeRef = useRef<{ id: ServiceId; index: number; startX: number; startY: number; originW: number; originH: number } | null>(
-    null,
-  );
+  const dashResizeRef = useRef<{
+    id: ServiceId;
+    index: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originW: number;
+    originH: number;
+    lastW: number;
+    lastH: number;
+  } | null>(null);
   // Raised above the rest while being moved or resized, so it doesn't render
   // underneath a pane it is passing over.
   const [dashActive, setDashActive] = useState<ServiceId | null>(null);
@@ -347,8 +503,20 @@ export default function AggregatorPage() {
     // the header) would otherwise leave this set, swallowing the next
     // legitimate one.
     suppressClick.current = false;
-    const rect = rectFor(id, index);
-    dashDragRef.current = { id, index, startX: e.clientX, startY: e.clientY, originX: rect.x, originY: rect.y, moved: false };
+    const fp = footprint(id, index);
+    dashDragRef.current = {
+      id,
+      index,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: fp.x,
+      originY: fp.y,
+      w: fp.w,
+      h: fp.h,
+      lastX: fp.x,
+      lastY: fp.y,
+      moved: false,
+    };
     setDashActive(id);
     e.currentTarget.setPointerCapture(e.pointerId);
   }
@@ -360,7 +528,18 @@ export default function AggregatorPage() {
     const dy = e.clientY - drag.startY;
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     drag.moved = true;
-    updateRect(drag.id, drag.index, { x: Math.max(0, drag.originX + dx), y: Math.max(0, drag.originY + dy) });
+    const neighbors = neighborFootprints(drag.id);
+    const size = { w: drag.w, h: drag.h };
+    const rawX = Math.max(0, drag.originX + dx);
+    const rawY = Math.max(0, drag.originY + dy);
+    const target = {
+      x: Math.max(0, snapAxis(rawX, xCandidates(neighbors, size.w))),
+      y: Math.max(0, snapAxis(rawY, yCandidates(neighbors, size.h))),
+    };
+    const resolved = resolveMove({ x: drag.lastX, y: drag.lastY }, size, target, neighbors);
+    drag.lastX = resolved.x;
+    drag.lastY = resolved.y;
+    updateRect(drag.id, drag.index, resolved);
   }
 
   function endDashDrag() {
@@ -375,8 +554,21 @@ export default function AggregatorPage() {
     // The handle sits on the pane, not the header, so nothing here needs to
     // stop a minimise/drag from also firing -- but the pane's own drag
     // listener is on the header only, so no propagation guard is needed either.
+    // Never rendered while collapsed (see below), so the pane's own footprint
+    // is its real rect here, not the collapsed header height.
     const rect = rectFor(id, index);
-    dashResizeRef.current = { id, index, startX: e.clientX, startY: e.clientY, originW: rect.w, originH: rect.h };
+    dashResizeRef.current = {
+      id,
+      index,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: rect.x,
+      originY: rect.y,
+      originW: rect.w,
+      originH: rect.h,
+      lastW: rect.w,
+      lastH: rect.h,
+    };
     setDashActive(id);
     e.currentTarget.setPointerCapture(e.pointerId);
   }
@@ -384,9 +576,18 @@ export default function AggregatorPage() {
   function moveDashResize(e: ReactPointerEvent<HTMLElement>) {
     const resize = dashResizeRef.current;
     if (!resize) return;
-    const w = Math.max(DASHBOARD_MIN_W, resize.originW + (e.clientX - resize.startX));
-    const h = Math.max(DASHBOARD_MIN_H, resize.originH + (e.clientY - resize.startY));
-    updateRect(resize.id, resize.index, { w, h });
+    const neighbors = neighborFootprints(resize.id);
+    const origin = { x: resize.originX, y: resize.originY };
+    const rawW = Math.max(DASHBOARD_MIN_W, resize.originW + (e.clientX - resize.startX));
+    const rawH = Math.max(DASHBOARD_MIN_H, resize.originH + (e.clientY - resize.startY));
+    const target = {
+      w: Math.max(DASHBOARD_MIN_W, snapAxis(rawW, widthCandidates(neighbors, origin.x))),
+      h: Math.max(DASHBOARD_MIN_H, snapAxis(rawH, heightCandidates(neighbors, origin.y))),
+    };
+    const resolved = resolveResize({ w: resize.lastW, h: resize.lastH }, origin, target, neighbors);
+    resize.lastW = resolved.w;
+    resize.lastH = resolved.h;
+    updateRect(resize.id, resize.index, resolved);
   }
 
   function endDashResize() {

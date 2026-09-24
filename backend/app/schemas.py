@@ -697,6 +697,10 @@ class LiveSessionSummary(BaseModel):
     title: str
     truncated: bool
     closed_at: Optional[datetime] = None
+    # So the panel can still group a closed session under its category instead
+    # of pulling it into a separate list -- without this the closed listing had
+    # no way to say which category a session belonged to before it was closed.
+    category_id: Optional[int] = None
 
 
 class LiveSessionOrder(BaseModel):
