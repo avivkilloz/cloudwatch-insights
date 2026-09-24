@@ -1,6 +1,6 @@
-// Three follow-ups on the dashboard layout: a pane can be resized from any of
-// its four corners, not just bottom-right (which the floating Ask AI button
-// can cover); dragging a pane toward the bottom edge of the canvas scrolls it
+// Three follow-ups on the dashboard layout: a pane can be resized from any
+// corner, not just bottom-right (which the floating Ask AI button can
+// cover); dragging a pane toward the bottom edge of the canvas scrolls it
 // into view; and moving/resizing keeps at least the standard gap between
 // panes -- shown while dragging as a dashed "cut lines" outline at the spot
 // the pane will actually land, separate from the pane itself, which follows
@@ -46,7 +46,7 @@ const run = async () => {
 
   // ---------- 1. resize from any corner ----------
   const handleCount = await page.locator(`${PANE("CloudWatch")} .aggregator-resize-handle`).count();
-  check(handleCount === 4, "Each dashboard pane has four resize handles", handleCount);
+  check(handleCount === 8, "Each dashboard pane has a resize handle on every corner and edge", handleCount);
 
   const cwBefore = await box("CloudWatch");
   const nw = await page.locator(HANDLE("CloudWatch", "nw")).boundingBox();

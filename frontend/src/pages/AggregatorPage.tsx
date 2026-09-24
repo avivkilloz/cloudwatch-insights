@@ -86,6 +86,10 @@ function rectsOverlap(a: Rect, b: Rect, pad = 0): boolean {
   return a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 /** The plain grid, or -- if it is close enough -- whichever candidate is
  * nearest to where the pointer actually put things. Falls back to the grid
  * alone once nothing offered is within snapping distance. */
@@ -302,6 +306,17 @@ export default function AggregatorPage() {
     return document.querySelector<HTMLElement>(".content");
   }
 
+  /** The dashboard canvas's own rendered width -- how far right a pane may be
+   * dragged or resized. It's read from the DOM rather than kept in state
+   * because it's just the "Panes" card's width (the canvas sets no width of
+   * its own, so it fills its container like everything else on the page);
+   * the alternative, sizing the canvas to whatever the widest dragged pane
+   * needs, is what let a pane get dragged or resized out past the edge of the
+   * page in the first place. */
+  function dashboardMaxWidth(): number {
+    return document.querySelector<HTMLElement>(".aggregator-dashboard")?.clientWidth ?? Infinity;
+  }
+
   function autoScrollTick() {
     const drag = dragRef.current;
     const el = scroller();
@@ -451,10 +466,24 @@ export default function AggregatorPage() {
     return out;
   }
 
-  /** The four corners a pane can be resized from -- so a pane sitting where
-   * the floating ✦ Ask AI button covers its bottom-right corner still has
-   * three other corners to grab. */
-  type Corner = "nw" | "ne" | "sw" | "se";
+  /** The eight places a pane can be resized from -- the four corners (so a
+   * pane sitting where the floating ✦ Ask AI button covers its bottom-right
+   * corner still has three others to grab) plus the four edges, for a
+   * one-axis resize without having to line up on a corner. */
+  type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+  /** Which edge(s) a handle moves: -1 is the near (west/north) edge, 1 the
+   * far (east/south) edge, 0 means that axis doesn't change at all. */
+  const RESIZE_HANDLE_AXES: Record<ResizeHandle, { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }> = {
+    nw: { dx: -1, dy: -1 },
+    n: { dx: 0, dy: -1 },
+    ne: { dx: 1, dy: -1 },
+    e: { dx: 1, dy: 0 },
+    se: { dx: 1, dy: 1 },
+    s: { dx: 0, dy: 1 },
+    sw: { dx: -1, dy: 1 },
+    w: { dx: -1, dy: 0 },
+  };
 
   // Dragging a pane by its header moves it; dragging one of its corner
   // handles resizes it. Both are pointer-captured on the element the gesture
@@ -492,7 +521,7 @@ export default function AggregatorPage() {
   const dashResizeRef = useRef<{
     id: ServiceId;
     index: number;
-    corner: Corner;
+    corner: ResizeHandle;
     startX: number;
     startY: number;
     startScrollTop: number;
@@ -583,13 +612,17 @@ export default function AggregatorPage() {
   function updateDashDragPreview(drag: NonNullable<typeof dashDragRef.current>) {
     const scrolled = (scroller()?.scrollTop ?? 0) - drag.startScrollTop;
     const size = { w: drag.w, h: drag.h };
-    const liveX = Math.max(0, drag.originX + (drag.lastClientX - drag.startX));
+    // The right edge can't pass the canvas's own right edge -- the left and
+    // top edges already can't go negative, which keeps a pane from being
+    // dragged up over the "Panes" card above the canvas the same way.
+    const maxX = Math.max(0, dashboardMaxWidth() - size.w);
+    const liveX = clamp(drag.originX + (drag.lastClientX - drag.startX), 0, maxX);
     const liveY = Math.max(0, drag.originY + (drag.lastClientY - drag.startY) + scrolled);
     setDashLive({ id: drag.id, rect: { x: liveX, y: liveY, ...size } });
 
     const neighbors = neighborFootprints(drag.id);
     const target = {
-      x: Math.max(0, snapAxis(liveX, xCandidates(neighbors, size.w))),
+      x: clamp(snapAxis(liveX, xCandidates(neighbors, size.w)), 0, maxX),
       y: Math.max(0, snapAxis(liveY, yCandidates(neighbors, size.h))),
       ...size,
     };
@@ -624,7 +657,7 @@ export default function AggregatorPage() {
     updateRect(drag.id, drag.index, { x: drag.lastX, y: drag.lastY, w: drag.w, h: drag.h });
   }
 
-  function startDashResize(e: ReactPointerEvent<HTMLElement>, id: ServiceId, index: number, corner: Corner) {
+  function startDashResize(e: ReactPointerEvent<HTMLElement>, id: ServiceId, index: number, corner: ResizeHandle) {
     if (e.button !== 0) return;
     // The handle sits on the pane, not the header, so nothing here needs to
     // stop a minimise/drag from also firing -- but the pane's own drag
@@ -657,34 +690,64 @@ export default function AggregatorPage() {
 
   function updateDashResizePreview(resize: NonNullable<typeof dashResizeRef.current>) {
     const scrolled = (scroller()?.scrollTop ?? 0) - resize.startScrollTop;
-    const { corner } = resize;
-    const growsRight = corner === "se" || corner === "ne";
-    const growsDown = corner === "se" || corner === "sw";
+    const { dx: xDir, dy: yDir } = RESIZE_HANDLE_AXES[resize.corner];
     const rightFixed = resize.originX + resize.originW;
     const bottomFixed = resize.originY + resize.originH;
+    const maxWidth = dashboardMaxWidth();
     const dx = resize.lastClientX - resize.startX;
     const dy = resize.lastClientY - resize.startY + scrolled;
 
-    const liveW = Math.max(DASHBOARD_MIN_W, growsRight ? resize.originW + dx : resize.originW - dx);
-    const liveH = Math.max(DASHBOARD_MIN_H, growsDown ? resize.originH + dy : resize.originH - dy);
-    const liveRect = {
-      x: growsRight ? resize.originX : rightFixed - liveW,
-      y: growsDown ? resize.originY : bottomFixed - liveH,
-      w: liveW,
-      h: liveH,
-    };
-    setDashLive({ id: resize.id, rect: liveRect });
+    // Horizontal: unset (0) leaves the width/x alone; the east edge can't
+    // pass the canvas's own right edge, the west edge can't go negative.
+    let liveW = resize.originW;
+    let liveX = resize.originX;
+    if (xDir === 1) {
+      liveW = clamp(resize.originW + dx, DASHBOARD_MIN_W, Math.max(DASHBOARD_MIN_W, maxWidth - resize.originX));
+    } else if (xDir === -1) {
+      liveW = clamp(resize.originW - dx, DASHBOARD_MIN_W, rightFixed);
+      liveX = rightFixed - liveW;
+    }
+
+    // Vertical: same idea, but there's no ceiling on how far down a pane can
+    // grow -- the canvas grows and auto-scrolls with it -- only a floor on
+    // how far up, which is the canvas's own top edge, right below the
+    // "Panes" card.
+    let liveH = resize.originH;
+    let liveY = resize.originY;
+    if (yDir === 1) {
+      liveH = Math.max(DASHBOARD_MIN_H, resize.originH + dy);
+    } else if (yDir === -1) {
+      liveH = clamp(resize.originH - dy, DASHBOARD_MIN_H, bottomFixed);
+      liveY = bottomFixed - liveH;
+    }
+    setDashLive({ id: resize.id, rect: { x: liveX, y: liveY, w: liveW, h: liveH } });
 
     const neighbors = neighborFootprints(resize.id);
     const exCandidates = edgeCandidatesX(neighbors);
     const eyCandidates = edgeCandidatesY(neighbors);
-    const w = growsRight
-      ? Math.max(DASHBOARD_MIN_W, snapAxis(resize.originX + liveW, exCandidates) - resize.originX)
-      : Math.max(DASHBOARD_MIN_W, rightFixed - snapAxis(rightFixed - liveW, exCandidates));
-    const h = growsDown
-      ? Math.max(DASHBOARD_MIN_H, snapAxis(resize.originY + liveH, eyCandidates) - resize.originY)
-      : Math.max(DASHBOARD_MIN_H, bottomFixed - snapAxis(bottomFixed - liveH, eyCandidates));
-    const target = { x: growsRight ? resize.originX : rightFixed - w, y: growsDown ? resize.originY : bottomFixed - h, w, h };
+
+    let w = liveW;
+    let x = liveX;
+    if (xDir === 1) {
+      const snapped = snapAxis(resize.originX + liveW, exCandidates);
+      w = clamp(snapped - resize.originX, DASHBOARD_MIN_W, Math.max(DASHBOARD_MIN_W, maxWidth - resize.originX));
+    } else if (xDir === -1) {
+      const snapped = snapAxis(rightFixed - liveW, exCandidates);
+      w = clamp(rightFixed - snapped, DASHBOARD_MIN_W, rightFixed);
+      x = rightFixed - w;
+    }
+
+    let h = liveH;
+    let y = liveY;
+    if (yDir === 1) {
+      h = Math.max(DASHBOARD_MIN_H, snapAxis(resize.originY + liveH, eyCandidates) - resize.originY);
+    } else if (yDir === -1) {
+      const snapped = snapAxis(bottomFixed - liveH, eyCandidates);
+      h = clamp(bottomFixed - snapped, DASHBOARD_MIN_H, bottomFixed);
+      y = bottomFixed - h;
+    }
+
+    const target = { x, y, w, h };
     const resolved = resolveRect(
       { x: resize.lastX, y: resize.lastY, w: resize.lastW, h: resize.lastH },
       target,
@@ -716,15 +779,16 @@ export default function AggregatorPage() {
     if (resize) updateRect(resize.id, resize.index, { x: resize.lastX, y: resize.lastY, w: resize.lastW, h: resize.lastH });
   }
 
-  // The canvas has to be at least as big as everything on it, or a pane
-  // dragged toward an edge would have nowhere to scroll into.
-  const dashboardExtent = open.reduce(
-    (acc, s, i) => {
-      const r = rectFor(s.id, i);
-      return { w: Math.max(acc.w, r.x + r.w + DASHBOARD_GAP), h: Math.max(acc.h, r.y + r.h + DASHBOARD_GAP) };
-    },
-    { w: 0, h: 400 },
-  );
+  // The canvas has to be at least as tall as everything on it, or a pane
+  // dragged toward the bottom would have nowhere to scroll into. Width isn't
+  // grown the same way -- the canvas sets no width of its own (it fills its
+  // container, the same as the "Panes" card above it), which is also the
+  // right edge nothing may be dragged or resized past (see
+  // `dashboardMaxWidth`).
+  const dashboardExtentH = open.reduce((h, s, i) => {
+    const r = rectFor(s.id, i);
+    return Math.max(h, r.y + r.h + DASHBOARD_GAP);
+  }, 400);
 
   // Rows from every open pane, each tagged with the service it came from so
   // the assistant can tell a log line from a Cognito user once they're pooled.
@@ -850,7 +914,7 @@ export default function AggregatorPage() {
                   ? "aggregator-dashboard"
                   : "aggregator-stack"
           }
-          style={layout === "dashboard" ? { minHeight: dashboardExtent.h, minWidth: dashboardExtent.w } : undefined}
+          style={layout === "dashboard" ? { minHeight: dashboardExtentH } : undefined}
         >
           {open.map((s, i) => {
             // In tabs, the tab is the pane's header and its ✕ closes it, so the
@@ -993,13 +1057,14 @@ export default function AggregatorPage() {
                 </div>
                 {/* Resize only makes sense once a pane has its own width and
                     height rather than one dictated by the flow layout, and only
-                    while it's showing a body to resize. One handle per corner,
-                    not just the bottom-right -- a pane sitting where the
-                    floating ✦ Ask AI button covers that corner still has three
-                    others to grab. */}
+                    while it's showing a body to resize. A handle on every
+                    corner and every edge: corners so a pane sitting where the
+                    floating ✦ Ask AI button covers one corner still has three
+                    others to grab, edges so growing just the width or just
+                    the height doesn't need lining up on a corner first. */}
                 {dashboard &&
                   !collapsed &&
-                  (["nw", "ne", "sw", "se"] as const).map((corner) => (
+                  (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((corner) => (
                     <div
                       key={corner}
                       className={`aggregator-resize-handle ${corner}`}

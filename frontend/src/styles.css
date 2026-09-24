@@ -1449,18 +1449,24 @@ th {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-/* One handle per corner -- not just bottom-right, which the floating ✦ Ask AI
-   button (fixed to that same screen corner) can put out of reach for a pane
-   sitting at the bottom-right of the dashboard. No glyph marks the hit area:
-   the cursor itself changes shape over it, which is affordance enough, and
-   four little corner marks on every pane was more clutter than help. */
+/* A handle on every corner and every edge -- corners so the floating ✦ Ask AI
+   button (fixed to that screen corner) covering one still leaves three others
+   to grab, edges so growing just the width or just the height doesn't need
+   lining up on a corner first. No glyph marks any of them: the cursor itself
+   changes shape over the hit area, which is affordance enough, and eight
+   little marks on every pane would be more clutter than help. */
 .aggregator-resize-handle {
   position: absolute;
-  width: 18px;
-  height: 18px;
   touch-action: none;
 }
 
+.aggregator-resize-handle.nw,
+.aggregator-resize-handle.ne,
+.aggregator-resize-handle.se,
+.aggregator-resize-handle.sw {
+  width: 18px;
+  height: 18px;
+}
 .aggregator-resize-handle.se {
   right: 0;
   bottom: 0;
@@ -1480,6 +1486,35 @@ th {
   left: 0;
   bottom: 0;
   cursor: nesw-resize;
+}
+
+/* Edges: a strip along the side, inset past the corner handles at each end
+   so the two kinds don't fight over the same pixels. */
+.aggregator-resize-handle.n,
+.aggregator-resize-handle.s {
+  left: 18px;
+  right: 18px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.aggregator-resize-handle.n {
+  top: 0;
+}
+.aggregator-resize-handle.s {
+  bottom: 0;
+}
+.aggregator-resize-handle.e,
+.aggregator-resize-handle.w {
+  top: 18px;
+  bottom: 18px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.aggregator-resize-handle.e {
+  right: 0;
+}
+.aggregator-resize-handle.w {
+  left: 0;
 }
 
 /* The dashed "cut lines" a drag or resize leaves at the spot it would land in
