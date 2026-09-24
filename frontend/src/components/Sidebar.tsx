@@ -1,5 +1,6 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "../AuthContext";
+import { LiveSessionSummary } from "../api";
 import { useSessions } from "../sessions/SessionContext";
 import { PersistedSession } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
@@ -226,7 +227,10 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
 
   // Grouped for rendering, in the sessions' own relative order within each
   // group -- categorizing a session never reorders it among its new
-  // neighbours.
+  // neighbours. Closed sessions are grouped the same way, by the category
+  // they were in when closed: closing takes a session off the strip, not out
+  // of whatever group it belonged to, so it stays there dimmed instead of
+  // dropping into one flat list at the very bottom of the panel.
   const byCategory = new Map<number, PersistedSession[]>();
   const uncategorized: PersistedSession[] = [];
   for (const s of sessions) {
@@ -237,6 +241,17 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     const list = byCategory.get(s.categoryId);
     if (list) list.push(s);
     else byCategory.set(s.categoryId, [s]);
+  }
+  const closedByCategory = new Map<number, LiveSessionSummary[]>();
+  const uncategorizedClosed: LiveSessionSummary[] = [];
+  for (const s of closed) {
+    if (s.category_id == null) {
+      uncategorizedClosed.push(s);
+      continue;
+    }
+    const list = closedByCategory.get(s.category_id);
+    if (list) list.push(s);
+    else closedByCategory.set(s.category_id, [s]);
   }
 
   /** One row, open or being renamed -- shared by the uncategorized list and
@@ -316,6 +331,34 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     );
   }
 
+  /** A closed session's row -- dimmed, and its own ⋮ has nothing on it, so a
+   * click reopens it outright rather than acting on the row underneath. The
+   * ✕ is its own class, not the ⋮'s: it deletes on the spot, and anything
+   * hunting for "the row's menu button" should not find it. */
+  function renderClosedRow(s: LiveSessionSummary) {
+    return (
+      <div key={s.client_id} data-closed-session-id={s.client_id} className="rail-row rail-row-closed">
+        <button
+          className="rail-row-label"
+          onClick={() => reopen(s.client_id)}
+          title={`${s.title} — closed; click to open it again`}
+        >
+          {s.title}
+        </button>
+        <button
+          className="rail-row-forget"
+          onClick={() => {
+            if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.client_id);
+          }}
+          aria-label={`Delete ${s.title}`}
+          title="Throw the session away for good"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+
   if (!expanded) return null;
 
   return (
@@ -344,9 +387,12 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
           strength, the ones you closed are dimmed -- closing takes a session
           off the strip, it does not take it away from you. Only Delete does
           that, which is why it is the one that asks. Categories group this
-          list the way channels are grouped in Slack: this heading doubles as
-          the "no category" drop zone, since a session dragged here leaves
-          whichever category it was in. */}
+          list the way channels are grouped in Slack, and a closed session
+          stays in whichever group it was closed from rather than dropping out
+          into one flat list at the bottom -- closing shouldn't also pull it
+          out of the category you put it in. This heading doubles as the "no
+          category" drop zone, since a session dragged here leaves whichever
+          category it was in. */}
       <div
         className={`rail-heading rail-category-drop${dropTarget === "category:none" ? " drop-target" : ""}`}
         data-category-drop="none"
@@ -355,10 +401,13 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       </div>
       {sessions.length + closed.length === 0 && <div className="rail-empty">No sessions yet.</div>}
       {uncategorized.map(renderSessionRow)}
+      {uncategorizedClosed.map(renderClosedRow)}
 
       {categories.map((category) => {
         const collapsed = collapsedCategories.has(category.id);
         const inCategory = byCategory.get(category.id) ?? [];
+        const closedInCategory = closedByCategory.get(category.id) ?? [];
+        const categoryCount = inCategory.length + closedInCategory.length;
         return (
           <div key={category.id} className="rail-category">
             <div
@@ -375,8 +424,8 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
                   {collapsed ? "▸" : "▾"}
                 </span>
                 <span className="rail-category-label">{category.name}</span>
-                {collapsed && inCategory.length > 0 && (
-                  <span className="rail-category-count">{inCategory.length}</span>
+                {collapsed && categoryCount > 0 && (
+                  <span className="rail-category-count">{categoryCount}</span>
                 )}
               </button>
               <Popover
@@ -443,10 +492,13 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
             </div>
             {!collapsed && (
               <div className="rail-category-sessions">
-                {inCategory.length === 0 ? (
+                {categoryCount === 0 ? (
                   <div className="rail-empty">Drag a session here.</div>
                 ) : (
-                  inCategory.map(renderSessionRow)
+                  <>
+                    {inCategory.map(renderSessionRow)}
+                    {closedInCategory.map(renderClosedRow)}
+                  </>
                 )}
               </div>
             )}
@@ -457,34 +509,6 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
       <button className="rail-category-add" onClick={addCategory} title="Group sessions under a name">
         <span>＋ New category</span>
       </button>
-
-      {/* Closed, in the same list and dimmed. No state loaded until one is
-          clicked: nothing trims this, so fetching every session's rows on every
-          page load would get slower the longer you had used the app. */}
-      {closed.map((s) => (
-        <div key={s.client_id} data-closed-session-id={s.client_id} className="rail-row rail-row-closed">
-          <button
-            className="rail-row-label"
-            onClick={() => reopen(s.client_id)}
-            title={`${s.title} — closed; click to open it again`}
-          >
-            {s.title}
-          </button>
-          {/* Its own class rather than the ⋮'s: this one deletes on the spot,
-              and anything hunting for "the row's menu button" should not find
-              it. */}
-          <button
-            className="rail-row-forget"
-            onClick={() => {
-              if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.client_id);
-            }}
-            aria-label={`Delete ${s.title}`}
-            title="Throw the session away for good"
-          >
-            ✕
-          </button>
-        </div>
-      ))}
 
       {/* The catalogue is what the + menu used to hold. It lives in the rail
           rather than a popover so everything you can open is in one place. */}

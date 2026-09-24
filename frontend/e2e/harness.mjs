@@ -122,11 +122,15 @@ export async function openApp(browser, options = {}) {
 }
 
 /**
- * An empty workspace: no sessions on the server, none in this browser.
+ * An empty workspace: no sessions on the server, none in this browser, and no
+ * categories.
  *
- * Both halves matter. Clearing only the server leaves this browser's IndexedDB
+ * All three matter. Clearing only the server leaves this browser's IndexedDB
  * copy to be adopted and pushed straight back up, which is the adoption rule
- * working correctly and a suite failing for no reason.
+ * working correctly and a suite failing for no reason. A category left behind
+ * by an earlier run is quieter than that but just as real: every session
+ * row's ⋮ offers "Move to <category>" the moment one exists, which a suite
+ * written before categories existed has no reason to expect.
  *
  * `rows` seeds live sessions directly onto the server, in whatever shape is
  * wanted -- the only honest way to test a migration is to hand the app rows
@@ -138,6 +142,9 @@ export async function clearWorkspace(page, rows = []) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
         await fetch(`/api/live-sessions/${s.client_id}`, { method: "DELETE", credentials: "same-origin" });
       }
+    }
+    for (const c of await (await fetch("/api/session-categories", { credentials: "same-origin" })).json()) {
+      await fetch(`/api/session-categories/${c.id}`, { method: "DELETE", credentials: "same-origin" });
     }
     await new Promise((resolve) => {
       const request = indexedDB.deleteDatabase("cloud-insights-sessions");

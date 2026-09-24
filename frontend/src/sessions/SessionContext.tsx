@@ -349,7 +349,14 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         // on the network, and the list is re-read on the next load anyway.
         if (session) {
           setClosed((c) => [
-            { client_id: id, type: session.type, title: session.title, truncated: !!session.truncated, closed_at: null },
+            {
+              client_id: id,
+              type: session.type,
+              title: session.title,
+              truncated: !!session.truncated,
+              closed_at: null,
+              category_id: session.categoryId ?? null,
+            },
             ...c.filter((s) => s.client_id !== id),
           ]);
         }
@@ -393,7 +400,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
           // Offline, or a session that never reached the server. Open it with
           // what the panel knows rather than not at all; `truncated` is what
           // already exists to explain an empty one.
-          put({ id, type: summary.type, title: summary.title, state: {}, truncated: true });
+          put({ id, type: summary.type, title: summary.title, state: {}, truncated: true, categoryId: summary.category_id });
         });
     },
     [],

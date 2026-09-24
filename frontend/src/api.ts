@@ -76,6 +76,9 @@ export interface LiveSessionSummary {
   title: string;
   truncated: boolean;
   closed_at: string | null;
+  /** Which side-panel category it was in when closed, so the panel can still
+   * group it there dimmed rather than pulling it into a separate list. */
+  category_id: number | null;
 }
 
 export interface LiveSession {

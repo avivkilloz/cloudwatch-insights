@@ -67,9 +67,13 @@ account for:
   rule working correctly, and your suite failing for no reason.
 - **Print what you found.** `check(ok, label, detail)` shows `detail` only on
   failure; a tally of what was actually on screen saves a whole rerun.
-- **Leftovers break the next run.** A suite that creates a group, a user or a
-  template deletes it at the end *and* copes with finding one from a run that
-  died half-way.
+- **Leftovers break the next run.** A suite that creates a group, a user, a
+  template or a category deletes it at the end *and* copes with finding one
+  from a run that died half-way. A stray category is the quiet one: once any
+  category exists, every session's ⋮ correctly grows a "Move to <category>"
+  item, which breaks an older suite's hardcoded list of what the menu offers.
+  `clearWorkspace()` clears categories along with sessions, but only for
+  suites that call it.
 
 `smoke21` occasionally fails on a click that times out under load; it passes on
 a rerun. (`smoke29` used to fail the same way — a fresh profile read the
