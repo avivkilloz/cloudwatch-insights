@@ -83,12 +83,24 @@ export interface LiveSession {
   type: string;
   title: string;
   position: number;
+  /** Which side-panel category this session sits in, if any. Null for one
+   * never assigned to a category, or whose category was deleted. */
+  category_id: number | null;
   state: Record<string, unknown>;
   /** The browser dropped this session's results to stay under its size cap,
    * so the page can say so rather than looking like it found nothing. */
   truncated: boolean;
   /** Null while it is open; set once it is closed but still reopenable. */
   closed_at: string | null;
+}
+
+/** A named group of sessions in the side panel, the way a Slack workspace
+ * groups channels. Holds no state of its own -- a LiveSession's own
+ * category_id is what actually puts it in one. */
+export interface SessionCategory {
+  id: number;
+  name: string;
+  position: number;
 }
 
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
@@ -559,6 +571,15 @@ export const api = {
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
   deleteLiveSession: (clientId: string) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+
+  listSessionCategories: () => req<SessionCategory[]>("/session-categories"),
+  createSessionCategory: (name: string) =>
+    req<SessionCategory>("/session-categories", { method: "POST", body: JSON.stringify({ name }) }),
+  renameSessionCategory: (id: number, name: string) =>
+    req<SessionCategory>(`/session-categories/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  reorderSessionCategories: (ids: number[]) =>
+    req<SessionCategory[]>("/session-categories/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
+  deleteSessionCategory: (id: number) => req<void>(`/session-categories/${id}`, { method: "DELETE" }),
 
   listTables: (environmentId: number) =>
     req<{ tables: string[] }>(`/tables/list?environment_id=${environmentId}`),

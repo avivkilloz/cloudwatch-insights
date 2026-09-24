@@ -136,6 +136,7 @@ def upsert_live_session(
     row.type = payload.type
     row.title = payload.title
     row.position = payload.position
+    row.category_id = payload.category_id
     row.state = payload.state
     row.truncated = payload.truncated
     # Writing to a closed session is how a reopened one comes back.

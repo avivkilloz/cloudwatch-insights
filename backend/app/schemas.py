@@ -669,6 +669,7 @@ class LiveSessionUpsert(BaseModel):
     type: str
     title: str
     position: int = 0
+    category_id: Optional[int] = None
     state: dict = Field(default_factory=dict)
     truncated: bool = False
 
@@ -679,6 +680,7 @@ class LiveSessionOut(BaseModel):
     type: str
     title: str
     position: int
+    category_id: Optional[int] = None
     state: dict
     truncated: bool
     closed_at: Optional[datetime] = None
@@ -703,6 +705,35 @@ class LiveSessionOrder(BaseModel):
     that another tab has since deleted shouldn't fail the whole request."""
 
     client_ids: list[str]
+
+
+# ---- Session categories ----
+# Slack-style groups for the side panel's session list. A category holds no
+# state of its own -- LiveSession.category_id is what actually assigns a
+# session to one.
+
+
+class SessionCategoryCreate(BaseModel):
+    name: str
+
+
+class SessionCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+
+
+class SessionCategoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    position: int
+
+
+class SessionCategoryOrder(BaseModel):
+    """Category ids in the order they should appear, same convention as
+    LiveSessionOrder: ids the caller does not own are ignored rather than
+    rejected."""
+
+    ids: list[int]
 
 
 # ---- AI assistant ----

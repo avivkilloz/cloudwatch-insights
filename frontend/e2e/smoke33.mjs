@@ -41,7 +41,7 @@ const mountedPanes = (page) =>
 
   // ---------- it leads the two that were there ----------
   const layouts = await page.locator(`${PANES} .toolbar:has(span:text-is("Layout")) button`).allTextContents();
-  check(JSON.stringify(layouts) === JSON.stringify(["Tabs", "Side by side", "Stacked"]),
+  check(JSON.stringify(layouts) === JSON.stringify(["Tabs", "Side by side", "Stacked", "Dashboard"]),
     "Tabs is offered first, being what a session starts in", JSON.stringify(layouts));
 
   // A new session starts in tabs, which is what makes one pane read like a

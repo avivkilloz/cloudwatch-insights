@@ -10,7 +10,7 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { LiveSessionSummary, api } from "../api";
+import { LiveSessionSummary, SessionCategory, api } from "../api";
 import { PageId } from "../pages/pageTypes";
 import {
   EMPTY_WORKSPACE,
@@ -156,6 +156,19 @@ interface SessionsApi {
   /** This session's state with its outputs stripped -- what a saved session
    * stores. */
   captureInputs: (id: string) => Record<string, unknown>;
+
+  /** Slack-style groups for the panel's session list, in display order. A
+   * session with no category (or one that was deleted) just doesn't appear
+   * in any of these. */
+  categories: SessionCategory[];
+  createCategory: (name: string) => Promise<SessionCategory>;
+  renameCategory: (id: number, name: string) => Promise<void>;
+  /** Sessions in the deleted category are not deleted -- they fall back to
+   * ungrouped, both here and on the server (ON DELETE SET NULL). */
+  deleteCategory: (id: number) => Promise<void>;
+  reorderCategories: (ids: number[]) => void;
+  /** Moves a session into a category, or out of any category with `null`. */
+  setSessionCategory: (id: string, categoryId: number | null) => void;
 }
 
 const SessionsContext = createContext<SessionsApi | null>(null);
@@ -176,6 +189,7 @@ let sessionCounter = 0;
 export function SessionsProvider({ userId, children }: { userId: number; children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace>(EMPTY_WORKSPACE);
   const [closed, setClosed] = useState<LiveSessionSummary[]>([]);
+  const [categories, setCategories] = useState<SessionCategory[]>([]);
   const [ready, setReady] = useState(false);
   // One per mounted provider, and never in state: it is bookkeeping about what
   // the server has been told, and re-rendering the workspace on every reply
@@ -193,6 +207,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     let cancelled = false;
     setReady(false);
     setClosed([]);
+    setCategories([]);
     touched.current = false;
 
     (async () => {
@@ -205,11 +220,13 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
       let open: PersistedSession[];
       try {
-        const [openRows, closedRows] = await Promise.all([
+        const [openRows, closedRows, categoryRows] = await Promise.all([
           api.listLiveSessions(),
           api.listClosedLiveSessions(),
+          api.listSessionCategories(),
         ]);
         if (cancelled) return;
+        setCategories(categoryRows);
         open = migrateSessionList(openRows.map(fromWire));
         sync.adopt(openRows);
         // Agent sessions are dropped by the migration above. Taking them off
@@ -420,6 +437,52 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setWorkspace((w) => ({ ...w, view }));
   }, []);
 
+  const setSessionCategory = useCallback((id: string, categoryId: number | null) => {
+    touched.current = true;
+    setWorkspace((w) => {
+      const session = w.sessions.find((s) => s.id === id);
+      if (!session || (session.categoryId ?? null) === categoryId) return w;
+      return { ...w, sessions: w.sessions.map((s) => (s.id === id ? { ...s, categoryId } : s)) };
+    });
+  }, []);
+
+  const createCategory = useCallback(async (name: string) => {
+    const category = await api.createSessionCategory(name);
+    setCategories((prev) => [...prev, category]);
+    return category;
+  }, []);
+
+  const renameCategory = useCallback(async (id: number, name: string) => {
+    const category = await api.renameSessionCategory(id, name);
+    setCategories((prev) => prev.map((c) => (c.id === id ? category : c)));
+  }, []);
+
+  const deleteCategory = useCallback(async (id: number) => {
+    await api.deleteSessionCategory(id);
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    // The server already set these sessions' category_id to null (ON DELETE
+    // SET NULL); mirrored here so the panel doesn't wait for a reload to stop
+    // showing them under a category that no longer exists.
+    touched.current = true;
+    setWorkspace((w) => ({
+      ...w,
+      sessions: w.sessions.map((s) => (s.categoryId === id ? { ...s, categoryId: null } : s)),
+    }));
+  }, []);
+
+  // Optimistic, like session reorder: the panel should feel instant, and a
+  // failed request just leaves the next drag's reorder to retry the same call.
+  const reorderCategories = useCallback((ids: number[]) => {
+    setCategories((prev) => {
+      const byId = new Map(prev.map((c) => [c.id, c]));
+      const next = ids.map((id) => byId.get(id)).filter((c): c is SessionCategory => !!c);
+      return next.length === prev.length ? next : prev;
+    });
+    api.reorderSessionCategories(ids).catch(() => {
+      // Retried on the next reorder; nothing local was lost either way.
+    });
+  }, []);
+
   const captureInputs = useCallback(
     (id: string) => {
       const session = workspace.sessions.find((s) => s.id === id);
@@ -462,8 +525,33 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       reorder,
       show,
       captureInputs,
+      categories,
+      createCategory,
+      renameCategory,
+      deleteCategory,
+      reorderCategories,
+      setSessionCategory,
     }),
-    [workspace, closed, ready, open, close, reopen, remove, activate, rename, reorder, show, captureInputs],
+    [
+      workspace,
+      closed,
+      ready,
+      open,
+      close,
+      reopen,
+      remove,
+      activate,
+      rename,
+      reorder,
+      show,
+      captureInputs,
+      categories,
+      createCategory,
+      renameCategory,
+      deleteCategory,
+      reorderCategories,
+      setSessionCategory,
+    ],
   );
 
   return (

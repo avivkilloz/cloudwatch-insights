@@ -17,6 +17,7 @@ from .routers import (
     queries,
     saved_queries,
     saved_sessions,
+    session_categories,
     settings,
     tables,
     tools,
@@ -62,6 +63,7 @@ app.include_router(queries.router)
 app.include_router(opensearch.router)
 app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
+app.include_router(session_categories.router)
 app.include_router(live_sessions.router)
 app.include_router(iot.router)
 app.include_router(tables.router)

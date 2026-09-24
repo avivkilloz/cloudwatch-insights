@@ -24,7 +24,7 @@ export const SYNC_DEBOUNCE_MS = 1200;
  * object identity means a page that rewrites a key with an equal value doesn't
  * cost a request. */
 function fingerprint(session: PersistedSession, position: number): string {
-  return encode({ t: session.type, n: session.title, p: position, s: session.state });
+  return encode({ t: session.type, n: session.title, p: position, c: session.categoryId ?? null, s: session.state });
 }
 
 /** Sets and Maps have to survive the trip, and the server only stores JSON.
@@ -36,6 +36,7 @@ function toWire(session: PersistedSession, position: number) {
     type: capped.type,
     title: capped.title,
     position,
+    category_id: capped.categoryId ?? null,
     state: JSON.parse(encode(capped.state)) as Record<string, unknown>,
     truncated: capped.truncated ?? false,
   };
@@ -48,6 +49,7 @@ export function fromWire(row: LiveSession): PersistedSession {
     id: row.client_id,
     type: row.type,
     title: row.title,
+    categoryId: row.category_id,
     state: decode<Record<string, unknown>>(JSON.stringify(row.state)),
     truncated: row.truncated,
   };
@@ -125,6 +127,7 @@ export class WorkspaceSync {
             type: session.type,
             title: session.title,
             position: index,
+            category_id: session.categoryId ?? null,
             state: {},
             truncated: true,
           });

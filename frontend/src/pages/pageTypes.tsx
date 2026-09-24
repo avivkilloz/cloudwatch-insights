@@ -13,7 +13,7 @@ import AgentPage from "./AgentPage";
  * Everything below `home` shows as a card on the home page, under Platform.
  */
 
-export type PageId = "home" | "settings" | "agent" | "dashboards" | "workflows" | "chat" | "code";
+export type PageId = "home" | "settings" | "agent" | "workflows" | "chat" | "code";
 
 export interface PageDef {
   id: PageId;
@@ -67,20 +67,6 @@ export const PAGES: PageDef[] = [
     onHome: true,
     enabledFor: () => true,
     render: () => <AgentPage />,
-  },
-  {
-    id: "dashboards",
-    label: "Dashboards",
-    description: "Saved views of what you watch.",
-    help: "Put the numbers and charts you check often on one page, instead of re-running the searches behind them.",
-    onHome: true,
-    enabledFor: () => true,
-    render: () => (
-      <ComingSoon
-        label="Dashboards"
-        what="Put the numbers and charts you check often on one page, instead of re-running the searches behind them."
-      />
-    ),
   },
   {
     id: "workflows",

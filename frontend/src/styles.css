@@ -532,6 +532,117 @@ button,
   font-size: 10px;
 }
 
+/* ---- Session categories ---- */
+
+/* A category is a smaller "＋ Add" -- same dashed affordance, less prominent
+   than the catalogue's since it's used far less often. Its own class rather
+   than sharing .rail-add: a couple of suites assume that class names exactly
+   one row, the catalogue's own toggle. */
+.rail-category-add {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.rail-category-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The "Sessions" heading doubles as the drop zone for taking a session out of
+   every category, so it needs the same drop-target highlight a row gets --
+   .rail-heading alone has none. */
+.rail-category-drop.drop-target {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent);
+}
+
+.rail-category {
+  margin-top: 2px;
+}
+
+.rail-category-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+
+.rail-category-header.drop-target {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.rail-category-header:hover {
+  background: var(--panel-alt);
+}
+
+.rail-category-header .rail-row-more {
+  opacity: 0;
+}
+
+.rail-category-header:hover .rail-row-more,
+.rail-category-header .rail-row-more[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.rail-category-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.rail-category-caret {
+  flex: none;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.rail-category-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.rail-category-count {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+/* Indented under its header, the way a channel list sits under a Slack
+   section -- enough to read as "inside", not enough to eat into the label. */
+.rail-category-sessions {
+  padding-left: 10px;
+}
+
 /* ---- Page header ---- */
 
 /* Drawn by the shell from the session registry, so every page says what it is
@@ -1302,6 +1413,65 @@ th {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ---- the dashboard layout ------------------------------------------------ */
+
+/* A freeform canvas: panes sit at whatever position and size they were given
+   (AggregatorPage.tsx keeps that per pane in session state) rather than a
+   fixed row or column. Sized by the page to fit everything already on it,
+   with room to drag further -- see `dashboardExtent` there. */
+.aggregator-dashboard {
+  position: relative;
+}
+
+.aggregator-pane.dashboard-pane {
+  position: absolute;
+  max-height: none;
+}
+
+/* Unlike the other layouts, height here is the pane's own explicit size
+   rather than "as tall as the content, up to a cap" -- so the body has to be
+   told to take the room left after the header rather than sizing to fit it. */
+.aggregator-pane.dashboard-pane .aggregator-pane-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.aggregator-pane.dashboard-pane .aggregator-pane-header {
+  cursor: move;
+}
+
+/* Raised above its neighbours while being moved or resized, so it doesn't
+   render underneath a pane it's passing over. */
+.aggregator-pane.dashboard-active {
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.aggregator-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.aggregator-resize-handle::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+}
+
+.aggregator-resize-handle:hover::after {
+  border-color: var(--accent);
 }
 
 .aggregator-pane {
