@@ -7,7 +7,10 @@
 // the raw pointer until release commits it there.
 import { SHOT, check, clearWorkspace, launch, newSession, openApp, report, SHOWN } from "./harness.mjs";
 
-const PANE = (label) => `.aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
+// Scoped to the session on screen: this suite reopens a fresh session more
+// than once, and every session body stays mounted (hidden, not unmounted),
+// so an unscoped pane selector can still see a previous run's panes.
+const PANE = (label) => `${SHOWN} .aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
 const HEADER = (label) => `${PANE(label)} .aggregator-pane-header`;
 const HANDLE = (label, corner) => `${PANE(label)} .aggregator-resize-handle.${corner}`;
 

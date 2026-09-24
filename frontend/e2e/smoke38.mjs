@@ -5,7 +5,10 @@
 // snap to a grid and to their neighbours while being moved or resized.
 import { SHOT, check, clearWorkspace, launch, newSession, openApp, report, SHOWN } from "./harness.mjs";
 
-const PANE = (label) => `.aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
+// Scoped to the session on screen: this suite reopens a fresh session more
+// than once, and every session body stays mounted (hidden, not unmounted),
+// so an unscoped pane selector can still see a previous run's panes.
+const PANE = (label) => `${SHOWN} .aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
 const HEADER = (label) => `${PANE(label)} .aggregator-pane-header`;
 // Bottom-right, matching this suite's own intent (grow down-right); the pane
 // also has nw/ne/sw handles now, so this needs to be specific.
@@ -55,10 +58,16 @@ const run = async () => {
   check(!overlaps(cw1, os1), "Dragging a pane onto another is blocked from overlapping it", JSON.stringify({ cw1, os1 }));
   await page.screenshot({ path: `${SHOT}/38-drag-blocked.png` });
 
-  // Move OpenSearch somewhere with open room around it, then drag CloudWatch to
-  // (almost) line up flush against its right edge -- it should snap there.
-  const osBefore = await box("OpenSearch");
-  await dragHeader(page, "OpenSearch", osBefore.x + 20, osBefore.y + 320);
+  // A fresh, isolated pair for the snap test: with three panes packed into
+  // whatever the canvas actually fits, there may be nowhere left to drag a
+  // third pane flush beside a second without a first one in the way.
+  await clearWorkspace(page);
+  await page.reload();
+  await page.waitForSelector(".rail");
+  await newSession(page, "CloudWatch", "OpenSearch");
+  await page.click(`${SHOWN} button:has-text("Dashboard")`);
+  await page.waitForTimeout(300);
+
   const os2 = await box("OpenSearch");
   const flushX = os2.x + os2.width + 16;
   await dragHeader(page, "CloudWatch", flushX + 2, os2.y + 2);
@@ -66,7 +75,15 @@ const run = async () => {
   check(Math.round(cw2.y - os2.y) === 0, "A pane dragged near a neighbour's edge snaps flush to it", `dy=${Math.round(cw2.y - os2.y)}`);
   check(!overlaps(cw2, os2), "…and the snapped position still does not overlap", JSON.stringify({ cw2, os2 }));
 
-  // Resizing a pane toward a neighbour is capped at the neighbour's edge, not allowed through it.
+  // Resizing a pane toward a neighbour is capped at the neighbour's edge, not
+  // allowed through it -- fresh again, for the same reason.
+  await clearWorkspace(page);
+  await page.reload();
+  await page.waitForSelector(".rail");
+  await newSession(page, "CloudWatch", "OpenSearch", "IoT");
+  await page.click(`${SHOWN} button:has-text("Dashboard")`);
+  await page.waitForTimeout(300);
+
   const iotBefore = await box("IoT");
   const handle = await page.locator(RESIZE_HANDLE("IoT")).boundingBox();
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
