@@ -1451,7 +1451,9 @@ th {
 
 /* One handle per corner -- not just bottom-right, which the floating ✦ Ask AI
    button (fixed to that same screen corner) can put out of reach for a pane
-   sitting at the bottom-right of the dashboard. */
+   sitting at the bottom-right of the dashboard. No glyph marks the hit area:
+   the cursor itself changes shape over it, which is affordance enough, and
+   four little corner marks on every pane was more clutter than help. */
 .aggregator-resize-handle {
   position: absolute;
   width: 18px;
@@ -1478,41 +1480,6 @@ th {
   left: 0;
   bottom: 0;
   cursor: nesw-resize;
-}
-
-.aggregator-resize-handle::after {
-  content: "";
-  position: absolute;
-  width: 8px;
-  height: 8px;
-}
-.aggregator-resize-handle.se::after {
-  right: 4px;
-  bottom: 4px;
-  border-right: 2px solid var(--border);
-  border-bottom: 2px solid var(--border);
-}
-.aggregator-resize-handle.nw::after {
-  left: 4px;
-  top: 4px;
-  border-left: 2px solid var(--border);
-  border-top: 2px solid var(--border);
-}
-.aggregator-resize-handle.ne::after {
-  right: 4px;
-  top: 4px;
-  border-right: 2px solid var(--border);
-  border-top: 2px solid var(--border);
-}
-.aggregator-resize-handle.sw::after {
-  left: 4px;
-  bottom: 4px;
-  border-left: 2px solid var(--border);
-  border-bottom: 2px solid var(--border);
-}
-
-.aggregator-resize-handle:hover::after {
-  border-color: var(--accent);
 }
 
 /* The dashed "cut lines" a drag or resize leaves at the spot it would land in
