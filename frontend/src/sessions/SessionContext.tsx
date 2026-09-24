@@ -202,6 +202,10 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // new identity every time a session is closed.
   const closedRef = useRef<LiveSessionSummary[]>([]);
   closedRef.current = closed;
+  // close reads the session being closed from here rather than from inside a
+  // setWorkspace updater, which React may run later than the ✕ -- or twice.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     let cancelled = false;
@@ -364,11 +368,12 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       });
       // The row stays on the server; only its closed_at changes. Queued behind
       // any sync already running: a PUT landing after this would clear
-      // closed_at and quietly reopen the session. A session that never reached
-      // the server has nothing to close, so a 404 here is the expected outcome
-      // rather than a failure.
-      sync.forget(id);
-      sync.enqueue(() => api.closeLiveSession(id));
+      // closed_at and quietly reopen the session. Its state as of the ✕ goes
+      // first, on the same chain -- see WorkspaceSync.close for what was lost
+      // without it.
+      const sessions = workspaceRef.current.sessions;
+      const index = sessions.findIndex((s) => s.id === id);
+      sync.close(id, sessions[index], index);
     },
     [sync],
   );

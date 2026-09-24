@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { api, SavedSession } from "../api";
 import { SessionKeyScope, useSessionState } from "../sessions/SessionContext";
 import { useAuth } from "../AuthContext";
@@ -38,27 +46,82 @@ const DASHBOARD_MIN_W = 260;
 const DASHBOARD_MIN_H = 160;
 const DASHBOARD_GAP = 16;
 
-/** The first slot, scanning left-to-right then top-to-bottom on a loose grid
- * of pane-sized cells, that doesn't come within the standard gap of anything
- * already placed -- where a pane lands the first time it's opened, or
- * whenever it's opened again without ever having been moved. Columns are
- * however many actually fit in `maxWidth` rather than a fixed three across,
- * so this never offers a slot the canvas would have to widen for. */
-function firstAvailableRect(placed: Rect[], maxWidth: number): Rect {
-  const columns = Math.max(1, Math.floor((maxWidth + DASHBOARD_GAP) / (DASHBOARD_PANE_W + DASHBOARD_GAP)));
-  // A guard, not a real limit: this many rows is thousands of panes deep.
-  for (let row = 0; row < 500; row++) {
-    for (let col = 0; col < columns; col++) {
-      const candidate: Rect = {
-        x: DASHBOARD_GAP + col * (DASHBOARD_PANE_W + DASHBOARD_GAP),
-        y: DASHBOARD_GAP + row * (DASHBOARD_PANE_H + DASHBOARD_GAP),
-        w: DASHBOARD_PANE_W,
-        h: DASHBOARD_PANE_H,
-      };
-      if (!placed.some((r) => rectsOverlap(candidate, r, DASHBOARD_GAP))) return candidate;
+/** Where a pane lands when it has no place of its own yet: the first spot, in
+ * reading order (top to bottom, then left to right), where a pane of `size`
+ * fits inside the canvas without coming within the standard gap of anything
+ * already there. The spots worth trying are the canvas's own top-left corner
+ * and the ones just past each existing pane's right and bottom edges (or
+ * lined up with its left and top) -- any other free spot could slide up or
+ * left onto one of those -- so this finds a real gap between panes that have
+ * been moved or resized, not just the next cell of a fixed grid. x=0 is
+ * always allowed, so a pane wider than the canvas still gets a row of its
+ * own rather than nowhere. */
+function firstAvailableRect(taken: Rect[], maxWidth: number, size: { w: number; h: number }): Rect {
+  const w = Math.min(size.w, Math.max(DASHBOARD_MIN_W, maxWidth));
+  const xs = new Set([0]);
+  const ys = new Set([0]);
+  for (const t of taken) {
+    xs.add(t.x);
+    xs.add(t.x + t.w + DASHBOARD_GAP);
+    ys.add(t.y);
+    ys.add(t.y + t.h + DASHBOARD_GAP);
+  }
+  const byPosition = (a: number, b: number) => a - b;
+  for (const y of [...ys].sort(byPosition)) {
+    for (const x of [...xs].sort(byPosition)) {
+      if (x > 0 && x + w > maxWidth) continue;
+      const candidate = { x, y, w, h: size.h };
+      if (!taken.some((t) => rectsOverlap(candidate, t, DASHBOARD_GAP))) return candidate;
     }
   }
-  return { x: DASHBOARD_GAP, y: DASHBOARD_GAP, w: DASHBOARD_PANE_W, h: DASHBOARD_PANE_H };
+  // Not reached -- (0, just below the lowest pane) is always one of the
+  // candidates above and always free -- but it is the right answer anyway.
+  return { x: 0, y: taken.reduce((m, t) => Math.max(m, t.y + t.h + DASHBOARD_GAP), 0), w, h: size.h };
+}
+
+/** Every open pane's rect on a canvas `maxWidth` wide, and which of them had
+ * to be given a new place. A pane keeps its stored rect when it has one that
+ * doesn't come within the standard gap of a pane accepted before it (in open
+ * order, so an established pane beats one just reopened on top of it); one
+ * stored past the right edge -- placed in a wider window than this one -- is
+ * shown slid back inside, if that spot is free. Everything else (never
+ * placed, or colliding) gets `firstAvailableRect` against all of the above,
+ * and is listed in `placed` so the caller can store it: a placement that's
+ * only ever computed, never kept, is what made an untouched pane jump to a
+ * new slot whenever some other pane moved away from the one before it. */
+function resolveDashboard(
+  ids: ServiceId[],
+  stored: Record<ServiceId, Rect>,
+  collapsed: Set<ServiceId>,
+  maxWidth: number,
+): { rects: Record<ServiceId, Rect>; placed: ServiceId[] } {
+  const footprintOf = (id: ServiceId, r: Rect): Rect => (collapsed.has(id) ? { ...r, h: DASHBOARD_HEADER_H } : r);
+  const rects: Record<ServiceId, Rect> = {};
+  const taken: Rect[] = [];
+  const placed: ServiceId[] = [];
+  for (const id of ids) {
+    const r = stored[id];
+    if (!r) {
+      placed.push(id);
+      continue;
+    }
+    const w = Math.min(r.w, Math.max(DASHBOARD_MIN_W, maxWidth));
+    const fitted = r.x + w > maxWidth ? { ...r, x: Math.max(0, maxWidth - w), w } : r;
+    const fp = footprintOf(id, fitted);
+    if (taken.some((t) => rectsOverlap(fp, t, DASHBOARD_GAP))) {
+      placed.push(id);
+      continue;
+    }
+    rects[id] = fitted;
+    taken.push(fp);
+  }
+  for (const id of placed) {
+    const size = stored[id] ?? { w: DASHBOARD_PANE_W, h: DASHBOARD_PANE_H };
+    const r = firstAvailableRect(taken, maxWidth, size);
+    rects[id] = r;
+    taken.push(footprintOf(id, r));
+  }
+  return { rects, placed };
 }
 
 // ---- Dashboard: no two panes may occupy the same space or touch -- they
@@ -100,12 +163,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** The plain grid, or -- if it is close enough -- whichever candidate is
- * nearest to where the pointer actually put things. Falls back to the grid
- * alone once nothing offered is within snapping distance. */
+/** Whichever candidate (a neighbour's edge, or the canvas's) is nearest to
+ * where the pointer actually put things, if one is within snapping distance
+ * -- otherwise the plain grid. A candidate wins even when the grid happens to
+ * be nearer: lining up with the pane beside you is the point of snapping,
+ * and letting the grid win by a pixel or two is what left panes a few
+ * pixels out of line with each other. */
 function snapAxis(value: number, candidates: number[]): number {
-  let best = Math.round(value / DASHBOARD_GRID) * DASHBOARD_GRID;
-  let bestDelta = Math.abs(best - value);
+  let best: number | null = null;
+  let bestDelta = Infinity;
   for (const candidate of candidates) {
     const delta = Math.abs(candidate - value);
     if (delta <= DASHBOARD_SNAP_PX && delta < bestDelta) {
@@ -113,7 +179,7 @@ function snapAxis(value: number, candidates: number[]): number {
       bestDelta = delta;
     }
   }
-  return best;
+  return best ?? Math.round(value / DASHBOARD_GRID) * DASHBOARD_GRID;
 }
 
 /** Left-edge positions a moving pane's own left edge would snap to: flush
@@ -189,6 +255,27 @@ export default function AggregatorPage() {
   // layout, but kept regardless of which one is active -- switching to
   // dashboard and back shouldn't forget where things were.
   const [rects, setRects] = useSessionState<Record<ServiceId, Rect>>("dashboardRects", () => ({}));
+
+  // The panes' container, whatever the layout -- measured here rather than
+  // looked up with a page-wide selector, because every open session stays
+  // mounted: `document.querySelector(".aggregator-dashboard")` found the
+  // first session's canvas in the page, which for any other session was a
+  // hidden one 0px wide, and clamped every drag and resize there to nothing.
+  // A width of 0 means this session is hidden, so it's ignored rather than
+  // taken as the canvas having shrunk; null means it hasn't been seen yet.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [canvasW, setCanvasW] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth > 0) setCanvasW(el.clientWidth);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Panes register their full context (including the row arrays) here on every
   // render. Keeping it in a ref means that churn never re-renders this page;
@@ -275,6 +362,15 @@ export default function AggregatorPage() {
       next.delete(id);
       return next;
     });
+    // Nor where it was on the dashboard: that spot may well be taken by the
+    // time it's back, and a reopened pane goes to the first free place, the
+    // same as one opened for the first time.
+    setRects((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   /** Moves a pane one place earlier (-1) or later (+1) in the order. */
@@ -316,21 +412,19 @@ export default function AggregatorPage() {
     return document.querySelector<HTMLElement>(".content");
   }
 
-  /** How far right a pane's own right edge may go: the dashboard canvas's
-   * rendered width, minus a gap so a pane stops short of the edge rather than
-   * flush against it (the same gap it keeps from another pane). Read from the
-   * DOM rather than kept in state because it's just the "Panes" card's width
-   * (the canvas sets no width of its own, so it fills its container like
-   * everything else on the page) -- the alternative, sizing the canvas to
-   * whatever the widest dragged pane needs, is what let a pane get dragged or
-   * resized out past the edge of the page in the first place. `.content`'s
-   * `scrollbar-gutter: stable` (styles.css) is what keeps this width from
-   * also jumping the moment a vertical scrollbar appears or disappears --
-   * without it, a pane sitting flush against what was the edge a moment ago
-   * ends up past it, and past the standard gap becomes past this margin too. */
+  /** How far right a pane's own right edge may go: the canvas's own width,
+   * which is the "Panes" card's width too (the canvas sets none of its own,
+   * so it fills its container like every other card) -- so a pane pushed all
+   * the way right lines up with the card above it, and keeps the same gap
+   * from the scrollbar every card does (`.content`'s right padding). The
+   * alternative, sizing the canvas to whatever the widest dragged pane
+   * needs, is what let a pane get dragged or resized out past the edge of
+   * the page in the first place. `.content`'s `scrollbar-gutter: stable` is
+   * what keeps this from jumping the moment a vertical scrollbar appears.
+   * Unmeasured (this session has never been on screen) nothing can be
+   * dragged anyway, and nothing is stored from it -- see the effect below. */
   function dashboardMaxWidth(): number {
-    const canvas = document.querySelector<HTMLElement>(".aggregator-dashboard");
-    return canvas ? Math.max(DASHBOARD_MIN_W, canvas.clientWidth - DASHBOARD_GAP) : Infinity;
+    return canvasW === null ? Infinity : Math.max(DASHBOARD_MIN_W, canvasW);
   }
 
   function autoScrollTick() {
@@ -423,37 +517,61 @@ export default function AggregatorPage() {
   });
 
   function toggleMinimized(id: ServiceId) {
+    const expanding = minimized.has(id);
     setMinimized((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    // While a pane is minimised on the dashboard, others may be moved into the
+    // room below its header. Expanding it back over them would overlap, so it
+    // goes to the first place its full size fits instead -- the pane you just
+    // expanded is the one that moves, never a neighbour you didn't touch.
+    if (expanding && layout === "dashboard") {
+      const own = dash.rects[id];
+      const others = neighborFootprints(id);
+      if (own && others.some((o) => rectsOverlap(own, o, DASHBOARD_GAP))) {
+        updateRect(id, firstAvailableRect(others, dashboardMaxWidth(), own));
+      }
+    }
   }
 
   // ---- Dashboard layout: freeform position and size -------------------
 
-  /** Every open pane's rect, resolved together in the order they're open: a
-   * pane that has ever been moved or resized keeps that stored position, and
-   * every other pane gets the first available slot given everything already
-   * resolved before it (stored or first-available alike) -- so two panes
-   * that have never been moved can no longer land on top of each other
-   * depending on how the arithmetic of a fixed index happened to fall, which
-   * is what comparing only against `rects` (the stored ones) used to allow. */
-  function dashboardRects(): Record<ServiceId, Rect> {
-    const maxWidth = dashboardMaxWidth();
-    const resolved: Record<ServiceId, Rect> = {};
-    const placed: Rect[] = [];
-    for (const s of open) {
-      const rect = rects[s.id] ?? firstAvailableRect(placed, maxWidth);
-      resolved[s.id] = rect;
-      placed.push(minimized.has(s.id) ? { ...rect, h: DASHBOARD_HEADER_H } : rect);
-    }
-    return resolved;
-  }
+  // Every open pane's rect, resolved once per render (see `resolveDashboard`),
+  // so what's drawn, what a drag collides with and what gets stored are all
+  // the same answer.
+  const dash = resolveDashboard(
+    open.map((s) => s.id),
+    rects,
+    minimized,
+    dashboardMaxWidth(),
+  );
+
+  // A pane given a new place is stored there straight away, not recomputed on
+  // every render -- otherwise it moves whenever anything before it does. Only
+  // once the canvas has actually been measured, and only on the dashboard: a
+  // placement worked out against a guessed width, or one nobody can see yet,
+  // is not one to keep. Stale rects of panes no longer open go at the same
+  // time (sessions saved before closing a pane forgot its spot kept them).
+  // Depends on what `dash` is derived from rather than on `dash` itself, a new
+  // object every render; once stored, the next run finds nothing to place.
+  useEffect(() => {
+    if (layout !== "dashboard" || canvasW === null) return;
+    const openIds = new Set(services);
+    const stale = Object.keys(rects).filter((id) => !openIds.has(id));
+    if (dash.placed.length === 0 && stale.length === 0) return;
+    setRects((prev) => {
+      const next = { ...prev };
+      for (const id of stale) delete next[id];
+      for (const id of dash.placed) next[id] = dash.rects[id];
+      return next;
+    });
+  }, [layout, canvasW, rects, services, minimized]);
 
   function rectFor(id: ServiceId): Rect {
-    return dashboardRects()[id];
+    return dash.rects[id];
   }
 
   function updateRect(id: ServiceId, rect: Rect) {
@@ -478,7 +596,7 @@ export default function AggregatorPage() {
    * dragged or resized against. */
   function neighborFootprints(excludeId: ServiceId): Rect[] {
     const out: Rect[] = [];
-    for (const [id, rect] of Object.entries(dashboardRects())) {
+    for (const [id, rect] of Object.entries(dash.rects)) {
       if (id !== excludeId) out.push(minimized.has(id) ? { ...rect, h: DASHBOARD_HEADER_H } : rect);
     }
     return out;
@@ -636,9 +754,11 @@ export default function AggregatorPage() {
     setDashLive({ id: drag.id, rect: { x: liveX, y: liveY, ...size } });
 
     const neighbors = neighborFootprints(drag.id);
+    // The canvas's own edges are guides too, so a pane lines up with the
+    // cards above it on either side rather than stopping a few pixels short.
     const target = {
-      x: clamp(snapAxis(liveX, xCandidates(neighbors, size.w)), 0, maxX),
-      y: Math.max(0, snapAxis(liveY, yCandidates(neighbors, size.h))),
+      x: clamp(snapAxis(liveX, [0, maxX, ...xCandidates(neighbors, size.w)]), 0, maxX),
+      y: Math.max(0, snapAxis(liveY, [0, ...yCandidates(neighbors, size.h)])),
       ...size,
     };
     const resolved = resolveRect({ x: drag.lastX, y: drag.lastY, ...size }, target, neighbors, DASHBOARD_GAP);
@@ -660,7 +780,10 @@ export default function AggregatorPage() {
     updateDashDragPreview(drag);
   }
 
-  function endDashDrag() {
+  /** `commit` is false when the gesture was cancelled (Escape, or the browser
+   * cancelling the pointer) rather than released: everything clears, nothing
+   * moves -- the same as a cancelled reorder drag. */
+  function endDashDrag(commit = true) {
     const drag = dashDragRef.current;
     dashDragRef.current = null;
     stopDashAutoScroll();
@@ -669,7 +792,11 @@ export default function AggregatorPage() {
     setDashGhost(null);
     if (!drag?.moved) return;
     suppressClick.current = true;
-    updateRect(drag.id, { x: drag.lastX, y: drag.lastY, w: drag.w, h: drag.h });
+    if (!commit) return;
+    // The stored height, not `drag.h`: that's the footprint the drag collided
+    // with, which for a minimised pane is just its header -- storing it made
+    // the pane come back 40px tall the next time it was expanded.
+    updateRect(drag.id, { x: drag.lastX, y: drag.lastY, w: drag.w, h: rectFor(drag.id).h });
   }
 
   function startDashResize(e: ReactPointerEvent<HTMLElement>, id: ServiceId, corner: ResizeHandle) {
@@ -737,8 +864,8 @@ export default function AggregatorPage() {
     setDashLive({ id: resize.id, rect: { x: liveX, y: liveY, w: liveW, h: liveH } });
 
     const neighbors = neighborFootprints(resize.id);
-    const exCandidates = edgeCandidatesX(neighbors);
-    const eyCandidates = edgeCandidatesY(neighbors);
+    const exCandidates = [0, maxWidth, ...edgeCandidatesX(neighbors)];
+    const eyCandidates = [0, ...edgeCandidatesY(neighbors)];
 
     let w = liveW;
     let x = liveX;
@@ -783,15 +910,29 @@ export default function AggregatorPage() {
     updateDashResizePreview(resize);
   }
 
-  function endDashResize() {
+  function endDashResize(commit = true) {
     const resize = dashResizeRef.current;
     dashResizeRef.current = null;
     stopDashAutoScroll();
     setDashActive(null);
     setDashLive(null);
     setDashGhost(null);
-    if (resize) updateRect(resize.id, { x: resize.lastX, y: resize.lastY, w: resize.lastW, h: resize.lastH });
+    if (resize && commit) {
+      updateRect(resize.id, { x: resize.lastX, y: resize.lastY, w: resize.lastW, h: resize.lastH });
+    }
   }
+
+  // Escape cancels a dashboard move or resize too, not only a reorder drag.
+  useEffect(() => {
+    if (!dashActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (dashDragRef.current) endDashDrag(false);
+      else endDashResize(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // The canvas has to be at least as tall as everything on it, or a pane
   // dragged toward the bottom would have nowhere to scroll into. Width isn't
@@ -799,7 +940,7 @@ export default function AggregatorPage() {
   // container, the same as the "Panes" card above it), which is also the
   // right edge nothing may be dragged or resized past (see
   // `dashboardMaxWidth`).
-  const dashboardExtentH = Object.values(dashboardRects()).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
+  const dashboardExtentH = Object.values(dash.rects).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
 
   // Rows from every open pane, each tagged with the service it came from so
   // the assistant can tell a log line from a Cognito user once they're pooled.
@@ -926,6 +1067,7 @@ export default function AggregatorPage() {
                   : "aggregator-stack"
           }
           style={layout === "dashboard" ? { minHeight: dashboardExtentH } : undefined}
+          ref={canvasRef}
         >
           {open.map((s, i) => {
             // In tabs, the tab is the pane's header and its ✕ closes it, so the
@@ -995,7 +1137,7 @@ export default function AggregatorPage() {
                   onPointerDown={(e) => (dashboard ? startDashDrag(e, s.id) : startDrag(e, s.id))}
                   onPointerMove={dashboard ? moveDashDrag : moveDrag}
                   onPointerUp={() => (dashboard ? endDashDrag() : endDrag(true))}
-                  onPointerCancel={() => (dashboard ? endDashDrag() : endDrag(false))}
+                  onPointerCancel={() => (dashboard ? endDashDrag(false) : endDrag(false))}
                   onClick={() => {
                     if (suppressClick.current) {
                       suppressClick.current = false;
@@ -1081,8 +1223,8 @@ export default function AggregatorPage() {
                       className={`aggregator-resize-handle ${corner}`}
                       onPointerDown={(e) => startDashResize(e, s.id, corner)}
                       onPointerMove={moveDashResize}
-                      onPointerUp={endDashResize}
-                      onPointerCancel={endDashResize}
+                      onPointerUp={() => endDashResize()}
+                      onPointerCancel={() => endDashResize(false)}
                       title={`Resize ${s.label}`}
                       aria-hidden="true"
                     />

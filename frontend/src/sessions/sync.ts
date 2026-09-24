@@ -110,35 +110,61 @@ export class WorkspaceSync {
     return this.inFlight;
   }
 
+  /**
+   * Closes a session on the server, first sending whatever the server hasn't
+   * seen of it yet. Closing takes the session out of the workspace at once,
+   * so the debounced flush that would have carried its last changes never
+   * sees it again: without this, anything done in the second or so before
+   * the ✕ was lost, and a session closed before its first save came back
+   * from the server empty when reopened. `session` is its state at the ✕;
+   * undefined when there's nothing local to send.
+   */
+  close(clientId: string, session: PersistedSession | undefined, position: number): Promise<void> {
+    return this.enqueue(async () => {
+      if (session) await this.pushOne(session, position);
+      // After the push, not before: forgetting first would let the push
+      // record a fingerprint for a session that is no longer open.
+      this.forget(clientId);
+      await api.closeLiveSession(clientId);
+    });
+  }
+
+  /** Sends one session if it changed since the server last accepted it. False
+   * when the request failed and the session is still unsynced. */
+  private async pushOne(session: PersistedSession, index: number): Promise<boolean> {
+    const print = fingerprint(session, index);
+    if (this.synced.get(session.id) === print) return true;
+    try {
+      await api.putLiveSession(session.id, toWire(session, index));
+      this.synced.set(session.id, print);
+      return true;
+    } catch (err) {
+      // The one failure worth handling rather than retrying: the state is
+      // past the server's ceiling even after capSession trimmed it. Send the
+      // session without any state at all, so its title and position are
+      // still there to come back to, flagged so the page says so.
+      if (err instanceof ApiError && err.status === 413) {
+        await api.putLiveSession(session.id, {
+          type: session.type,
+          title: session.title,
+          position: index,
+          category_id: session.categoryId ?? null,
+          state: {},
+          truncated: true,
+        });
+        this.synced.set(session.id, print);
+        return true;
+      }
+      return false;
+    }
+  }
+
   private async push(sessions: PersistedSession[]): Promise<void> {
     for (const [index, session] of sessions.entries()) {
-      const print = fingerprint(session, index);
-      if (this.synced.get(session.id) === print) continue;
-      try {
-        await api.putLiveSession(session.id, toWire(session, index));
-        this.synced.set(session.id, print);
-      } catch (err) {
-        // The one failure worth handling rather than retrying: the state is
-        // past the server's ceiling even after capSession trimmed it. Send the
-        // session without any state at all, so its title and position are
-        // still there to come back to, flagged so the page says so.
-        if (err instanceof ApiError && err.status === 413) {
-          await api.putLiveSession(session.id, {
-            type: session.type,
-            title: session.title,
-            position: index,
-            category_id: session.categoryId ?? null,
-            state: {},
-            truncated: true,
-          });
-          this.synced.set(session.id, print);
-          continue;
-        }
-        // Anything else -- offline, a restart, a 500 -- leaves this session
-        // unsynced and stops the run. The next flush picks up where this left
-        // off; nothing local is lost either way.
-        return;
-      }
+      // Anything but a 413 -- offline, a restart, a 500 -- leaves this
+      // session unsynced and stops the run. The next flush picks up where
+      // this left off; nothing local is lost either way.
+      if (!(await this.pushOne(session, index))) return;
     }
 
     // Ordering last, and only when it actually differs: dragging a session
