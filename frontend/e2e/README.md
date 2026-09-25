@@ -38,7 +38,9 @@ these. Install it where you run them (`npm i -D playwright`), or point
 
 Each suite clears the workspace first — both the server's live sessions and this
 browser's IndexedDB — so running them against a database you care about will
-throw away your open sessions. Point them at a scratch database.
+throw away your open sessions. Point them at a scratch database — and not the
+one backend pytest uses: its `conftest.py` drops the schema and re-creates the
+admin with its own password, after which no suite can sign in.
 
 ## Writing one
 
@@ -54,8 +56,29 @@ account for:
   one in the body can belong to a session you are not looking at.
 - **Headless Chromium draws overlay scrollbars** (0px wide), so a bug where an
   element is wider than the cards by exactly one scrollbar is invisible here.
-  Force a real gutter first: `page.addStyleTag({ content: ".content {
-  scrollbar-gutter: stable; }" })`.
+  `.content` now reserves a real gutter itself (`scrollbar-gutter: stable`),
+  so its `offsetWidth - clientWidth` is the true scrollbar width — but for any
+  other scroller, force one first: `page.addStyleTag({ content: ".x {
+  scrollbar-gutter: stable; }" })`. Screenshots never paint the scrollbar
+  either way: show anything about it with measured geometry (smoke42 §10).
+- **A long drag auto-scrolls the page**, which moves every viewport coordinate
+  without moving any pane. Compare dashboard positions relative to the canvas
+  (`box - canvasBox`, see smoke42's `box`), not raw `boundingBox()` values.
+- **Dashboard panes refuse to pass through each other**, correctly. A drag or
+  resize that "didn't move" may just have aimed at an occupied spot, or (since
+  panes start flush in the canvas's top-left) at the canvas edge — dump every
+  pane's position before calling it a bug, and aim at space that is free.
+- **`newSession()` always makes a *new* session.** To add or remove a pane in
+  the session on screen, click its own "Panes" checkbox:
+  `${SHOWN} .checkbox-item:has-text("IoT") input[type=checkbox]`.
+- **A mid-suite `clearWorkspace()` can race the app's own autosave**: a PUT
+  still pending from the gestures just before it can land after the DELETEs
+  and resurrect the old session, leaving two sessions' panes mounted — one
+  more reason every pane selector goes through `SHOWN`.
+- **Prove a new suite catches the bug.** Run it once with the fix stashed
+  (`git stash push -- frontend/src`, run, `git stash pop`); smoke41 passed
+  against code that still had every bug the user reported, because it only
+  drove the easy path.
 - **`hidden` is not proof.** Check the computed `display`: an author
   `display: flex` beats the UA's `[hidden] { display: none }`, which is a bug
   this app has actually shipped.
