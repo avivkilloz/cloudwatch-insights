@@ -75,7 +75,8 @@ helm/ argocd/ docker-compose.yml   deployment
 **Every session is an Aggregator.** There is one session type
 (`SESSION_TYPE = "aggregator"`). A session holds *panes* — its `services` state
 key lists them, `layout` is how they are arranged (`tabs` | `columns` |
-`stacked`, tabs being the default), `activePane` is the selected tab. Opening
+`stacked` | `dashboard`, tabs being the default), `activePane` is the selected
+tab. Sessions can be filed into named categories in the rail. Opening
 "CloudWatch" means a session holding one CloudWatch pane. Start sessions through
 `useStartSession()` (`sessions/start.ts`) — `start`, `startOne`,
 `startFromTemplate` — rather than calling `open()` with a hand-built state bag.
@@ -87,16 +88,38 @@ anything that fills a session's state must do it *before* mounting it (this bit
 us once on reopening a closed session).
 
 **Panes stay mounted.** Hidden, never unmounted, so a running query or a scroll
-position survives switching tabs, layouts or sessions. Two consequences: any
-DOM selector must be scoped to `.session-body:not([hidden])`, and
-`.aggregator-pane[hidden] { display: none }` is required because an author
-`display: flex` beats the UA's `[hidden]` rule.
+position survives switching tabs, layouts or sessions. Consequences: any DOM
+selector must be scoped to `.session-body:not([hidden])` — and inside a
+component, prefer a **ref** to any selector at all: a page-wide
+`document.querySelector(".x")` returns the *first* session's `.x`, often a
+hidden one measuring 0px (this is what froze dashboard drags whenever a second
+session was open). A hidden element also measures 0, so treat a 0 width as
+"not visible", not "shrunk". And `.aggregator-pane[hidden] { display: none }`
+is required because an author `display: flex` beats the UA's `[hidden]` rule.
 
 **Sessions autosave to the server** (`live_sessions` table, `sessions/sync.ts`):
 1.2 s debounce, diffed by encoded fingerprint, and **requests are chained
 through `WorkspaceSync.enqueue`** so a close or delete can't be overtaken by an
 in-flight PUT that would revive it. The closed-session listing carries no state;
-full state is fetched on reopen.
+full state is fetched on reopen. **Anything that takes a session out of the
+workspace must push its state first** — the debounced flush only ever sees
+the sessions still in the workspace, so a close used to drop the last second
+of changes (and a never-saved session reopened empty). `WorkspaceSync.close()`
+does push-then-close on the chain; use it, not a bare `closeLiveSession`.
+
+**The dashboard layout** (`AggregatorPage.tsx`) is freeform: `dashboardRects`
+(session state) holds a pixel `Rect` per pane, relative to the canvas.
+`resolveDashboard()` is the single answer per render for what's drawn, what a
+drag collides with and what gets stored: a stored rect is kept unless it
+collides with one accepted before it, and every other pane gets
+`firstAvailableRect()` (first free spot in reading order). **A placement is
+stored the moment it's made** (an effect) — a position that's only ever
+computed moves by itself whenever anything before it changes, which was the
+"panes jump around" bug. Closing a pane deletes its rect, so it comes back in
+the first free place. Panes never overlap or come within the 16px gap
+(`resolveRect`), a minimised pane's footprint is just its 40px header (but its
+stored height is kept), and the right boundary is the canvas's measured width
+— the same as the "Panes" card's, so panes line up with the cards above.
 
 **Workspace JSON is tagged** (`sessions/storage.ts`): `__cwiSet` / `__cwiMap` so
 `Set`/`Map` survive persistence. Plain `JSON.stringify` flattens a Set to `{}`
@@ -143,16 +166,27 @@ credentials per service.
   across accounts are reported per account rather than failing the whole call.
 - **Testing:** backend is pytest against a **real Postgres** (`backend/tests`,
   one file per area; `conftest.py` resets the schema and logs in as admin before
-  each test). The frontend has no unit tests — it is verified by the
-  **browser suites in `frontend/e2e/`** (`node e2e/run-all.mjs`; that folder's
-  README carries the configuration and the traps that have already cost a
-  release). Verify UI work by driving the running app, not by reading the
-  diff.
+  each test) — so give it its **own database** (`cloudwatch_insights_test`),
+  never the one the browser suites use, or they can no longer sign in. The
+  frontend has no unit tests — it is verified by the **browser suites in
+  `frontend/e2e/`** (`node e2e/run-all.mjs`; that folder's README carries the
+  configuration and the traps that have already cost a release). Verify UI
+  work by driving the running app, not by reading the diff: reproduce the
+  user's *actual* sequence of actions first, and check that a new suite fails
+  against the old code (`git stash push -- frontend/src`) before trusting it
+  — a suite that only covers the easy path passes while the reported bug
+  stays.
 - **CSS:** one `styles.css`, theme tokens on `:root`. When inserting a rule with
   a script, **never anchor on a bare selector prefix** — `.rail-row-label {`
   also matches inside `.rail-row.active .rail-row-label {`, which silently
   splices the new block into an existing rule. Append at the end or match a
   unique full rule.
+- **One 16px gap everywhere, and the scrollbar at the window's edge.** `.shell`
+  pads top and left; `.content` (the scroll box) pads the *right*, inside
+  itself, with `scrollbar-gutter: stable` and `scrollbar-width: thin`. That
+  puts the scrollbar against the window and every card 16px clear of it, and
+  keeps widths from jumping when a scrollbar appears. Don't move that right
+  padding back onto `.shell` — the scrollbar floats 16px in from the edge.
 
 ## Constraints
 

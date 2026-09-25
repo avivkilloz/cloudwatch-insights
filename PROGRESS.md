@@ -2,14 +2,15 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-24, mid-session on the round that follows PR #76._
+_Last updated: 2026-09-25, at the end of the session that merged #71–#77._
 
 ## Where things stand
 
 **Branch:** `claude/multi-account-cloudwatch-insights-shyq4m` (the standing
 feature branch — restarted from `main` each round, same name).
 
-**Open:** only the PR carrying these notes. Everything else is merged.
+**Open:** only the PR carrying these notes. Everything else is merged, and
+nothing is half-written.
 
 **Merged before this session:** #63 (rail rename, portal menu, folded
 catalogue), #64 (autosaved live sessions + session strip), #65 (one Sessions
@@ -37,46 +38,36 @@ handles now cover the four edges as well as the four corners, each moving
 only the one dimension it sits on), #76 (a first attempt at "new panes land
 in the first free place" and a `scrollbar-gutter: stable` canvas edge — it
 only held up for panes opened all at once into a fresh session, which is all
-its suite, smoke41, exercised).
+its suite, smoke41, exercised), #77 (the dashboard fixed for how it's
+actually used — panes added one at a time, moved, closed and reopened,
+sessions closed and reopened — each bug reproduced in the browser first):
 
-**In this round (not yet merged), the dashboard fixed for how it's actually
-used** (panes added one at a time, moved, closed and reopened; sessions
-closed and reopened). Each was reproduced in the browser first:
-
-- *Panes jumping / landing on each other.* A pane that had never been dragged
-  had no stored place and was re-laid-out every render, so it jumped whenever
-  a pane before it moved; a closed pane came back at its old spot even if
-  something else was there now. Now `resolveDashboard()` (`AggregatorPage.tsx`)
-  keeps each stored rect that doesn't collide, gives everything else the first
-  free spot in reading order (`firstAvailableRect()` searches the real gaps
-  next to existing panes, so it works around resized ones too), and an effect
-  **stores every new placement immediately**, so an untouched pane never
-  moves on its own. Closing a pane forgets its spot. Expanding a minimised
-  pane that others were moved under relocates *it*, not them. Panes start at
-  the canvas's top-left, flush with the "Panes" card; neighbour edges win
-  over the 20px grid when snapping (panes used to end up 4px out of line).
+- *Panes jumping / landing on each other.* A never-dragged pane had no stored
+  place and was re-laid-out every render, so it jumped whenever a pane before
+  it moved; a closed pane reopened on top of whatever had taken its spot.
+  `resolveDashboard()` now keeps each non-colliding stored rect, gives the
+  rest the first free spot in reading order (`firstAvailableRect()`, which
+  searches the real gaps between panes), and an effect stores every new
+  placement at once. Closing a pane forgets its spot; expanding a minimised
+  pane that others moved under relocates *it*. Panes start flush with the
+  "Panes" card; neighbour edges beat the 20px grid when snapping.
 - *Can't drag after reopening a session.* The canvas width came from a
-  page-wide `document.querySelector(".aggregator-dashboard")`, which with two
-  sessions mounted found the hidden one (0px), clamping every drag/resize in
-  the other to nothing and packing it into one column. Now measured per
-  session via a ref + `ResizeObserver`.
-- *Closing a session lost its last changes* (found while testing the above):
-  closing removes it from the workspace before the 1.2 s sync debounce fires,
-  so the change never went out — and a session closed before its first save
-  reopened empty. `WorkspaceSync.close()` (`sessions/sync.ts`) now pushes the
-  session's state first, on the same request chain as the close.
-- *Scrollbar at the window's edge.* `.shell`'s right padding moved inside
-  `.content` (`styles.css`): the scrollbar now sits against the window edge,
-  and every card — strip, "Panes" card, a dashboard pane pushed right — is
-  16px clear of it. The dashboard's extra right margin from #76 is gone, so
-  panes stop exactly where the Panes card does.
-- *Smaller ones from an audit:* dragging a minimised pane overwrote its height
-  with the 40px header footprint (it came back as a strip when expanded);
-  Escape did nothing during a dashboard move/resize, and a browser-cancelled
-  pointer committed the half-finished move. Both fixed.
+  page-wide `document.querySelector`, which with two sessions mounted found
+  the hidden one's 0px canvas and clamped every drag/resize in the other.
+  Now measured per session with a ref + `ResizeObserver`.
+- *Closing a session lost its last changes* — and a session closed before
+  its first save reopened empty — because closing removes it from the
+  workspace before the 1.2 s sync debounce fires. `WorkspaceSync.close()`
+  now pushes its state first, on the same request chain as the close.
+- *Scrollbar at the window's edge*: `.shell`'s right padding moved inside
+  `.content`, so every card is 16px clear of a scrollbar that now sits
+  against the window.
+- *From an audit:* dragging a minimised pane overwrote its height with the
+  40px header's; Escape now cancels a dashboard move/resize; a
+  browser-cancelled pointer no longer commits.
 
-New coverage: `frontend/e2e/smoke42.mjs`, checked to fail against the
-previous code (6 failures, then a crash at the reopen step) before passing.
+  Coverage: `smoke42.mjs`, confirmed to fail against the previous code
+  before passing.
 
 ## Done and working
 
@@ -97,10 +88,9 @@ Everything below is merged and verified against the running app.
   to end with two panes closer than the standard 16px gap — it slides along
   whichever axis is still free, or holds at the last position that kept the
   gap. Neither can cross the canvas's own edges either: not left/top (where
-  the "Panes" card is) or right (which would force the page into horizontal
-  scroll, and is sized to whatever the canvas's own `clientWidth` actually
-  is, which `scrollbar-gutter: stable` keeps from shifting when a vertical
-  scrollbar appears or disappears); there's no ceiling on the bottom edge,
+  the "Panes" card is) or right (the canvas's measured width, the same as
+  the Panes card's, which `scrollbar-gutter: stable` keeps from shifting
+  when a vertical scrollbar appears or disappears); there's no ceiling on the bottom edge,
   which the canvas grows and auto-scrolls to reach instead. While dragging or
   resizing, the pane itself follows the raw pointer and a dashed "cut lines"
   outline shows the snapped, gap- and boundary-respecting spot it will
@@ -133,20 +123,17 @@ Everything below is merged and verified against the running app.
 
 ## In progress / where I left off
 
-Nothing half-written — the tree is clean, verified against the running app,
-and the only thing outstanding is the PR carrying this round's dashboard
-fixes (see "In this round" above). Start the next round by restarting the
-branch from `main` (`git fetch origin main && git checkout -B <branch> origin/main`).
+Nothing. The tree is clean and everything is merged; the next session starts
+by restarting the branch from `main`
+(`git fetch origin main && git checkout -B <branch> origin/main`).
 
-**Dashboard ideas offered to the user, not started:** a "Tidy up" action that
-re-packs every pane; maximise a pane to fill the canvas (and back); moving and
-resizing from the keyboard; and storing x/width as fractions of a column grid
-rather than pixels (Grafana-style), so a dashboard built on a wide monitor
-still fits a laptop or a teammate's template instead of being slid/re-placed.
-
-**Don't run backend pytest against the e2e database.** `conftest.py` drops and
-recreates the schema with its own admin password, so the browser suites can no
-longer sign in afterwards. Give pytest its own `DATABASE_URL`.
+**Dashboard ideas offered to the user, not started** (their call which, if
+any): a "Tidy up" action that re-packs every pane; maximise a pane to fill
+the canvas (and back); moving and resizing from the keyboard; and — the one
+with the most reach — storing x/width as fractions of a column grid rather
+than pixels (Grafana-style). Sessions sync across browsers and templates are
+shared, so a dashboard built on a wide monitor currently gets slid in or
+re-placed on a laptop (`resolveDashboard`), and a re-placement is stored.
 
 ## Known issues
 
@@ -172,6 +159,10 @@ longer sign in afterwards. Give pytest its own `DATABASE_URL`.
   long in screenshots.
 - **Deleting a template in Settings doesn't refresh the Add list** until
   something else reloads the templates context. Minor, unreported by the user.
+- **Dashboard positions are pixels.** See the column-grid idea above: on a
+  narrower window than the one a dashboard was laid out in, panes past the
+  right edge are shown slid back inside, and one that would then collide is
+  re-placed in the first free spot — permanently, since placements are stored.
 - The `user_groups.aggregator_enabled` column is dead — every session is an
   Aggregator, so nothing reads it. Left in place deliberately (dropping it is a
   schema change for no gain); there is no toggle for it in Settings.
@@ -184,7 +175,16 @@ longer sign in afterwards. Give pytest its own `DATABASE_URL`.
   found by driving the running app — instrumented probes for a menu that closed
   itself, computed-style checks for `hidden`, forced scrollbar gutters for a
   width mismatch. Reading the diff would have missed all three.
-- Screenshots are welcome in the reply when the change is visual.
+- **Reproduce the user's actual sequence before fixing, and prove the new
+  suite fails on the old code.** #76 shipped a placement fix whose suite only
+  opened panes all at once into a fresh session; the user's flow (one at a
+  time, moving in between, closing and reopening) failed in three separate
+  ways it never touched. #77 started from a scratch script driving exactly
+  that flow, and checked smoke42 against the old code with
+  `git stash push -- frontend/src` before trusting it.
+- Screenshots are welcome in the reply when the change is visual — but
+  headless Chromium doesn't paint scrollbars in them, so anything about the
+  scrollbar has to be shown with measured geometry, not a picture.
 - Keep the user's own wording for features ("session", "pane", "template") —
   they are precise about it.
 
@@ -224,8 +224,14 @@ cd backend && DATABASE_URL="postgresql+psycopg2://cloudwatch_insights:cloudwatch
 cd frontend && npx tsc --noEmit && npm run build
 ```
 
+pytest **must** get the `_test` database, never `_smoke`: `conftest.py` drops
+and recreates the schema with its own admin password, after which the browser
+suites can't sign in and every environment is gone. (It happened once this
+session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
+`_smoke` and restarting the backend, which re-bootstraps the admin.)
+
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 28 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 30 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
@@ -237,14 +243,20 @@ Each suite's header comment says what it covers; 35 covers the spacing/Add
 round, 36 the permission split and saved-row naming, 37 a closed session
 staying inside its category, 38 the dashboard layout's collision prevention
 and snapping, 39 its multi-corner resize, auto-scroll and minimum-gap
-follow-ups, and 40 its canvas-boundary fixes and edge resize handles.
+follow-ups, 40 its canvas-boundary fixes and edge resize handles, 41 panes
+opened together packing into the canvas and the stable scrollbar gutter, and
+42 the real-use flows from #77 (one-at-a-time placement, reopen, two
+sessions, close-then-reopen, minimised drag, Escape, scrollbar geometry).
 
 ## Next steps, in order
 
 1. Restart the branch from `main` (the notes PR aside, nothing is in flight).
 2. Pick up the user's next batch of UI issues — that has been the rhythm of
    every round.
-3. Optional, only if the user wants them: prune the junk templates from the dev
+3. If the user picks one of the dashboard ideas above, the column grid is a
+   stored-shape change: `dashboardRects` would need a migration (CLAUDE.md,
+   "Old state shapes are migrated on load").
+4. Optional, only if the user wants them: prune the junk templates from the dev
    database; refresh the templates context after a delete in Settings; decide
    whether CI should run the browser suites (it does not — they need a backend,
    a seeded Postgres and an admin login, which is its own piece of work).
