@@ -194,3 +194,190 @@ def test_live_sessions_need_a_login():
     assert anonymous.get("/api/live-sessions").status_code == 401
     assert anonymous.put("/api/live-sessions/s1", json={"type": "iot", "title": "x", "state": {}}).status_code == 401
     assert anonymous.delete("/api/live-sessions/s1").status_code == 401
+
+
+# ---- versions: two-way sync without last-write-wins data loss ----
+
+
+def test_every_write_bumps_the_version():
+    assert _put("v1")["version"] == 1
+    assert _put("v1", title="again")["version"] == 2
+    closed = client.post("/api/live-sessions/v1/close")
+    assert closed.json()["version"] == 3
+
+
+def test_a_write_from_a_stale_version_is_refused_not_applied():
+    _put("stale", state={"a": 1})  # version 1
+    _put("stale", state={"a": 2}, base_version=1)  # version 2, made from 1: fine
+    resp = client.put(
+        "/api/live-sessions/stale",
+        json={"type": "logs-cloudwatch", "title": "stale", "state": {"a": "lost?"}, "base_version": 1},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "version 2" in resp.json()["detail"]
+    # ...and nothing of it was written.
+    row = client.get("/api/live-sessions/stale").json()
+    assert row["state"] == {"a": 2} and row["version"] == 2
+
+
+def test_a_write_without_a_base_version_still_overwrites():
+    # What a browser from before versions existed sends.
+    _put("legacy", state={"a": 1})
+    _put("legacy", state={"a": 2})
+    assert client.get("/api/live-sessions/legacy").json()["state"] == {"a": 2}
+
+
+def test_a_new_session_ignores_any_base_version():
+    # Nothing to be stale against yet -- a tab creating a session another tab
+    # deleted meanwhile brings it back rather than erroring.
+    assert _put("fresh", base_version=7)["version"] == 1
+
+
+# ---- announcements ----
+
+
+def _listen():
+    import psycopg2
+
+    from app.db import engine
+    from app.live_events import CHANNEL
+
+    conn = psycopg2.connect(engine.url.render_as_string(hide_password=False).replace("+psycopg2", ""))
+    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+    conn.cursor().execute(f"LISTEN {CHANNEL};")
+    return conn
+
+
+def _drain(conn, wait: float = 2.0) -> list[dict]:
+    import json
+    import select
+    import time
+
+    events: list[dict] = []
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        if select.select([conn], [], [], 0.1) != ([], [], []):
+            conn.poll()
+            while conn.notifies:
+                events.append(json.loads(conn.notifies.pop(0).payload))
+        elif events:
+            break
+    return events
+
+
+def test_writes_are_announced_with_who_made_them_but_no_state():
+    conn = _listen()
+    try:
+        resp = client.put(
+            "/api/live-sessions/told",
+            json={"type": "logs-cloudwatch", "title": "told", "state": {"secret": "rows"}},
+            headers={"X-Sync-Origin": "tab-1"},
+        )
+        assert resp.status_code == 200
+        client.post("/api/live-sessions/told/close", headers={"X-Sync-Origin": "tab-1"})
+        client.delete("/api/live-sessions/told", headers={"X-Sync-Origin": "agent"})
+        events = _drain(conn)
+    finally:
+        conn.close()
+    kinds = [(e["kind"], e["client_id"], e["version"], e["origin"]) for e in events]
+    assert kinds == [("upsert", "told", 1, "tab-1"), ("close", "told", 2, "tab-1"), ("delete", "told", None, "agent")]
+    assert all("state" not in e and "secret" not in str(e) for e in events)
+    assert all(isinstance(e["user_id"], int) for e in events)
+
+
+def test_a_refused_write_is_not_announced():
+    _put("quiet")
+    conn = _listen()
+    try:
+        resp = client.put(
+            "/api/live-sessions/quiet",
+            json={"type": "logs-cloudwatch", "title": "quiet", "state": {}, "base_version": 0},
+        )
+        assert resp.status_code == 409
+        events = _drain(conn, wait=0.8)
+    finally:
+        conn.close()
+    assert events == []
+
+
+def test_the_listener_only_hands_events_to_their_own_user():
+    import asyncio
+
+    from app.live_events import _Listener
+
+    async def scenario():
+        listener = _Listener()
+        # Subscribe without starting the LISTEN thread: this is about fan-out.
+        listener._thread = type("Alive", (), {"is_alive": lambda self: True})()
+        mine = listener.subscribe(1)
+        theirs = listener.subscribe(2)
+        listener._dispatch({"user_id": 1, "kind": "upsert", "client_id": "x", "version": 3, "origin": None})
+        await asyncio.sleep(0)
+        assert mine.queue.qsize() == 1 and theirs.queue.qsize() == 0
+        listener.unsubscribe(mine)
+        listener._dispatch({"user_id": 1, "kind": "delete", "client_id": "x", "version": None, "origin": None})
+        await asyncio.sleep(0)
+        assert mine.queue.qsize() == 1
+
+    asyncio.run(scenario())
+
+
+def test_the_event_stream_needs_a_login():
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/live-sessions/events").status_code == 401
+
+
+def test_two_writes_from_the_same_version_never_both_land():
+    """Concurrent, not sequential: two browsers (or a browser and the agent)
+    pushing from the same version a few milliseconds apart. Exactly one may
+    win; the other must be told to merge. Without a row lock on the version
+    check both passed it and the later write silently replaced the earlier."""
+    import threading
+
+    from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
+
+    writers = [_login_as(ADMIN_USERNAME, ADMIN_PASSWORD) for _ in range(2)]
+    for attempt in range(15):
+        client_id = f"race-{attempt}"
+        base = _put(client_id, state={"n": 0})["version"]
+        statuses: list[int] = []
+        barrier = threading.Barrier(2)
+
+        def write(c: TestClient, value: int) -> None:
+            barrier.wait()
+            resp = c.put(
+                f"/api/live-sessions/{client_id}",
+                json={"type": "logs-cloudwatch", "title": client_id, "state": {"n": value}, "base_version": base},
+            )
+            statuses.append(resp.status_code)
+
+        threads = [threading.Thread(target=write, args=(c, i + 1)) for i, c in enumerate(writers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sorted(statuses) == [200, 409], (attempt, statuses)
+        assert client.get(f"/api/live-sessions/{client_id}").json()["version"] == base + 1
+
+
+def test_a_save_does_not_move_a_session_only_a_reorder_does():
+    """A tab still showing the old order must not undo a reorder made in
+    another one just by saving -- position is set on creation, then belongs
+    to /reorder."""
+    _put("p1", position=0)
+    _put("p2", position=1)
+    client.post("/api/live-sessions/reorder", json={"client_ids": ["p2", "p1"]})
+    _put("p1", position=0, title="saved from a stale tab")
+    assert _open_ids() == ["p2", "p1"]
+
+
+def test_a_reorder_is_announced_with_the_new_order():
+    _put("o1")
+    _put("o2")
+    conn = _listen()
+    try:
+        client.post("/api/live-sessions/reorder", json={"client_ids": ["o2", "o1"]}, headers={"X-Sync-Origin": "tab-9"})
+        events = _drain(conn)
+    finally:
+        conn.close()
+    assert [(e["kind"], e.get("order"), e["origin"]) for e in events] == [("reorder", ["o2", "o1"], "tab-9")]

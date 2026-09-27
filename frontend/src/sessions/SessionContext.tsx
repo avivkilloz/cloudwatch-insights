@@ -20,7 +20,8 @@ import {
   loadWorkspace,
   saveWorkspace,
 } from "./storage";
-import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire } from "./sync";
+import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
+import { subscribeLiveEvents } from "./liveEvents";
 
 /** Which panes a session can hold. Values are stored, so renaming one orphans
  * existing sessions -- add rather than rename. ./registry.tsx says what each
@@ -319,6 +320,123 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     };
   }, [workspace.sessions, ready, sync]);
 
+  // A newer copy of a session from the server -- someone else's change,
+  // announced or found on a 409 -- merged into this browser's (see
+  // mergeSession). A session this browser didn't have yet is added, not
+  // switched to: something appearing elsewhere shouldn't pull you off what
+  // you're looking at.
+  useEffect(() => {
+    sync.onRemote = (remote, base) => {
+      setClosed((c) => (c.some((s) => s.client_id === remote.id) ? c.filter((s) => s.client_id !== remote.id) : c));
+      setWorkspace((w) => {
+        const index = w.sessions.findIndex((s) => s.id === remote.id);
+        if (index < 0) return { ...w, sessions: [...w.sessions, remote] };
+        const sessions = [...w.sessions];
+        sessions[index] = mergeSession(base, w.sessions[index], remote);
+        return { ...w, sessions };
+      });
+    };
+    return () => {
+      sync.onRemote = null;
+    };
+  }, [sync]);
+
+  // The event stream: changes made somewhere else, as they happen. Only once
+  // the workspace is loaded, so an early event can't land on the empty one
+  // that the first render holds.
+  useEffect(() => {
+    if (!ready) return;
+    const migrate = (s: PersistedSession) => migrateSessionList([s])[0] ?? s;
+    const refreshClosed = () =>
+      api
+        .listClosedLiveSessions()
+        .then((rows) => setClosed(rows.filter((row) => row.type !== "agent")))
+        .catch(() => undefined);
+    // Gone elsewhere: off the strip here too, and forgotten, so the next
+    // flush doesn't push it back and undo the close.
+    // Someone else's panel order: follow it, keeping any session the server
+    // doesn't know yet where it was, at the end.
+    const followOrder = (ids: string[]) => {
+      sync.adoptOrder(ids);
+      setWorkspace((w) => {
+        const rank = new Map(ids.map((id, i) => [id, i]));
+        const sorted = [...w.sessions].sort(
+          (a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+        );
+        return sorted.every((s, i) => s === w.sessions[i]) ? w : { ...w, sessions: sorted };
+      });
+    };
+    const drop = (id: string) => {
+      sync.forget(id);
+      setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? withoutSession(w, id) : w));
+    };
+    // Read the whole list and take whatever is newer than what's here. What a
+    // reconnect does, since anything announced while the stream was down is
+    // gone -- and what a failed fetch falls back to, since the event that
+    // prompted it won't come again. Only sessions the server has already seen
+    // are dropped for being missing: one made here and not pushed yet isn't
+    // gone, just new.
+    let retry: number | null = null;
+    const catchUp = () => {
+      if (retry !== null) window.clearTimeout(retry);
+      retry = null;
+      api
+        .listLiveSessions()
+        .then((rows) => {
+          const onServer = new Set(rows.map((row) => row.client_id));
+          for (const row of rows) sync.receive(row, migrate);
+          followOrder(rows.map((row) => row.client_id));
+          for (const s of workspaceRef.current.sessions) {
+            if (!onServer.has(s.id) && sync.versionOf(s.id) !== undefined) drop(s.id);
+          }
+          refreshClosed();
+        })
+        .catch(catchUpLater);
+    };
+    const catchUpLater = () => {
+      if (retry === null) retry = window.setTimeout(catchUp, 3000);
+    };
+    const fetchAndReceive = (id: string) =>
+      api
+        .getLiveSession(id)
+        // Closed again by the time it was fetched: its own close event says so.
+        .then((row) => (row.closed_at ? undefined : sync.receive(row, migrate)))
+        .catch(catchUpLater);
+    // The stream can survive a network blip that the fetches it prompts
+    // don't, so coming back online is a reason to look again too.
+    window.addEventListener("online", catchUp);
+
+    const unsubscribe = subscribeLiveEvents(
+      (event) => {
+        if (event.kind === "reorder") {
+          if (event.order) followOrder(event.order);
+          else catchUp();
+          return;
+        }
+        const id = event.client_id;
+        if (!id) return;
+        if (event.kind === "upsert") {
+          if ((sync.versionOf(id) ?? -1) >= (event.version ?? 0)) return;
+          fetchAndReceive(id);
+        } else if (event.kind === "close") {
+          drop(id);
+          refreshClosed();
+        } else if (event.kind === "delete") {
+          drop(id);
+          setClosed((c) => c.filter((s) => s.client_id !== id));
+        }
+      },
+      catchUp,
+    );
+    return () => {
+      unsubscribe();
+      window.removeEventListener("online", catchUp);
+      if (retry !== null) window.clearTimeout(retry);
+    };
+    // `withoutSession` is a plain function of its arguments.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, sync]);
+
   const open = useCallback((title: string, state: Record<string, unknown> = {}) => {
     touched.current = true;
     const id = `s${Date.now().toString(36)}${(sessionCounter++).toString(36)}`;
@@ -614,6 +732,8 @@ export function useDropSessionKeys(): (prefix: string) => void {
 }
 
 interface SessionScope {
+  /** Called on every change to the session's bag, with the bag. */
+  subscribe: (listener: (bag: Record<string, unknown>) => void) => () => void;
   id: string;
   /** The session's state as it is right now. Read once per mount, by
    * useSessionState's initialiser. */
@@ -637,7 +757,25 @@ export function SessionScopeProvider({
   // change) re-seeds from the original bag and throws away everything since.
   const latest = useRef(session.state);
   latest.current = session.state;
-  const scope = useMemo(() => ({ id: session.id, read: () => latest.current }), [session.id]);
+  const listeners = useRef(new Set<(bag: Record<string, unknown>) => void>());
+  const scope = useMemo(
+    () => ({
+      id: session.id,
+      read: () => latest.current,
+      subscribe: (listener: (bag: Record<string, unknown>) => void) => {
+        listeners.current.add(listener);
+        return () => {
+          listeners.current.delete(listener);
+        };
+      },
+    }),
+    [session.id],
+  );
+  // Every change to the bag, whoever made it: a mounted useSessionState
+  // compares its own key and takes a value it didn't write itself (see there).
+  useEffect(() => {
+    for (const listener of listeners.current) listener(session.state);
+  }, [session.state]);
   return <SessionScopeContext.Provider value={scope}>{children}</SessionScopeContext.Provider>;
 }
 
@@ -691,6 +829,23 @@ export function useSessionState<T>(key: string, initial: T | (() => T)): [T, Dis
     lastWritten.current = value;
     write(scope.id, fullKey, value);
   }, [scope, write, fullKey, value]);
+
+  // And the other way: the bag changed under a mounted pane -- another tab,
+  // another machine, the platform agent -- so its value follows. Seeding only
+  // on mount used to be enough because this browser was the only writer.
+  // What this hook wrote itself comes back as the very same object, so only
+  // someone else's change gets through; a key that was removed (a closed
+  // pane's, on its way out) is left alone.
+  useEffect(() => {
+    if (!scope) return;
+    return scope.subscribe((bag) => {
+      if (!(fullKey in bag)) return;
+      const next = bag[fullKey];
+      if (Object.is(next, lastWritten.current)) return;
+      lastWritten.current = next;
+      setValue(next as T);
+    });
+  }, [scope, fullKey]);
 
   return [value, setValue];
 }

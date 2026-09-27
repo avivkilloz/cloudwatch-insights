@@ -95,6 +95,10 @@ export interface LiveSession {
   truncated: boolean;
   /** Null while it is open; set once it is closed but still reopenable. */
   closed_at: string | null;
+  /** Bumped by the server on every write, whoever made it. A write says which
+   * version it was made from, and one made from an older version is refused
+   * (409) so the writer merges instead of overwriting a change it never saw. */
+  version: number;
 }
 
 /** A named group of sessions in the side panel, the way a Slack workspace
@@ -424,6 +428,13 @@ export interface AiAssistResponse {
 
 const BASE = "/api";
 
+/** This tab's own id, sent with every request as X-Sync-Origin. The server
+ * stamps it on the change announcements it sends out (see
+ * sessions/liveEvents.ts), which is how a tab tells the echo of its own write
+ * from someone else's -- another tab, another machine, the platform agent.
+ * Per tab rather than per browser on purpose: two tabs are two writers. */
+export const SYNC_ORIGIN = `tab-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -442,10 +453,11 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers, ...rest } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Sync-Origin": SYNC_ORIGIN, ...headers },
     credentials: "same-origin",
-    ...init,
+    ...rest,
   });
   if (!res.ok) {
     if (res.status === 401 && path !== "/auth/login") onUnauthorized?.();
@@ -563,7 +575,10 @@ export const api = {
   listLiveSessions: () => req<LiveSession[]>("/live-sessions"),
   listClosedLiveSessions: () => req<LiveSessionSummary[]>("/live-sessions/closed"),
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
-  putLiveSession: (clientId: string, payload: Omit<LiveSession, "client_id" | "closed_at">) =>
+  putLiveSession: (
+    clientId: string,
+    payload: Omit<LiveSession, "client_id" | "closed_at" | "version"> & { base_version?: number },
+  ) =>
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
       method: "PUT",
       body: JSON.stringify(payload),

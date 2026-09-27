@@ -294,6 +294,23 @@ things worth knowing:
   request time via `BACKEND_SERVICE_HOST`/`BACKEND_SERVICE_PORT`, which the
   chart wires up automatically to the backend Service it creates — you
   don't need to set those yourself.
+- **Live sync keeps one long-lived request open per browser tab**
+  (`GET /api/live-sessions/events`, a server-sent event stream), so changes
+  made in another tab, another machine or by the platform agent appear
+  without a reload. Anything between the browser and the backend has to let
+  it through unbuffered and unhurried:
+  - The backend sends `X-Accel-Buffering: no`, which the frontend
+    container's nginx and ingress-nginx both honour. For another ingress or
+    load balancer, turn response buffering off for that path.
+  - It sends a heartbeat every 20 s, so any idle timeout of 60 s or more is
+    fine (nginx's and ingress-nginx's defaults are 60 s; AWS ALB's is 60 s).
+  - A dropped stream reconnects by itself after 3 s and catches up, so a
+    shorter timeout costs extra requests, not missed changes.
+- Changes are announced through Postgres `LISTEN/NOTIFY`, so they reach
+  browsers on every backend replica. Each replica holds one extra database
+  connection for this, outside its connection pool. A connection pooler in
+  front of Postgres must be in **session** mode for that connection
+  (PgBouncer's transaction mode drops `LISTEN`).
 
 Verify:
 ```bash

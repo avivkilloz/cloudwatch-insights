@@ -1,10 +1,14 @@
 /**
- * Keeping the open sessions in step with the server.
+ * Keeping the open sessions in step with the server -- both ways.
  *
- * The rule here is that the browser owns the workspace and the server stores
- * it. Nothing in this file decides what a session contains or when one opens;
- * it takes whatever the workspace currently is, works out which sessions the
- * server has not been told about, and tells it -- last write wins, per session.
+ * This browser pushes whatever in its workspace the server hasn't been told
+ * about. It used to be the only writer, so last-write-wins was enough. It no
+ * longer is: another tab, another machine and the platform agent can all
+ * change a session on the server. So every push says which server version it
+ * was made from; the server refuses a push made from an older one (409), and
+ * this side fetches what is there, merges (`mergeSession`) and pushes again.
+ * Changes that arrive without a conflict -- announced on the event stream
+ * (./liveEvents) -- go through the same merge via `receive`.
  *
  * Two things it deliberately does not sync: which session is active, and which
  * view is showing. Those are "what is this browser looking at", not work worth
@@ -23,8 +27,11 @@ export const SYNC_DEBOUNCE_MS = 1200;
  * it has changed since the last push. Comparing the encoded form rather than
  * object identity means a page that rewrites a key with an equal value doesn't
  * cost a request. */
-function fingerprint(session: PersistedSession, position: number): string {
-  return encode({ t: session.type, n: session.title, p: position, c: session.categoryId ?? null, s: session.state });
+/** What a session's save sends, minus its position: order is the reorder
+ * endpoint's alone (a save only places a session when it creates one), so a
+ * session that merely moved has nothing new to save. */
+function fingerprint(session: PersistedSession): string {
+  return encode({ t: session.type, n: session.title, c: session.categoryId ?? null, s: session.state });
 }
 
 /** Sets and Maps have to survive the trip, and the server only stores JSON.
@@ -55,6 +62,52 @@ export function fromWire(row: LiveSession): PersistedSession {
   };
 }
 
+/** A key's value, or its absence, as comparable text. */
+const ABSENT = "\u0000absent";
+function printOf(value: unknown): string {
+  return value === undefined ? ABSENT : encode(value);
+}
+
+/**
+ * Folds a change the server has into this browser's copy of a session.
+ *
+ * Three-way, per state key (keys are "<paneId>.<key>", so this is per input
+ * of each pane) against `base` -- the server's copy this browser last agreed
+ * with: a key only this side changed keeps this side's value, one only the
+ * server changed takes the server's, and one both changed takes the
+ * server's. That last rule is the deliberate choice: the other writer is,
+ * as often as not, the platform agent doing what it was just asked to, and
+ * a stale tab silently undoing that is worse than a half-typed edit being
+ * replaced. Values that come out equal keep this side's object, so a pane
+ * reading it doesn't see a "change" and re-render for nothing.
+ */
+export function mergeSession(
+  base: PersistedSession | undefined,
+  local: PersistedSession | undefined,
+  remote: PersistedSession,
+): PersistedSession {
+  if (!local) return remote;
+  const pick = <T,>(b: T, l: T, r: T): T => {
+    const lp = printOf(l);
+    const rp = printOf(r);
+    if (lp === rp) return l;
+    const bp = printOf(b);
+    return lp === bp ? r : rp === bp ? l : r;
+  };
+  const baseState = base?.state ?? {};
+  const state: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(local.state), ...Object.keys(remote.state)])) {
+    const value = pick(baseState[key], local.state[key], remote.state[key]);
+    if (value !== undefined) state[key] = value;
+  }
+  return {
+    ...remote,
+    title: pick<string | undefined>(base?.title, local.title, remote.title) ?? remote.title,
+    categoryId: pick(base?.categoryId, local.categoryId, remote.categoryId),
+    state,
+  };
+}
+
 /**
  * Tracks what the server has been told, so each flush sends only what changed.
  *
@@ -65,20 +118,64 @@ export function fromWire(row: LiveSession): PersistedSession {
 export class WorkspaceSync {
   /** client_id -> the fingerprint last accepted by the server. */
   private synced = new Map<string, string>();
+  /** client_id -> the server version this browser's copy is based on. */
+  private versions = new Map<string, number>();
+  /** client_id -> the server's copy at that version: the merge's base. */
+  private bases = new Map<string, PersistedSession>();
   private order: string[] = [];
   private inFlight: Promise<void> = Promise.resolve();
+
+  /** Set by the provider: applies a session the server has moved on to,
+   * merged against `base`, to the workspace. The next flush then pushes the
+   * merge, from the new version. */
+  onRemote: ((remote: PersistedSession, base: PersistedSession | undefined) => void) | null = null;
 
   /** Called with what the server already had, so the first flush after a load
    * doesn't re-send every restored session unchanged. */
   adopt(rows: LiveSession[]): void {
     this.synced.clear();
-    rows.forEach((row, index) => this.synced.set(row.client_id, fingerprint(fromWire(row), index)));
+    this.versions.clear();
+    this.bases.clear();
+    rows.forEach((row) => this.remember(row, fromWire(row)));
     this.order = rows.map((row) => row.client_id);
   }
 
   forget(clientId: string): void {
     this.synced.delete(clientId);
+    this.versions.delete(clientId);
+    this.bases.delete(clientId);
     this.order = this.order.filter((id) => id !== clientId);
+  }
+
+  /** The server version this browser has seen for a session, if any. */
+  versionOf(clientId: string): number | undefined {
+    return this.versions.get(clientId);
+  }
+
+  /** A newer copy of a session from the server -- announced on the event
+   * stream, or fetched after a 409. Ignored when it isn't newer than what
+   * this browser already has. `migrate` is the same load-time migration the
+   * workspace gets, so a row written by an older writer arrives in today's
+   * shape. */
+  receive(row: LiveSession, migrate: (s: PersistedSession) => PersistedSession = (s) => s): void {
+    const known = this.versions.get(row.client_id);
+    if (known !== undefined && known >= row.version) return;
+    const remote = migrate(fromWire(row));
+    const base = this.bases.get(row.client_id);
+    this.remember(row, remote);
+    this.onRemote?.(remote, base);
+  }
+
+  /** The order the server now has, from a reorder made somewhere else: this
+   * browser follows it, and mustn't push its own old order back. */
+  adoptOrder(ids: string[]): void {
+    this.order = ids;
+  }
+
+  private remember(row: LiveSession, session: PersistedSession): void {
+    this.synced.set(row.client_id, fingerprint(session));
+    this.versions.set(row.client_id, row.version);
+    this.bases.set(row.client_id, session);
   }
 
   /**
@@ -132,13 +229,29 @@ export class WorkspaceSync {
   /** Sends one session if it changed since the server last accepted it. False
    * when the request failed and the session is still unsynced. */
   private async pushOne(session: PersistedSession, index: number): Promise<boolean> {
-    const print = fingerprint(session, index);
+    const print = fingerprint(session);
     if (this.synced.get(session.id) === print) return true;
     try {
-      await api.putLiveSession(session.id, toWire(session, index));
+      const saved = await api.putLiveSession(session.id, {
+        ...toWire(session, index),
+        base_version: this.versions.get(session.id),
+      });
       this.synced.set(session.id, print);
+      this.versions.set(session.id, saved.version);
+      this.bases.set(session.id, session);
       return true;
     } catch (err) {
+      // Someone else wrote first. Fetch theirs and merge; the merged session
+      // lands in the workspace, and the flush that follows pushes it from
+      // the version it was merged against. Nothing is dropped on the way.
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          this.receive(await api.getLiveSession(session.id));
+        } catch {
+          return false;
+        }
+        return true;
+      }
       // The one failure worth handling rather than retrying: the state is
       // past the server's ceiling even after capSession trimmed it. Send the
       // session without any state at all, so its title and position are
@@ -151,7 +264,8 @@ export class WorkspaceSync {
           category_id: session.categoryId ?? null,
           state: {},
           truncated: true,
-        });
+          base_version: this.versions.get(session.id),
+        }).then((saved) => this.versions.set(session.id, saved.version));
         this.synced.set(session.id, print);
         return true;
       }

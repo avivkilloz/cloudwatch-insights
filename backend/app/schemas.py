@@ -672,6 +672,10 @@ class LiveSessionUpsert(BaseModel):
     category_id: Optional[int] = None
     state: dict = Field(default_factory=dict)
     truncated: bool = False
+    # The version this write was made from. Stale (the row has moved on since)
+    # is a 409 the writer resolves by merging; absent means "overwrite
+    # regardless", which is what a browser from before versions existed sends.
+    base_version: Optional[int] = None
 
 
 class LiveSessionOut(BaseModel):
@@ -684,6 +688,7 @@ class LiveSessionOut(BaseModel):
     state: dict
     truncated: bool
     closed_at: Optional[datetime] = None
+    version: int = 0
 
 
 class LiveSessionSummary(BaseModel):
