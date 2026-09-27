@@ -137,8 +137,8 @@ async function saveActiveAsTemplate(page) {
   // ---------- 6b. Multi-select opens an Aggregator with those panes ----------
   await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
   await page.waitForSelector(".home-cards");
-  await page.click('.home-card:has(.home-card-title:text-is("CloudWatch")) input[type="checkbox"]');
-  await page.click('.home-card:has(.home-card-title:text-is("IoT")) input[type="checkbox"]');
+  await page.click('.home-card:has(.home-card-title:text-is("CloudWatch")) button[aria-label="One more CloudWatch"]');
+  await page.click('.home-card:has(.home-card-title:text-is("IoT")) button[aria-label="One more IoT"]');
   // Create is what the floating "Aggregate N" button became: every session is
   // an Aggregator, so this is simply how one is made.
   await page.click(".home-create");
@@ -146,7 +146,7 @@ async function saveActiveAsTemplate(page) {
   const paneTitles = await page.locator(`${V} .aggregator-tab-label`).allTextContents();
   check(
     JSON.stringify(paneTitles) === JSON.stringify(["CloudWatch", "IoT"]),
-    "Ticking cards and pressing Create opens a session with exactly those panes",
+    "Counting cards up and pressing Create opens a session with exactly those panes",
     JSON.stringify(paneTitles)
   );
   await page.click(`${V} .aggregator-tab:has(.aggregator-tab-label:text-is("IoT")) .aggregator-tab-close`);
@@ -216,8 +216,8 @@ async function saveActiveAsTemplate(page) {
 
   // Same for a session holding several panes, which used to save almost nothing.
   await newSession(page);
-  await page.click(`${V} .panel:has(h2:text-is("Panes")) label.checkbox-item:text-is("CloudWatch") input`);
-  await page.click(`${V} .panel:has(h2:text-is("Panes")) label.checkbox-item:text-is("Cognito") input`);
+  await page.click(`${V} .panel:has(h2:text-is("Panes")) button[aria-label="Add CloudWatch pane"]`);
+  await page.click(`${V} .panel:has(h2:text-is("Panes")) button[aria-label="Add Cognito pane"]`);
   await page.click(`${V} button:text-is("Stacked")`);
   await page.waitForTimeout(200);
   await page.fill(`${V} .aggregator-pane:has(h3:text-is("CloudWatch")) textarea`, "fields @timestamp | filter saved");

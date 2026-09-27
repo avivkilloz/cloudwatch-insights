@@ -519,6 +519,20 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     });
   }, []);
 
+  // A closed pane's keys go with it. Pane ids are reused -- the first pane of a
+  // kind is always the type itself (see ./panes) -- so without this a pane
+  // added later would come back holding a closed one's inputs, and every
+  // closed pane's results would ride along in the session forever.
+  const dropState = useCallback((sessionId: string, prefix: string) => {
+    touched.current = true;
+    setWorkspace((w) => {
+      const session = w.sessions.find((s) => s.id === sessionId);
+      if (!session || !Object.keys(session.state).some((k) => k.startsWith(prefix))) return w;
+      const state = Object.fromEntries(Object.entries(session.state).filter(([k]) => !k.startsWith(prefix)));
+      return { ...w, sessions: w.sessions.map((s) => (s.id === sessionId ? { ...s, state } : s)) };
+    });
+  }, []);
+
   // Named `sessionsApi` rather than `api`: the module-level `api` is the HTTP
   // client, and shadowing it here would quietly break the calls above.
   const sessionsApi = useMemo<SessionsApi>(
@@ -568,7 +582,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   return (
     <SessionsContext.Provider value={sessionsApi}>
-      <WriteStateContext.Provider value={writeState}>{children}</WriteStateContext.Provider>
+      <WriteStateContext.Provider value={writeState}>
+        <DropStateContext.Provider value={dropState}>{children}</DropStateContext.Provider>
+      </WriteStateContext.Provider>
     </SessionsContext.Provider>
   );
 }
@@ -579,6 +595,23 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
 type WriteState = (sessionId: string, key: string, value: unknown) => void;
 const WriteStateContext = createContext<WriteState | null>(null);
+type DropState = (sessionId: string, prefix: string) => void;
+const DropStateContext = createContext<DropState | null>(null);
+
+/** Removes every key of the current session starting with `prefix` -- a
+ * closed pane's "<paneId>." -- from its stored state. A no-op outside a
+ * session. Only for keys no mounted component reads any more: a mounted
+ * useSessionState would just write its value straight back. */
+export function useDropSessionKeys(): (prefix: string) => void {
+  const scope = useContext(SessionScopeContext);
+  const drop = useContext(DropStateContext);
+  return useCallback(
+    (prefix: string) => {
+      if (scope && drop) drop(scope.id, prefix);
+    },
+    [scope, drop],
+  );
+}
 
 interface SessionScope {
   id: string;

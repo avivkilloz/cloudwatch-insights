@@ -81,9 +81,22 @@ tab. Sessions can be filed into named categories in the rail. Opening
 `useStartSession()` (`sessions/start.ts`) — `start`, `startOne`,
 `startFromTemplate` — rather than calling `open()` with a hand-built state bag.
 
+**A pane is an instance, not a type** (`sessions/panes.ts`). A session can hold
+several panes of one kind, so `services` lists pane *ids*; `paneTypes` maps an
+id to its kind and `paneTitles` to its (renamable) name. A pane missing from
+those maps has an id equal to its type and is called by its kind's label —
+which is every session and template saved before instances existed, so they
+need no migration; keep that fallback. The first pane of a kind still gets the
+type as its id, later ones `type~2`, `type~3` (never a `.`, which splits id
+from key). **Closing a pane drops its `"<id>."` keys** (`useDropSessionKeys`):
+ids are reused, so without that a pane added later would come back holding a
+closed one's inputs. Anything keyed per pane (rects, minimised, AI
+registration) goes by id; anything asking "what kind is this" goes through
+`paneType()`. The Panes card only adds; closing is the pane's own ✕.
+
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
-`"<paneId>.<key>"`. It seeds from the session's bag **on mount only** — so
+`"<paneId>.<key>"` — the pane's id, so two panes of one kind stay apart. It seeds from the session's bag **on mount only** — so
 anything that fills a session's state must do it *before* mounting it (this bit
 us once on reopening a closed session).
 

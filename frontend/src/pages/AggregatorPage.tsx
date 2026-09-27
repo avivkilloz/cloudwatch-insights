@@ -1,5 +1,7 @@
 import {
+  ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -8,7 +10,9 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { api, SavedSession } from "../api";
-import { SessionKeyScope, useSessionState } from "../sessions/SessionContext";
+import { SessionKeyScope, useDropSessionKeys, useSessionState } from "../sessions/SessionContext";
+import { nextTitle } from "../sessions/naming";
+import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
 import AiAssistantWidget from "../components/AiAssistantWidget";
 import {
@@ -241,9 +245,69 @@ const SERVICES = PANE_TYPES.map((t) => ({
   enabledFor: t.enabledFor,
 }));
 
+/** Renaming a pane in place, in its header or its tab. Enter or leaving the
+ * box keeps the name, Escape keeps the old one -- `onDone(null)`. Guarded so
+ * the blur that follows Enter (the box unmounts) doesn't report twice. It sits
+ * on a header that minimises on click and drags on press, so neither is
+ * allowed to reach it. */
+function PaneRenameBox({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(initial);
+  const done = useRef(false);
+  function finish(name: string | null) {
+    if (done.current) return;
+    done.current = true;
+    onDone(name);
+  }
+  return (
+    <input
+      className="aggregator-pane-rename"
+      autoFocus
+      value={value}
+      maxLength={60}
+      onChange={(e) => setValue(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={() => finish(value)}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      aria-label={`New name for ${initial}`}
+    />
+  );
+}
+
+/** Tells the shared assistant which pane a page's registration came from, by
+ * name: the page inside only knows its domain, and two CloudWatch panes would
+ * otherwise both read "Logs (CloudWatch)" in its "Build for" list. The label
+ * is read through a ref so a rename reaches the next registration (panes
+ * re-register every render) without handing the page a new registry.
+ * Undefined leaves the registration unnamed (see `aiLabel`). */
+function PaneAiScope({ label, children }: { label: string | undefined; children: ReactNode }) {
+  const parent = useContext(AiPaneRegistryContext);
+  const labelRef = useRef(label);
+  labelRef.current = label;
+  const scoped = useMemo(
+    () =>
+      parent && {
+        register: (pane: AiPane) => parent.register({ ...pane, label: labelRef.current }),
+        unregister: parent.unregister,
+      },
+    [parent],
+  );
+  return <AiPaneRegistryContext.Provider value={scoped}>{children}</AiPaneRegistryContext.Provider>;
+}
+
 export default function AggregatorPage() {
   const { user } = useAuth();
+  // Pane ids, in order -- not types: a session can hold several panes of one
+  // kind. Which kind each is, and what it's called, are the two maps below;
+  // see sessions/panes.ts for why a pane missing from them is still fine.
   const [services, setServices] = useSessionState<ServiceId[]>("services", []);
+  const [paneTypes, setPaneTypes] = useSessionState<PaneTypes>("paneTypes", () => ({}));
+  const [paneTitles, setPaneTitles] = useSessionState<PaneTitles>("paneTitles", () => ({}));
+  const dropKeys = useDropSessionKeys();
   const [layout, setLayout] = useSessionState<Layout>("layout", "tabs");
   // Which pane the tabs layout is showing. Kept even while another layout is
   // in use, so switching back lands where you left it.
@@ -338,39 +402,68 @@ export default function AggregatorPage() {
   const [dragging, setDragging] = useState<ServiceId | null>(null);
   const [dropTarget, setDropTarget] = useState<ServiceId | null>(null);
 
-  // The checkbox list keeps its fixed order, but the panes follow `services`,
-  // which is what reordering rewrites.
+  // The add buttons keep their fixed order, but the panes follow `services`,
+  // which is what reordering rewrites. Each open pane is its kind's catalogue
+  // entry under the pane's own id and name.
   const available = SERVICES.filter((s) => s.enabledFor(user));
-  const open = services
-    .map((id) => SERVICES.find((s) => s.id === id))
-    .filter((s): s is (typeof SERVICES)[number] => !!s);
+  const open = services.flatMap((id) => {
+    const def = SERVICES.find((s) => s.id === paneType(id, paneTypes));
+    return def ? [{ ...def, id, type: def.id, label: paneTitle(id, paneTypes, paneTitles) }] : [];
+  });
 
   // Falls back to the first rather than showing nothing: the remembered pane
   // may have been closed since, and a session with panes should never look
   // empty because a stored id no longer matches one.
   const shownPane = open.find((s) => s.id === activePaneId) ?? open[0];
 
-  function toggleService(id: ServiceId) {
-    setServices((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
-    // Opening a pane selects it, which is what you meant by opening it; closing
-    // the selected one hands the choice back to the fallback above.
-    setActivePaneId((prev) => (prev === id ? null : services.includes(id) ? prev : id));
-    // Closing a pane shouldn't leave it minimised for the next time it's opened.
+  /** Adds a new pane of `type`, always empty, and shows it -- which is what
+   * you meant by adding it. */
+  function addPane(type: ServiceId) {
+    const { id, title } = newPane(type, services, open.map((s) => s.label));
+    setServices((prev) => [...prev, id]);
+    setPaneTypes((prev) => ({ ...prev, [id]: type }));
+    setPaneTitles((prev) => ({ ...prev, [id]: title }));
+    setActivePaneId(id);
+  }
+
+  /** Closes a pane, from its own ✕ (or its tab's): everything about it goes,
+   * so a pane added later -- even one that reuses this id -- starts empty. */
+  function closePane(id: ServiceId) {
+    setServices((prev) => prev.filter((s) => s !== id));
+    // Closing the selected one hands the choice back to the fallback above.
+    setActivePaneId((prev) => (prev === id ? null : prev));
+    const without = <T,>(prev: Record<ServiceId, T>) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    };
+    setPaneTypes(without);
+    setPaneTitles(without);
+    // Nor where it was on the dashboard: that spot may well be taken by the
+    // time another pane is added, which goes to the first free place.
+    setRects(without);
     setMinimized((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
-    // Nor where it was on the dashboard: that spot may well be taken by the
-    // time it's back, and a reopened pane goes to the first free place, the
-    // same as one opened for the first time.
-    setRects((prev) => {
-      if (!(id in prev)) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+    dropKeys(`${id}.`);
+  }
+
+  // Which pane's name is being edited, in its header or its tab.
+  const [renaming, setRenaming] = useState<ServiceId | null>(null);
+
+  /** A blank name goes back to the kind's own, numbered if another pane
+   * already has it -- the same name a new pane would get. */
+  function renamePane(id: ServiceId, name: string) {
+    setRenaming(null);
+    const pane = open.find((s) => s.id === id);
+    if (!pane) return;
+    const others = open.filter((s) => s.id !== id).map((s) => s.label);
+    const title = name.trim() || nextTitle(SERVICES.find((s) => s.id === pane.type)?.label ?? pane.type, others);
+    setPaneTitles((prev) => (prev[id] === title ? prev : { ...prev, [id]: title }));
   }
 
   /** Moves a pane one place earlier (-1) or later (+1) in the order. */
@@ -467,8 +560,9 @@ export default function AggregatorPage() {
   }
 
   function startDrag(e: ReactPointerEvent<HTMLElement>, id: ServiceId) {
-    // Left button only, and never from the buttons sitting on the title bar.
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    // Left button only, and never from the buttons (or the rename box) sitting
+    // on the title bar.
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, input")) return;
     // A drag that ended over another pane never delivers the click it was
     // meant to suppress, so clear it here rather than waiting for one.
     suppressClick.current = false;
@@ -717,7 +811,7 @@ export default function AggregatorPage() {
   }
 
   function startDashDrag(e: ReactPointerEvent<HTMLElement>, id: ServiceId) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, input")) return;
     // A drag that ended without a trailing click (pointer released outside
     // the header) would otherwise leave this set, swallowing the next
     // legitimate one.
@@ -942,13 +1036,25 @@ export default function AggregatorPage() {
   // `dashboardMaxWidth`).
   const dashboardExtentH = Object.values(dash.rects).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
 
+  /** What the shared assistant calls a pane: its name only when the name says
+   * something the domain doesn't -- there's another pane of its kind, or it
+   * was renamed. Otherwise nothing, and the assistant keeps the domain's own
+   * label, which is the more specific one ("IoT things" rather than "IoT"). */
+  function aiLabel(pane: (typeof open)[number]): string | undefined {
+    const kindLabel = SERVICES.find((x) => x.id === pane.type)?.label;
+    const several = open.filter((o) => o.type === pane.type).length > 1;
+    return several || pane.label !== kindLabel ? pane.label : undefined;
+  }
+
   // Rows from every open pane, each tagged with the service it came from so
-  // the assistant can tell a log line from a Cognito user once they're pooled.
+  // the assistant can tell a log line from a Cognito user once they're pooled
+  // -- and, when the pane has a name worth giving (see `aiLabel`), which pane.
   function taggedSelection(): Record<string, unknown>[] {
     const out: Record<string, unknown>[] = [];
     for (const pane of panesRef.current.values()) {
-      const label = DOMAIN_LABELS[pane.domain];
-      for (const row of pane.selectedRows) out.push({ service: label, ...row });
+      const tag: Record<string, unknown> = { service: DOMAIN_LABELS[pane.domain] };
+      if (pane.label) tag.pane = pane.label;
+      for (const row of pane.selectedRows) out.push({ ...tag, ...row });
     }
     return out;
   }
@@ -974,9 +1080,11 @@ export default function AggregatorPage() {
             the controls for which panes are in it and how they are arranged.
             What the Aggregator is for is said once, in the page header. */}
         <h2>Panes</h2>
-        {/* Two rows rather than one long one -- ten checkboxes in a single
-            line reads as an undifferentiated list, and "a search page" and
-            "a tool" are different kinds of thing to reach for. */}
+        {/* Two rows rather than one long one -- ten buttons in a single line
+            reads as an undifferentiated list, and "a search page" and "a tool"
+            are different kinds of thing to reach for. Each only ever adds: a
+            session can hold several panes of one kind, so there's no single
+            pane a toggle could mean. Closing is the pane's own ✕. */}
         {[
           { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
           { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
@@ -989,10 +1097,15 @@ export default function AggregatorPage() {
                 {group.heading}
               </span>
               {shown.map((x) => (
-                <label key={x.id} className="checkbox-item">
-                  <input type="checkbox" checked={services.includes(x.id)} onChange={() => toggleService(x.id)} />
-                  {x.label}
-                </label>
+                <button
+                  key={x.id}
+                  className="secondary aggregator-add-pane"
+                  onClick={() => addPane(x.id)}
+                  title={`Add a new ${x.label} pane`}
+                  aria-label={`Add ${x.label} pane`}
+                >
+                  + {x.label}
+                </button>
               ))}
             </div>
           );
@@ -1018,7 +1131,7 @@ export default function AggregatorPage() {
 
       {open.length === 0 && (
         <div className="panel">
-          <p className="muted">Choose one or more services or tools above to start a session.</p>
+          <p className="muted">Add a service or tool above to start working in this session.</p>
         </div>
       )}
 
@@ -1035,17 +1148,28 @@ export default function AggregatorPage() {
           <div className="aggregator-tabs" role="tablist">
             {open.map((s) => (
               <div key={s.id} className={`aggregator-tab${shownPane?.id === s.id ? " active" : ""}`}>
-                <button
-                  className="aggregator-tab-label"
-                  role="tab"
-                  aria-selected={shownPane?.id === s.id}
-                  onClick={() => setActivePaneId(s.id)}
-                >
-                  {s.label}
-                </button>
+                {/* Double-click renames: in this layout the tab is the pane's
+                    header, and a pencil on every tab would crowd them. */}
+                {renaming === s.id ? (
+                  <PaneRenameBox
+                    initial={s.label}
+                    onDone={(name) => (name === null ? setRenaming(null) : renamePane(s.id, name))}
+                  />
+                ) : (
+                  <button
+                    className="aggregator-tab-label"
+                    role="tab"
+                    aria-selected={shownPane?.id === s.id}
+                    onClick={() => setActivePaneId(s.id)}
+                    onDoubleClick={() => setRenaming(s.id)}
+                    title={`${s.label} — double-click to rename`}
+                  >
+                    {s.label}
+                  </button>
+                )}
                 <button
                   className="aggregator-tab-close"
-                  onClick={() => toggleService(s.id)}
+                  onClick={() => closePane(s.id)}
                   aria-label={`Close ${s.label}`}
                   title={`Close ${s.label}`}
                 >
@@ -1150,7 +1274,25 @@ export default function AggregatorPage() {
                   <span className="aggregator-drag-handle" aria-hidden="true">
                     ⠿
                   </span>
-                  <h3>{s.label}</h3>
+                  {renaming === s.id ? (
+                    <PaneRenameBox
+                      initial={s.label}
+                      onDone={(name) => (name === null ? setRenaming(null) : renamePane(s.id, name))}
+                    />
+                  ) : (
+                    <h3>{s.label}</h3>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenaming(s.id);
+                    }}
+                    title={`Rename ${s.label}`}
+                    aria-label={`Rename ${s.label}`}
+                  >
+                    ✎
+                  </button>
                   {!dashboard && (
                     <>
                       <button
@@ -1194,7 +1336,7 @@ export default function AggregatorPage() {
                     className="secondary"
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleService(s.id);
+                      closePane(s.id);
                     }}
                     title={`Close ${s.label}`}
                     aria-label={`Close ${s.label}`}
@@ -1205,8 +1347,11 @@ export default function AggregatorPage() {
                 )}
                 <div className="aggregator-pane-body" hidden={collapsed}>
                   {/* Panes are whole pages, so their state keys have to be
-                      kept apart within this one session. */}
-                  <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
+                      kept apart within this one session -- by pane id, not
+                      type, since two panes can be the same kind. */}
+                  <PaneAiScope label={aiLabel(s)}>
+                    <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
+                  </PaneAiScope>
                 </div>
                 {/* Resize only makes sense once a pane has its own width and
                     height rather than one dictated by the flow layout, and only
@@ -1275,7 +1420,7 @@ export default function AggregatorPage() {
                     >
                       {summaries.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {DOMAIN_LABELS[s.domain]}
+                          {s.label ?? DOMAIN_LABELS[s.domain]}
                         </option>
                       ))}
                     </select>
@@ -1284,7 +1429,7 @@ export default function AggregatorPage() {
               )
             ) : contributing.length > 0 ? (
               <p className="muted" style={{ padding: "4px 12px 0", fontSize: 11 }}>
-                Across {contributing.map((s) => DOMAIN_LABELS[s.domain]).join(", ")}.
+                Across {contributing.map((s) => s.label ?? DOMAIN_LABELS[s.domain]).join(", ")}.
               </p>
             ) : null
           }

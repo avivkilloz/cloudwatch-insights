@@ -131,10 +131,10 @@ async function newPanedSession(page) {
 
   // ================= 1. Clicking a pane's title bar minimises/expands it =====
   await newPanedSession(page);
-  await page.waitForSelector("text=Choose one or more services");
+  await page.waitForSelector("text=Add a service or tool above");
   const sessionPanel = '.panel:has(h2:text-is("Panes"))';
   for (const label of ["IoT", "DynamoDB"]) {
-    await page.click(`${sessionPanel} label.checkbox-item:text-is("${label}") input`);
+    await page.click(`${sessionPanel} button[aria-label="Add ${label} pane"]`);
   }
   await page.waitForSelector(".aggregator-pane >> nth=1");
 
@@ -179,7 +179,7 @@ async function newPanedSession(page) {
   await page.screenshot({ path: `${SHOT}/agg-header-click.png` });
 
   // ============ 2. "Build for" is a Build-query-only control ================
-  await page.click(`${sessionPanel} label.checkbox-item:text-is("DynamoDB") input`);
+  await page.click(`${sessionPanel} button[aria-label="Add DynamoDB pane"]`);
   await page.waitForSelector(".aggregator-pane >> nth=1");
   await page.click(`${iotPane} label:has-text("Demo Env (111122223333 · us-east-1)") input[type="checkbox"]`);
   await page.click(`${iotPane} button:text-is("Search")`);

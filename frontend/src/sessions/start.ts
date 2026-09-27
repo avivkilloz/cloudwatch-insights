@@ -3,12 +3,14 @@
  *
  * Both Add lists -- the panel's catalogue and the strip's ＋ -- and the home
  * page's card all end up here, so "what a new session looks like" is written
- * once. A session is an Aggregator, so starting one is seeding `services`,
- * `layout` and `activePane`; nothing else is special about it.
+ * once. A session is an Aggregator, so starting one is seeding its panes
+ * (`services`, `paneTypes`, `paneTitles` -- see ./panes), `layout` and
+ * `activePane`; nothing else is special about it.
  */
 
 import { SessionType, useSessions } from "./SessionContext";
 import { nextTitle } from "./naming";
+import { initialPanes } from "./panes";
 import { sessionTypeLabel } from "./registry";
 import { Template, templateState } from "./templates";
 
@@ -17,9 +19,9 @@ import { Template, templateState } from "./templates";
 const START_LAYOUT = "tabs";
 
 export interface StartSession {
-  /** A session holding exactly the panes given, named after the first unless
-   * a name is passed. Nothing ticked is fine -- an empty session is filled
-   * from inside it. */
+  /** A session holding exactly the panes given -- a type listed twice is two
+   * panes of it -- named after the first unless a name is passed. None at all
+   * is fine: an empty session is filled from inside it. */
   start: (panes: SessionType[], name?: string) => void;
   /** A session holding one pane, named after it: the shortcut behind clicking
    * a service or tool in an Add list. */
@@ -44,7 +46,8 @@ export function useStartSession(): StartSession {
 
   function start(panes: SessionType[], name?: string) {
     const title = nextTitle(name?.trim() || defaultSessionName(panes), sessions.map((s) => s.title));
-    open(title, { services: panes, layout: START_LAYOUT, activePane: panes[0] ?? null });
+    const seeded = initialPanes(panes);
+    open(title, { ...seeded, layout: START_LAYOUT, activePane: seeded.services[0] ?? null });
   }
 
   return {

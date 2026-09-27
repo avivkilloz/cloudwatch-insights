@@ -169,8 +169,10 @@ export async function clearWorkspace(page, rows = []) {
 export async function newSession(page, ...labels) {
   await page.click(".rail-row-home");
   await page.waitForSelector(".home-create");
+  // One click of the card's + per label, so a label given twice is two panes
+  // of that kind -- the order they open in is the cards' order, not this one.
   for (const label of labels) {
-    await page.locator(`${CARD(label)} input[type=checkbox]`).check();
+    await page.locator(`${CARD(label)} button[aria-label="One more ${label}"]`).click();
   }
   await page.click(".home-create");
   // Scoped to the session on screen: every session body stays mounted, so an
@@ -186,6 +188,20 @@ export async function newSession(page, ...labels) {
 /** The session on screen. Every other one is still mounted, just hidden, so
  * anything addressing panes or pane tabs has to go through this. */
 export const SHOWN = ".session-body:not([hidden])";
+
+/** Adds a pane of `label`'s kind to the session on screen, from its Panes
+ * card -- the only way in from inside a session; it never removes one. */
+export async function addPane(page, label) {
+  await page.click(`${SHOWN} button[aria-label="Add ${label} pane"]`);
+  await page.waitForTimeout(250);
+}
+
+/** Closes the pane called `title` in the session on screen, from its own ✕ --
+ * the header's, or its tab's in the tabs layout (whichever is showing). */
+export async function closePane(page, title) {
+  await page.locator(`${SHOWN} button[aria-label="Close ${title}"]:visible`).first().click();
+  await page.waitForTimeout(250);
+}
 
 /** A card on the home page, by its title. */
 export const CARD = (label) => `.home-card:has(.home-card-title:text-is("${label}"))`;

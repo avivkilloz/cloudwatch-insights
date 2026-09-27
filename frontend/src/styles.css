@@ -732,9 +732,7 @@ button,
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  /* Room on the right for the tick in the corner, so a long title never runs
-     underneath it. */
-  padding: 12px 34px 12px 12px;
+  padding: 12px 12px 8px;
 }
 
 .home-card-title {
@@ -748,15 +746,38 @@ button,
   line-height: 1.35;
 }
 
-/* Over the card's top-right corner, level with the title. Absolute rather
-   than a row of its own: the card is a single block again, and the tick is an
-   affordance on it rather than a second thing to read. */
-.home-card-pick {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+/* How many of this card the new session gets: − n + along the card's foot,
+   right-aligned so every card's stepper lines up down the grid. A row of its
+   own rather than over the card's corner, because it is three controls, not
+   one tick. */
+.home-card-count {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 12px 10px;
+}
+
+.home-card-count button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  line-height: 1;
+}
+
+.home-card-count input {
+  width: 44px;
+  height: 26px;
+  padding: 0 4px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+/* The native spinner arrows would duplicate − and + at a tenth of the size. */
+.home-card-count input::-webkit-outer-spin-button,
+.home-card-count input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
   margin: 0;
-  cursor: pointer;
 }
 
 .topbar-right {
@@ -2170,4 +2191,32 @@ th {
    than one more thing among the templates. */
 .rail-row-new .rail-row-label {
   color: var(--accent);
+}
+
+/* ---- panes as instances: adding and renaming ------------------------------ */
+
+/* The Panes card's "+ CloudWatch" row: buttons rather than the checkboxes they
+   replace, since a session can hold several of one kind and so there is no
+   single pane a tick could stand for. Compact, so both rows still fit. */
+.aggregator-add-pane {
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
+/* Renaming in place. In a pane header it takes the title's slot (flex: 1, the
+   same size text); in a tab it is as wide as a longish name, not the strip. */
+.aggregator-pane-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.aggregator-tab .aggregator-pane-rename {
+  flex: none;
+  width: 150px;
+  margin: 3px 0 3px 6px;
+  font-size: 12.5px;
+  font-weight: normal;
 }

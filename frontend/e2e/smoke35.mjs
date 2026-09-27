@@ -91,8 +91,10 @@ const run = async () => {
   check(titles.includes("CloudWatch"), "Clicking a service opens a session named after it", JSON.stringify(titles));
   const paneCount = await page.locator(`${SHOWN} .aggregator-tab`).count();
   check(paneCount === 1, "…holding only that service", `${paneCount} panes`);
-  const ticked = await page.locator(`${SHOWN} .toolbar input[type=checkbox]:checked`).count();
-  check(ticked === 1, "…and only its box is ticked in the picker", `${ticked} ticked`);
+  // The Panes card used to show it as the one ticked box; it only adds panes
+  // now, so what's left to check is that it still offers this kind too.
+  const addable = await page.locator(`${SHOWN} button[aria-label="Add CloudWatch pane"]`).count();
+  check(addable === 1, "…and the Panes card still offers another CloudWatch pane to add", `${addable} add buttons`);
 
   // ---- 3. Tabs is the first layout option ----------------------------
   const layoutButtons = await page.locator(`${SHOWN} .toolbar:has(span:text-is("Layout")) button`).allInnerTexts();

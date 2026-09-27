@@ -13,48 +13,54 @@ import { PAGES } from "./pageTypes";
  * cards below it are the rest of the platform: pages you go to rather than
  * open a copy of.
  *
- * Nothing here opens a session by itself any more. Ticking a card and pressing
- * Create is the one way in, so "what is this session for" is answered when it
- * is made rather than left as "CloudWatch 3".
+ * Nothing here opens a session by itself any more. Choosing how many of each
+ * card and pressing Create is the one way in, so "what is this session for" is
+ * answered when it is made rather than left as "CloudWatch 3".
  */
+
+/** A ceiling on one card's count, not a limit on the session: panes can still
+ * be added from inside it. Ten CloudWatch panes is already more than a screen
+ * holds, and a typo of 100 would be a lot of pages to mount at once. */
+const MAX_PER_TYPE = 10;
+
 export default function HomePage() {
   const { user } = useAuth();
   const { show } = useSessions();
   const { start } = useStartSession();
-  const [picked, setPicked] = useState<Set<SessionType>>(new Set());
+  // How many panes of each kind the new session gets; absent means none.
+  const [counts, setCounts] = useState<Partial<Record<SessionType, number>>>({});
   const [name, setName] = useState("");
 
   const panes = SESSION_TYPES.filter((t) => t.enabledFor(user));
   const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
 
-  function toggle(type: SessionType) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
+  function setCount(type: SessionType, n: number) {
+    const next = Math.min(MAX_PER_TYPE, Math.max(0, Math.floor(Number.isFinite(n) ? n : 0)));
+    setCounts((prev) => ({ ...prev, [type]: next }));
   }
 
-  /** In the order they are offered, not the order they were ticked, so the
-   * session's tabs read the same way the cards below do. */
+  /** In the order they are offered, not the order they were counted, so the
+   * session's tabs read the same way the cards below do -- and all of one
+   * kind together. */
   function chosen(): SessionType[] {
-    return panes.filter((t) => picked.has(t.type)).map((t) => t.type);
+    return panes.flatMap((t) => Array<SessionType>(counts[t.type] ?? 0).fill(t.type));
   }
 
   function create() {
     start(chosen(), name);
-    setPicked(new Set());
+    setCounts({});
     setName("");
   }
+
+  const total = chosen().length;
 
   return (
     <div className="home">
       <div className="panel">
         <h2 style={{ marginBottom: 4 }}>New session</h2>
         <p className="muted home-group-blurb">
-          Pick what it should hold — as many as you like, and you can add and remove them later. One assistant sees
-          across all of them at once.
+          Choose what it should hold — any mix, and more than one of a kind if you like; you can add and close panes
+          later too. One assistant sees across all of them at once.
         </p>
 
         <div className="home-new-row">
@@ -71,7 +77,7 @@ export default function HomePage() {
               aria-label="Name for the new session"
             />
           </label>
-          <button className="home-create" onClick={create} title="Start a session holding what you have ticked">
+          <button className="home-create" onClick={create} title="Start a session holding the panes you have chosen">
             Create
           </button>
         </div>
@@ -84,33 +90,63 @@ export default function HomePage() {
               <h3 style={{ margin: "14px 0 2px", fontSize: 13 }}>{group}</h3>
               <p className="muted home-group-blurb">{GROUP_BLURB[group]}</p>
               <div className="home-cards">
-                {inGroup.map((t) => (
-                  <div key={t.type} className={`home-card${picked.has(t.type) ? " picked" : ""}`}>
-                    {/* The whole card toggles: there is nothing else it could
-                        do now that a card no longer opens anything by itself. */}
-                    <button className="home-card-open" onClick={() => toggle(t.type)} aria-pressed={picked.has(t.type)}>
-                      <span className="home-card-title">{t.label}</span>
-                      <span className="home-card-desc">{t.description}</span>
-                    </button>
-                    <input
-                      className="home-card-pick"
-                      type="checkbox"
-                      checked={picked.has(t.type)}
-                      onChange={() => toggle(t.type)}
-                      aria-label={`Include ${t.label} in the new session`}
-                      title={`Include ${t.label} in the new session`}
-                    />
-                  </div>
-                ))}
+                {inGroup.map((t) => {
+                  const n = counts[t.type] ?? 0;
+                  return (
+                    <div key={t.type} className={`home-card${n > 0 ? " picked" : ""}`}>
+                      {/* The card itself adds one -- the biggest target on it,
+                          and the thing you most likely came to do; the stepper
+                          below is for setting an exact number, or taking one
+                          back. */}
+                      <button
+                        className="home-card-open"
+                        onClick={() => setCount(t.type, n + 1)}
+                        title={`One more ${t.label} pane in the new session`}
+                      >
+                        <span className="home-card-title">{t.label}</span>
+                        <span className="home-card-desc">{t.description}</span>
+                      </button>
+                      <div className="home-card-count" role="group" aria-label={`How many ${t.label} panes`}>
+                        <button
+                          className="secondary"
+                          onClick={() => setCount(t.type, n - 1)}
+                          disabled={n === 0}
+                          aria-label={`One fewer ${t.label}`}
+                          title={`One fewer ${t.label}`}
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min={0}
+                          max={MAX_PER_TYPE}
+                          value={n}
+                          onChange={(e) => setCount(t.type, e.target.valueAsNumber)}
+                          onFocus={(e) => e.target.select()}
+                          aria-label={`Number of ${t.label} panes`}
+                        />
+                        <button
+                          className="secondary"
+                          onClick={() => setCount(t.type, n + 1)}
+                          disabled={n === MAX_PER_TYPE}
+                          aria-label={`One more ${t.label}`}
+                          title={`One more ${t.label}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
         })}
 
         <p className="muted" style={{ margin: "14px 0 0", fontSize: 12 }}>
-          {picked.size === 0
-            ? "Nothing ticked — Create makes an empty session you can fill from inside it."
-            : `Create makes a session holding ${picked.size} page${picked.size === 1 ? "" : "s"}.`}
+          {total === 0
+            ? "Nothing chosen — Create makes an empty session you can fill from inside it."
+            : `Create makes a session holding ${total} pane${total === 1 ? "" : "s"}.`}
         </p>
       </div>
 

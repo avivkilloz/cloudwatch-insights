@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closePane, launch, newSession, report } from "./harness.mjs";
 
 // How many distinct rows the panes occupy, and whether anything overflows the
 // viewport horizontally -- the actual complaint being fixed.
@@ -100,7 +100,7 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Choose one or more services");
+  await page.waitForSelector("text=Add a service or tool above");
 
   const sessionPanel = '.panel:has(h2:text-is("Panes"))';
 
@@ -116,7 +116,7 @@ async function newPanedSession(page) {
 
   // ---------- Side by side with all five services ----------
   for (const label of ["CloudWatch", "IoT", "DynamoDB", "S3", "Cognito"]) {
-    await page.click(`${sessionPanel} label.checkbox-item:text-is("${label}") input`);
+    await page.click(`${sessionPanel} button[aria-label="Add ${label} pane"]`);
   }
   await page.waitForSelector(".aggregator-pane >> nth=4");
 
@@ -134,8 +134,8 @@ async function newPanedSession(page) {
   // wrap rather than shrink below a readable width, and collapsing the rail
   // from the app title gives the row back. Both halves are checked here so the
   // trade-off is recorded rather than assumed.
-  await page.click(`${sessionPanel} label.checkbox-item:text-is("S3") input`);
-  await page.click(`${sessionPanel} label.checkbox-item:text-is("Cognito") input`);
+  await closePane(page, "S3");
+  await closePane(page, "Cognito");
   await page.waitForFunction(() => document.querySelectorAll(".aggregator-pane").length === 3);
   info = await layoutInfo(page);
   check(info.rows === 2, "Side by side: with the rail open, three panes wrap onto two rows", JSON.stringify(info));
