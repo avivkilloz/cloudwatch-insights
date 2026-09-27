@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-27, mid-round on the platform agent, phase 1 of 3 (after #79)._
+_Last updated: 2026-09-27, mid-round on the platform agent, phase 2 of 3 (after #80)._
 
 ## Where things stand
 
@@ -98,6 +98,9 @@ README.
   the harness (`newSession`, new `addPane` / `closePane`) and in the eleven
   suites that clicked them; smoke25 now says "2 panes" rather than "2 pages".
 
+**#80: two-way live sync, the agent's phase 1** (merged, deployed and tested
+by the user): see the phase 1 notes below.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,
@@ -107,7 +110,8 @@ them, so the next round starts from these rather than re-deciding them:
 
 - **Container:** `platform-agent`, Python, **LangGraph** (LangChain's agent
   runtime: streaming, Postgres checkpoints for conversations, interrupts for
-  approvals). It loads its tools from the backend over MCP with
+  approvals) -- used through LangChain 1.x's `create_agent`, which builds a
+  LangGraph agent. It loads its tools from the backend over MCP with
   `langchain-mcp-adapters`.
 - **Model:** the **existing LiteLLM proxy** (the same `LITELLM_*` settings as
   the ✦ assistant). The model behind it must support tool calling.
@@ -130,18 +134,68 @@ them, so the next round starts from these rather than re-deciding them:
   agent is changing them.
 - **Deploy:** an agent Dockerfile and a compose service. Helm gets an agent
   Deployment and Service, `agent.enabled`, the reused LiteLLM secret and the
-  backend's MCP URL. `DEPLOYMENT.md` and the README are updated.
+  backend's MCP URL. `DEPLOYMENT.md` and the README are updated. (Done in
+  phase 2 rather than 3, so the user can deploy and try it.)
 
 **Phases, one PR each:**
-1. *Two-way sync.* **This round** (below). It is the foundation, because until
-   now the browser only ever pushed and would have overwritten anything the
-   agent wrote.
-2. *MCP server plus the agent container.* Session tools and read-only runs,
-   streaming chat on the Agent page, and the `agent_enabled` flag.
-3. *Side-effect tools with approval.* Also persisted conversations, the
-   activity feed, and the Helm and deploy docs completed.
+1. *Two-way sync.* #80, merged. It is the foundation, because until then the
+   browser only ever pushed and would have overwritten anything the agent
+   wrote.
+2. *MCP server plus the agent container.* **This round** (below): session
+   tools and read-only runs, streaming chat, the `agent_enabled` flag, and
+   Helm/compose/docs.
+3. *Side-effect tools with approval* (HTTP send, MQTT publish, closing or
+   deleting sessions), persisted conversations (LangGraph Postgres
+   checkpointer), and an activity feed of what the agent did.
 
-**In this round (not yet merged): phase 1, two-way live sync.**
+**In this round (not yet merged): phase 2, the MCP server and the agent.**
+
+- *How a turn flows:* browser → `POST /api/agent/chat` (cookie; checks
+  `agent_enabled`; mints a per-turn token, hashed in `agent_tokens`, with the
+  asker's time zone and the session on screen) → agent container `POST /chat`
+  (`X-Platform-Token`, optional `AGENT_SERVICE_KEY`) → LangChain `create_agent`
+  with the tools `langchain-mcp-adapters` loads from `/mcp` using the token →
+  events streamed back (`text`, `tool_call`, `tool_result` with the
+  `session_id` it touched, `error`, `done`; heartbeats every 15 s) → relayed
+  unchanged to the browser → token revoked when the stream ends, however it
+  ends.
+- *Backend:* `platform_tools/` -- `tokens.py`, `panes.py` (the registry of
+  pane kinds: flag, inputs and their stored shapes, runners reusing the
+  routers), `server.py` (FastMCP tools, stateless streamable HTTP, a bearer
+  check in front, a fresh session manager per lifespan). `live_store.py` is
+  the server-side write path the PUT now shares (`commit_write`).
+  `routers/agent.py` is the relay. `UserGroup.agent_enabled` (off; on for
+  Admin via bootstrap and a one-shot backfill). Deps: `mcp==1.30.0` (1.x,
+  because the adapter needs it), pydantic 2.11, uvicorn 0.34.
+- *Tools (17):* `get_context`, `list_sessions`, `get_session`, name lookups
+  (log groups, OpenSearch domains/indices, tables, buckets, user pools),
+  `create_session`, `add_pane`, `remove_pane`, `rename`, `set_layout`,
+  `arrange_dashboard`, `set_pane_inputs`, `run_pane`. Runs: CloudWatch
+  (start + poll, 90 s cap, then stopped), OpenSearch, IoT things/certs,
+  DynamoDB, S3, Cognito, Base64 (computed so the agent can read it). HTTP can
+  be filled in but not sent (needs approval); MQTT and JWT are not offered.
+- *Agent:* `platform-agent/` -- `app/` (config, prompt, `agent.py` turn
+  runner, `main.py` FastAPI), `dev/fake_llm.py` (a scripted OpenAI-compatible
+  stand-in: `encode <text>`, `dashboard`, `here`, `break`), Dockerfile,
+  `agent-ci.yml`, compose service (+ `fake-model` profile), Helm Deployment +
+  Service (`agent.enabled`, no service-account token, fails to render without
+  `backend.ai.baseUrl`).
+- *Frontend:* `agent/AgentContext.tsx` (one conversation; follow; dock),
+  `components/AgentChat.tsx` (steps in words with ✓/✕ and Open, streamed
+  answer, Stop, Follow), `AgentDock.tsx` (beside the body, the header's "Ask
+  the agent…" opens it), the Agent page now the same chat. ✦ marks a session
+  in the rail and strip for 4 s after each agent write (`useAgentActivity`,
+  from events with origin "agent"). `dashboardPlan` → rects in
+  AggregatorPage. "Platform agent" toggle in Settings → User groups.
+- *Coverage:* backend +23 (`test_platform_tools.py`: token/flag/environment
+  limits, the browser's own state shapes, versioned + announced writes, runs
+  with AWS stubbed, trimming to fit; `test_agent_chat.py`: the relay against a
+  stub agent, token revoked on every ending); agent 5 (real `create_agent` +
+  adapter against a stub MCP server and the fake model over HTTP); browser
+  `smoke45` (21 checks, fails against the old frontend). smoke22/23 updated:
+  the header now opens the dock instead of the placeholder page.
+
+**Phase 1, two-way live sync (#80, merged).**
 
 - *Backend:*
   - `live_sessions.version`, bumped on every write. A PUT carries its
@@ -240,14 +294,21 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 174 backend tests green; 32 Playwright suites green.
+- **Tests:** 197 backend, 5 agent, 33 Playwright suites (see this round's
+  regression run below).
 
 ## In progress / where I left off
 
-Phase 1 of the platform agent (two-way live sync) is done and awaiting its PR;
-nothing is half-written. Next is phase 2 (MCP server plus the agent
-container), per the design above. After the PR merges, restart the branch from
-`main` (`git fetch origin main && git checkout -B <branch> origin/main`).
+Phase 2 of the platform agent is built and verified against the running
+stack (with the fake model -- no real model is reachable from this
+container) and awaits its PR; nothing is half-written. After it merges,
+restart the branch from `main` (`git fetch origin main && git checkout -B
+<branch> origin/main`) for phase 3.
+
+Not verified here, for the user to check on their deployment: a real model
+through their LiteLLM choosing tools sensibly (the prompt is in
+`platform-agent/app/prompt.py`), the agent image building in CI (no Docker
+daemon here), and the chat stream through their ingress.
 
 **Dashboard ideas offered to the user, not started** (their call which, if
 any): a "Tidy up" action that re-packs every pane; maximise a pane to fill
@@ -341,6 +402,21 @@ cd frontend && npx vite --port 5179
 
 Log in as `admin` / the `ADMIN_PASSWORD` you started the backend with.
 
+The agent needs Python 3.12 venvs (the system Python here is 3.11 and lacks
+`mcp`): the backend's `requirements.txt` in one, `platform-agent`'s in
+another. Then, with `AGENT_URL=http://127.0.0.1:8100` added to the backend's
+environment:
+
+```bash
+cd platform-agent
+FAKE_LLM_STEP_DELAY=0.3 uvicorn dev.fake_llm:app --port 4010 &
+LITELLM_BASE_URL=http://127.0.0.1:4010 LITELLM_API_KEY=dev AGENT_MODEL=fake \
+  PLATFORM_MCP_URL=http://127.0.0.1:8000/mcp uvicorn app.main:app --port 8100 &
+```
+
+`helm` isn't installed and its downloads are blocked; `go install
+helm.sh/helm/v3/cmd/helm@v3.16.2` through the Go proxy works.
+
 **Env vars:** `DATABASE_URL` (or `POSTGRES_HOST` + friends) · `ADMIN_PASSWORD`
 (bootstraps the admin user) · `COOKIE_SECURE=false` for plain-HTTP local use ·
 `LITELLM_API_KEY` / `LITELLM_BASE_URL` / `LITELLM_MODEL` to enable the assistant
@@ -360,7 +436,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 32 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 33 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
@@ -378,21 +454,23 @@ opened together packing into the canvas and the stable scrollbar gutter, and
 sessions, close-then-reopen, minimised drag, Escape, scrollbar geometry), 43
 several panes of one kind (home counts, add-only Panes card, per-pane state,
 rename, fresh state after close, an old-shape session still opening), and 44
-two-way live sync across two browsers (see phase 1 above).
+two-way live sync across two browsers (see phase 1 above), and 45 the
+platform agent end to end (needs the agent and the fake model running).
 
 ## Next steps, in order
 
-1. Restart the branch from `main` once the phase 1 PR merges.
-2. **Platform agent, phase 2.** Build:
-   - the MCP server in the backend (`/mcp`);
-   - the `platform-agent` container (LangGraph with `langchain-mcp-adapters`,
-     using the LiteLLM proxy);
-   - streaming chat on the Agent page;
-   - delegated per-user tokens;
-   - the `agent_enabled` group flag.
-
-   The agent writes sessions only through the versioned, announced write path
-   (see CLAUDE.md, "Sync is two-way").
+1. Restart the branch from `main` once the phase 2 PR merges.
+2. **Platform agent, phase 3.**
+   - Approval for side effects: LangGraph interrupts, surfaced as an
+     approve/deny prompt in the chat; then `send_http_request`, MQTT publish,
+     closing and deleting sessions as tools behind it.
+   - Persisted conversations: the LangGraph Postgres checkpointer keyed by a
+     conversation id, instead of the browser sending the history each turn;
+     a list of past conversations on the Agent page.
+   - An activity feed: what the agent did, when, in which session.
+   - Worth doing alongside: the per-service routers checking the page flags
+     themselves (CLAUDE.md, "Access control"), and a real-model evaluation
+     of the prompt once the user has one wired.
 3. Between phases, pick up the user's batches of UI issues — that has been
    the rhythm of every round.
 3. If the user picks one of the dashboard ideas above, the column grid is a

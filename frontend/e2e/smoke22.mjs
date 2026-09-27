@@ -221,27 +221,18 @@ const VISIBLE = ".session-body:not([hidden])";
     "A closed session stays closed after a refresh"
   );
 
-  // ---------- The header prompt goes to the agent page ----------
-  // The agent is a page now rather than a session you have copies of, so the
-  // question is a handoff to it rather than something that opens a tab.
+  // ---------- The header prompt goes to the agent ----------
+  // To the agent's one conversation, opened in the dock beside what's on
+  // screen rather than taking you away from it (smoke45 covers the agent
+  // actually answering and acting).
   await page.fill(".agent-input", "which sessions do I have open?");
   await page.press(".agent-input", "Enter");
-  await page.waitForSelector('.page-info-title:text-is("Agent")');
-  const AGENT = ".agent-session";
+  await page.waitForSelector(".agent-dock");
   check(
-    (await page.locator(`${AGENT} >> text=which sessions do I have open?`).count()) === 1,
-    "The header bar takes the question to the agent page"
+    (await page.locator('.agent-dock .agent-question:text-is("which sessions do I have open?")').count()) === 1,
+    "The header bar takes the question to the agent, in the dock"
   );
-  check(
-    (await page.locator(`${AGENT} >> text=I'm not connected to a model yet`).count()) === 1,
-    "The agent answers that it can't answer yet"
-  );
-  const seen = await page.locator(`${AGENT} table tbody tr td:first-child`).allTextContents();
-  check(
-    JSON.stringify(seen) === JSON.stringify(["CloudWatch", "DynamoDB"]),
-    "The agent page lists the sessions it will be given",
-    JSON.stringify(seen)
-  );
+  await page.click('.agent-dock [aria-label="Close the agent"]');
   await page.screenshot({ path: `${SHOT}/sessions-home.png` });
 
   // Clicking the brand returns home from a session.

@@ -1,11 +1,12 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "../AuthContext";
 import { LiveSessionSummary } from "../api";
-import { useSessions } from "../sessions/SessionContext";
+import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { PersistedSession } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
+import AgentWorking from "./AgentWorking";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -59,6 +60,7 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
     reorderCategories,
     setSessionCategory,
   } = useSessions();
+  const agentActive = useAgentActivity();
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
@@ -264,7 +266,8 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
         data-session-id={s.id}
         className={
           `rail-row${view === "session" && activeId === s.id ? " active" : ""}` +
-          `${dragging === s.id ? " dragging" : ""}${dropTarget === dropKey({ kind: "session", id: s.id }) ? " drop-target" : ""}`
+          `${dragging === s.id ? " dragging" : ""}${dropTarget === dropKey({ kind: "session", id: s.id }) ? " drop-target" : ""}` +
+          `${agentActive.has(s.id) ? " agent-active" : ""}`
         }
         onPointerDown={(e) => startDrag(e, s.id)}
         onPointerMove={moveDrag}
@@ -309,6 +312,8 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
             {s.title}
           </button>
         )}
+        {/* Beside the name, not in it: the name is what finds the row. */}
+        {agentActive.has(s.id) && <AgentWorking />}
         <Popover
           glyph="⋮"
           label={`More for ${s.title}`}

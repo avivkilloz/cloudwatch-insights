@@ -37,6 +37,11 @@ class UserGroup(Base):
     cognito_enabled = Column(Boolean, nullable=False, server_default="true")
     aggregator_enabled = Column(Boolean, nullable=False, server_default="true")
     tools_enabled = Column(Boolean, nullable=False, server_default="true")
+    # The platform agent acts as the user who asks it, with everything their
+    # group can reach -- so unlike the page flags it starts off, and an admin
+    # turns it on for a group deliberately. The Admin group gets it on
+    # creation (bootstrap.py) and on the upgrade that adds this (main.py).
+    agent_enabled = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     users = relationship("User", back_populates="group")
@@ -223,3 +228,29 @@ class LiveSession(Base):
     updated_at = Column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
+
+
+class AgentToken(Base):
+    """A short-lived credential the backend hands the platform agent for one
+    chat turn, so the agent can call the MCP tools *as the user who asked* --
+    with exactly that user's group, environments and IAM role, nothing more.
+
+    The agent never sees the user's session cookie, and the browser never sees
+    this token: the backend mints it when a turn starts, passes it to the
+    agent container, and deletes it when the turn's stream ends (the expiry is
+    the backstop for a turn that never ends cleanly). Only a hash is stored,
+    so a database read doesn't hand out live credentials.
+
+    It also carries what the turn knows about the asker that the MCP tools
+    need and can't otherwise learn: their browser's time zone (a query's
+    "since 9am" means their 9am) and the session they were looking at ("add
+    a pane here")."""
+
+    __tablename__ = "agent_tokens"
+
+    token_hash = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    timezone = Column(String, nullable=True)
+    viewing_session_id = Column(String, nullable=True)

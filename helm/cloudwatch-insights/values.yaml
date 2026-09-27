@@ -152,6 +152,73 @@ backend:
     initialDelaySeconds: 5
     periodSeconds: 10
 
+# The platform agent (platform-agent/ in the repo): a separate Deployment,
+# reachable only inside the cluster, that the backend relays chat turns to.
+# It acts as the user who asks, through the backend's MCP endpoint (/mcp) and a
+# short-lived per-turn token, so it can do exactly what that user's group can
+# and no more -- and a group only gets it once an admin turns "Platform agent"
+# on for that group in Settings. Off by default.
+#
+# It uses the same LiteLLM proxy and API key as `backend.ai` (which must be
+# set), with its own model if you give one: the agent needs a model that is
+# good at tool calling, which the assistant doesn't.
+agent:
+  enabled: false
+  image:
+    repository: ghcr.io/avivkilloz/cloudwatch-insights-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Turns are stateless on the agent's side (the conversation comes with each
+  # one), so any number of replicas works.
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8100
+
+  # The model behind backend.ai.baseUrl to use; empty means backend.ai.model.
+  model: ""
+  # A turn's ceiling on model-and-tool steps.
+  maxSteps: 40
+
+  # Optional: a key shared by the backend and the agent, so nothing else in
+  # the cluster can call the agent (and spend the model's budget). An existing
+  # Secret, so it stays the same across upgrades and ArgoCD syncs:
+  #   kubectl create secret generic cloudwatch-insights-agent \
+  #     --from-literal=AGENT_SERVICE_KEY="$(openssl rand -hex 32)"
+  serviceKey:
+    existingSecret: ""
+    existingSecretKey: AGENT_SERVICE_KEY
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  extraEnv: []
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
 frontend:
   image:
     repository: ghcr.io/avivkilloz/cloudwatch-insights-frontend

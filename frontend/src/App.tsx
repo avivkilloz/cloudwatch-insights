@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
+import { AgentProvider, useAgent } from "./agent/AgentContext";
+import AgentDock from "./components/AgentDock";
 import AgentPage from "./pages/AgentPage";
 import AggregatorPage from "./pages/AggregatorPage";
 import HomePage from "./pages/HomePage";
@@ -71,13 +73,16 @@ export default function App() {
       {/* Templates are offered in two places -- the panel's catalogue and the
           strip's ＋ -- so they are fetched once here rather than per list. */}
       <TemplatesProvider>
-        <AppShell
-          appTitle={appTitle}
-          appLogoUrl={settings.app_logo_url}
-          theme={theme}
-          onThemeChange={setTheme}
-          onSettingsChange={setSettings}
-        />
+        {/* One conversation with the agent, for the page and the dock alike. */}
+        <AgentProvider>
+          <AppShell
+            appTitle={appTitle}
+            appLogoUrl={settings.app_logo_url}
+            theme={theme}
+            onThemeChange={setTheme}
+            onSettingsChange={setSettings}
+          />
+        </AgentProvider>
       </TemplatesProvider>
     </SessionsProvider>
   );
@@ -100,18 +105,17 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     await logout();
   }
 
-  // A question typed in the header goes to the agent page and arrives as its
-  // next message, rather than being answered somewhere with no history. The
-  // agent is one page rather than something you have several of, so it is a
-  // handoff rather than a new session.
-  const [agentAsk, setAgentAsk] = useState<string | null>(null);
+  // A question typed in the header goes to the agent's one conversation, and
+  // opens it beside whatever is on screen rather than taking you away from
+  // it: what the agent does lands in sessions, and this is how you watch it.
+  const agent = useAgent();
 
   function askAgent() {
     const text = prompt.trim();
-    if (!text) return;
+    if (!text || agent.running) return;
     setPrompt("");
-    setAgentAsk(text);
-    show("agent");
+    agent.ask(text);
+    if (view !== "agent") agent.setDockOpen(true);
   }
 
   // Remembered per browser: collapsing the rail is a working preference, not
@@ -187,11 +191,10 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
         {view === "settings" && (
           <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
-        {/* The agent stays mounted like a session does: its conversation is not
-            stored anywhere, so unmounting it on the way to a session and back
-            would be the one place in the app where leaving loses your work. */}
+        {/* The conversation itself lives in AgentProvider, so this page can
+            come and go; kept mounted anyway so its scroll position does too. */}
         <div hidden={view !== "agent"}>
-          <AgentPage ask={agentAsk} onAsked={() => setAgentAsk(null)} />
+          <AgentPage />
         </div>
         {PAGES.filter((p) => p.render && p.id !== "agent").map((p) => (
           <div key={p.id} hidden={view !== p.id}>
@@ -209,6 +212,10 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
           />
           ))}
         </main>
+        {/* Beside the body rather than over it, so nothing it's showing you
+            is hidden behind it -- a dashboard re-measures its canvas and
+            fits. Not on the Agent page, which is the same conversation. */}
+        {agent.dockOpen && view !== "agent" && <AgentDock />}
       </div>
     </div>
   );

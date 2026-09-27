@@ -50,6 +50,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ include "cloudwatch-insights.fullname" . }}-frontend
 {{- end }}
 
+{{- define "cloudwatch-insights.agent.fullname" -}}
+{{ include "cloudwatch-insights.fullname" . }}-agent
+{{- end }}
+
+{{- define "cloudwatch-insights.agent.selectorLabels" -}}
+{{ include "cloudwatch-insights.selectorLabels" . }}
+app.kubernetes.io/component: agent
+{{- end }}
+
 {{- define "cloudwatch-insights.backend.selectorLabels" -}}
 {{ include "cloudwatch-insights.selectorLabels" . }}
 app.kubernetes.io/component: backend

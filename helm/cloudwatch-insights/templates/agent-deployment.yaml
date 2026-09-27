@@ -1,0 +1,81 @@
+{{- if .Values.agent.enabled }}
+{{- if not .Values.backend.ai.baseUrl }}
+{{- fail "agent.enabled needs a model: set backend.ai.baseUrl (and its API key) -- the agent uses the same LiteLLM proxy as the assistant." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudwatch-insights.agent.fullname" . }}
+  labels:
+    {{- include "cloudwatch-insights.agent.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.agent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloudwatch-insights.agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudwatch-insights.agent.selectorLabels" . | nindent 8 }}
+      {{- with .Values.agent.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # No AWS identity and no Kubernetes API: everything the agent does goes
+      # through the backend, as the user who asked.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8100
+          env:
+            - name: PLATFORM_MCP_URL
+              value: "http://{{ include "cloudwatch-insights.backend.fullname" . }}:{{ .Values.backend.service.port }}/mcp"
+            - name: LITELLM_BASE_URL
+              value: {{ .Values.backend.ai.baseUrl | quote }}
+            - name: AGENT_MODEL
+              value: {{ default .Values.backend.ai.model .Values.agent.model | quote }}
+            - name: LITELLM_API_KEY
+              {{- if .Values.backend.ai.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.ai.existingSecret }}
+                  key: {{ .Values.backend.ai.existingSecretKey }}
+              {{- else }}
+              value: {{ .Values.backend.ai.apiKey | quote }}
+              {{- end }}
+            - name: AGENT_MAX_STEPS
+              value: {{ .Values.agent.maxSteps | quote }}
+            {{- if .Values.agent.serviceKey.existingSecret }}
+            - name: AGENT_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.serviceKey.existingSecret }}
+                  key: {{ .Values.agent.serviceKey.existingSecretKey }}
+            {{- end }}
+            {{- with .Values.agent.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.agent.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+{{- end }}

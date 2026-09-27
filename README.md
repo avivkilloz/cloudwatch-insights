@@ -352,6 +352,30 @@ from the avatar menu and is not a session; the strip stays above it.
   with a live preview using that theme's actual colors, not just a name.
   Remembered per browser via `localStorage`.
 
+## Platform agent
+
+Type a request into **Ask the agent…** in the header and the agent does the
+work in your workspace, as you: it creates a session (or uses the one you're
+looking at), adds the panes it needs, fills in their inputs, runs them, and
+lays them out -- tabs, side by side, stacked, or a dashboard it arranges --
+then answers from what they found. The conversation opens in a dock beside
+the page, listing each step as it happens; with **Follow** on, the app takes
+you to each session as the agent gets to it, and every change appears in the
+panes as it's made. A session the agent is working on is marked ✦ in the
+panel and on the strip. The same conversation is on the **Agent** page.
+
+It can do what your group can and nothing more -- the same environments, the
+same pages, the same IAM role -- and only if an admin has turned **Platform
+agent** on for your group (Settings → User groups; on for Admin, off for any
+other group until then). Runs are read-only searches, made on the server.
+Anything that reaches outside the platform, like sending an HTTP request, it
+fills in for you to send yourself; asking before doing such things is the
+next step. The conversation isn't kept across a reload yet.
+
+It needs the LiteLLM settings the assistant uses, and a model that is good
+at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
+[DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional).
+
 ## Users, groups & login
 
 The app requires logging in — there's no anonymous/shared access. Every user
@@ -406,6 +430,12 @@ backend/   FastAPI app. Holds ambient AWS credentials (the server's own
            searches/sessions.
 frontend/  React + Vite SPA. Talks to the backend over /api/*, gated behind
            a login page backed by an httpOnly session cookie.
+platform-agent/
+           Optional. The platform agent: LangChain's agent (on LangGraph)
+           calling the model through LiteLLM, with its tools loaded from the
+           backend's MCP endpoint (/mcp). Reachable only by the backend,
+           which relays chat turns to it with a per-turn token standing for
+           the user who asked. No AWS identity of its own.
 ```
 
 No AWS keys are ever entered into or stored by the browser. The backend is
@@ -488,19 +518,29 @@ export AWS_SECRET_ACCESS_KEY=...   # or AWS_PROFILE, see IAM setup below
 docker compose up --build
 ```
 
-This starts Postgres, the backend (http://localhost:8000), and the frontend
-(http://localhost:8080) together, with the backend already pointed at
-Postgres. AWS env vars are forwarded from your shell into the backend
-container so it can assume roles.
+This starts Postgres, the backend (http://localhost:8000), the platform
+agent, and the frontend (http://localhost:8080) together, with the backend
+already pointed at Postgres. AWS env vars are forwarded from your shell into
+the backend container so it can assume roles, and the `LITELLM_*` ones into
+both the backend and the agent. To try the agent without a real model, start
+the scripted stand-in too and point the agent at it:
+
+```bash
+LITELLM_BASE_URL=http://fake-model:4010 LITELLM_API_KEY=x AGENT_MODEL=fake \
+  docker compose --profile fake-model up --build
+```
+
+It answers a handful of fixed prompts (`encode <text>`, `dashboard`, `here`,
+`break`) by really driving the tools -- see `platform-agent/dev/fake_llm.py`.
 
 ### Containers & Kubernetes
 
-- `backend/Dockerfile` and `frontend/Dockerfile` build each half as its own
-  image; `.github/workflows/{backend,frontend}-ci.yml` typecheck/test each
-  on every push and, on `main`, build and push images to
-  `ghcr.io/<owner>/cloudwatch-insights-{backend,frontend}`.
-- `helm/cloudwatch-insights/` is a Helm chart for both services, including
-  a ServiceAccount meant for IRSA. `argocd/application.yaml` is an example
+- `backend/Dockerfile`, `frontend/Dockerfile` and `platform-agent/Dockerfile`
+  build each part as its own image; `.github/workflows/{backend,frontend,agent}-ci.yml`
+  typecheck/test each on every push and, on `main`, build and push images to
+  `ghcr.io/<owner>/cloudwatch-insights-{backend,frontend,agent}`.
+- `helm/cloudwatch-insights/` is a Helm chart for all three (the agent off
+  unless `agent.enabled`), including a ServiceAccount meant for IRSA. `argocd/application.yaml` is an example
   Argo CD `Application` for the chart.
 - See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full Kubernetes/IRSA
   walkthrough: OIDC provider setup, creating the hub IAM role the backend

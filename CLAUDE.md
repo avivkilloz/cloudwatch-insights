@@ -56,14 +56,21 @@ backend/app/
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   ai_assistant.py    LiteLLM REST call + prompt building
+  live_store.py      the one server-side write path for live sessions (versioned, announced)
+  live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
+  platform_tools/    what the platform agent can do, over MCP at /mcp (see below)
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
+
+platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
+                     streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
 
 frontend/src/
   App.tsx            shell: header, rail column, scrolling body, mounted sessions
   api.ts             the only place that talks to the backend; types + methods
   AuthContext.tsx    current user; every page gates its own features on it
   sessions/          the session model (see below)
+  agent/             AgentContext: the one conversation with the agent (page + dock)
   pages/             one file per pane or page + pageTypes.tsx (non-session pages)
   components/        shared UI; components/tools/ holds the self-contained tools
   styles.css         all styling, theme tokens at the top
@@ -145,6 +152,35 @@ other machines and the platform agent all write sessions on the server.
   must go through the same versioned write and announcement. Never
   `UPDATE live_sessions` directly.
 
+**The platform agent acts as the user, only through MCP, only through the
+write path.** The browser never talks to the agent container: a turn goes to
+`POST /api/agent/chat`, which checks `agent_enabled`, mints a per-turn token
+(`platform_tools/tokens.py`, stored hashed, revoked when the stream ends), and
+relays the turn. The agent calls `/mcp` with that token, so every tool acts as
+that user with their group's environments and role. The agent never sees the
+cookie and the browser never sees the token; keep it that way.
+- Tools change sessions only through `live_store.mutate`/`create` (lock,
+  version, announce with origin `"agent"`), which is how open panes follow the
+  agent live. A run happens *between* two mutates -- inputs, then results --
+  never holding the row lock while AWS answers.
+- `platform_tools/panes.py` is the server's copy of each pane's state keys and
+  shapes (tagged Sets, `results` vs `osResults`, `resultsVersion` bumps). It
+  has to move with the pages: rename a pane's key and the agent silently
+  writes the old one. The MCP tests pin the shapes.
+- What a run writes must fit under the *browser's* 4 MiB cap
+  (`BROWSER_STATE_BYTES`), not just the server's, or the browser drops the
+  results on its next save; `_write_results` trims to fit.
+- The agent can't know a dashboard's pixel width, so `arrange_dashboard`
+  leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
+  first time it measures the canvas, then clears it.
+- MQTT and JWT aren't agent-drivable on purpose: their state is browser-only
+  (a live connection; a pasted credential). Anything with side effects
+  outside the platform (sending HTTP, publishing) isn't a tool until the
+  approval step exists.
+- The MCP endpoint owns a fresh SDK session manager per app lifespan
+  (`McpEndpoint`), so tests that call `/mcp` need `with TestClient(app)`.
+  `mcp` is pinned to 1.x on both sides: `langchain-mcp-adapters` requires it.
+
 **Anything that takes a session out of the
 workspace must push its state first** — the debounced flush only ever sees
 the sessions still in the workspace, so a close used to drop the last second
@@ -178,8 +214,12 @@ migration later.
 **Access control is per group, never per user.** A user belongs to one
 `UserGroup`, which carries the IAM role name, the visible environments and one
 boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
-`/api/auth/me` returns those booleans so the frontend can decide what to offer;
-the backend re-checks on every route. The **Admin** group (`is_admin`) always
+`/api/auth/me` returns those booleans so the frontend can decide what to offer.
+The per-service routes do *not* re-check them -- the environment list and the
+group's IAM role are what bound a call there -- but the agent's MCP tools do
+(`platform_tools/panes.kind_for`, `_flagged`), since the agent must never
+reach further than its user's UI would. Closing that gap in the routers is
+worth doing; don't assume it's there. The **Admin** group (`is_admin`) always
 sees every environment.
 
 **No migration framework.** `ensure_columns()` in `db.py` adds missing columns
@@ -208,6 +248,10 @@ credentials per service.
 - **Errors surface to the user**, they are never swallowed: the frontend shows
   `.error-text`, the backend returns a readable `detail`. Partial failures
   across accounts are reported per account rather than failing the whole call.
+- **The agent's tests** (`platform-agent/tests`) run the real LangChain agent
+  and MCP adapter against a stub MCP server and `dev/fake_llm.py`, both served
+  over HTTP in-process. Browser suite `smoke45` drives the whole path and needs
+  the agent and the fake model running (`frontend/e2e/README.md`).
 - **Testing:** backend is pytest against a **real Postgres** (`backend/tests`,
   one file per area; `conftest.py` resets the schema and logs in as admin before
   each test) — so give it its **own database** (`cloudwatch_insights_test`),
