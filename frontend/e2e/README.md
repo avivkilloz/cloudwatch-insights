@@ -68,9 +68,16 @@ account for:
   resize that "didn't move" may just have aimed at an occupied spot, or (since
   panes start flush in the canvas's top-left) at the canvas edge — dump every
   pane's position before calling it a bug, and aim at space that is free.
-- **`newSession()` always makes a *new* session.** To add or remove a pane in
-  the session on screen, click its own "Panes" checkbox:
-  `${SHOWN} .checkbox-item:has-text("IoT") input[type=checkbox]`.
+- **`newSession()` always makes a *new* session**, one click of a home card's
+  "One more X" per label — so `newSession(page, "CloudWatch", "CloudWatch")`
+  is two CloudWatch panes, opened in the cards' order, not the arguments'. To
+  change the session on screen use `addPane(page, "IoT")` (its Panes card only
+  adds) and `closePane(page, "IoT")` (the pane's or tab's ✕). Both take the
+  pane's *name*, which is its kind's label only until a second one of that kind
+  ("CloudWatch 2") or a rename.
+- **`.checkbox-item` is not only the old pane picker.** Pages inside panes
+  (environment lists, "Select all") and Settings use it too, so a check that
+  "there are no checkboxes" has to be scoped to the card it means.
 - **A mid-suite `clearWorkspace()` can race the app's own autosave**: a PUT
   still pending from the gestures just before it can land after the DELETEs
   and resurrect the old session, leaving two sessions' panes mounted — one

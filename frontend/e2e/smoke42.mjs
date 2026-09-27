@@ -15,7 +15,7 @@
 //
 // Also: the scrollbar sits at the window's edge, with every card -- the
 // "Panes" card as much as a dashboard pane -- 16px clear of it.
-import { CLOSED_ROW, SHOT, check, clearWorkspace, launch, newSession, openApp, report, SHOWN } from "./harness.mjs";
+import { CLOSED_ROW, SHOT, addPane, check, clearWorkspace, closePane, launch, newSession, openApp, report, SHOWN } from "./harness.mjs";
 
 const PANE = (label) => `${SHOWN} .aggregator-pane:has(.aggregator-pane-header h3:text-is("${label}"))`;
 const HEADER = (label) => `${PANE(label)} .aggregator-pane-header`;
@@ -29,12 +29,6 @@ async function drag(page, label, dx, dy) {
   await page.mouse.down();
   await page.mouse.move(b.x + 80 + dx, b.y + b.height / 2 + dy, { steps: 20 });
   await page.mouse.up();
-  await page.waitForTimeout(300);
-}
-
-/** The session's own "Panes" checkbox -- adds or removes a pane in place. */
-async function toggle(page, label) {
-  await page.click(`${SHOWN} .checkbox-item:has-text("${label}") input[type=checkbox]`);
   await page.waitForTimeout(300);
 }
 
@@ -70,7 +64,7 @@ const run = async () => {
     JSON.stringify(cw0));
 
   // ---------- 2. panes added one at a time go to the first free place ----------
-  await toggle(page, "OpenSearch");
+  await addPane(page, "OpenSearch");
   const os0 = await box("OpenSearch");
   check(Math.abs(os0.y - cw0.y) < 1 && os0.x > cw0.x + cw0.width, "A second pane goes beside the first",
     JSON.stringify({ cw0, os0 }));
@@ -81,7 +75,7 @@ const run = async () => {
   const os1 = await box("OpenSearch");
   check(Math.abs(os1.x - cw0.x) < 1, "A pane dragged under another lines up with its left edge exactly (no grid offset)",
     `dx=${os1.x - cw0.x}`);
-  await toggle(page, "IoT");
+  await addPane(page, "IoT");
   const iot0 = await box("IoT");
   check(same(iot0, os0), "A pane added after a move takes the first free place (the one just vacated), not a fixed slot",
     JSON.stringify({ iot0, os0 }));
@@ -95,10 +89,10 @@ const run = async () => {
 
   // ---------- 4. a closed pane reopens in the first free place, not its old spot ----------
   const osOld = await box("OpenSearch");
-  await toggle(page, "OpenSearch");
-  await toggle(page, "DynamoDB"); // lands in the first free place: CloudWatch's old one
+  await closePane(page, "OpenSearch");
+  await addPane(page, "DynamoDB"); // lands in the first free place: CloudWatch's old one
   await drag(page, "DynamoDB", 0, osOld.y - (await box("DynamoDB")).y); // ...then into OpenSearch's old spot
-  await toggle(page, "OpenSearch");
+  await addPane(page, "OpenSearch");
   const bad4 = await noOverlaps(["CloudWatch", "IoT", "DynamoDB", "OpenSearch"]);
   check(bad4.length === 0, "A pane reopened after another took its old spot lands somewhere free instead of on top of it",
     bad4.join(", "));

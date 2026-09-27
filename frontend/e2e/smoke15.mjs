@@ -140,16 +140,16 @@ async function newPanedSession(page) {
 
   // ---------- Aggregator ----------
   await newPanedSession(page);
-  await page.waitForSelector("text=Choose one or more services");
+  await page.waitForSelector("text=Add a service or tool above");
   check(
     (await page.locator(".ai-widget-button").count()) === 0,
     "Aggregator: no AI button until a service is open"
   );
 
   // Open three services side by side.
-  await page.click('.panel:has(h2:text-is("Panes")) label.checkbox-item:has-text("IoT") input');
-  await page.click('.panel:has(h2:text-is("Panes")) label.checkbox-item:has-text("DynamoDB") input');
-  await page.click('.panel:has(h2:text-is("Panes")) label.checkbox-item:has-text("Cognito") input');
+  await page.click('.panel:has(h2:text-is("Panes")) button[aria-label="Add IoT pane"]');
+  await page.click('.panel:has(h2:text-is("Panes")) button[aria-label="Add DynamoDB pane"]');
+  await page.click('.panel:has(h2:text-is("Panes")) button[aria-label="Add Cognito pane"]');
   await page.waitForSelector(".aggregator-pane");
   const paneCount = await page.locator(".aggregator-pane").count();
   check(paneCount === 3, `Aggregator: three panes open side by side`, `got ${paneCount}`);
@@ -266,7 +266,7 @@ async function newPanedSession(page) {
   await page.click('.ai-widget-panel button[aria-label="Close"]');
 
   // Logs is the most complex page to embed -- two backends and a polling loop.
-  await page.click('.panel:has(h2:text-is("Panes")) label.checkbox-item:has-text("CloudWatch") input');
+  await page.click('.panel:has(h2:text-is("Panes")) button[aria-label="Add CloudWatch pane"]');
   await page.waitForSelector('.aggregator-pane:has(h3:text-is("CloudWatch"))');
   check(
     (await page.locator('.aggregator-pane:has(h3:text-is("CloudWatch")) >> text=1. Choose environments').count()) > 0,

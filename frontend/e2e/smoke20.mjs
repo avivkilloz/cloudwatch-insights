@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closePane, launch, newSession, report } from "./harness.mjs";
 
 const assistCalls = [];
 const SESSION = '.panel:has(h2:text-is("Panes"))';
@@ -143,30 +143,30 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Choose one or more services");
+  await page.waitForSelector("text=Add a service or tool above");
 
   // ---------- 1. Individual tools are options ----------
   const toolNames = ["HTTP client", "MQTT tester", "JWT", "Base64", "Diff"];
   for (const name of toolNames) {
     check(
-      (await page.locator(`${SESSION} label.checkbox-item:text-is("${name}") input`).count()) === 1,
+      (await page.locator(`${SESSION} button[aria-label="Add ${name} pane"]`).count()) === 1,
       `"${name}" is offered as its own Aggregator pane`
     );
   }
   check(
-    (await page.locator(`${SESSION} label.checkbox-item:text-is("Tools") input`).count()) === 0,
+    (await page.locator(`${SESSION} button[aria-label="Add Tools pane"]`).count()) === 0,
     "There is no single catch-all Tools pane any more"
   );
   // The picker separates the two kinds of thing.
   check(
-    (await page.locator(`${SESSION} .toolbar:has-text("Services") .checkbox-item`).count()) === 6 &&
-      (await page.locator(`${SESSION} .toolbar:has-text("Tools") .checkbox-item`).count()) === 5,
+    (await page.locator(`${SESSION} .toolbar:has-text("Services") .aggregator-add-pane`).count()) === 6 &&
+      (await page.locator(`${SESSION} .toolbar:has-text("Tools") .aggregator-add-pane`).count()) === 5,
     "The picker groups search services and tools separately"
   );
 
-  await page.click(`${SESSION} label.checkbox-item:text-is("CloudWatch") input`);
-  await page.click(`${SESSION} label.checkbox-item:text-is("IoT") input`);
-  await page.click(`${SESSION} label.checkbox-item:text-is("HTTP client") input`);
+  await page.click(`${SESSION} button[aria-label="Add CloudWatch pane"]`);
+  await page.click(`${SESSION} button[aria-label="Add IoT pane"]`);
+  await page.click(`${SESSION} button[aria-label="Add HTTP client pane"]`);
   await page.waitForSelector(".aggregator-pane >> nth=2");
 
   const toolsPane = '.aggregator-pane:has(h3:text-is("HTTP client"))';
@@ -191,13 +191,13 @@ async function newPanedSession(page) {
   );
 
   // A second tool opens alongside it as its own pane.
-  await page.click(`${SESSION} label.checkbox-item:text-is("JWT") input`);
+  await page.click(`${SESSION} button[aria-label="Add JWT pane"]`);
   await page.waitForSelector('.aggregator-pane:has(h3:text-is("JWT"))');
   check(
     (await page.locator(".aggregator-pane").count()) === 4,
     "Adding another tool adds another pane"
   );
-  await page.click(`${SESSION} label.checkbox-item:text-is("JWT") input`);
+  await closePane(page, "JWT");
   await page.waitForFunction(() => document.querySelectorAll(".aggregator-pane").length === 3);
 
   await page.click(".ai-widget-button");
@@ -231,7 +231,7 @@ async function newPanedSession(page) {
   await page.click('.ai-widget-panel button[aria-label="Close"]');
 
   // Closing the pane drops it as a target again.
-  await page.click(`${SESSION} label.checkbox-item:text-is("HTTP client") input`);
+  await closePane(page, "HTTP client");
   await page.waitForFunction(() => document.querySelectorAll(".aggregator-pane").length === 2);
   await page.click(".ai-widget-button");
   await page.click('.ai-widget-panel .tab:has-text("Build query")');
@@ -242,7 +242,7 @@ async function newPanedSession(page) {
     JSON.stringify(targets)
   );
   await page.click('.ai-widget-panel button[aria-label="Close"]');
-  await page.click(`${SESSION} label.checkbox-item:text-is("HTTP client") input`);
+  await page.click(`${SESSION} button[aria-label="Add HTTP client pane"]`);
   await page.waitForSelector('.aggregator-pane:has(h3:text-is("HTTP client"))');
 
   // ---------- 2. Reordering ----------
@@ -303,10 +303,10 @@ async function newPanedSession(page) {
     JSON.stringify(await paneOrder())
   );
   check(
-    JSON.stringify(await page.locator(`${SESSION} label.checkbox-item`).allTextContents()) ===
+    JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, ""))) ===
       JSON.stringify(["CloudWatch", "OpenSearch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client", "MQTT tester", "JWT", "Base64", "Diff"]),
-    "Reordering panes leaves the picker's own checkboxes in their fixed order",
-    JSON.stringify(await page.locator(`${SESSION} label.checkbox-item`).allTextContents())
+    "Reordering panes leaves the Panes card's add buttons in their fixed order",
+    JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, "")))
   );
 
   // Reordering by dragging lives in smoke21, which drives it with real mouse

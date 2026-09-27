@@ -1,5 +1,5 @@
 import { useSessions } from "../sessions/SessionContext";
-import { sessionTypeLabel } from "../sessions/registry";
+import { PaneTitles, PaneTypes, paneTitle } from "../sessions/panes";
 import { pageDef } from "../pages/pageTypes";
 
 /**
@@ -27,12 +27,14 @@ export function usePageInfo(): { title: string; help: string } | null {
   // Every session is an Aggregator, so the interesting part is which panes are
   // in it -- the name is the session's own, which you chose.
   const services = (session.state.services as string[] | undefined) ?? [];
-  const labels = services.map((id) => sessionTypeLabel(id));
+  const types = (session.state.paneTypes as PaneTypes | undefined) ?? {};
+  const titles = (session.state.paneTitles as PaneTitles | undefined) ?? {};
+  const labels = services.map((id) => paneTitle(id, types, titles));
   return {
     title: session.title,
     help:
       labels.length === 0
-        ? "An empty session. Tick a service or tool in the panel above to put something in it."
+        ? "An empty session. Add a service or tool from the Panes card to put something in it."
         : `${labels.join(", ")} in one session, with one assistant across all of them.`,
   };
 }

@@ -79,8 +79,8 @@ async function login(browser, seed) {
   // ---------- 2. a session is made on the home page ----------
   await page.click(".rail-row-home");
   await page.waitForSelector(".home-create");
-  await page.locator(`${CARD("CloudWatch")} input[type=checkbox]`).check();
-  await page.locator(`${CARD("Base64")} input[type=checkbox]`).check();
+  await page.click(`${CARD("CloudWatch")} button[aria-label="One more CloudWatch"]`);
+  await page.click(`${CARD("Base64")} button[aria-label="One more Base64"]`);
   await page.fill('input[aria-label="Name for the new session"]', "Prod incident");
   await page.click(".home-create");
   await page.waitForTimeout(600);
@@ -89,13 +89,13 @@ async function login(browser, seed) {
   check((await page.locator(ROW("Prod incident")).count()) === 1, "…listed in the panel by that name");
   const tabs = await page.locator(`${SHOWN} .aggregator-tab-label`).allTextContents();
   check(JSON.stringify(tabs) === JSON.stringify(["CloudWatch", "Base64"]),
-    "…holding exactly what was ticked, as panes", JSON.stringify(tabs));
+    "…holding exactly what was chosen, as panes", JSON.stringify(tabs));
   check((await page.locator(`${SHOWN} .aggregator-tabs`).count()) === 1,
     "…in the tabs layout, so one pane reads like a page");
 
   // Unnamed sessions still get something better than "Session 3".
   await page.click(".rail-row-home");
-  await page.locator(`${CARD("IoT")} input[type=checkbox]`).check();
+  await page.click(`${CARD("IoT")} button[aria-label="One more IoT"]`);
   await page.click(".home-create");
   await page.waitForTimeout(500);
   check((await page.locator(TAB("IoT")).count()) === 1, "An unnamed session is named after what is in it");

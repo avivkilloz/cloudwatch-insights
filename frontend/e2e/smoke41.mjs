@@ -66,13 +66,13 @@ const run = async () => {
   await page.screenshot({ path: `${SHOT}/41-first-available-packing.png` });
 
   // ---------- 2. reopening a closed pane (never moved) still finds a free slot ----------
-  // Close CloudWatch, then reopen it via the same session's own "Panes"
-  // checkbox (not a new session) -- it has no stored rect, so it goes through
+  // Close CloudWatch, then add it back via the same session's own "Panes"
+  // card (not a new session) -- it has no stored rect, so it goes through
   // the same first-available placement as a brand new pane, and must not land
   // back on top of whichever pane is now sitting where it used to be.
   await page.click(`${PANE("CloudWatch")} [aria-label="Close CloudWatch"]`);
   await page.waitForTimeout(300);
-  await page.click(`${SHOWN} .checkbox-item:has-text("CloudWatch") input[type=checkbox]`);
+  await page.click(`${SHOWN} button[aria-label="Add CloudWatch pane"]`);
   await page.waitForTimeout(300);
 
   const others = ["OpenSearch", "IoT", "DynamoDB", "S3"];
@@ -104,9 +104,9 @@ const run = async () => {
 
   // Enough panes, stacked by the app's own placement, to force vertical
   // overflow and bring the scrollbar in -- added to this same session via its
-  // own "Panes" checkboxes, not a new session.
+  // own "Panes" card, not a new session.
   for (const label of ["OpenSearch", "IoT", "DynamoDB", "S3", "Cognito"]) {
-    await page.click(`${SHOWN} .checkbox-item:has-text("${label}") input[type=checkbox]`);
+    await page.click(`${SHOWN} button[aria-label="Add ${label} pane"]`);
   }
   await page.waitForTimeout(300);
 

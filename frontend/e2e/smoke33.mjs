@@ -52,7 +52,7 @@ const mountedPanes = (page) =>
   check((await page.locator(".aggregator-tabs").count()) === 0, "No tab row in the other layouts");
 
   for (const l of ["CloudWatch", "IoT", "Base64"]) {
-    await page.locator(`${PANES} label.checkbox-item:text-is("${l}") input`).check();
+    await page.click(`${PANES} button[aria-label="Add ${l} pane"]`);
     await page.waitForTimeout(250);
   }
   check((await shownPanes(page)).length === 3, "Side by side shows all three panes");
@@ -107,8 +107,8 @@ const mountedPanes = (page) =>
   await page.waitForTimeout(400);
   check((await page.locator(".aggregator-tab-label").allTextContents()).join(",") === "CloudWatch,Base64",
     "The ✕ closes that pane");
-  check((await page.locator(`${PANES} label.checkbox-item:text-is("IoT") input`).isChecked()) === false,
-    "…and unticks it above, since they are the same thing");
+  check((await page.locator(`${PANES} button[aria-label="Add IoT pane"]`).count()) === 1,
+    "…and IoT is still offered above, to add again (the Panes card only adds)");
 
   // Closing the selected one falls back rather than showing nothing.
   await page.click(`${TAB("Base64")} .aggregator-tab-label`);
@@ -120,9 +120,9 @@ const mountedPanes = (page) =>
     "Closing the selected pane falls back to another rather than showing nothing", JSON.stringify(shown));
 
   // ---------- the choice is part of the session ----------
-  await page.locator(`${PANES} label.checkbox-item:text-is("IoT") input`).check();
+  await page.click(`${PANES} button[aria-label="Add IoT pane"]`);
   await page.waitForTimeout(250);
-  check((await shownPanes(page))[0] === "iot", "Ticking a service selects its tab, which is what ticking it meant");
+  check((await shownPanes(page))[0] === "iot", "Adding a pane selects its tab, which is what adding it meant");
   await page.click(`${TAB("CloudWatch")} .aggregator-tab-label`);
   await page.waitForTimeout(2200);
   await page.reload();

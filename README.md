@@ -16,10 +16,18 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   no separate "Aggregator" to open alongside single-service sessions — every
   session is one, which is what made working across services the normal case
   rather than a mode you had to choose up front.
-- **Home** is where a session is made: name it, tick the **Services** and
-  **Tools** it should hold, press **Create**. Tick nothing and you get an empty
-  one to fill from inside. Leave the name blank and it is named after what is
-  in it. Below that, **Platform** holds the app's own pages — **Agent**,
+- **Home** is where a session is made: name it, set how many of each
+  **Service** and **Tool** it should hold (each card has a − n + count, 0 by
+  default — two CloudWatch panes side by side is as easy as one), press
+  **Create**. Choose nothing and you get an empty one to fill from inside.
+  Leave the name blank and it is named after what is in it.
+- **Inside a session, the Panes card only adds** — "+ CloudWatch" opens
+  another CloudWatch pane each time — and a pane is closed from its own ✕ (its
+  tab's, in the tabs layout). Panes of one kind are named "CloudWatch",
+  "CloudWatch 2"…, keep their own inputs and results, and can be renamed: ✎
+  in the pane's header, or double-click its tab. A closed pane takes its
+  inputs with it, so one added later starts empty.
+- Below the new-session card, **Platform** holds the app's own pages — **Agent**,
   **Settings**, and **Dashboards**, **Workflows**, **Chat** and **Code**, which
   are named but not built. You go to one of these; you don't open copies of
   them, which is why they are not in the panel's list of sessions.

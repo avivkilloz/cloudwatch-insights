@@ -10,6 +10,10 @@ import { AiAssistMode, AiDomain } from "../api";
 export interface AiPane {
   id: string;
   domain: AiDomain;
+  /** The pane's own name in the Aggregator ("CloudWatch 2", or whatever it
+   * was renamed to), stamped on by the Aggregator rather than the page, which
+   * doesn't know it. What the assistant shows once two panes share a domain. */
+  label?: string;
   modes: AiAssistMode[];
   queryString?: string;
   selectedRows: Record<string, unknown>[];
@@ -31,6 +35,7 @@ export interface AiPane {
 export interface AiPaneSummary {
   id: string;
   domain: AiDomain;
+  label?: string;
   modes: AiAssistMode[];
   selectedCount: number;
   selectionVersion: number;
@@ -52,6 +57,7 @@ export function summarizePane(pane: AiPane): AiPaneSummary {
   return {
     id: pane.id,
     domain: pane.domain,
+    label: pane.label,
     modes: pane.modes,
     selectedCount: pane.selectedRows.length,
     selectionVersion: pane.selectionVersion,
@@ -66,6 +72,7 @@ export function sameSummaries(a: AiPaneSummary[], b: AiPaneSummary[]): boolean {
     return (
       x.id === y.id &&
       x.domain === y.domain &&
+      x.label === y.label &&
       x.selectedCount === y.selectedCount &&
       x.selectionVersion === y.selectionVersion &&
       x.resultsVersion === y.resultsVersion &&

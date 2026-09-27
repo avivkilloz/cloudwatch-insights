@@ -75,10 +75,10 @@ const V = ".session-body:not([hidden])";
   // description of the home page, which says "start a session".
   check((await page.locator('.home-card-title:text-is("Start a session")').count()) === 0,
     "The 'Start a session' card is gone");
-  await page.locator('.home-card:has(.home-card-title:text-is("CloudWatch")) input[type=checkbox]').check();
-  await page.locator('.home-card:has(.home-card-title:text-is("DynamoDB")) input[type=checkbox]').check();
-  check((await page.locator(".home").textContent()).includes("2 pages"),
-    "It says how many are ticked");
+  await page.click('.home-card:has(.home-card-title:text-is("CloudWatch")) button[aria-label="One more CloudWatch"]');
+  await page.click('.home-card:has(.home-card-title:text-is("DynamoDB")) button[aria-label="One more DynamoDB"]');
+  check((await page.locator(".home").textContent()).includes("2 panes"),
+    "It says how many panes the session will hold");
   check(!!(await page.locator(".home-create").getAttribute("title")),
     "Create has a tooltip explaining what it does");
   await page.screenshot({ path: `${SHOT}/25-home-fab.png` });

@@ -84,23 +84,27 @@ const V = ".session-body:not([hidden])";
   await page.click('.content .tabs button:has-text("User Groups")').catch(() => {});
   await page.screenshot({ path: `${SHOT}/26-settings.png` });
 
-  // ---------- item 5: corner checkbox, text-only FAB ----------
+  // ---------- item 5: the card's count, text-only FAB ----------
+  // The corner tick this used to check became a − n + count (a session can
+  // hold several panes of a kind); what's kept is that it sits tidily on the
+  // card -- along its foot, right-aligned, below the title and description.
   await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
   await page.waitForSelector(".home-cards");
   const pick = await page.evaluate(() => {
-    const card = document.querySelector(".home-card:has(.home-card-pick)");
+    const card = document.querySelector(".home-card:has(.home-card-count)");
     if (!card) return null;
-    const cb = card.querySelector(".home-card-pick");
-    const t = card.querySelector(".home-card-title");
-    const c = card.getBoundingClientRect(), b = cb.getBoundingClientRect(), tt = t.getBoundingClientRect();
-    return { tag: cb.tagName, text: cb.textContent.trim(), fromRight: Math.round(c.right - b.right),
-             fromTop: Math.round(b.top - c.top), titleTop: Math.round(tt.top - c.top) };
+    const count = card.querySelector(".home-card-count");
+    const desc = card.querySelector(".home-card-desc");
+    const c = card.getBoundingClientRect(), b = count.getBoundingClientRect(), d = desc.getBoundingClientRect();
+    return { buttons: count.querySelectorAll("button").length, inputs: count.querySelectorAll("input").length,
+             fromRight: Math.round(c.right - b.right), belowDesc: Math.round(b.top - d.bottom),
+             insideBottom: Math.round(c.bottom - b.bottom) };
   });
-  check(pick && pick.tag === "INPUT" && pick.text === "", "The card tick is a bare checkbox with no label", JSON.stringify(pick));
-  check(pick && pick.fromRight <= 16 && Math.abs(pick.fromTop - pick.titleTop) < 14,
-    "…in the card's top-right, level with the title", JSON.stringify(pick));
+  check(pick && pick.buttons === 2 && pick.inputs === 1, "Each card carries a − n + count", JSON.stringify(pick));
+  check(pick && pick.fromRight <= 16 && pick.belowDesc >= 0 && pick.insideBottom >= 0,
+    "…along the card's foot, right-aligned, below its description", JSON.stringify(pick));
 
-  await page.locator('.home-card:has(.home-card-title:text-is("CloudWatch")) .home-card-pick').check();
+  await page.click('.home-card:has(.home-card-title:text-is("CloudWatch")) button[aria-label="One more CloudWatch"]');
   // Create replaced the floating "Aggregate N" button: making a session is not
   // a thing that appears once you have ticked something, it is the card.
   check((await page.locator(".home-aggregate-fab").count()) === 0, "There is no floating button any more");
@@ -109,7 +113,7 @@ const V = ".session-body:not([hidden])";
   await page.screenshot({ path: `${SHOT}/26-home.png` });
 
   // ---------- item 2: the session's card is "Panes" ----------
-  await page.locator('.home-card:has(.home-card-title:text-is("IoT")) .home-card-pick').check();
+  await page.click('.home-card:has(.home-card-title:text-is("IoT")) button[aria-label="One more IoT"]');
   await page.click(".home-create");
   await page.waitForSelector(`${V} .aggregator-pane`, { timeout: 10000 });
   const aggHeads = await page.locator(`${V} > .panel h2`).allTextContents();
