@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-27, mid-round on multiple panes of one kind (after #78)._
+_Last updated: 2026-09-27, mid-round on the platform agent, phase 1 of 3 (after #79)._
 
 ## Where things stand
 
@@ -72,7 +72,7 @@ sessions closed and reopened — each bug reproduced in the browser first):
 #78 recorded that session's decisions in CLAUDE.md, these notes and the e2e
 README.
 
-**In this round (not yet merged): several panes of one kind, each named.**
+**#79: several panes of one kind, each named** (merged):
 
 - *Home:* each card takes a − n + count (0 by default, 10 at most per card;
   the card itself also adds one) instead of a tick, so a session can start
@@ -97,6 +97,98 @@ README.
   one's query). The Panes-card checkboxes and home-card ticks were replaced in
   the harness (`newSession`, new `addPane` / `closePane`) and in the eleven
   suites that clicked them; smoke25 now says "2 panes" rather than "2 pages".
+
+## The platform agent — agreed design and phases
+
+The user asked for an agent that acts on the platform: it creates sessions,
+fills in inputs, runs services and tools, and lays out the results. It runs
+in its own container and uses LangChain. These are the decisions agreed with
+them, so the next round starts from these rather than re-deciding them:
+
+- **Container:** `platform-agent`, Python, **LangGraph** (LangChain's agent
+  runtime: streaming, Postgres checkpoints for conversations, interrupts for
+  approvals). It loads its tools from the backend over MCP with
+  `langchain-mcp-adapters`.
+- **Model:** the **existing LiteLLM proxy** (the same `LITELLM_*` settings as
+  the ✦ assistant). The model behind it must support tool calling.
+- **Tools:** an **MCP server inside the backend** (`/mcp`, official `mcp`
+  Python SDK). It wraps the backend functions that already exist: environments,
+  create a session, add a pane, set inputs, choose the layout and dashboard
+  placement, and run each service and tool.
+- **Rights:** it acts **as the asking user**, with a short-lived delegated
+  token. That user's group permissions, visible environments and IAM role apply
+  exactly as in the UI. A new per-group `agent_enabled` flag gates it.
+- **Execution:** runs happen **on the server**, and the agent reads the
+  results. Results are written into the panes' own state keys, so they appear
+  in the normal service and tool panes. The agent chooses the layout (tabs,
+  side by side, stacked or dashboard) and places panes itself.
+- **Approval:** session edits and read-only searches run freely. Side effects
+  outside the app (HTTP-client requests, MQTT publishes, anything that changes
+  something) wait for the user's OK in the chat.
+- **Frontend:** the Agent page gets streaming chat, a live activity feed
+  linking to what it touched, and approval prompts. Sessions show when the
+  agent is changing them.
+- **Deploy:** an agent Dockerfile and a compose service. Helm gets an agent
+  Deployment and Service, `agent.enabled`, the reused LiteLLM secret and the
+  backend's MCP URL. `DEPLOYMENT.md` and the README are updated.
+
+**Phases, one PR each:**
+1. *Two-way sync.* **This round** (below). It is the foundation, because until
+   now the browser only ever pushed and would have overwritten anything the
+   agent wrote.
+2. *MCP server plus the agent container.* Session tools and read-only runs,
+   streaming chat on the Agent page, and the `agent_enabled` flag.
+3. *Side-effect tools with approval.* Also persisted conversations, the
+   activity feed, and the Helm and deploy docs completed.
+
+**In this round (not yet merged): phase 1, two-way live sync.**
+
+- *Backend:*
+  - `live_sessions.version`, bumped on every write. A PUT carries its
+    `base_version`; a stale one gets a 409.
+  - The version check runs under a row lock. smoke44 caught two concurrent
+    writes both passing without it, about one run in three.
+  - Every write, close and delete runs `pg_notify` inside its transaction, so
+    it is announced on commit and dropped on rollback.
+  - `live_events.py` holds one `LISTEN` connection per replica and fans events
+    out per user to `GET /api/live-sessions/events` (server-sent events). The
+    stream sends a 20 s heartbeat and `X-Accel-Buffering: no`, and releases its
+    database session at once.
+  - Events carry kind, id, version and the writer's `X-Sync-Origin`, never
+    state.
+- *Frontend:*
+  - Every request sends `X-Sync-Origin` (a per-tab id).
+  - `WorkspaceSync` tracks the version each session is based on and the
+    server's copy at that version. On a 409 it fetches the row and merges it
+    (`mergeSession`: three-way per key, the server wins a true conflict).
+  - `liveEvents.ts` subscribes to the stream. Upserts are fetched and merged,
+    and new sessions are added without switching to them. Closes and deletes
+    come off the strip.
+  - A reconnect, a failed fetch or the browser coming back online all trigger
+    a catch-up re-read of the list.
+  - A mounted `useSessionState` now follows remote changes to its key.
+- *Coverage:*
+  - Backend: +9 tests. Among them are a concurrency test (it fails without the
+    lock, `[200, 200]`), `LISTEN`-based announcement tests, and per-user
+    fan-out.
+  - `smoke44.mjs`: two browsers covering:
+    - a session appearing live;
+    - typed input crossing over;
+    - simultaneous edits to different panes both surviving;
+    - a server-side write as the agent will make it;
+    - a stale write refused;
+    - a close propagating;
+    - catch-up after going offline;
+    - a reorder made elsewhere followed live, and not undone by a later save.
+
+    It fails against the old frontend and passes 14 of 14, three runs in a row.
+- *Order belongs to `/reorder`.* A PUT sets `position` only when it creates a
+  session, and `position` is out of the sync fingerprint. Before this, a
+  second tab still holding the old order pushed it straight back with its
+  next save, and the two tabs ping-ponged (smoke29 caught it). A reorder is
+  announced with its new id order, and every tab re-sorts its strip to match
+  (`followOrder`); an order too long for a NOTIFY payload is left out and the
+  tab re-reads the list instead.
 
 ## Done and working
 
@@ -140,8 +232,7 @@ Everything below is merged and verified against the running app.
   the window's edge, with the cards 16px clear of it.
 - **Panes:** CloudWatch Logs Insights, OpenSearch, IoT (things + certificates
   with detail panels), DynamoDB, S3, Cognito; tools: HTTP client, MQTT tester,
-  JWT, Base64, diff. (As of this round, not yet merged: any number of each per
-  session, each renamable.)
+  JWT, Base64, diff; any number of each per session, each renamable.
 - **Assistant:** per-pane "build a query" plus a cross-service question over
   whatever the open panes have registered (LiteLLM, optional — hidden unless
   configured).
@@ -149,13 +240,14 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 163 backend tests green; 31 Playwright suites green.
+- **Tests:** 174 backend tests green; 32 Playwright suites (full run for this round in progress).
 
 ## In progress / where I left off
 
-Nothing half-written; the only thing outstanding is the PR for multiple panes
-of one kind. After it merges, restart the branch from `main`
-(`git fetch origin main && git checkout -B <branch> origin/main`).
+Phase 1 of the platform agent (two-way live sync) is done and awaiting its PR;
+nothing is half-written. Next is phase 2 (MCP server plus the agent
+container), per the design above. After the PR merges, restart the branch from
+`main` (`git fetch origin main && git checkout -B <branch> origin/main`).
 
 **Dashboard ideas offered to the user, not started** (their call which, if
 any): a "Tidy up" action that re-packs every pane; maximise a pane to fill
@@ -268,7 +360,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 31 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 32 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
@@ -283,15 +375,26 @@ and snapping, 39 its multi-corner resize, auto-scroll and minimum-gap
 follow-ups, 40 its canvas-boundary fixes and edge resize handles, 41 panes
 opened together packing into the canvas and the stable scrollbar gutter, and
 42 the real-use flows from #77 (one-at-a-time placement, reopen, two
-sessions, close-then-reopen, minimised drag, Escape, scrollbar geometry), and
-43 several panes of one kind (home counts, add-only Panes card, per-pane
-state, rename, fresh state after close, an old-shape session still opening).
+sessions, close-then-reopen, minimised drag, Escape, scrollbar geometry), 43
+several panes of one kind (home counts, add-only Panes card, per-pane state,
+rename, fresh state after close, an old-shape session still opening), and 44
+two-way live sync across two browsers (see phase 1 above).
 
 ## Next steps, in order
 
-1. Restart the branch from `main` (the notes PR aside, nothing is in flight).
-2. Pick up the user's next batch of UI issues — that has been the rhythm of
-   every round.
+1. Restart the branch from `main` once the phase 1 PR merges.
+2. **Platform agent, phase 2.** Build:
+   - the MCP server in the backend (`/mcp`);
+   - the `platform-agent` container (LangGraph with `langchain-mcp-adapters`,
+     using the LiteLLM proxy);
+   - streaming chat on the Agent page;
+   - delegated per-user tokens;
+   - the `agent_enabled` group flag.
+
+   The agent writes sessions only through the versioned, announced write path
+   (see CLAUDE.md, "Sync is two-way").
+3. Between phases, pick up the user's batches of UI issues — that has been
+   the rhythm of every round.
 3. If the user picks one of the dashboard ideas above, the column grid is a
    stored-shape change: `dashboardRects` would need a migration (CLAUDE.md,
    "Old state shapes are migrated on load").

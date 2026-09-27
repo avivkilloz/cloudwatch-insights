@@ -12,13 +12,18 @@ strip of tabs but stays in the side panel's list, ready to reopen. Deleting is
 the only thing that removes one.
 """
 
+import asyncio
 import datetime
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
 from ..db import get_db
+from ..live_events import listener, notify
 
 router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 
@@ -37,12 +42,11 @@ router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 MAX_STATE_BYTES = 8 * 1024 * 1024
 
 
-def _owned(db: Session, user: models.User, client_id: str) -> models.LiveSession:
-    row = (
-        db.query(models.LiveSession)
-        .filter(models.LiveSession.user_id == user.id, models.LiveSession.client_id == client_id)
-        .one_or_none()
+def _owned(db: Session, user: models.User, client_id: str, lock: bool = False) -> models.LiveSession:
+    query = db.query(models.LiveSession).filter(
+        models.LiveSession.user_id == user.id, models.LiveSession.client_id == client_id
     )
+    row = (query.with_for_update() if lock else query).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return row
@@ -50,6 +54,62 @@ def _owned(db: Session, user: models.User, client_id: str) -> models.LiveSession
 
 def _mine(db: Session, user: models.User):
     return db.query(models.LiveSession).filter(models.LiveSession.user_id == user.id)
+
+
+# Who is writing: a browser tab's own random id, or "agent" for the platform
+# agent. Only ever used to let a writer recognise the echo of its own change
+# on the event stream -- never for access control, which is the session
+# cookie's job alone.
+OriginHeader = Header(default=None, alias="X-Sync-Origin", max_length=64)
+
+# Well inside the 60s idle timeouts nginx (the frontend container's proxy,
+# and ingress-nginx) apply by default: without traffic a quiet stream would be
+# cut every minute and every browser would reconnect and re-fetch.
+HEARTBEAT_SECONDS = 20.0
+
+
+@router.get("/events")
+async def live_session_events(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """A server-sent event stream of changes to the caller's sessions:
+    `{"kind": "upsert" | "close" | "delete" | "reorder", "client_id", "version",
+    "origin"}` per change, and a comment line as a heartbeat. No state rides on
+    it -- a browser that wants a changed session GETs it like any other.
+
+    Declared before `/{client_id}`, which would otherwise take "events" for a
+    session id."""
+    user_id = current_user.id
+    # The stream can stay open for hours; a database connection held for its
+    # whole life would exhaust the pool at a few dozen open tabs. The user is
+    # all the stream needs from the database, and it has that now.
+    db.close()
+
+    async def stream():
+        sub = listener.subscribe(user_id)
+        try:
+            # How long a browser waits before reconnecting after a drop.
+            yield "retry: 3000\n\n"
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(sub.queue.get(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                event.pop("user_id", None)
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            listener.unsubscribe(sub)
+
+    # X-Accel-Buffering: nginx (the frontend container's proxy, and
+    # ingress-nginx) would otherwise buffer the stream and deliver it in lumps.
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("", response_model=list[schemas.LiveSessionOut])
@@ -92,6 +152,7 @@ def reorder_live_sessions(
     payload: schemas.LiveSessionOrder,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
     rows = {
         row.client_id: row
@@ -101,6 +162,7 @@ def reorder_live_sessions(
         row = rows.get(client_id)
         if row is not None:
             row.position = position
+    notify(db, current_user.id, "reorder", None, None, origin, order=list(payload.client_ids))
     db.commit()
     return list_live_sessions(db=db, current_user=current_user)
 
@@ -111,10 +173,14 @@ def upsert_live_session(
     payload: schemas.LiveSessionUpsert,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
-    """Create or overwrite one session. The browser sends whole sessions rather
-    than patches: its copy is the live one, and a partial update from a stale
-    tab would be harder to reason about than a last-write-wins whole one."""
+    """Create or overwrite one session. Writers send whole sessions rather
+    than patches, with the version they started from: a write from a stale
+    one is refused (409) instead of silently undoing a change the writer never
+    saw, and the writer merges -- GET the row, fold its own changes in, PUT
+    again from the new version. A write with no base version overwrites, which
+    is what a browser from before versions existed does."""
     size = len(json.dumps(payload.state))
     if size > MAX_STATE_BYTES:
         raise HTTPException(
@@ -125,22 +191,43 @@ def upsert_live_session(
             ),
         )
 
+    # Locked for the rest of the transaction: the version check below and the
+    # write after it have to be one step. Without the lock two writes made
+    # from the same version, landing a few milliseconds apart, both passed the
+    # check and the later one silently replaced the earlier -- the exact loss
+    # versions exist to prevent (smoke44 caught it about one run in three).
     row = (
         db.query(models.LiveSession)
         .filter(models.LiveSession.user_id == current_user.id, models.LiveSession.client_id == client_id)
+        .with_for_update()
         .one_or_none()
     )
     if row is None:
-        row = models.LiveSession(user_id=current_user.id, client_id=client_id)
+        row = models.LiveSession(user_id=current_user.id, client_id=client_id, version=0)
         db.add(row)
+    elif payload.base_version is not None and payload.base_version != row.version:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This session changed elsewhere (it is at version {row.version}, this write was made from "
+                f"{payload.base_version}). Fetch it again and reapply your change."
+            ),
+        )
     row.type = payload.type
     row.title = payload.title
-    row.position = payload.position
+    # Position is set once, on creation. After that the order belongs to
+    # /reorder alone: a tab still showing the old order used to send its old
+    # positions with every save and quietly undo a reorder made elsewhere.
+    if row.id is None:
+        row.position = payload.position
     row.category_id = payload.category_id
     row.state = payload.state
     row.truncated = payload.truncated
     # Writing to a closed session is how a reopened one comes back.
     row.closed_at = None
+    row.version = (row.version or 0) + 1
+    db.flush()
+    notify(db, current_user.id, "upsert", client_id, row.version, origin)
     db.commit()
     db.refresh(row)
     return row
@@ -151,9 +238,12 @@ def close_live_session(
     client_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
-    row = _owned(db, current_user, client_id)
+    row = _owned(db, current_user, client_id, lock=True)
     row.closed_at = datetime.datetime.utcnow()
+    row.version = (row.version or 0) + 1
+    notify(db, current_user.id, "close", client_id, row.version, origin)
     db.commit()
     db.refresh(row)
     return row
@@ -175,7 +265,9 @@ def delete_live_session(
     client_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
     db.delete(_owned(db, current_user, client_id))
+    notify(db, current_user.id, "delete", client_id, None, origin)
     db.commit()
     return None

@@ -96,9 +96,13 @@ registration) goes by id; anything asking "what kind is this" goes through
 
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
-`"<paneId>.<key>"` — the pane's id, so two panes of one kind stay apart. It seeds from the session's bag **on mount only** — so
-anything that fills a session's state must do it *before* mounting it (this bit
-us once on reopening a closed session).
+`"<paneId>.<key>"` — the pane's id, so two panes of one kind stay apart. It
+seeds from the session's bag on mount, and afterwards takes any value that
+changes under it which it didn't write itself (compared by identity, so its own
+writes coming back are no-ops). Filling a session's state *before* mounting is
+still the clean way to open one (this bit us once on reopening a closed
+session). A remote change arriving later is now picked up too, rather than
+lost.
 
 **Panes stay mounted.** Hidden, never unmounted, so a running query or a scroll
 position survives switching tabs, layouts or sessions. Consequences: any DOM
@@ -114,7 +118,34 @@ is required because an author `display: flex` beats the UA's `[hidden]` rule.
 1.2 s debounce, diffed by encoded fingerprint, and **requests are chained
 through `WorkspaceSync.enqueue`** so a close or delete can't be overtaken by an
 in-flight PUT that would revive it. The closed-session listing carries no state;
-full state is fetched on reopen. **Anything that takes a session out of the
+full state is fetched on reopen.
+
+**Sync is two-way; the browser is no longer the only writer.** Other tabs,
+other machines and the platform agent all write sessions on the server.
+- Every row has a `version`, and every PUT carries the `base_version` it was
+  made from. A stale one gets a 409. The version check runs under a row lock
+  (`with_for_update`); without it, two concurrent writes both passed.
+- On a 409, the browser GETs the row and merges it (`mergeSession`): three-way
+  per state key against the last agreed copy, with the server winning a true
+  conflict. It then pushes again.
+- Every write is announced with `pg_notify` on commit (`live_events.py`,
+  `LISTEN` per replica). An event stream (`GET /api/live-sessions/events`)
+  tells each of the user's tabs what changed. Events carry no state; tabs fetch
+  it.
+- Every request carries `X-Sync-Origin` (a per-tab id, or `"agent"`), so a
+  tab can ignore the echo of its own writes.
+- A mounted `useSessionState` follows a remote change to its key; it no longer
+  only seeds on mount.
+- **Order belongs to `/reorder`.** A PUT sets `position` only when it creates
+  the session, and position is not in the sync fingerprint; otherwise a tab
+  holding the old order pushes it back on its next save and two tabs
+  ping-pong. A reorder is announced with its id order and every tab re-sorts
+  to it (`followOrder`).
+- Anything that writes a session outside the browser (the agent, a script)
+  must go through the same versioned write and announcement. Never
+  `UPDATE live_sessions` directly.
+
+**Anything that takes a session out of the
 workspace must push its state first** — the debounced flush only ever sees
 the sessions still in the workspace, so a close used to drop the last second
 of changes (and a never-saved session reopened empty). `WorkspaceSync.close()`

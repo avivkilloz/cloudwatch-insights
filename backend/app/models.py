@@ -214,6 +214,12 @@ class LiveSession(Base):
     # literal -- do not wrap this in extra quotes, that would double-quote it.
     truncated = Column(Boolean, nullable=False, server_default="false")
     closed_at = Column(DateTime, nullable=True, index=True)
+    # Bumped on every write, whoever makes it. A writer says which version it
+    # started from (`base_version` on PUT); one that started from an older one
+    # is refused rather than allowed to overwrite a change it never saw --
+    # which, once the server itself can change a session (the platform agent),
+    # is the difference between two-way sync and last-write-wins data loss.
+    version = Column(Integer, nullable=False, server_default="0")
     updated_at = Column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
