@@ -294,8 +294,8 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 197 backend, 5 agent, 33 Playwright suites (see this round's
-  regression run below).
+- **Tests:** 197 backend, 5 agent, 33 Playwright suites -- all green in this
+  round's full run (smoke45 included, against the fake model).
 
 ## In progress / where I left off
 
