@@ -18,7 +18,8 @@ const TAB_TOGGLES: {
     | "buckets_enabled"
     | "cognito_enabled"
     | "aggregator_enabled"
-    | "tools_enabled";
+    | "tools_enabled"
+    | "agent_enabled";
   label: string;
 }[] = [
   // Two pages, two sets of credentials: a group can be given one without the
@@ -34,6 +35,9 @@ const TAB_TOGGLES: {
   // group -- nothing reads it, and removing it is a database change for no
   // gain -- but there is nothing here for it to control.
   { key: "tools_enabled", label: "Tools" },
+  // Not a page but the same kind of yes/no: the agent acts with everything
+  // else this group has, so it is its own switch, and off for a new group.
+  { key: "agent_enabled", label: "Platform agent" },
 ];
 
 // Logos are stored inline as a data: URL in the settings table, which is
@@ -78,6 +82,7 @@ function emptyGroupDraft(): GroupDraft {
     cognito_enabled: true,
     aggregator_enabled: true,
     tools_enabled: true,
+    agent_enabled: false,
   };
 }
 
@@ -94,6 +99,7 @@ function groupToDraft(g: UserGroup): GroupDraft {
     cognito_enabled: g.cognito_enabled,
     aggregator_enabled: g.aggregator_enabled,
     tools_enabled: g.tools_enabled,
+    agent_enabled: g.agent_enabled,
   };
 }
 

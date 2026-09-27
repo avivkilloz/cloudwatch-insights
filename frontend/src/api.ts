@@ -27,6 +27,9 @@ export interface UserGroup {
   cognito_enabled: boolean;
   aggregator_enabled: boolean;
   tools_enabled: boolean;
+  /** The platform agent. Off unless an admin turns it on: it acts with
+   * everything the group can reach. */
+  agent_enabled: boolean;
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
   user_count: number;
@@ -47,6 +50,7 @@ export interface User {
   cognito_enabled: boolean;
   aggregator_enabled: boolean;
   tools_enabled: boolean;
+  agent_enabled: boolean;
 }
 
 export interface SavedSession<T = Record<string, unknown>> {
@@ -452,6 +456,84 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
+// ---- Platform agent ----
+
+/** Whether this deployment runs the agent, and whether your group may use it. */
+export interface AgentStatus {
+  available: boolean;
+  enabled: boolean;
+}
+
+export interface AgentChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** One step of an agent turn as it happens (platform-agent/app/agent.py). */
+export type AgentEvent =
+  | { type: "text"; delta: string }
+  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
+  | { type: "tool_result"; id: string; name: string; ok: boolean; summary: string; session_id?: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+/** The readable part of an error response: FastAPI's `detail` if there is one. */
+function detailOf(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    // not JSON; the text is the message
+  }
+  return text;
+}
+
+/**
+ * Runs one agent turn, calling `onEvent` for each step as it streams in. A
+ * stream rather than a request, because a turn is many steps over up to a
+ * few minutes and each is worth showing the moment it happens. Resolves when
+ * the turn's stream ends; `signal` stops it (and the agent with it).
+ */
+async function agentChat(
+  body: { messages: AgentChatMessage[]; viewing_session_id: string | null; timezone: string },
+  onEvent: (event: AgentEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/agent/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Sync-Origin": SYNC_ORIGIN },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(res.status, detailOf(await res.text().catch(() => "")) || `${res.status} ${res.statusText}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      // Comment lines are the stream's heartbeat; only data lines are events.
+      for (const line of block.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice(6)) as AgentEvent);
+        } catch {
+          // a malformed line is skipped rather than ending the turn
+        }
+      }
+    }
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers, ...rest } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
@@ -633,6 +715,8 @@ export const api = {
   }) => req<CognitoUserSearchResult>("/cognito/users", { method: "POST", body: JSON.stringify(payload) }),
 
   getAiStatus: () => req<{ configured: boolean }>("/ai/status"),
+  getAgentStatus: () => req<AgentStatus>("/agent/status"),
+  agentChat,
   aiAssist: (payload: {
     mode: AiAssistMode;
     messages: AiChatMessage[];

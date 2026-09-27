@@ -174,6 +174,20 @@ interface SessionsApi {
 
 const SessionsContext = createContext<SessionsApi | null>(null);
 
+/** The sessions the platform agent has written in the last few seconds --
+ * what the panel and the strip mark as "the agent is working on this". Its
+ * own context rather than part of SessionsApi, which every page reads: the
+ * agent writing a session is no reason to re-render all of them. */
+const AgentActivityContext = createContext<ReadonlySet<string>>(new Set());
+
+export function useAgentActivity(): ReadonlySet<string> {
+  return useContext(AgentActivityContext);
+}
+
+// Long enough to read as "busy" across the gap between a run's two writes
+// (its inputs, then its results), short enough to stop soon after it's done.
+const AGENT_ACTIVITY_MS = 4000;
+
 export function useSessions(): SessionsApi {
   const ctx = useContext(SessionsContext);
   if (!ctx) throw new Error("useSessions must be used inside <SessionsProvider>");
@@ -196,6 +210,24 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // the server has been told, and re-rendering the workspace on every reply
   // would be a lot of renders for nothing on screen.
   const sync = useMemo(() => new WorkspaceSync(), []);
+  const [agentActive, setAgentActive] = useState<ReadonlySet<string>>(new Set());
+  const agentTimers = useRef(new Map<string, number>());
+  const markAgentActive = useCallback((id: string) => {
+    setAgentActive((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    const timers = agentTimers.current;
+    window.clearTimeout(timers.get(id));
+    timers.set(
+      id,
+      window.setTimeout(() => {
+        timers.delete(id);
+        setAgentActive((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, AGENT_ACTIVITY_MS),
+    );
+  }, []);
   // Set by the first local change, so a slow server reply can't land on top of
   // something typed while it was in flight.
   const touched = useRef(false);
@@ -415,6 +447,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         }
         const id = event.client_id;
         if (!id) return;
+        if (event.origin === "agent" && event.kind === "upsert") markAgentActive(id);
         if (event.kind === "upsert") {
           if ((sync.versionOf(id) ?? -1) >= (event.version ?? 0)) return;
           fetchAndReceive(id);
@@ -435,7 +468,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     };
     // `withoutSession` is a plain function of its arguments.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, sync]);
+  }, [ready, sync, markAgentActive]);
 
   const open = useCallback((title: string, state: Record<string, unknown> = {}) => {
     touched.current = true;
@@ -701,7 +734,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   return (
     <SessionsContext.Provider value={sessionsApi}>
       <WriteStateContext.Provider value={writeState}>
-        <DropStateContext.Provider value={dropState}>{children}</DropStateContext.Provider>
+        <DropStateContext.Provider value={dropState}>
+          <AgentActivityContext.Provider value={agentActive}>{children}</AgentActivityContext.Provider>
+        </DropStateContext.Provider>
       </WriteStateContext.Provider>
     </SessionsContext.Provider>
   );

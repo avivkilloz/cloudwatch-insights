@@ -59,11 +59,11 @@ export const PAGES: PageDef[] = [
   {
     id: "agent",
     label: "Agent",
-    description: "Ask across the whole workspace, not one service.",
+    description: "Ask across the whole workspace, and have it do the work.",
     help:
-      "Ask about anything in the platform and — once it is connected to a model — have it do the work: open the " +
-      "sessions you need, run the searches and answer across all of them. It sees the workspace from outside, " +
-      "unlike the assistant inside a session, which only ever sees that session's own panes.",
+      "Ask about anything in the platform and have it do the work, as you: it opens the sessions it needs, fills " +
+      "in and runs the searches, lays the panes out and answers from what they found. It works across the whole " +
+      "workspace, unlike the assistant inside a session, which only sees that session's own panes.",
     onHome: true,
     enabledFor: () => true,
     render: () => <AgentPage />,

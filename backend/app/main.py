@@ -1,10 +1,15 @@
+import contextlib
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from starlette.routing import Route
 
 from . import bootstrap, models
 from .db import Base, SessionLocal, engine, ensure_columns
+from .platform_tools import server as platform_server
 from .routers import (
+    agent,
     ai,
     auth,
     buckets,
@@ -37,13 +42,28 @@ if "user_groups.opensearch_enabled" in _added_columns:
     with engine.begin() as _conn:
         _conn.execute(text("UPDATE user_groups SET opensearch_enabled = logs_enabled"))
 
+# The agent flag starts off for every group (see UserGroup.agent_enabled), but
+# the Admin group -- which can turn it on for anyone -- has it from the start.
+if "user_groups.agent_enabled" in _added_columns:
+    with engine.begin() as _conn:
+        _conn.execute(text("UPDATE user_groups SET agent_enabled = true WHERE is_admin"))
+
 _bootstrap_db = SessionLocal()
 try:
     bootstrap.ensure_admin_exists(_bootstrap_db)
 finally:
     _bootstrap_db.close()
 
-app = FastAPI(title="CloudWatch Insights (Multi-Account)")
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # The MCP endpoint's session manager lives as long as the app does.
+    async with platform_server.endpoint.lifespan():
+        yield
+
+
+app = FastAPI(title="CloudWatch Insights (Multi-Account)", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,9 +90,19 @@ app.include_router(tables.router)
 app.include_router(buckets.router)
 app.include_router(cognito.router)
 app.include_router(ai.router)
+app.include_router(agent.router)
 app.include_router(tools.router)
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# The platform agent's tools (platform_tools/server.py). Outside /api on
+# purpose: the frontend's nginx only proxies /api, so this is reachable inside
+# the cluster (where the agent runs) and not from the browser's side at all.
+# Both spellings, because a mounted sub-app would answer only one of them and
+# redirect the other, and an MCP client doesn't follow a redirected POST.
+app.router.routes.append(Route("/mcp", endpoint=platform_server.endpoint))
+app.router.routes.append(Route("/mcp/", endpoint=platform_server.endpoint))

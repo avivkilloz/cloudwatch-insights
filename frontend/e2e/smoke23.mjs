@@ -154,16 +154,13 @@ async function saveActiveAsTemplate(page) {
   check((await page.locator(`${V} .aggregator-tab-label`).allTextContents()).length === 1,
     "Panes can still be removed inside the session");
 
-  // ---------- 5b. The header prompt goes to the agent page ----------
+  // ---------- 5b. The header prompt goes to the agent ----------
   await page.fill(".agent-input", "what is open?");
   await page.press(".agent-input", "Enter");
-  await page.waitForSelector('.page-info-title:text-is("Agent")');
-  check((await page.locator(".agent-session >> text=what is open?").count()) === 1,
-    "A header question goes to the agent page holding it");
-  check(
-    (await page.locator(".agent-session >> text=I'm not connected to a model yet").count()) === 1,
-    "The agent answers that it can't answer yet"
-  );
+  await page.waitForSelector(".agent-dock");
+  check((await page.locator('.agent-dock .agent-question:text-is("what is open?")').count()) === 1,
+    "A header question goes to the agent's conversation, beside the session");
+  await page.click('.agent-dock [aria-label="Close the agent"]');
 
   // ---------- 4. Clicking outside closes the AI assistant ----------
   await newSession(page, "DynamoDB");

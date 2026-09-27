@@ -31,6 +31,21 @@ Configuration, all optional:
 | `E2E_PLAYWRIGHT` | — | an installed Playwright to import, if `playwright` does not resolve |
 | `E2E_CHROMIUM` | — | a Chromium executable to use instead of Playwright's own |
 
+`smoke45` (the platform agent) also needs the agent container running with the
+scripted stand-in model, and the backend pointed at it -- a real model would
+answer differently every time:
+
+```bash
+cd platform-agent
+uvicorn dev.fake_llm:app --port 4010 &
+LITELLM_BASE_URL=http://127.0.0.1:4010 LITELLM_API_KEY=x AGENT_MODEL=fake \
+  PLATFORM_MCP_URL=http://127.0.0.1:8000/mcp uvicorn app.main:app --port 8100 &
+# and start the backend with AGENT_URL=http://127.0.0.1:8100
+```
+
+Without them, `smoke45` fails at its first step and every other suite is
+unaffected (22 and 23 only check that a header question reaches the dock).
+
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs
 these. Install it where you run them (`npm i -D playwright`), or point

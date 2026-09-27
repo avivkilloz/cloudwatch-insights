@@ -40,11 +40,37 @@ services:
       # (browsers won't store it) -- keep this false here; deployments should
       # leave it at the backend's default (true) once served over HTTPS.
       COOKIE_SECURE: "false"
+      # The platform agent (the service below). Unset, the Agent page says
+      # this deployment doesn't run one.
+      AGENT_URL: http://platform-agent:8100
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # The platform agent: calls the model through LiteLLM (the same three
+  # LITELLM_* settings as the backend's assistant; AGENT_MODEL overrides the
+  # model, and needs one that calls tools well) and acts through the backend's
+  # MCP endpoint as whoever asked. To try it without a real model:
+  #   docker compose --profile fake-model up
+  # and set LITELLM_BASE_URL=http://fake-model:4010 LITELLM_API_KEY=x
+  # AGENT_MODEL=fake -- a scripted stand-in (platform-agent/dev/fake_llm.py).
+  platform-agent:
+    build: ./platform-agent
+    environment:
+      PLATFORM_MCP_URL: http://backend:8000/mcp
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      LITELLM_MODEL: ${LITELLM_MODEL:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+    depends_on:
+      - backend
+
+  fake-model:
+    build: ./platform-agent
+    command: ["uvicorn", "dev.fake_llm:app", "--host", "0.0.0.0", "--port", "4010"]
+    profiles: ["fake-model"]
 
   frontend:
     build: ./frontend

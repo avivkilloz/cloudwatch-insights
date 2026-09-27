@@ -28,7 +28,9 @@ def ensure_admin_exists(db: DbSession) -> None:
         legacy_setting = db.get(models.Setting, LEGACY_DEFAULT_ROLE_NAME_KEY)
         if legacy_setting and legacy_setting.value:
             legacy_role_name = legacy_setting.value
-        admin_group = models.UserGroup(name=ADMIN_GROUP_NAME, is_admin=True, role_name=legacy_role_name)
+        admin_group = models.UserGroup(
+            name=ADMIN_GROUP_NAME, is_admin=True, role_name=legacy_role_name, agent_enabled=True
+        )
         db.add(admin_group)
         db.flush()
 

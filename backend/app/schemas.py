@@ -52,6 +52,7 @@ TAB_FIELDS = [
     "cognito_enabled",
     "tools_enabled",
     "aggregator_enabled",
+    "agent_enabled",
 ]
 
 
@@ -66,6 +67,8 @@ class UserGroupBase(BaseModel):
     cognito_enabled: bool = True
     aggregator_enabled: bool = True
     tools_enabled: bool = True
+    # Off unless asked for: see UserGroup.agent_enabled.
+    agent_enabled: bool = False
 
 
 class UserGroupCreate(UserGroupBase):
@@ -85,6 +88,7 @@ class UserGroupUpdate(BaseModel):
     cognito_enabled: Optional[bool] = None
     aggregator_enabled: Optional[bool] = None
     tools_enabled: Optional[bool] = None
+    agent_enabled: Optional[bool] = None
     environment_ids: Optional[list[int]] = None
 
 
@@ -129,6 +133,7 @@ class UserOut(BaseModel):
     cognito_enabled: bool
     aggregator_enabled: bool
     tools_enabled: bool
+    agent_enabled: bool = False
 
 
 class LoginRequest(BaseModel):

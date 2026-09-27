@@ -2220,3 +2220,203 @@ th {
   font-size: 12.5px;
   font-weight: normal;
 }
+
+/* ---- Platform agent: the conversation (page and dock) ---- */
+
+.agent-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  /* The panel's and the strip's size, not the browser default. */
+  font-size: 14px;
+}
+
+.agent-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.agent-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-question {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.agent-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-step summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 13px;
+  list-style: none;
+}
+
+.agent-step summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-step-mark {
+  width: 14px;
+  text-align: center;
+  flex: none;
+}
+
+.agent-step-ok .agent-step-mark {
+  color: var(--ok);
+}
+
+.agent-step-failed .agent-step-mark {
+  color: var(--error);
+}
+
+.agent-step-running .agent-step-text {
+  color: var(--text);
+}
+
+.agent-step-open {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.agent-step-detail {
+  margin: 4px 0 6px 22px;
+  padding: 8px;
+  max-height: 200px;
+  overflow: auto;
+  background: var(--panel-alt);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-thinking {
+  margin: 0;
+}
+
+.agent-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-compose-input {
+  width: 100%;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.agent-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-follow {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* The page gives the conversation the viewport's height, less the header and
+   strip above it, so the transcript scrolls inside it and the box to type in
+   stays in view. */
+.agent-page-panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 170px);
+  min-height: 320px;
+}
+
+/* Beside the body, and 16px from the window's right and bottom edges as the
+   rail is on the left. The negative margin takes back .shell's gap: .content
+   already keeps its cards 16px clear of its own scrollbar, so with the gap as
+   well the dock sat twice as far from the cards as anything else. */
+.agent-dock {
+  flex: none;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-left: -16px;
+  padding: 0 16px 16px 0;
+}
+
+.agent-dock-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.agent-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.agent-dock-head h2 {
+  margin: 0;
+}
+
+.agent-dock-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* The mark beside a session the agent is changing, in the panel and on the
+   strip. */
+.agent-working {
+  color: var(--accent);
+  font-size: 12px;
+  flex: none;
+  animation: agent-working-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-working-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}

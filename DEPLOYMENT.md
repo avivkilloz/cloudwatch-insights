@@ -269,6 +269,45 @@ To enable the optional AI assistant, add:
 Leaving `backend.ai.baseUrl` unset (the default) means no `LITELLM_*`
 env vars are set on the backend at all, and the feature stays hidden.
 
+### The platform agent (optional)
+
+The agent is a third Deployment (`platform-agent/` in the repo, image
+`ghcr.io/<owner>/cloudwatch-insights-agent`, built by `agent-ci.yml`). The
+browser never talks to it: a chat turn goes to the backend
+(`POST /api/agent/chat`), which checks the user's group, mints a short-lived
+token for that one turn, and relays the turn to the agent inside the cluster.
+The agent calls the model, and acts through the backend's MCP endpoint
+(`/mcp`) with that token -- as the user who asked, with exactly their group's
+environments, pages and IAM role. The token is revoked when the turn ends.
+
+It needs the AI assistant's LiteLLM settings above (it uses the same proxy
+and key), and a model that is good at **tool calling**:
+```bash
+  --set agent.enabled=true \
+  --set agent.image.repository=ghcr.io/<owner>/cloudwatch-insights-agent \
+  --set agent.model=<a tool-calling model behind your LiteLLM>   # else backend.ai.model
+```
+Then, in the app, an admin turns **Platform agent** on for each group that
+should have it (Settings → User groups). It is off for every group except
+Admin until then.
+
+Things worth knowing:
+- The agent pod has no AWS identity (`automountServiceAccountToken: false`,
+  no IRSA): everything it does runs in the backend, with the asking user's
+  role.
+- `/mcp` is on the backend Service but not under `/api`, so the frontend's
+  nginx (and so the ingress) never routes a browser to it. Every call there
+  needs a live per-turn token anyway.
+- Optionally, share a key between the backend and the agent so nothing else
+  in the cluster can call the agent and spend the model's budget: create a
+  Secret with an `AGENT_SERVICE_KEY` and set
+  `agent.serviceKey.existingSecret` to its name.
+- A chat turn is a streamed response like the live-sync stream (below), with
+  a heartbeat every 15 s, so the same buffering and idle-timeout advice
+  applies to `POST /api/agent/chat`.
+- The agent keeps nothing between turns (the browser sends the conversation
+  so far with each one), so `agent.replicaCount` can be anything.
+
 To set the initial admin password explicitly (recommended), add:
 ```bash
   --set backend.auth.existingSecret=cloudwatch-insights-admin

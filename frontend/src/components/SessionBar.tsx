@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext";
-import { useSessions } from "../sessions/SessionContext";
+import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
+import AgentWorking from "./AgentWorking";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -20,6 +21,7 @@ import SessionMenuItems from "./SessionMenuItems";
  */
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
   const { sessions, activeId, view, close, activate, rename, show } = useSessions();
+  const agentActive = useAgentActivity();
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
@@ -55,7 +57,10 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
             <div
               key={s.id}
               data-bar-session-id={s.id}
-              className={`session-tab${view === "session" && activeId === s.id ? " active" : ""}`}
+              className={
+                `session-tab${view === "session" && activeId === s.id ? " active" : ""}` +
+                `${agentActive.has(s.id) ? " agent-active" : ""}`
+              }
             >
               {renaming && current?.id === s.id ? (
                 <input
@@ -80,6 +85,7 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                   {s.title}
                 </button>
               )}
+              {agentActive.has(s.id) && <AgentWorking />}
               {/* Closing lives here, not in the panel: this strip is the tabs in
                   front of you, and a ✕ on a tab is what people reach for. */}
               <button className="session-tab-close" onClick={() => close(s.id)} aria-label={`Close ${s.title}`} title="Close">

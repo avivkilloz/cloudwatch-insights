@@ -1,0 +1,145 @@
+"""/api/agent: who may talk to the agent, and the relay to its container.
+
+The agent itself is stood in for by a small HTTP server that records what it
+was sent and streams back a canned turn -- what's under test is this side:
+the per-turn token (sent to the agent, never to the browser, gone when the
+turn ends however it ends), the events passed through as they are, and a
+readable error when the agent can't be reached."""
+
+import json
+import socket
+import threading
+import time
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+
+from app import models
+from app.db import SessionLocal
+from app.platform_tools import tokens
+from tests.conftest import client
+
+received: list[dict] = []
+stub = FastAPI()
+
+
+@stub.post("/chat")
+async def stub_chat(request: Request):
+    body = await request.json()
+    token = request.headers.get("x-platform-token")
+    db = SessionLocal()
+    try:
+        caller = tokens.resolve(db, token) if token else None
+    finally:
+        db.close()
+    received.append(
+        {
+            "body": body,
+            "authorization": request.headers.get("authorization"),
+            "token_valid": caller is not None,
+            "timezone": caller.timezone if caller else None,
+            "viewing": caller.viewing_session_id if caller else None,
+        }
+    )
+
+    async def stream():
+        yield 'data: {"type": "tool_call", "id": "c1", "name": "get_context", "args": {}}\n\n'
+        yield ": heartbeat\n\n"
+        yield 'data: {"type": "text", "delta": "Hello"}\n\n'
+        yield 'data: {"type": "done"}\n\n'
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+_port = _free_port()
+_server = uvicorn.Server(uvicorn.Config(stub, host="127.0.0.1", port=_port, log_level="warning"))
+threading.Thread(target=_server.run, daemon=True).start()
+while not _server.started:
+    time.sleep(0.05)
+
+
+def _events(text: str) -> list:
+    out = []
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if block.startswith("data: "):
+            out.append(json.loads(block[len("data: ") :]))
+        elif block:
+            out.append(block)
+    return out
+
+
+def _tokens_left() -> int:
+    db = SessionLocal()
+    try:
+        return db.query(models.AgentToken).count()
+    finally:
+        db.close()
+
+
+ASK = {"messages": [{"role": "user", "content": "hi"}], "viewing_session_id": "s-on-screen", "timezone": "Asia/Jerusalem"}
+
+
+def test_status_says_whether_the_agent_runs_and_whether_you_may_use_it(monkeypatch):
+    monkeypatch.delenv("AGENT_URL", raising=False)
+    assert client.get("/api/agent/status").json() == {"available": False, "enabled": True}
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    assert client.get("/api/agent/status").json() == {"available": True, "enabled": True}
+
+
+def test_a_turn_is_relayed_with_a_token_that_is_gone_when_it_ends(monkeypatch):
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    monkeypatch.setenv("AGENT_SERVICE_KEY", "svc-key")
+    received.clear()
+    resp = client.post("/api/agent/chat", json=ASK)
+    assert resp.status_code == 200
+    assert resp.headers["x-accel-buffering"] == "no"
+    events = _events(resp.text)
+    assert events == [
+        {"type": "tool_call", "id": "c1", "name": "get_context", "args": {}},
+        ": heartbeat",
+        {"type": "text", "delta": "Hello"},
+        {"type": "done"},
+    ]
+
+    sent = received[0]
+    # The agent got a live token standing for this user, with where they are...
+    assert sent["token_valid"] and sent["timezone"] == "Asia/Jerusalem" and sent["viewing"] == "s-on-screen"
+    assert sent["authorization"] == "Bearer svc-key"
+    assert sent["body"] == {"messages": [{"role": "user", "content": "hi"}]}
+    # ...which the browser never saw, and which is revoked now the turn is over.
+    assert "token" not in resp.text.lower()
+    assert _tokens_left() == 0
+
+
+def test_an_unreachable_agent_is_a_readable_error_and_still_revokes_the_token(monkeypatch):
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_free_port()}")
+    resp = client.post("/api/agent/chat", json=ASK)
+    assert resp.status_code == 200
+    [event] = _events(resp.text)
+    assert event["type"] == "error" and "couldn't be reached" in event["message"]
+    assert _tokens_left() == 0
+
+
+def test_who_may_ask(monkeypatch):
+    monkeypatch.delenv("AGENT_URL", raising=False)
+    assert client.post("/api/agent/chat", json=ASK).status_code == 503
+
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    assistant_last = {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]}
+    assert client.post("/api/agent/chat", json=assistant_last).status_code == 400
+
+    group = client.post("/api/user-groups", json={"name": "No agent"}).json()
+    client.post("/api/users", json={"username": "carol", "password": "pw-123456", "group_id": group["id"]})
+    client.post("/api/auth/login", json={"username": "carol", "password": "pw-123456"})
+    resp = client.post("/api/agent/chat", json=ASK)
+    assert resp.status_code == 403 and "admin" in resp.json()["detail"]
+    assert client.get("/api/agent/status").json()["enabled"] is False
+    assert _tokens_left() == 0

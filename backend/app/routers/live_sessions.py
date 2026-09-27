@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from .. import auth, models, schemas
 from ..db import get_db
 from ..live_events import listener, notify
+from ..live_store import MAX_STATE_BYTES, commit_write
 
 router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 
@@ -35,11 +36,11 @@ router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 # What that would otherwise cost is paid for in the listing below: a closed
 # session's rows are not sent until it is reopened.
 
-# A hard ceiling on one session's state. The browser already drops a session's
-# results at its own, lower cap and flags it as truncated; this is the backstop
-# for anything that gets past it, so one runaway session can't fill the
-# database. Measured on the JSON as it will be stored.
-MAX_STATE_BYTES = 8 * 1024 * 1024
+# A hard ceiling on one session's state (MAX_STATE_BYTES, in live_store). The
+# browser already drops a session's results at its own, lower cap and flags it
+# as truncated; this is the backstop for anything that gets past it, so one
+# runaway session can't fill the database. Measured on the JSON as it will be
+# stored.
 
 
 def _owned(db: Session, user: models.User, client_id: str, lock: bool = False) -> models.LiveSession:
@@ -225,11 +226,9 @@ def upsert_live_session(
     row.truncated = payload.truncated
     # Writing to a closed session is how a reopened one comes back.
     row.closed_at = None
-    row.version = (row.version or 0) + 1
-    db.flush()
-    notify(db, current_user.id, "upsert", client_id, row.version, origin)
-    db.commit()
-    db.refresh(row)
+    # The same ending as a write made on the server (live_store.py), so the
+    # agent's writes and a browser's are versioned and announced alike.
+    commit_write(db, row, origin)
     return row
 
 

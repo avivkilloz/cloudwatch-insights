@@ -50,6 +50,40 @@ const DASHBOARD_MIN_W = 260;
 const DASHBOARD_MIN_H = 160;
 const DASHBOARD_GAP = 16;
 
+/** Where the platform agent wants a dashboard's panes, in grid terms: rows
+ * top to bottom, each pane a number of columns wide. The agent can't know
+ * this canvas's width in pixels -- only this page can measure it -- so it
+ * leaves this in the session and the page turns it into rects the first time
+ * it is on screen (platform_tools/server.py, `arrange_dashboard`). */
+interface DashboardPlan {
+  id: string;
+  columns: number;
+  rows: { height: number; panes: { pane_id: string; width: number }[] }[];
+}
+
+/** A plan's rects on a canvas `width` wide. The same gap between panes as
+ * everywhere else, so a planned dashboard looks like one arranged by hand. */
+function planRects(plan: DashboardPlan, width: number): Record<string, Rect> {
+  const columns = Math.max(1, plan.columns);
+  const unit = (width - (columns - 1) * DASHBOARD_GAP) / columns;
+  const out: Record<string, Rect> = {};
+  let y = 0;
+  for (const row of plan.rows) {
+    let col = 0;
+    const h = Math.max(DASHBOARD_MIN_H, row.height);
+    for (const cell of row.panes) {
+      const span = Math.min(Math.max(1, cell.width), columns - col);
+      if (span <= 0) break;
+      const x = Math.round(col * (unit + DASHBOARD_GAP));
+      const w = Math.max(DASHBOARD_MIN_W, Math.round(span * unit + (span - 1) * DASHBOARD_GAP));
+      out[cell.pane_id] = { x, y, w: Math.min(w, width - x), h };
+      col += span;
+    }
+    y += h + DASHBOARD_GAP;
+  }
+  return out;
+}
+
 /** Where a pane lands when it has no place of its own yet: the first spot, in
  * reading order (top to bottom, then left to right), where a pane of `size`
  * fits inside the canvas without coming within the standard gap of anything
@@ -319,6 +353,8 @@ export default function AggregatorPage() {
   // layout, but kept regardless of which one is active -- switching to
   // dashboard and back shouldn't forget where things were.
   const [rects, setRects] = useSessionState<Record<ServiceId, Rect>>("dashboardRects", () => ({}));
+  // Left by the platform agent; applied (and cleared) below once measured.
+  const [dashboardPlan, setDashboardPlan] = useSessionState<DashboardPlan | null>("dashboardPlan", null);
 
   // The panes' container, whatever the layout -- measured here rather than
   // looked up with a page-wide selector, because every open session stays
@@ -663,6 +699,17 @@ export default function AggregatorPage() {
       return next;
     });
   }, [layout, canvasW, rects, services, minimized]);
+
+  // The agent's plan becomes this session's rects the first time it can be
+  // measured, and is then gone: from here the panes are the user's to move.
+  // Panes the plan leaves out lose their rects, so they take the first free
+  // places after the planned ones rather than sitting on top of them.
+  useEffect(() => {
+    if (!dashboardPlan || layout !== "dashboard" || canvasW === null) return;
+    const planned = planRects(dashboardPlan, Math.max(DASHBOARD_MIN_W, canvasW));
+    setRects(Object.fromEntries(Object.entries(planned).filter(([id]) => services.includes(id))));
+    setDashboardPlan(null);
+  }, [dashboardPlan, layout, canvasW, services]);
 
   function rectFor(id: ServiceId): Rect {
     return dash.rects[id];
