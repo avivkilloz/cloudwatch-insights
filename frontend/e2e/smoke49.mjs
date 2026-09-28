@@ -116,7 +116,9 @@ const run = async () => {
   check(form.labelLefts.length === 1 && form.valueLefts.length === 1, "…every label in one column and every value in the next",
     JSON.stringify(form));
   check(form.sections === 3, "…in three sections: what it is, what it holds, how it's laid out", String(form.sections));
-  check(form.moveInset.every((d) => d <= 10), "The move button sits in the card's corner", JSON.stringify(form.moveInset));
+  // Inside the header's own padding now, like a pane header's buttons -- not
+  // pinned to the exact corner any more.
+  check(form.moveInset.every((d) => d <= 14), "The move button sits in the card's corner", JSON.stringify(form.moveInset));
   check((await page.locator(`${CARD} .segmented[aria-label="Layout"] button[aria-pressed="true"]`).innerText()) === "Dashboard",
     "The layout is one control, showing the one that's on");
 
