@@ -383,7 +383,7 @@ riding `latest`, so a deploy is always traceable back to a commit.
 Sign in as `admin` (the password is whatever you set via `backend.auth` in
 Helm — see below — or, if you didn't set one, whatever the backend logged on
 first startup; `kubectl logs` the backend pod to find it). Then click your
-account card (foot of the side panel) → **Settings**:
+picture (end of the strip) → **Settings**:
 1. Under **Environments**, add an environment for each account/region
    combination you want to query — a name, the 12-digit account ID, and a
    region.

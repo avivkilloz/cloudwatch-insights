@@ -288,11 +288,13 @@ credentials per service.
 - **One 16px gap everywhere, and the scrollbar at the window's edge.** `.shell`
   pads top and left; `.content` (the scroll box) pads the *right*, inside
   itself, by `16px - --scrollbar-size`, with `scrollbar-gutter: stable`. So
-  the scrollbar sits against the window (or the docked agent panel) *inside*
-  the 16px, every card ends exactly 16px from whatever is beside it, and
-  widths don't jump when a scrollbar appears. The dock cancels `.shell`'s gap
-  (`margin-left: -16px`) for the same reason. Don't move that right padding
-  back onto `.shell` — the scrollbar floats in from the edge.
+  the scrollbar sits against the window *inside* the 16px, every card ends
+  exactly 16px from whatever is beside it, and widths don't jump when a
+  scrollbar appears. The docked agent panel doesn't change that: it is
+  `position: fixed` over the body's right, and `.content` adds its width to
+  that padding (`--dock-width`), so the scrollbar stays at the window's edge
+  with the dock open. Don't move that right padding back onto `.shell` — the
+  scrollbar floats in from the edge.
 - **Scrollbars are styled once, at the end of `styles.css`**: WebKit/Blink
   pseudo-elements at `--scrollbar-size`, and `scrollbar-width: thin` only for
   Firefox. Never set `scrollbar-width` on an element: Chrome then ignores the
@@ -300,22 +302,26 @@ credentials per service.
   scrollbar's look depend on `:hover` either: Chrome doesn't repaint it when
   the hover changes. Headless Chromium hides scrollbars in screenshots
   (`--hide-scrollbars`); launch without it to look at one.
-- **There is no header bar.** The brand (`components/Brand.tsx`) heads the
-  rail, or starts the strip while the rail is hidden; the account menu is a
-  card at the rail column's foot (`UserMenu variant="card"`), or an avatar on
-  the strip. Anything that measured from a 53px header is measured from the
-  window's top now.
-- **A session's description** is the top-level state key `description`
-  (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it, `start()` takes
-  it, PageInfo edits it, and the agent's `_describe_session` reports it.
-- **The Panes card can move into the rail** (`components/railSlot.ts`): a
-  per-browser preference plus the rail's slot element, both small stores.
+- **There is no header bar.** The brand (`components/Brand.tsx`) is the
+  rail's header bar (`.rail-head`, padded like the strip so it's level with
+  the tabs), or starts the strip while the rail is hidden. The account's
+  picture ends the strip, or the docked agent panel's header (a floating one
+  leaves it on the strip). Anything that measured from a 53px header is
+  measured from the window's top now.
+- **A session's card** (`components/SessionCard.tsx`) is its name and
+  description (both edited in place), its adds and its layout; PageInfo is
+  only for non-session pages now. The description is the top-level state key
+  `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
+  `start()` takes it (and a category), and the agent's `_describe_session`
+  reports it.
+- **The session's card can move into the rail** (`components/railSlot.ts`):
+  a per-browser preference plus the rail's slot element, both small stores.
+  It stays where it was put -- in the rail even while the rail is hidden.
   Only the session on screen portals its card there -- every session is
   mounted, and all of them would land in the one slot otherwise.
 - **The rail and the dock resize** from a `ColumnResizer` in the gap beside
-  them (widths per browser in localStorage); the dock's covers only the part
-  of the gap that isn't the body's scrollbar, so the scrollbar stays
-  grabbable, but draws its line in the middle of the whole gap. Neither may
+  them (widths per browser in localStorage), each drawing its line in the
+  middle of the 16px gap. Neither may
   squeeze the body below `BODY_MIN_WIDTH` (App.tsx): each resizer's max is
   what the window leaves, and a stored width is drawn narrower (not
   forgotten) when the window shrinks. A layout inside the body must also fit
