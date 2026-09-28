@@ -2365,20 +2365,40 @@ th {
   gap: 8px;
 }
 
+/* Joined edge to edge, like the session card's own segmented Layout control
+   and the session tabs layout -- one shared button rather than two separate
+   ones with a gap between. */
 .agent-tabs {
   display: flex;
-  gap: 4px;
 }
 
 .agent-tab {
   padding: 4px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
   background: none;
   color: var(--text-dim);
   font-family: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+.agent-tab + .agent-tab {
+  margin-left: -1px;
+}
+
+.agent-tab:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.agent-tab:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+/* Equal specificity to the two rules above -- without this, whichever one
+   comes later in the sheet would win outright and square off the other
+   side, the way a lone session tab once did. */
+.agent-tab:first-child:last-child {
+  border-radius: 6px;
 }
 
 .agent-tab:hover {
@@ -2390,6 +2410,8 @@ th {
   background: var(--accent-dim);
   border-color: var(--accent-dim);
   color: var(--accent-text);
+  /* Its border must win over its neighbour's, whichever side it's joined on. */
+  z-index: 1;
 }
 
 .agent-panel-actions {
