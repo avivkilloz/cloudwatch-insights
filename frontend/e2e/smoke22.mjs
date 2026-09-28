@@ -1,11 +1,8 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 
 const TABLE_ITEMS = [{ id: "1", name: "Alice" }, { id: "2", name: "Bob" }];
 
 async function mock(page) {
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: true } }));
-  await page.route("**/api/ai/assist", (r) =>
-    r.fulfill({ json: { reply: "an answer about your rows", suggested_query: null } }));
   await page.route("**/api/tables/list*", (r) => r.fulfill({ json: { tables: ["DemoTable"] } }));
   await page.route("**/api/tables/describe", (r) =>
     r.fulfill({ json: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } }));
@@ -151,16 +148,6 @@ const VISIBLE = ".session-body:not([hidden])";
   await page.waitForSelector(`${VISIBLE} >> text=partition key: id`);
   await page.click(`${VISIBLE} button:has-text("Scan")`);
   await page.waitForSelector(`${VISIBLE} >> text=2 item(s) loaded`);
-
-  // ...and an assistant conversation about them.
-  await page.click(`${VISIBLE} .panel:has-text("2. Search items") .result-row >> nth=0 >> input[type="checkbox"]`);
-  await page.click(`${VISIBLE} .ai-widget-button`);
-  await page.waitForSelector(`${VISIBLE} .ai-widget-panel`);
-  await page.click(`${VISIBLE} .ai-widget-panel .tab:has-text("About results")`);
-  await page.fill(`${VISIBLE} .ai-widget-textarea`, "what is this row?");
-  await page.click(`${VISIBLE} .ai-widget-panel button:has-text("Ask")`);
-  await page.waitForSelector(`${VISIBLE} .ai-widget-messages >> text=an answer about your rows`);
-  await page.click(`${VISIBLE} .ai-widget-panel button[aria-label="Close"]`);
   await page.screenshot({ path: `${SHOT}/sessions-before-reload.png` });
 
   // Give the debounced write time to land.
@@ -184,14 +171,6 @@ const VISIBLE = ".session-body:not([hidden])";
     "Restored results say when they were fetched rather than posing as current"
   );
 
-  await page.click(`${VISIBLE} .ai-widget-button`);
-  await page.waitForSelector(`${VISIBLE} .ai-widget-panel`);
-  check(
-    (await page.locator(`${VISIBLE} .ai-widget-messages >> text=an answer about your rows`).count()) === 1,
-    "The assistant conversation about those rows came back too"
-  );
-  await page.click(`${VISIBLE} .ai-widget-panel button[aria-label="Close"]`);
-
   await page.click('.rail-row-label:text-is("CloudWatch 2")');
   check(
     (await page.inputValue(`${VISIBLE} textarea`)) === "fields @timestamp | filter two",
@@ -199,10 +178,10 @@ const VISIBLE = ".session-body:not([hidden])";
   );
 
   // ---------- Closing ----------
-  // Closing is the ✕ on that session's tab in the strip; the rail's row count
+  // Closing is "Close" in that session's tab's ⋮ in the strip; the rail's row count
   // also takes in Home, the templates and the catalogue, so wait on the open
   // sessions themselves.
-  await page.click('.session-tab:has(.session-tab-label:text-is("CloudWatch 2")) .session-tab-close');
+  await closeTab(page, "CloudWatch 2");
   await page.waitForFunction(
     () =>
       [...document.querySelectorAll(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed) .rail-row-label")]

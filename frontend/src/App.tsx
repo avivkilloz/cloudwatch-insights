@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
 import { AgentProvider, useAgent } from "./agent/AgentContext";
-import AgentDock from "./components/AgentDock";
+import AgentDock, { DOCK_WIDTH } from "./components/AgentDock";
+import AgentFloat from "./components/AgentFloat";
+import ColumnResizer, { storedWidth, storeWidth } from "./components/ColumnResizer";
 import AgentPage from "./pages/AgentPage";
 import AggregatorPage from "./pages/AggregatorPage";
 import HomePage from "./pages/HomePage";
@@ -13,8 +15,12 @@ import PageInfo from "./components/PageInfo";
 import SessionBar from "./components/SessionBar";
 import Sidebar from "./components/Sidebar";
 
-/** Whether the left rail is showing. A per-browser preference, not workspace state. */
+/** Whether the left rail is showing, and how wide it and the agent's dock are.
+ * Per-browser preferences, not workspace state. */
 const RAIL_STORAGE_KEY = "cwi-rail";
+const RAIL_WIDTH_KEY = "cwi-rail-width";
+const DOCK_WIDTH_KEY = "cwi-agent-width";
+const RAIL_WIDTH = { initial: 212, min: 160, max: 420 };
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
 import { TemplatesProvider } from "./sessions/templates";
@@ -105,18 +111,27 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     await logout();
   }
 
-  // A question typed in the header goes to the agent's one conversation, and
-  // opens it beside whatever is on screen rather than taking you away from
-  // it: what the agent does lands in sessions, and this is how you watch it.
+  // A question typed in the header goes to the agent's global conversation,
+  // and opens the agent panel beside (or over) whatever is on screen rather
+  // than taking you away from it: what the agent does lands in sessions, and
+  // this is how you watch it.
   const agent = useAgent();
 
   function askAgent() {
     const text = prompt.trim();
     if (!text || agent.running) return;
     setPrompt("");
-    agent.ask(text);
-    if (view !== "agent") agent.setDockOpen(true);
+    agent.setTab("global");
+    agent.ask(text, "global");
+    agent.setOpen(true);
   }
+
+  const [railWidth, setRailWidth] = useState(() =>
+    storedWidth(RAIL_WIDTH_KEY, RAIL_WIDTH.initial, RAIL_WIDTH.min, RAIL_WIDTH.max),
+  );
+  const [dockWidth, setDockWidth] = useState(() =>
+    storedWidth(DOCK_WIDTH_KEY, DOCK_WIDTH.initial, DOCK_WIDTH.min, DOCK_WIDTH.max),
+  );
 
   // Remembered per browser: collapsing the rail is a working preference, not
   // workspace data, so it never goes near the session store.
@@ -174,9 +189,18 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             panel's own rows stay put instead of shifting down whenever a
             description is longer. */}
         {railOpen && (
-          <div className="rail-column">
+          <div className="rail-column" style={{ width: railWidth }}>
             <Sidebar open={railOpen} />
             <PageInfo />
+            <ColumnResizer
+              className="rail-resizer"
+              label="Resize the side panel"
+              width={railWidth}
+              {...RAIL_WIDTH}
+              grow={1}
+              onResize={setRailWidth}
+              onCommit={(w) => storeWidth(RAIL_WIDTH_KEY, w)}
+            />
           </div>
         )}
 
@@ -212,10 +236,14 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
           />
           ))}
         </main>
-        {/* Beside the body rather than over it, so nothing it's showing you
-            is hidden behind it -- a dashboard re-measures its canvas and
-            fits. Not on the Agent page, which is the same conversation. */}
-        {agent.dockOpen && view !== "agent" && <AgentDock />}
+        {/* Docked: beside the body rather than over it, so nothing it's
+            showing you is hidden behind it -- a dashboard re-measures its
+            canvas and fits. Floating: a corner button and a panel over the
+            page. Neither on the Agent page, which is the global chat already. */}
+        {agent.layout === "dock" && agent.open && view !== "agent" && (
+          <AgentDock width={dockWidth} onResize={setDockWidth} onCommit={(w) => storeWidth(DOCK_WIDTH_KEY, w)} />
+        )}
+        {agent.layout === "float" && view !== "agent" && <AgentFloat />}
       </div>
     </div>
   );

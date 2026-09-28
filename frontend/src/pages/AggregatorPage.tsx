@@ -10,19 +10,12 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { api, SavedSession } from "../api";
-import { SessionKeyScope, useDropSessionKeys, useSessionState } from "../sessions/SessionContext";
+import { SessionKeyScope, useDropSessionKeys, useSessionScope, useSessionState } from "../sessions/SessionContext";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
-import AiAssistantWidget from "../components/AiAssistantWidget";
-import {
-  AiPane,
-  AiPaneRegistryContext,
-  AiPaneSummary,
-  DOMAIN_LABELS,
-  sameSummaries,
-  summarizePane,
-} from "../components/aiPanes";
+import { DOMAIN_LABELS, PaneSelection, PaneSelectionContext } from "../components/paneSelection";
+import { publishSelection } from "../agent/selection";
 import { PANE_TYPES } from "../sessions/paneTypes";
 
 type ServiceId = string;
@@ -312,25 +305,23 @@ function PaneRenameBox({ initial, onDone }: { initial: string; onDone: (name: st
   );
 }
 
-/** Tells the shared assistant which pane a page's registration came from, by
- * name: the page inside only knows its domain, and two CloudWatch panes would
- * otherwise both read "Logs (CloudWatch)" in its "Build for" list. The label
- * is read through a ref so a rename reaches the next registration (panes
- * re-register every render) without handing the page a new registry.
- * Undefined leaves the registration unnamed (see `aiLabel`). */
-function PaneAiScope({ label, children }: { label: string | undefined; children: ReactNode }) {
-  const parent = useContext(AiPaneRegistryContext);
+/** Stamps a page's selection with the pane it came from, by name: the page
+ * inside only knows its kind, and two CloudWatch panes would otherwise both
+ * read "Logs (CloudWatch)" when the agent is handed their rows. Read through a
+ * ref so a rename reaches the next registration without a new registry. */
+function PaneSelectionScope({ label, children }: { label: string; children: ReactNode }) {
+  const parent = useContext(PaneSelectionContext);
   const labelRef = useRef(label);
   labelRef.current = label;
   const scoped = useMemo(
     () =>
       parent && {
-        register: (pane: AiPane) => parent.register({ ...pane, label: labelRef.current }),
+        register: (pane: PaneSelection) => parent.register({ ...pane, label: labelRef.current }),
         unregister: parent.unregister,
       },
     [parent],
   );
-  return <AiPaneRegistryContext.Provider value={scoped}>{children}</AiPaneRegistryContext.Provider>;
+  return <PaneSelectionContext.Provider value={scoped}>{children}</PaneSelectionContext.Provider>;
 }
 
 export default function AggregatorPage() {
@@ -377,33 +368,51 @@ export default function AggregatorPage() {
     return () => observer.disconnect();
   }, []);
 
-  // Panes register their full context (including the row arrays) here on every
-  // render. Keeping it in a ref means that churn never re-renders this page;
-  // `summaries` below holds only the small comparable slice the UI needs.
-  const panesRef = useRef(new Map<string, AiPane>());
-  const [summaries, setSummaries] = useState<AiPaneSummary[]>([]);
-  const [target, setTarget] = useState<string | null>(null);
+  // Panes register what they have checked (the row arrays included) on every
+  // render. Kept in a ref so that churn never re-renders this page; what the
+  // agent panel shows is published below only when the counts or versions
+  // actually change.
+  const scope = useSessionScope();
+  const panesRef = useRef(new Map<string, PaneSelection>());
+  const publishedRef = useRef("");
+
+  const publish = useCallback(() => {
+    if (!scope) return;
+    const panes = Array.from(panesRef.current.values()).filter((p) => p.selectedRows.length > 0);
+    const key = panes.map((p) => `${p.id}:${p.label}:${p.selectedRows.length}:${p.selectionVersion}`).join("|");
+    if (key === publishedRef.current) return;
+    publishedRef.current = key;
+    publishSelection(scope.id, {
+      summaries: panes.map((p) => ({ pane: p.label ?? DOMAIN_LABELS[p.domain], count: p.selectedRows.length })),
+      // Read when a message is sent, not now: the rows are the pane's latest.
+      rows: () => {
+        const out: Record<string, unknown>[] = [];
+        for (const p of panesRef.current.values()) {
+          const tag = { service: DOMAIN_LABELS[p.domain], pane: p.label };
+          for (const row of p.selectedRows) out.push({ ...tag, ...row });
+        }
+        return out;
+      },
+    });
+  }, [scope]);
 
   useEffect(() => {
-  }, []);
-
-  const syncSummaries = useCallback(() => {
-    const next = Array.from(panesRef.current.values()).map(summarizePane);
-    setSummaries((prev) => (sameSummaries(prev, next) ? prev : next));
-  }, []);
+    if (!scope) return;
+    return () => publishSelection(scope.id, null);
+  }, [scope]);
 
   const registry = useMemo(
     () => ({
-      register(pane: AiPane) {
+      register(pane: PaneSelection) {
         panesRef.current.set(pane.id, pane);
-        syncSummaries();
+        publish();
       },
       unregister(id: string) {
         panesRef.current.delete(id);
-        syncSummaries();
+        publish();
       },
     }),
-    [syncSummaries],
+    [publish],
   );
 
   // Reordering by dragging is built on pointer events rather than HTML5
@@ -1083,42 +1092,6 @@ export default function AggregatorPage() {
   // `dashboardMaxWidth`).
   const dashboardExtentH = Object.values(dash.rects).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
 
-  /** What the shared assistant calls a pane: its name only when the name says
-   * something the domain doesn't -- there's another pane of its kind, or it
-   * was renamed. Otherwise nothing, and the assistant keeps the domain's own
-   * label, which is the more specific one ("IoT things" rather than "IoT"). */
-  function aiLabel(pane: (typeof open)[number]): string | undefined {
-    const kindLabel = SERVICES.find((x) => x.id === pane.type)?.label;
-    const several = open.filter((o) => o.type === pane.type).length > 1;
-    return several || pane.label !== kindLabel ? pane.label : undefined;
-  }
-
-  // Rows from every open pane, each tagged with the service it came from so
-  // the assistant can tell a log line from a Cognito user once they're pooled
-  // -- and, when the pane has a name worth giving (see `aiLabel`), which pane.
-  function taggedSelection(): Record<string, unknown>[] {
-    const out: Record<string, unknown>[] = [];
-    for (const pane of panesRef.current.values()) {
-      const tag: Record<string, unknown> = { service: DOMAIN_LABELS[pane.domain] };
-      if (pane.label) tag.pane = pane.label;
-      for (const row of pane.selectedRows) out.push({ ...tag, ...row });
-    }
-    return out;
-  }
-
-  // Which pane the assistant's "Build for" is aimed at. In tabs there is only
-  // one pane on screen, so that is the obvious default; in the other layouts,
-  // where they are all visible, the first is as good a guess as any.
-  const activeSummary =
-    summaries.find((s) => s.id === target) ??
-    (layout === "tabs" ? summaries.find((s) => s.id === shownPane?.id) : undefined) ??
-    summaries[0];
-  const activePane = activeSummary ? panesRef.current.get(activeSummary.id) : undefined;
-  const totalSelected = summaries.reduce((n, s) => n + s.selectedCount, 0);
-  const contributing = summaries.filter((s) => s.selectedCount > 0);
-  // Any pane re-running its search changes the pooled result set, so the
-  // "About results" thread should start over.
-  const combinedVersion = summaries.reduce((n, s) => n + s.resultsVersion, 0);
 
   return (
     <>
@@ -1182,13 +1155,10 @@ export default function AggregatorPage() {
         </div>
       )}
 
-      {/* Only the panes go inside the provider. The shared widget below must
-          stay outside it, or it would register itself as a pane and render
-          nothing -- leaving the page with no assistant at all. */}
       {/* Minimising only hides a pane's body -- it stays mounted in both
           layouts, so its results and any in-flight search survive, which is the
           whole point of working across services at once. */}
-      <AiPaneRegistryContext.Provider value={registry}>
+      <PaneSelectionContext.Provider value={registry}>
         {/* One tab per pane. Only in this layout: the others show everything at
             once, so there is nothing to choose between. */}
         {layout === "tabs" && open.length > 0 && (
@@ -1396,15 +1366,15 @@ export default function AggregatorPage() {
                   {/* Panes are whole pages, so their state keys have to be
                       kept apart within this one session -- by pane id, not
                       type, since two panes can be the same kind. */}
-                  <PaneAiScope label={aiLabel(s)}>
+                  <PaneSelectionScope label={s.label}>
                     <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
-                  </PaneAiScope>
+                  </PaneSelectionScope>
                 </div>
                 {/* Resize only makes sense once a pane has its own width and
                     height rather than one dictated by the flow layout, and only
                     while it's showing a body to resize. A handle on every
                     corner and every edge: corners so a pane sitting where the
-                    floating ✦ Ask AI button covers one corner still has three
+                    floating ✦ Agent button covers one corner still has three
                     others to grab, edges so growing just the width or just
                     the height doesn't need lining up on a corner first. */}
                 {dashboard &&
@@ -1436,52 +1406,7 @@ export default function AggregatorPage() {
             />
           )}
         </div>
-      </AiPaneRegistryContext.Provider>
-
-      {/* Registered panes, not open ones. A pane registers itself when it has
-          something to ask about -- a query to build, or rows to ask about. A
-          session holding only a JWT decoder has neither, and an ✦ Ask AI button
-          that can do nothing is worse than no button. */}
-      {summaries.length > 0 && (
-        <AiAssistantWidget
-          domain={activePane?.domain ?? "logs-cloudwatch"}
-          askDomain="aggregator"
-          modes={activePane?.modes ?? ["ask_results"]}
-          queryString={activePane?.queryString}
-          onUseQuery={activePane?.onUseQuery}
-          selectedRows={taggedSelection()}
-          resultsVersion={combinedVersion}
-          headerExtra={(mode) =>
-            // "Build for" picks the one service a generated query is written
-            // for, so it only belongs in that mode -- "About results" pools
-            // every open service at once and has nothing to target.
-            mode === "build_query" ? (
-              summaries.length > 1 && (
-                <div className="ai-widget-header" style={{ borderBottom: "none", paddingBottom: 0 }}>
-                  <label className="row" style={{ gap: 6, fontSize: 11 }}>
-                    <span className="muted">Build for</span>
-                    <select
-                      value={activeSummary?.id ?? ""}
-                      onChange={(e) => setTarget(e.target.value)}
-                      style={{ fontSize: 11, padding: "2px 6px" }}
-                    >
-                      {summaries.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.label ?? DOMAIN_LABELS[s.domain]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )
-            ) : contributing.length > 0 ? (
-              <p className="muted" style={{ padding: "4px 12px 0", fontSize: 11 }}>
-                Across {contributing.map((s) => s.label ?? DOMAIN_LABELS[s.domain]).join(", ")}.
-              </p>
-            ) : null
-          }
-        />
-      )}
+      </PaneSelectionContext.Provider>
     </>
   );
 }

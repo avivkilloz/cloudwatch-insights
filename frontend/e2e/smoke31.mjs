@@ -1,6 +1,6 @@
 // One Sessions list holding open and closed alike, templates under Add, the
 // strip as wide as the cards, and a Home icon that does not move.
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
@@ -96,7 +96,7 @@ const TPL = `Template under Add ${Date.now()}`;
   check((await page.locator(".rail-heading:text-is('Recently closed')").count()) === 0,
     "There is no separate Recently closed list");
 
-  await page.click(`${TAB("Base64")} .session-tab-close`);
+  await closeTab(page, "Base64");
   await page.waitForTimeout(600);
   check((await page.locator(TAB("Base64")).count()) === 0, "Closing takes the tab off the strip");
   check((await page.locator(CLOSED("Base64")).count()) === 1, "…but the session stays in the panel, dimmed");
@@ -117,7 +117,7 @@ const TPL = `Template under Add ${Date.now()}`;
   check((await page.locator(CLOSED("Base64")).count()) === 0, "…and it is no longer dimmed");
 
   // ---------- the closed listing carries no rows ----------
-  await page.click(`${TAB("Base64")} .session-tab-close`);
+  await closeTab(page, "Base64");
   // Longer than the sync debounce: closing is queued behind any flush already
   // running, so give that chain time to drain before reading the server.
   await page.waitForTimeout(2200);

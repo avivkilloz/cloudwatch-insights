@@ -8,7 +8,7 @@
 // value that changed under it. That's what the platform agent will need --
 // it writes on the server, never in a browser -- so the "agent" step below
 // does exactly that: a PUT from outside any page, and every open pane follows.
-import { CLOSED_ROW, ROW, SHOT, SHOWN, check, clearWorkspace, launch, newSession, openApp, report } from "./harness.mjs";
+import { CLOSED_ROW, ROW, SHOT, SHOWN, check, clearWorkspace, closeTab, launch, newSession, openApp, report } from "./harness.mjs";
 
 const CW = `${SHOWN} [data-pane-id="logs-cloudwatch"] textarea`;
 const B64 = `${SHOWN} [data-pane-id="tool-base64"] textarea`;
@@ -98,7 +98,7 @@ const run = async () => {
   check(stale === 409, "A write made from a stale version is refused (409), not applied over newer work", stale);
 
   // ---------- 5. a close in B takes it off A's strip ----------
-  await b.click(`.session-tab:has-text("CloudWatch +1") .session-tab-close`);
+  await closeTab(b, "CloudWatch +1");
   let gone = false;
   for (let i = 0; i < 50 && !gone; i++) {
     gone = (await a.locator(`.session-tab:has-text("CloudWatch +1")`).count()) === 0;

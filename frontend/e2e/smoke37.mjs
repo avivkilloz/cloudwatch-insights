@@ -1,7 +1,7 @@
 // Closing a session used to eject it from its category into one flat list at
 // the bottom of the rail. It now stays put, dimmed, so closing a session
 // doesn't also un-group it.
-import { SHOT, check, clearWorkspace, launch, newSession, openApp, report, ROW, CLOSED_ROW, TAB } from "./harness.mjs";
+import { SHOT, check, clearWorkspace, closeTab, launch, newSession, openApp, report, ROW, CLOSED_ROW, TAB } from "./harness.mjs";
 
 const CATEGORY_LABEL = (name) => `.rail-category-label:text-is("${name}")`;
 const CATEGORY = (name) => `.rail-category:has(${CATEGORY_LABEL(name)})`;
@@ -40,7 +40,7 @@ const run = async () => {
   check(inCategory === 1, "Dragging a session onto a category puts it inside", inCategory);
 
   // Close it -- still categorized -- and it should stay in the category, dimmed.
-  await page.click(`${TAB("CloudWatch")} .session-tab-close`);
+  await closeTab(page, "CloudWatch");
   await page.waitForTimeout(2200);
   await page.screenshot({ path: `${SHOT}/37-closed-in-category.png` });
 
@@ -67,7 +67,7 @@ const run = async () => {
   check(reopened === 1, "Clicking a closed session inside its category reopens it there");
 
   // An uncategorized session closes the same way, at the top level.
-  await page.click(`${TAB("Base64")} .session-tab-close`);
+  await closeTab(page, "Base64");
   await page.waitForTimeout(2200);
   const uncategorizedClosed = await page.locator(`.rail > ${CLOSED_ROW} .rail-row-label:text-is("Base64")`).count();
   check(uncategorizedClosed === 1, "An uncategorized closed session still shows at the top level, dimmed", uncategorizedClosed);

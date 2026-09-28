@@ -14,6 +14,10 @@ Scripts (the user's message decides):
 - "dashboard"      -- a new session of three panes, arranged as a dashboard.
 - "here"           -- a Diff pane added to the session the user is looking at.
 - "break"          -- a tool call that fails, and the model saying so.
+- "rows"           -- (a session's chat) says how many checked rows came
+                      attached to the question, and from which panes.
+- "query <text>"   -- (a session's chat) writes <text> as the query of the
+                      session's first pane that takes one.
 - anything else    -- a short reply, no tools.
 
 FAKE_LLM_STEP_DELAY (seconds, default 0) pauses before each reply, so a test
@@ -23,6 +27,7 @@ can watch a turn happen rather than only see its end.
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, Optional
@@ -33,6 +38,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 app = FastAPI(title="Fake model")
 
 STEP_DELAY = float(os.environ.get("FAKE_LLM_STEP_DELAY", "0"))
+
+# The last few requests, newest last, for tests to read what the agent sent.
+REQUESTS: list[dict] = []
 
 
 def _turn(messages: list[dict]) -> tuple[str, list[tuple[str, Any]]]:
@@ -116,11 +124,34 @@ def _next(text: str, results: list[tuple[str, Any]]) -> dict:
                 inputs={"left": "one\ntwo", "right": "one\nthree"},
             )
         return _say(f"Added a Diff pane to {viewing['title']} and filled both sides in.")
+    if lowered.startswith("rows"):
+        attached = re.search(r"Checked rows attached \((\d+), from ([^)]*)\)", text)
+        if not attached:
+            return _say("No rows came with that question.")
+        return _say(f"You attached {attached.group(1)} rows, from {attached.group(2)}.")
+    if lowered.startswith("query "):
+        wanted = text[len("query ") :].split("\n", 1)[0]
+        if step == 0:
+            return _call("get_context")
+        viewing = results[0][1].get("viewing_session") if isinstance(results[0][1], dict) else None
+        if not viewing:
+            return _say("You aren't looking at a session, so there's no pane to write it into.")
+        takes_query = [p for p in viewing["panes"] if p["kind"] in ("logs-cloudwatch", "logs-opensearch", "iot", "tables", "cognito")]
+        if not takes_query:
+            return _say("This session has no pane that takes a query.")
+        if step == 1:
+            return _call(
+                "set_pane_inputs",
+                session_id=viewing["session_id"],
+                pane_id=takes_query[0]["pane_id"],
+                inputs={"queryString": wanted},
+            )
+        return _say(f"Wrote the query into {takes_query[0]['title']}.")
     if lowered.startswith("break"):
         if step == 0:
             return _call("run_pane", session_id="no-such-session", pane_id="nope")
         return _say(f"That didn't work: {results[0][1]}")
-    return _say("I'm the development stand-in model. Try: encode <text>, dashboard, here, or break.")
+    return _say("I'm the development stand-in model. Try: encode <text>, dashboard, here, break, rows, or query <text>.")
 
 
 def _chunk(model: str, delta: dict, finish: Optional[str] = None) -> str:
@@ -138,6 +169,8 @@ def _chunk(model: str, delta: dict, finish: Optional[str] = None) -> str:
 @app.post("/v1/chat/completions")
 async def completions(request: Request):
     body = await request.json()
+    REQUESTS.append(body)
+    del REQUESTS[:-20]
     model = body.get("model", "fake")
     text, results = _turn(body.get("messages") or [])
     step = _next(text, results)

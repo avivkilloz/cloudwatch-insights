@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
@@ -94,10 +94,10 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
     "It still offers Save as template");
   await page.keyboard.press("Escape");
   check((await page.locator(".rail-row-menu").count()) === 0, "…and Escape leaves no menu behind");
-  // Closing is the tab's ✕ now, not an item in this menu.
-  await page.click('.session-tab:has(.session-tab-label:text-is("CloudWatch")) .session-tab-close');
+  // Closing is in the tab's own ⋮ in the strip, not an item in the panel's menu.
+  await closeTab(page, "CloudWatch");
   await page.waitForTimeout(300);
-  check((await page.locator(ROW("CloudWatch")).count()) === 0, "…and the tab's ✕ still closes the session");
+  check((await page.locator(ROW("CloudWatch")).count()) === 0, "…and the tab's own ⋮ still closes the session");
 
   // A narrow rail is exactly the case that was broken: the menu is wider than
   // the rail and simply overhangs it now.

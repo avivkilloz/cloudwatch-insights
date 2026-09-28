@@ -26,7 +26,7 @@ export interface RowSelection<T> {
   allSelected: (displayed: T[]) => boolean;
   hideSelected: () => void;
   showAllHidden: () => void;
-  /** The selected rows as plain objects -- what export and the AI assistant consume. */
+  /** The selected rows as plain objects -- what export and the agent (attached to a question) consume. */
   selectedObjects: Record<string, unknown>[];
 }
 

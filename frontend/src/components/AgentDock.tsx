@@ -1,30 +1,35 @@
-import { useAgent } from "../agent/AgentContext";
-import { useSessions } from "../sessions/SessionContext";
-import AgentChat from "./AgentChat";
+import AgentPanel from "./AgentPanel";
+import ColumnResizer from "./ColumnResizer";
+
+export const DOCK_WIDTH = { initial: 380, min: 300, max: 720 };
 
 /**
- * The conversation with the agent, docked beside whatever is on screen --
- * which is how you watch it work: ask from the header, and the session it
- * opens or fills in is right there next to what it's saying about it.
+ * The agent panel docked beside the body -- how you watch it work: the
+ * session it opens or fills in is right there next to what it's saying about
+ * it. Its left edge drags to resize it.
  */
-export default function AgentDock() {
-  const { setDockOpen } = useAgent();
-  const { show } = useSessions();
+export default function AgentDock({
+  width,
+  onResize,
+  onCommit,
+}: {
+  width: number;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) {
   return (
-    <aside className="agent-dock" aria-label="Agent">
+    <aside className="agent-dock" aria-label="Agent" style={{ width }}>
+      <ColumnResizer
+        className="agent-dock-resizer"
+        label="Resize the agent panel"
+        width={width}
+        {...DOCK_WIDTH}
+        grow={-1}
+        onResize={onResize}
+        onCommit={onCommit}
+      />
       <div className="panel agent-dock-panel">
-        <div className="agent-dock-head">
-          <h2>Agent</h2>
-          <div className="agent-dock-actions">
-            <button className="secondary" onClick={() => show("agent")} title="Open the conversation as a page">
-              Full page
-            </button>
-            <button className="secondary" onClick={() => setDockOpen(false)} aria-label="Close the agent" title="Close">
-              ✕
-            </button>
-          </div>
-        </div>
-        <AgentChat />
+        <AgentPanel />
       </div>
     </aside>
   );

@@ -1,10 +1,9 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
 import fs from "fs";
 
 const SCRATCH = `${SHOT}/downloads`;
 fs.mkdirSync(SCRATCH, { recursive: true });
 
-const assistCalls = [];
 let thingDetailCalls = [];
 let certDetailCalls = [];
 
@@ -24,11 +23,8 @@ async function downloadJson(page, exportSelector) {
  * first, so exactly one page is mounted and the unscoped selectors below still
  * address the one on screen -- every open session stays mounted otherwise. */
 async function openSession(page, label) {
-  // Closing is the ✕ on the tab in the strip above the body.
-  while ((await page.locator(".session-tab-close").count()) > 0) {
-    await page.locator(".session-tab-close").first().click();
-    await page.waitForTimeout(120);
-  }
+  // Closing is the "Close" in each tab's ⋮, in the strip above the body.
+  await closeAllTabs(page);
   await newSession(page, label);
 }
 
@@ -39,12 +35,6 @@ async function openSession(page, label) {
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
   page.on("console", (m) => {
     if (m.type() === "error" && !m.text().includes("401")) console.log("CONSOLE ERROR:", m.text());
-  });
-
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: true } }));
-  await page.route("**/api/ai/assist", (r) => {
-    assistCalls.push(JSON.parse(r.request().postData() || "{}"));
-    r.fulfill({ json: { reply: "ok", suggested_query: null } });
   });
 
   await page.route("**/api/iot/search", (r) =>
@@ -230,23 +220,6 @@ async function openSession(page, label) {
     "Things: export now carries shadows, certificates, jobs, arn and version",
     JSON.stringify(alpha)
   );
-
-  // The AI assistant sees the same enriched rows.
-  await page.click(".ai-widget-button");
-  await page.waitForSelector(".ai-widget-panel");
-  await page.click('.ai-widget-panel .tab:has-text("About results")');
-  const before = assistCalls.length;
-  await page.fill(".ai-widget-textarea", "what firmware are these on?");
-  await page.click('.ai-widget-panel button:has-text("Ask")');
-  for (let i = 0; i < 50 && assistCalls.length === before; i++) await page.waitForTimeout(100);
-  const sent = assistCalls[assistCalls.length - 1];
-  const sentAlpha = (sent?.sample_rows ?? []).find((r) => r.thing_name === "thing-alpha");
-  check(
-    sent?.sample_rows?.length === 2 && sentAlpha?.shadows?.[0]?.reported?.firmware === "1.2.11",
-    "Things: the AI assistant receives the enriched rows too",
-    JSON.stringify(sentAlpha)
-  );
-  await page.click('.ai-widget-panel button[aria-label="Close"]');
 
   // Checking a third row pulls only that row's detail.
   await page.click(`${panel} .result-row >> nth=2 >> input[type="checkbox"]`);

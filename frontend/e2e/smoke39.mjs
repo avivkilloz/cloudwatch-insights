@@ -1,5 +1,5 @@
 // Three follow-ups on the dashboard layout: a pane can be resized from any
-// corner, not just bottom-right (which the floating Ask AI button can
+// corner, not just bottom-right (which the floating ✦ Agent button can
 // cover); dragging a pane toward the bottom edge of the canvas scrolls it
 // into view; and moving/resizing keeps at least the standard gap between
 // panes -- shown while dragging as a dashed "cut lines" outline at the spot

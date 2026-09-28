@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closePane, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, closePane, launch, newSession, report } from "./harness.mjs";
 
 // How many distinct rows the panes occupy, and whether anything overflows the
 // viewport horizontally -- the actual complaint being fixed.
@@ -24,11 +24,8 @@ async function layoutInfo(page) {
  * first, so exactly one page is mounted and the unscoped selectors below still
  * address the one on screen -- every open session stays mounted otherwise. */
 async function openSession(page, label) {
-  // Closing is the ✕ on the tab in the strip above the body.
-  while ((await page.locator(".session-tab-close").count()) > 0) {
-    await page.locator(".session-tab-close").first().click();
-    await page.waitForTimeout(120);
-  }
+  // Closing is the "Close" in each tab's ⋮, in the strip above the body.
+  await closeAllTabs(page);
   await newSession(page, label);
 }
 
@@ -51,7 +48,6 @@ async function newPanedSession(page) {
     if (m.type() === "error" && !m.text().includes("401")) console.log("CONSOLE ERROR:", m.text());
   });
 
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: true } }));
   // The rail's catalogue folds shut by default now (smoke28 covers that);
   // these suites are about what it offers, so open it before the first paint.
   await page.addInitScript(() => {
@@ -205,16 +201,11 @@ async function newPanedSession(page) {
     "Stacked: the other panes are still fully mounted"
   );
 
-  // The assistant still sees a minimised pane -- it's hidden, not unmounted.
-  await page.click(".ai-widget-button");
-  await page.waitForSelector(".ai-widget-panel");
-  // The "Build for" picker -- which lists the panes -- lives in that mode only.
-  await page.click('.ai-widget-panel .tab:has-text("Build query")');
-  const targets = await page.locator(".ai-widget-panel select option").allTextContents();
+  // A minimised pane is hidden, not unmounted: its page is still in the DOM,
+  // so whatever it had running or loaded is there when it is expanded again.
   check(
-    targets.some((t) => t.includes("IoT")),
-    "A minimised pane is still an assistant target (hidden, not unmounted)",
-    JSON.stringify(targets)
+    (await page.locator(`${iotPane} h2:text-is("1. Choose environments")`).count()) === 1,
+    "A minimised pane stays mounted (hidden, not unmounted)"
   );
 
   await browser.close();

@@ -35,7 +35,7 @@ export function usePageInfo(): { title: string; help: string } | null {
     help:
       labels.length === 0
         ? "An empty session. Add a service or tool from the Panes card to put something in it."
-        : `${labels.join(", ")} in one session, with one assistant across all of them.`,
+        : `${labels.join(", ")} in one session. Ask the agent about any of it in its Session tab.`,
   };
 }
 

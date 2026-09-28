@@ -8,8 +8,8 @@ read the section you need rather than the whole file), and deployment in
 ## What this is
 
 An extensible platform whose unit of work is the **session**: a named workspace
-holding whatever you need side by side, with one assistant that sees across all
-of it. Today a session holds panes onto AWS services (CloudWatch Logs Insights,
+holding whatever you need side by side, with an agent that works across all of
+it. Today a session holds panes onto AWS services (CloudWatch Logs Insights,
 OpenSearch, IoT Core, DynamoDB, S3, Cognito) and self-contained tools (HTTP
 client, MQTT tester, JWT, Base64, diff), across several accounts and regions
 behind one login.
@@ -55,7 +55,6 @@ backend/app/
   resolve.py         which IAM role a request assumes (group.role_name)
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
-  ai_assistant.py    LiteLLM REST call + prompt building
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
   platform_tools/    what the platform agent can do, over MCP at /mcp (see below)
@@ -70,7 +69,8 @@ frontend/src/
   api.ts             the only place that talks to the backend; types + methods
   AuthContext.tsx    current user; every page gates its own features on it
   sessions/          the session model (see below)
-  agent/             AgentContext: the one conversation with the agent (page + dock)
+  agent/             AgentContext (the Global and per-session conversations, panel
+                     layout), selection.ts (each session's checked rows, for attaching)
   pages/             one file per pane or page + pageTypes.tsx (non-session pages)
   components/        shared UI; components/tools/ holds the self-contained tools
   styles.css         all styling, theme tokens at the top
@@ -173,6 +173,19 @@ cookie and the browser never sees the token; keep it that way.
 - The agent can't know a dashboard's pixel width, so `arrange_dashboard`
   leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
   first time it measures the canvas, then clears it.
+- **Two conversations.** *Global* (the header's input, the Agent page) is
+  about the platform and lives in memory. *Session* is one per session,
+  stored in that session's state under `agentChat` (so it syncs and survives
+  a reload; it's an output key, so templates leave it out). A session turn
+  is sent with `scope: "session"`; the backend checks the session is the
+  user's and the agent adds a prompt keeping it to that session.
+- **Checked rows reach the agent** the way they reached the retired ✦
+  assistant: each pane renders `PaneSelectionShare` with its selected rows,
+  its Aggregator pools them per session and publishes them to
+  `agent/selection.ts`, and the Session tab attaches them to the question
+  (as a JSON block after it, capped to fit the backend's 60k-character
+  message limit). The assistant itself (`/api/ai`, `ai_assistant.py`, the
+  floating widget) is gone; `backend.ai` in Helm is now only the agent's.
 - MQTT and JWT aren't agent-drivable on purpose: their state is browser-only
   (a live connection; a pasted credential). Anything with side effects
   outside the platform (sending HTTP, publishing) isn't a tool until the
@@ -271,10 +284,19 @@ credentials per service.
   unique full rule.
 - **One 16px gap everywhere, and the scrollbar at the window's edge.** `.shell`
   pads top and left; `.content` (the scroll box) pads the *right*, inside
-  itself, with `scrollbar-gutter: stable` and `scrollbar-width: thin`. That
-  puts the scrollbar against the window and every card 16px clear of it, and
-  keeps widths from jumping when a scrollbar appears. Don't move that right
-  padding back onto `.shell` — the scrollbar floats 16px in from the edge.
+  itself, by `16px - --scrollbar-size`, with `scrollbar-gutter: stable`. So
+  the scrollbar sits against the window (or the docked agent panel) *inside*
+  the 16px, every card ends exactly 16px from whatever is beside it, and
+  widths don't jump when a scrollbar appears. The dock cancels `.shell`'s gap
+  (`margin-left: -16px`) for the same reason. Don't move that right padding
+  back onto `.shell` — the scrollbar floats in from the edge.
+- **Scrollbars are styled once, at the end of `styles.css`**: WebKit/Blink
+  pseudo-elements at `--scrollbar-size`, and `scrollbar-width: thin` only for
+  Firefox. Never set `scrollbar-width` on an element: Chrome then ignores the
+  pseudo-elements for it and draws a different, wider bar.
+- **The rail and the dock resize** from a `ColumnResizer` in the gap beside
+  them (widths per browser in localStorage); the dock's covers only the part
+  of the gap that isn't the body's scrollbar, so the scrollbar stays grabbable.
 
 ## Constraints
 

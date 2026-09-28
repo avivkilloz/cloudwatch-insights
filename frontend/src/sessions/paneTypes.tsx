@@ -48,7 +48,7 @@ export const PANE_TYPES: SessionTypeDef[] = [
     help:
       "Run one CloudWatch Logs Insights query across several AWS accounts and regions at once and read the merged " +
       "results newest-first. Pick the environments and log groups, write the query in Insights' pipe syntax or have " +
-      "the assistant write it, then run it.",
+      "the agent write it, then run it.",
     render: () => <InsightsPage backend="cloudwatch" />,
     enabledFor: (u) => !!u?.logs_enabled,
     // Unchanged from when this was the only logs page, so sessions saved

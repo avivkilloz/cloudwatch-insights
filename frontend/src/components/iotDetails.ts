@@ -33,7 +33,7 @@ export interface DetailCache<TRow, TDetail> {
   loadOne: (row: TRow) => Promise<void>;
   /** Fetch detail for many rows at once, bounded, skipping any already fetched. */
   loadMany: (rows: TRow[]) => Promise<void>;
-  /** Whether exports and the AI assistant should carry each row's detail. */
+  /** Whether exports and the agent should carry each row's detail. */
   includeDetails: boolean;
   setIncludeDetails: (value: boolean) => void;
   /** Requests still in flight, for a progress hint. */

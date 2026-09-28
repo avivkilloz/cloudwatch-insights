@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { PaneSelectionShare } from "../paneSelection";
 import { useSessionState } from "../../sessions/SessionContext";
 import { api, HttpMethod, HttpToolResponse, SavedSession, ToolHeader } from "../../api";
-import AiAssistantWidget from "../AiAssistantWidget";
-import { BODYLESS_METHODS, HTTP_METHODS, parseSuggestedRequest, serializeRequest } from "./httpRequestJson";
+import { BODYLESS_METHODS, HTTP_METHODS } from "./httpRequestJson";
 
 const METHODS = HTTP_METHODS;
 const SAVED_REQUESTS_PAGE = "tools-http";
@@ -47,13 +47,11 @@ export default function HttpClientTool() {
 
   const [savedRequests, setSavedRequests] = useState<SavedSession<SavedHttpRequestState>[]>([]);
 
-  // The last exchange, kept as the single "row" the assistant answers about
-  // in its "About results" mode. Bumped alongside it so that sending a new
-  // request drops the old thread rather than letting it keep answering from
-  // a response that's no longer on screen.
+  // The last exchange, kept as the single "row" this pane offers the agent's
+  // session chat to attach -- ask it why a request came back 403 -- and
+  // versioned so a new request replaces it rather than piling up.
   const [exchange, setExchange] = useSessionState<Record<string, unknown>[]>("exchange", []);
   const [exchangeVersion, setExchangeVersion] = useSessionState("exchangeVersion", 0);
-  const [assistantError, setAssistantError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listSavedSessions<SavedHttpRequestState>(SAVED_REQUESTS_PAGE).then(setSavedRequests);
@@ -133,24 +131,6 @@ export default function HttpClientTool() {
       setExchangeVersion((v) => v + 1);
     } finally {
       setSending(false);
-    }
-  }
-
-  /** Loads an assistant suggestion into the form. */
-  function applySuggestedRequest(text: string) {
-    try {
-      const req = parseSuggestedRequest(text);
-      setMethod(req.method);
-      setUrl(req.url);
-      setHeaderRows(
-        req.headers.length > 0
-          ? req.headers.map((h) => ({ id: nextHeaderId++, key: h.key, value: h.value }))
-          : [{ id: nextHeaderId++, key: "", value: "" }]
-      );
-      setBody(req.body);
-      setAssistantError(null);
-    } catch (e: any) {
-      setAssistantError(e.message);
     }
   }
 
@@ -242,14 +222,9 @@ export default function HttpClientTool() {
         </div>
       )}
 
-      {(error || assistantError) && (
+      {error && (
         <div className="panel">
-          {error && <p className="error-text" style={{ margin: 0 }}>{error}</p>}
-          {assistantError && (
-            <p className="error-text" style={{ margin: error ? "6px 0 0" : 0 }}>
-              {assistantError}
-            </p>
-          )}
+          <p className="error-text" style={{ margin: 0 }}>{error}</p>
         </div>
       )}
 
@@ -283,23 +258,9 @@ export default function HttpClientTool() {
         </div>
       )}
 
-      {/* Scoped to this tool rather than the Tools page as a whole: it's
-          rendered from the tool itself, so the floating button is there exactly
-          while the HTTP client is open. Unlike every other page's assistant,
-          the suggestion it applies is a whole request rather than a query
-          string -- see httpRequestJson.ts. */}
-      <AiAssistantWidget
-        domain="tools-http"
-        queryString={serializeRequest({
-          method,
-          url,
-          headers: headerRows.filter((r) => r.key.trim()).map((r) => ({ key: r.key, value: r.value })),
-          body,
-        })}
-        onUseQuery={applySuggestedRequest}
-        selectedRows={exchange}
-        resultsVersion={exchangeVersion}
-      />
+      {/* The last exchange is this pane's one "row": what the agent's session
+          chat can attach, to ask why a request came back the way it did. */}
+      <PaneSelectionShare domain="tools-http" selectedRows={exchange} />
     </div>
   );
 }

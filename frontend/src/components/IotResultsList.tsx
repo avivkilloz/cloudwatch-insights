@@ -37,7 +37,7 @@ function withDetail(row: FlatThing, detail: IotThingDetail): Record<string, unkn
 
 interface Props {
   items: IotSearchResultItem[];
-  /** Reports the checked rows up to the page, which feeds them to the AI assistant. */
+  /** Reports the checked rows up to the page, which offers them to the agent. */
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
 }
 
@@ -121,7 +121,7 @@ export default function IotResultsList({ items, onSelectionChange }: Props) {
         {selection.selectedCount > 0 && (
           <label
             className="checkbox-item"
-            title="Fetches each checked thing's full detail and includes it in the export and in what the AI assistant sees. One request per thing."
+            title="Fetches each checked thing's full detail and includes it in the export and in what the agent is sent with a question. One request per thing."
           >
             <input
               type="checkbox"

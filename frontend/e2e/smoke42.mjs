@@ -131,14 +131,17 @@ const run = async () => {
     JSON.stringify({ s3, s3b }));
 
   // ---------- 7. close a session right after changing it, reopen it: all there, all draggable ----------
-  await page.locator(".session-tab:has-text('S3') .session-tab-close").click();
+  // A tab closes from its own ⋮ now.
+  await page.locator(".session-tab:has-text('S3') .session-tab-more").click();
+  await page.click('.rail-row-menu button:text-is("Close")');
   await page.waitForTimeout(100);
   // Straight after the change -- well inside the sync debounce.
   await page.locator(".session-tab:has-text('CloudWatch')").click();
   await page.waitForTimeout(200);
   await drag(page, "IoT", 0, 60);
   layoutA.IoT = await box("IoT");
-  await page.locator(".session-tab:has-text('CloudWatch') .session-tab-close").click();
+  await page.locator(".session-tab:has-text('CloudWatch') .session-tab-more").click();
+  await page.click('.rail-row-menu button:text-is("Close")');
   await page.waitForTimeout(800);
   await page.locator(`${CLOSED_ROW}:has-text("CloudWatch")`).click();
   await page.waitForSelector(`${PANE("CloudWatch")}`, { timeout: 15000 });
@@ -184,7 +187,10 @@ const run = async () => {
     "…and the release that follows doesn't count as a click that minimises it");
   check((await page.locator(`${SHOWN} .dashboard-ghost`).count()) === 0, "…and leaves no ghost outline behind");
 
-  // ---------- 10. the scrollbar is at the window's edge, cards 16px clear of it ----------
+  // ---------- 10. the scrollbar is at the window's edge, cards 16px in from it ----------
+  // The scrollbar sits inside the 16px rather than beside it (styles.css,
+  // .content's right padding), so a card ends as far from the window as two
+  // cards are from each other.
   // Tall enough to scroll again: the JWT pane was just dropped low down.
   const geo = await page.evaluate(() => {
     const content = document.querySelector(".content");
@@ -204,8 +210,10 @@ const run = async () => {
   check(geo.overflowing, "Precondition: the page is tall enough to scroll", JSON.stringify(geo));
   check(Math.abs(geo.contentRight - geo.windowRight) < 1, "The scroll box (and so its scrollbar) reaches the window's right edge",
     JSON.stringify(geo));
-  check(Math.abs(geo.clientRight - geo.panesCardRight - 16) < 1, "The Panes card ends 16px short of the scrollbar",
+  check(Math.abs(geo.windowRight - geo.panesCardRight - 16) < 1, "The Panes card ends 16px short of the window's edge",
     JSON.stringify(geo));
+  check(geo.clientRight > geo.panesCardRight && geo.clientRight < geo.windowRight,
+    "…with the scrollbar inside that gap, clear of the card", JSON.stringify(geo));
   check(Math.abs(geo.stripRight - geo.panesCardRight) < 1, "…the same as the session strip above it", JSON.stringify(geo));
   const c2 = await canvas();
   check(Math.abs(c2.x + c2.width - geo.panesCardRight) < 1, "…and the same right edge the dashboard's panes stop at",

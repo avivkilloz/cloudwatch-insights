@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
 
 const SESSION = '.panel:has(h2:text-is("Panes"))';
 
@@ -14,11 +14,8 @@ function expectedOrder(order, id, over) {
  * first, so exactly one page is mounted and the unscoped selectors below still
  * address the one on screen -- every open session stays mounted otherwise. */
 async function openSession(page, label) {
-  // Closing is the ✕ on the tab in the strip above the body.
-  while ((await page.locator(".session-tab-close").count()) > 0) {
-    await page.locator(".session-tab-close").first().click();
-    await page.waitForTimeout(120);
-  }
+  // Closing is the "Close" in each tab's ⋮, in the strip above the body.
+  await closeAllTabs(page);
   await newSession(page, label);
 }
 
@@ -36,7 +33,6 @@ async function newPanedSession(page) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: false } }));
 
   /** Pane ids in laid-out order -- data-pane-id is already in `services` order. */
   const order = () => page.evaluate(() => Array.from(document.querySelectorAll("[data-pane-id]")).map((e) => e.dataset.paneId));

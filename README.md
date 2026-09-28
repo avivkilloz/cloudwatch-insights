@@ -71,8 +71,8 @@ The app is organised around **sessions** rather than a fixed set of tabs.
 - Every open session **stays mounted**: switching between them never
   interrupts a running query or loses a scroll position.
 - **A refresh puts you back where you were, and so does another machine.**
-  Each open session's whole state — the inputs, the rows on screen, and its AI
-  assistant conversation — is **autosaved to the server** as you work. There is
+  Each open session's whole state — the inputs, the rows on screen, and its
+  conversation with the agent — is **autosaved to the server** as you work. There is
   no save button: the session in front of you *is* the saved one. Sessions are
   per user, kept in Postgres, and mirrored in the browser (IndexedDB) so the
   panel is populated on the first paint and you keep working through an outage;
@@ -83,25 +83,25 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   AWS data from yesterday is never shown as though it were current. A session
   too large to keep (past a 4 MB cap) drops its results, keeps its inputs, and
   says so rather than coming back looking empty.
-- **Closing is not deleting.** The **✕** on a tab takes that session off the
-  strip; it stays in the panel, dimmed, and one click puts it back with its
-  state. *Delete*, in the panel's **⋮**, is the only thing that throws a
-  session away, and it asks first — nothing is ever removed on your behalf.
+- **Closing is not deleting.** *Close*, in a tab's own **⋮**, takes that
+  session off the strip; it stays in the panel, dimmed, and one click puts it
+  back with its state. *Delete*, in a tab's or the panel's **⋮**, is the only
+  thing that throws a session away, and it asks first — nothing is ever
+  removed on your behalf. A tab's ⋮ also renames it and saves it as a
+  template.
   A closed session's rows are not loaded until you actually reopen it, so the
   list costs nothing to carry however long it gets.
 - **Saved sessions** are the other half, and deliberately different: they're
   named **templates** stored per user on the server, holding a session's
   *inputs* only. Saving takes the session's own state and strips its outputs —
-  the rows, the fetched-at markers, the assistant thread — so what's kept is
+  the rows, the fetched-at markers, the agent conversation — so what's kept is
   everything you chose, including each Aggregator pane's own inputs. Open one
   from **+** and it starts a fresh session seeded with those inputs; nothing
   you then do changes the saved copy. Manage them under **Saved items** in
   Settings.
-- The two AI surfaces are distinct. The **agent** is its own session type and
-  sees the workspace from outside; the **✦ Ask AI** assistant inside a service
-  session only ever sees that session's own query and rows, and closes when you
-  click outside it. *The agent is not connected to a model yet* — it says so
-  rather than guessing, and shows the workspace state it will be given.
+- The **agent** has two conversations, a tab each in its panel: **Global**,
+  about the platform as a whole, and **Session**, one per session, about that
+  one — see [Platform agent](#platform-agent).
 
 Settings (including Environments, Users, Groups and Saved items) is reached
 from the avatar menu and is not a session; the strip stays above it.
@@ -130,8 +130,8 @@ from the avatar menu and is not a session; the strip stays above it.
   one AWS call each. Once you check some rows, an **Include shadows,
   certificates & jobs** option appears (on the certificates side, **Include
   attached things**) — turn it on and the app fetches the detail for exactly
-  the checked rows, then carries it into the export *and* into what the AI
-  assistant sees, so you can export a full fleet snapshot or ask "what
+  the checked rows, then carries it into the export *and* into what the agent
+  is sent when you ask it about them, so you can export a full fleet snapshot or ask "what
   firmware are these actually on?" rather than being limited to the search
   summary. Fetching is bounded to a few requests at a time and shares the
   same cache as expanding a row, so a row you already opened is free and a
@@ -205,19 +205,11 @@ from the avatar menu and is not a session; the strip stays above it.
   drag's own release never collapses the pane it just moved. The order is part
   of a saved session.
 
-  The AI assistant spans the whole session rather than one service. "About
-  results" answers on the rows you've checked *across every open pane* pooled
-  together — each tagged with which service it came from, so you can ask
-  whether those log errors line up with the devices that went offline.
-  "Build query" has a "Build for" picker: choose any open service and it
-  writes that service's own syntax, using your cross-service selection as
-  examples, and "Use this query" drops it into that pane's search box. The
-  picker belongs to that tab alone — "About results" has no single service
-  to target, so instead of a picker it names the services your checked rows
-  actually came from. An open **HTTP client** pane joins in on both counts: it
-  becomes another "Build for" target, and the exchange it last sent pools into
-  the cross-service question tagged `HTTP client`, so "does this 500 line up
-  with those log errors?" is one question. A
+  The agent's **Session** tab is the session's own chat: ask it about the
+  rows you've checked *across every open pane* — they go with the question,
+  each tagged with the pane it came from, so you can ask whether those log
+  errors line up with the devices that went offline — or have it write a
+  pane's query, add or arrange panes. A
   session (which panes, in which order, and which layout) can be saved as a
   template from its **⋮**, and those are managed under **Saved items → Session
   Templates**.
@@ -231,9 +223,8 @@ from the avatar menu and is not a session; the strip stays above it.
     next-best row within the current Limit rather than just leaving a gap;
   - narrows **export** — the button becomes "Export N selected" and writes
     only the checked rows, instead of everything on screen;
-  - feeds the **AI assistant** — see "About results" and "Build query" below,
-    and on the Aggregator tab your selections across every open service are
-    pooled into one question.
+  - goes with a question to the **agent** — its Session tab attaches the rows
+    checked across every open pane in the session.
 
   A fresh search clears the selection; loading another page of results
   (the "Load more" buttons on DynamoDB, S3 and Cognito) keeps it, since
@@ -251,48 +242,6 @@ from the avatar menu and is not a session; the strip stays above it.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- **AI assistant** (every searchable tab, optional): a floating "✦ Ask AI"
-  button in the bottom-right corner opens a compact panel with two tabs
-  instead of bloating the page with always-visible panels. "Build query"
-  turns a plain-English description into a query you can drop straight into
-  that page's search box with one click — if you've checked some result
-  rows, a "Use N checked result(s) as examples" checkbox includes them so
-  the assistant can reference their actual field names/values instead of
-  guessing. "About results" answers questions about the rows you've checked
-  — only those, so what the assistant sees is exactly what you picked rather
-  than an opaque sample of the result set. It says how many rows are going
-  with the question, and until you've checked at least one it says so and
-  leaves "Ask" disabled, since there'd be nothing to answer from.
-
-  The assistant knows **which page it's on**, and each page's query syntax is
-  wildly different, so the syntax it writes and the way it describes your
-  rows follow the tab you're looking at: CloudWatch Logs Insights' pipe
-  syntax on CloudWatch or OpenSearch Lucene on OpenSearch,
-  IoT Fleet Indexing on IoT things, the much narrower
-  `status:`/`certid:` filters on IoT certificates, `field:value` scan tokens
-  on DynamoDB, and Cognito's single starts-with `attribute:value` token on
-  Cognito. It's told each surface's limits too, so it says "Cognito can only
-  filter on one attribute at a time" rather than inventing syntax that
-  silently returns nothing. S3 gets "About results" only — its search is
-  a literal filename substring, so there's no query worth writing for you.
-  The **Tools** tab's HTTP Client has it too, and is the one surface where
-  what the assistant writes isn't a query string at all but a whole request
-  as JSON, applied to the form by **Use this request** — see the Tools
-  section below.
-  Switching what a page is searching (IoT's things/certificates toggle) starts
-  fresh threads, since neither the query language nor the rows still apply.
-
-  Each tab keeps its own conversation — switching tabs doesn't lose either
-  thread, and you can go back and forth, not just one
-  shot. Drag the panel's top-left corner to resize it; the size is
-  remembered per browser. Backed by a [LiteLLM](https://www.litellm.ai/)
-  proxy (or anything else exposing an OpenAI-compatible
-  `/chat/completions` endpoint), configured purely via the
-  `LITELLM_API_KEY`/`LITELLM_BASE_URL`/`LITELLM_MODEL` environment
-  variables at deploy time — never through the Settings page, since these
-  are deployment secrets rather than app data. Entirely optional: the
-  floating button stays hidden until all three variables are set. See
-  `DEPLOYMENT.md` for wiring this up via Helm.
 - Everything saved anywhere in the app — log/IoT saved queries and
   searches, session templates, saved buckets/tables, saved HTTP
   requests, and saved MQTT topics — is **per user** (each user only ever
@@ -358,11 +307,25 @@ Type a request into **Ask the agent…** in the header and the agent does the
 work in your workspace, as you: it creates a session (or uses the one you're
 looking at), adds the panes it needs, fills in their inputs, runs them, and
 lays them out -- tabs, side by side, stacked, or a dashboard it arranges --
-then answers from what they found. The conversation opens in a dock beside
-the page, listing each step as it happens; with **Follow** on, the app takes
-you to each session as the agent gets to it, and every change appears in the
-panes as it's made. A session the agent is working on is marked ✦ in the
-panel and on the strip. The same conversation is on the **Agent** page.
+then answers from what they found. It lists each step as it happens; with
+**Follow** on, the app takes you to each session as the agent gets to it, and
+every change appears in the panes as it's made. A session the agent is
+working on is marked ✦ in the panel and on the strip.
+
+The agent panel has two tabs. **Global** is the conversation about the
+platform (the header's question goes there; the **Agent** page shows it too).
+**Session** is the chat of the session on screen -- each session has its own,
+kept in the session, so it syncs to your other browsers and survives a
+reload. Ask it to write or change a pane's query, add or arrange panes, or
+check some rows in the session's panes and ask about them: the checked rows
+go with the question. This replaced the old ✦ Ask AI assistant, which could
+only suggest a query or talk about rows; the agent does both, and acts on the
+session as well.
+
+The panel docks beside the page or floats over it (the icon in its header
+switches), and the button at the far end of the tab strip shows or hides it.
+Drag the gap beside the side panel or the docked agent panel to resize it;
+double-click to reset.
 
 It can do what your group can and nothing more -- the same environments, the
 same pages, the same IAM role -- and only if an admin has turned **Platform
@@ -370,10 +333,10 @@ agent** on for your group (Settings → User groups; on for Admin, off for any
 other group until then). Runs are read-only searches, made on the server.
 Anything that reaches outside the platform, like sending an HTTP request, it
 fills in for you to send yourself; asking before doing such things is the
-next step. The conversation isn't kept across a reload yet.
+next step. The Global conversation isn't kept across a reload yet.
 
-It needs the LiteLLM settings the assistant uses, and a model that is good
-at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
+It needs a LiteLLM proxy (or anything OpenAI-compatible) and a model that is
+good at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
 [DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional).
 
 ## Users, groups & login
@@ -690,7 +653,7 @@ indexing setup, but is more limited than Things search:
 
 **CloudWatch** and **OpenSearch** are two separate session types rather than
 one page with a switch on it. They share the same environment picker, results
-table and AI assistant; what differs is the second step (log groups against
+table and agent support; what differs is the second step (log groups against
 indices) and the query syntax — Lucene `query_string`, e.g.
 `level:ERROR AND service:checkout`, instead of CloudWatch's pipe syntax.
 
@@ -780,17 +743,11 @@ inputs and its output stay visibly separate.
   automatically, so a redirect can't be used to reach a blocked address
   either.
 
-  It has its own **AI assistant** (the same floating panel as the search
-  tabs, appearing while this tool is open). "Build query" describes the
-  request you want in plain English and fills in the whole form — method,
-  URL, headers and body — from one click of **Use this request**; ask for a
-  change ("add a bearer token", "make it a PATCH") and it refines what's
-  already in the form rather than starting over. It's told this tool's own
-  constraints, so it won't hand you a URL the backend is going to refuse,
-  and it puts an obvious placeholder like `Bearer <token>` where a
-  credential goes rather than inventing one. "About results" answers about
-  the last exchange — the request you sent *and* the response that came
-  back, which is what makes "why is this a 403?" answerable at all.
+  The agent can fill the request in for you (ask in the session's chat), but
+  not send it: sending reaches outside the platform, and waits for the
+  approval step. The last exchange -- the request you sent *and* the response
+  that came back -- is what the session's chat attaches, which is what makes
+  "why is this a 403?" answerable.
 - **MQTT Tester** — pick one of your configured environments, then
   subscribe and publish to topics on that account's AWS IoT Core endpoint,
   the same way the AWS IoT console's own "MQTT test client" works.

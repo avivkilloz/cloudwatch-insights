@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { useSessionState } from "../sessions/SessionContext";
 import { api, Environment, S3BucketInfo, S3FileInfo, S3FolderInfo, SavedSession } from "../api";
-import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -369,15 +369,8 @@ export default function BucketsPage() {
         </div>
       )}
 
-      {/* Ask-only: S3's "search" here is a literal filename substring, so
-          there's no query worth having the assistant write. */}
-      <AiAssistantWidget
-        domain="buckets"
-        modes={["ask_results"]}
-        queryString={activeSearch}
-        selectedRows={selectedRows}
-        resultsVersion={resultsVersion}
-      />
+      {/* The checked files, for the agent's session chat to attach. */}
+      <PaneSelectionShare domain="buckets" selectedRows={selectedRows} />
     </div>
   );
 }

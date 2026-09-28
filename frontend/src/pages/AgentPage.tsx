@@ -9,14 +9,15 @@ import AgentChat from "../components/AgentChat";
  * sees that session's own panes: this one acts on the workspace, creating
  * sessions and filling in and running panes, as you.
  *
- * The same conversation shows in the dock beside a session (AgentDock); this
- * is it with room to read.
+ * This is the global conversation with room to read; the same one is the
+ * Global tab of the agent panel beside (or over) the page, whose Session tab
+ * holds each session's own.
  */
 export default function AgentPage() {
   return (
     <div className="agent-session">
       <div className="panel agent-page-panel">
-        <AgentChat />
+        <AgentChat scope="global" />
       </div>
     </div>
   );

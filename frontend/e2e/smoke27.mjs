@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 const V = ".session-body:not([hidden])";
 const TYPE = (l) => `.rail-row-type:has(.rail-row-label:text-is("${l}"))`;
 const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("${l}"))`;
@@ -123,11 +123,11 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   await page.click(`${ROW("JWT")} .rail-row-more`);
   await page.waitForSelector(".rail-row-menu");
   const items = await page.locator(".rail-row-menu button").allTextContents();
-  // Closing moved to the ✕ on the tab; the ⋮ is what you do to the session.
+  // Closing is in the tab's own ⋮ in the strip; the panel's ⋮ is what you do to the session.
   check(items.includes("Rename") && items.includes("Delete") && !items.includes("Close"),
     "The ⋮ menu offers what you do to a session, not to a tab", JSON.stringify(items));
   await page.keyboard.press("Escape");
-  await page.click('.session-tab:has(.session-tab-label:text-is("JWT")) .session-tab-close');
+  await closeTab(page, "JWT");
   await page.waitForTimeout(300);
   check((await page.locator(ROW("JWT")).count()) === 0, "Close removes the session");
   check((await page.locator(ROW("CloudWatch")).count()) === 1, "…and leaves the others alone");

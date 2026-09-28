@@ -81,13 +81,13 @@ backend:
     # this values file / the release's plain-text values history.
     password: ""
 
-  # AI assistant (build-a-query and ask-about-results, on the Logs page).
-  # Optional -- when baseUrl is empty the feature stays hidden in the UI, and
-  # no LITELLM_* env vars are set at all. Backed by a LiteLLM proxy (or
-  # anything else exposing an OpenAI-compatible /chat/completions endpoint),
-  # so this works the same regardless of which model provider you actually
-  # run behind it. Two ways to supply the API key, same shape as `database`
-  # above:
+  # The model the platform agent (`agent` below) calls: a LiteLLM proxy, or
+  # anything else exposing an OpenAI-compatible /chat/completions endpoint,
+  # so this works the same whichever provider actually runs behind it. It
+  # lives under `backend` for compatibility with values files written when
+  # the backend's own ✦ assistant used it; the agent replaced that assistant,
+  # and only the agent reads these now. Needed only with `agent.enabled`.
+  # Two ways to supply the API key, same shape as `database` above:
   #
   # Option A: an existing Secret.
   #   ai:
@@ -159,9 +159,8 @@ backend:
 # and no more -- and a group only gets it once an admin turns "Platform agent"
 # on for that group in Settings. Off by default.
 #
-# It uses the same LiteLLM proxy and API key as `backend.ai` (which must be
-# set), with its own model if you give one: the agent needs a model that is
-# good at tool calling, which the assistant doesn't.
+# It uses the LiteLLM proxy and API key in `backend.ai` (which must be set),
+# with its own model if you give one here: it needs one good at tool calling.
 agent:
   enabled: false
   image:

@@ -1,3 +1,9 @@
+/* One size for every scrollbar, and the one .content's right padding is
+   worked out from (see there). Theme-independent, so outside the themes. */
+:root {
+  --scrollbar-size: 6px;
+}
+
 :root,
 :root[data-theme="dark"],
 .theme-swatch[data-theme="dark"] {
@@ -273,6 +279,8 @@ button,
    put at the bottom of the column; the panel above it takes the room it needs
    and scrolls only once there is no more. */
 .rail-column {
+  /* Holds its resizer, which sits in the gap to its right. */
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -671,12 +679,6 @@ button,
   gap: 8px;
 }
 
-.home-aggregate-fab .ai-widget-button {
-  position: static;
-  right: auto;
-  bottom: auto;
-}
-
 .home-aggregate-clear {
   width: 30px;
   height: 30px;
@@ -818,15 +820,16 @@ button,
      without a reserved gutter, a vertical scrollbar appearing shrinks this
      column's width out from under whatever's already laid out against it --
      the dashboard layout's own right edge (AggregatorPage.tsx,
-     `dashboardMaxWidth`) included. */
-  scrollbar-width: thin;
+     `dashboardMaxWidth`) included. Its width is --scrollbar-size, the same
+     as every other scrollbar's (see the end of this file). */
   scrollbar-gutter: stable;
   /* .shell owns the gaps on the left and top (the one between this column and
      the rail's is its `gap`); the right one is here, inside the scroll box,
-     so the scrollbar is at the window's edge and every card -- the strip, the
-     "Panes" card, a dashboard pane pushed all the way right -- keeps the same
-     16px from it rather than touching it. */
-  padding: 0 16px 20px 0;
+     so the scrollbar is at the window's edge. The scrollbar sits *inside* that
+     16px rather than beside it, so every card -- the strip, the "Panes" card,
+     a dashboard pane pushed all the way right -- ends the same 16px from the
+     window, or from the agent's dock, as two cards are from each other. */
+  padding: 0 calc(16px - var(--scrollbar-size)) 20px 0;
 }
 
 /* ---- the session strip ------------------------------------------------- */
@@ -867,7 +870,6 @@ button,
   flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .session-bar-empty {
@@ -878,7 +880,7 @@ button,
 
 .session-bar-rail,
 .session-bar-add,
-.session-bar-more {
+.session-bar-agent {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -898,15 +900,14 @@ button,
 
 .session-bar-rail:hover,
 .session-bar-add:hover,
-.session-bar-more:hover,
-.session-bar-add[aria-expanded="true"],
-.session-bar-more[aria-expanded="true"] {
+.session-bar-agent:hover,
+.session-bar-add[aria-expanded="true"] {
   background: var(--panel-alt);
   color: var(--accent);
 }
 
-/* Pushed to the far end: it acts on the session on screen, not on the list. */
-.session-bar-more {
+/* Pushed to the far end, mirroring the panel's toggle at the start. */
+.session-bar-agent {
   margin-left: auto;
 }
 
@@ -944,7 +945,7 @@ button,
 }
 
 .session-tab.active .session-tab-label,
-.session-tab.active .session-tab-close {
+.session-tab.active .session-tab-more {
   color: var(--accent-text);
 }
 
@@ -962,19 +963,26 @@ button,
   font-size: 12.5px;
 }
 
-.session-tab-close {
+/* Where the ✕ used to be: the tab's own menu, closing included. */
+.session-tab-more {
   flex: none;
   padding: 0 7px 0 4px;
   border: none;
   background: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1;
 }
 
-.session-tab-close:hover {
-  color: var(--error);
+.session-tab-more:hover,
+.session-tab-more[aria-expanded="true"] {
+  color: var(--accent);
+}
+
+.session-tab.active .session-tab-more:hover {
+  color: var(--accent-text);
+  opacity: 0.8;
 }
 
 /* Portalled to the body, like the rail's ⋮ menu and for the same reason: the
@@ -1597,7 +1605,6 @@ th {
   /* A card gap: the tabs are a card's worth of row above the pane below them. */
   margin-bottom: 16px;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .aggregator-tab {
@@ -1749,134 +1756,6 @@ th {
 .aggregator-pane-body .panel {
   padding: 10px 12px;
   margin-bottom: 10px;
-}
-
-.ai-widget-button {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 1000;
-  padding: 12px 18px;
-  border-radius: 999px;
-  background: var(--accent-dim);
-  color: var(--accent-text);
-  border: 1px solid var(--accent-dim);
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.ai-widget-panel {
-  position: fixed;
-  right: 24px;
-  bottom: 88px;
-  z-index: 1000;
-  /* Actual width/height are set inline by AiAssistantWidget (resizable,
-     persisted per browser) -- these are just the pre-hydration fallback. */
-  width: 380px;
-  height: 480px;
-  min-width: 320px;
-  min-height: 280px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
-}
-
-.ai-widget-resize-handle {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
-  cursor: nwse-resize;
-  z-index: 2;
-}
-
-.ai-widget-resize-handle::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 8px;
-  height: 8px;
-  background-image: radial-gradient(circle, var(--text-dim) 1px, transparent 1.3px);
-  background-size: 4px 4px;
-}
-
-.ai-widget-resize-handle:hover {
-  background: var(--panel-alt);
-}
-
-.ai-widget-resize-handle:hover::before {
-  background-image: radial-gradient(circle, var(--accent) 1px, transparent 1.3px);
-}
-
-.ai-widget-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px 8px 26px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.ai-widget-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-dim);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.ai-widget-icon-btn:hover {
-  background: var(--panel-alt);
-  border-color: var(--border);
-  color: var(--text);
-}
-
-.ai-widget-tabs {
-  display: flex;
-  gap: 6px;
-}
-
-.ai-widget-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px 12px;
-}
-
-.ai-widget-input {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.ai-widget-textarea {
-  flex: 1;
-  resize: none;
-  font-family: inherit;
-  min-height: 34px;
-  max-height: 120px;
-  overflow-y: auto;
 }
 
 .login-page {
@@ -2366,9 +2245,11 @@ th {
 
 /* Beside the body, and 16px from the window's right and bottom edges as the
    rail is on the left. The negative margin takes back .shell's gap: .content
-   already keeps its cards 16px clear of its own scrollbar, so with the gap as
-   well the dock sat twice as far from the cards as anything else. */
+   already ends its cards 16px from its own right edge (its scrollbar inside
+   that), so with the gap as well the dock sat twice as far from the cards as
+   anything else. Its width is set inline -- it's resizable. */
 .agent-dock {
+  position: relative;
   flex: none;
   width: 380px;
   display: flex;
@@ -2386,21 +2267,6 @@ th {
   margin-bottom: 0;
 }
 
-.agent-dock-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.agent-dock-head h2 {
-  margin: 0;
-}
-
-.agent-dock-actions {
-  display: flex;
-  gap: 6px;
-}
 
 /* The mark beside a session the agent is changing, in the panel and on the
    strip. */
@@ -2418,5 +2284,226 @@ th {
   }
   50% {
     opacity: 0.3;
+  }
+}
+
+/* ---- The agent panel: Global and Session tabs, in the dock or floating ---- */
+
+.agent-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+.agent-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-tab {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agent-tab:hover {
+  color: var(--text);
+  background: var(--panel-alt);
+}
+
+.agent-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: var(--accent-text);
+}
+
+.agent-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-icon-btn:hover {
+  background: var(--panel-alt);
+  color: var(--accent);
+}
+
+.agent-attached {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.agent-attach {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* Floating: a button in the corner, and the panel over the page above it --
+   where the old ✦ assistant sat. Size is set inline (resizable, per browser). */
+.agent-float-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agent-float-button.busy {
+  animation: agent-working-pulse 1.2s ease-in-out infinite;
+}
+
+.agent-float-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 76px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 140px);
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Its top-left corner is the one that grows it: it's anchored bottom-right. */
+.agent-float-resize {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background-image: radial-gradient(circle, var(--text-dim) 1px, transparent 1.3px);
+  background-size: 4px 4px;
+  background-position: center;
+}
+
+.agent-float-resize:hover {
+  background-image: radial-gradient(circle, var(--accent) 1px, transparent 1.3px);
+}
+
+/* ---- Resizing the columns ---- */
+
+/* In the gap between two columns: invisible until you're over it, then the
+   same dashed cut line a dragged pane shows where it will land. */
+.column-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 16px;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.column-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 2px dashed transparent;
+  transform: translateX(-1px);
+}
+
+.column-resizer:hover::before,
+.column-resizer.dragging::before,
+.column-resizer:focus-visible::before {
+  border-left-color: var(--accent);
+}
+
+.column-resizer:focus-visible {
+  outline: none;
+}
+
+/* The whole 16px gap between the rail and the body. */
+.rail-resizer {
+  right: -16px;
+  width: 16px;
+}
+
+/* The part of the gap left of the dock that isn't the body's scrollbar, so
+   the scrollbar can still be grabbed. */
+.agent-dock-resizer {
+  left: -16px;
+  width: calc(16px - var(--scrollbar-size));
+}
+
+/* ---- Scrollbars: one size, and quiet ---- */
+
+/* Every scrollbar the same thin width, with no track -- just a thumb, which
+   darkens under the pointer. WebKit/Blink draw them from these; Firefox
+   can't be given a width, only "thin" (about 8px), which is close enough.
+   Chrome ignores these pseudo-elements on anything with `scrollbar-width`
+   set, which is why that is only ever set for Firefox. */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 }

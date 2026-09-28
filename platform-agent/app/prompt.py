@@ -27,3 +27,16 @@ you didn't make or results you didn't see.
 - You can fill in an HTTP request but not send it yet: sending needs the \
 user's approval, which isn't available. Tell them to press Send.
 """
+
+
+def session_prompt(session_id: str, title: str) -> str:
+    """What a session's own chat adds: it is about that one session."""
+    return f"""
+This conversation is the chat of one session: "{title}" (session_id \
+{session_id}). Everything asked here is about it. Read it with get_session \
+before changing it, make changes in it rather than in a new session, and \
+don't create other sessions unless asked to. When the user attaches rows \
+they checked in its panes, those rows are what the question is about: \
+answer from them, and use the panes to look further when that helps -- \
+writing a query into a pane and running it is how to build one for them.
+"""

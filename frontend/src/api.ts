@@ -397,39 +397,6 @@ export interface MqttPresignedUrlResponse {
   diagnostic_headers: string[];
 }
 
-// ---- AI assistant ----
-
-export type AiChatRole = "user" | "assistant";
-
-export interface AiChatMessage {
-  role: AiChatRole;
-  content: string;
-}
-
-export type AiAssistMode = "build_query" | "ask_results";
-
-/** Which page/service the assistant is being asked about. Picks the query
- * syntax build_query writes, and tells ask_results what the rows are. */
-export type AiDomain =
-  | "logs-cloudwatch"
-  | "logs-opensearch"
-  | "iot-things"
-  | "iot-certificates"
-  | "tables"
-  | "buckets"
-  | "cognito"
-  /** The Aggregator page asking about rows pooled from several services. */
-  | "aggregator"
-  /** The Tools page's HTTP client, where a "query" is a whole request
-   * (method, URL, headers, body) expressed as JSON rather than a search
-   * string, and the "rows" are the single exchange that came back. */
-  | "tools-http";
-
-export interface AiAssistResponse {
-  reply: string;
-  suggested_query: string | null;
-}
-
 const BASE = "/api";
 
 /** This tab's own id, sent with every request as X-Sync-Origin. The server
@@ -495,7 +462,7 @@ function detailOf(text: string): string {
  * the turn's stream ends; `signal` stops it (and the agent with it).
  */
 async function agentChat(
-  body: { messages: AgentChatMessage[]; viewing_session_id: string | null; timezone: string },
+  body: { messages: AgentChatMessage[]; viewing_session_id: string | null; timezone: string; scope: "global" | "session" },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -714,17 +681,8 @@ export const api = {
     pagination_token?: string | null;
   }) => req<CognitoUserSearchResult>("/cognito/users", { method: "POST", body: JSON.stringify(payload) }),
 
-  getAiStatus: () => req<{ configured: boolean }>("/ai/status"),
   getAgentStatus: () => req<AgentStatus>("/agent/status"),
   agentChat,
-  aiAssist: (payload: {
-    mode: AiAssistMode;
-    messages: AiChatMessage[];
-    query_string?: string;
-    sample_rows?: Record<string, unknown>[];
-    row_count?: number;
-    domain?: AiDomain;
-  }) => req<AiAssistResponse>("/ai/assist", { method: "POST", body: JSON.stringify(payload) }),
 
   getOpenSearchDomains: (environmentIds: number[]) =>
     req<{ results: OpenSearchDomainsResultItem[] }>("/opensearch/domains", {

@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-27, mid-round on the platform agent, phase 2 of 3 (after #80)._
+_Last updated: 2026-09-28, a UI round on the platform agent between phases 2 and 3 (after #81)._
 
 ## Where things stand
 
@@ -100,6 +100,50 @@ README.
 
 **#80: two-way live sync, the agent's phase 1** (merged, deployed and tested
 by the user): see the phase 1 notes below.
+
+**#81: the agent's phase 2** (merged): the MCP server, the agent container,
+streaming chat -- see the phase 2 notes below.
+
+**This round (not yet merged): the agent panel replaces the assistant, and
+the shell around it.** The user's six asks, in order:
+
+1. *Global and Session conversations* in the agent panel. Global is the old
+   one (the platform; the header input; the Agent page). Session is one chat
+   per session, stored in its state (`agentChat`, excluded from templates),
+   about that session: the backend takes `scope: "session"`, checks the
+   session is the user's, and the agent adds a prompt keeping it there. The
+   rows checked in the session's panes are attached to the question
+   (`PaneSelectionShare` in each pane → the Aggregator pools them →
+   `agent/selection.ts` → the composer's "Attach N checked rows").
+   **The ✦ Ask AI assistant is removed** everywhere: the floating widget,
+   `/api/ai`, `ai_assistant.py` and its tests, its CSS, the HTTP tool's
+   "Use this request". `backend.ai` in Helm is now only the agent's, and the
+   backend no longer gets `LITELLM_*`. (A side effect fixed: the saved-
+   template filter dropped any key whose leaf was `mode`, which included
+   Base64's own encode/decode input.)
+2. *Two layouts*: docked beside the page, or floating over it from a corner
+   button (the assistant's old spot). An icon in the panel's header switches;
+   the old "Full page" button is gone (the Agent page is still on Home).
+3. *Per-tab ⋮* with Rename, Save as template, Close, Delete, replacing the ✕;
+   the strip's end ⋮ became the agent panel's show/hide toggle, mirroring
+   the rail's at the start.
+4. *Spacing*: cards now end exactly 16px from the dock (and from the window):
+   `.content`'s right padding is `16px - --scrollbar-size` with the scrollbar
+   inside it, and the dock cancels `.shell`'s gap.
+5. *Scrollbars*: one 6px thumb-only style for every scrollbar, set once at
+   the end of `styles.css`; the three `scrollbar-width: thin` rules are gone
+   (in Chrome they override the styled bar).
+6. *Resizable columns*: `ColumnResizer` in the gap beside the rail and the
+   dock, a dashed cut line on hover, double-click to reset, arrow keys to
+   nudge, widths per browser.
+
+Coverage: new `smoke46` (the panel, the session chat with attached rows and
+a query written into the pane, float/dock, the tab menu, gap and scrollbar
+measurements, resizing); smoke45 reaches the Agent page from Home; the four
+assistant-only suites (14, 15, 18, 19) retired, the assistant parts of 16,
+17, 20, 22, 23 removed, and every suite that closed a tab with its ✕ now uses
+the harness's `closeTab`/`tabMenu`. Backend 171 (the assistant's tests gone,
+three relay tests for session scope added), agent 6.
 
 ## The platform agent — agreed design and phases
 
@@ -287,23 +331,22 @@ Everything below is merged and verified against the running app.
 - **Panes:** CloudWatch Logs Insights, OpenSearch, IoT (things + certificates
   with detail panels), DynamoDB, S3, Cognito; tools: HTTP client, MQTT tester,
   JWT, Base64, diff; any number of each per session, each renamable.
-- **Assistant:** per-pane "build a query" plus a cross-service question over
-  whatever the open panes have registered (LiteLLM, optional — hidden unless
-  configured).
+- **Agent:** the platform agent (phase 2) with a Global chat and a chat per
+  session that can be sent the session's checked rows; it replaced the ✦
+  assistant.
 - **Admin:** environments, user groups (IAM role, visible environments, one
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 197 backend, 5 agent, 33 Playwright suites -- all green in this
-  round's full run (smoke45 included, against the fake model).
+- **Tests:** 171 backend, 6 agent, 30 Playwright suites (this round's full
+  run is recorded above).
 
 ## In progress / where I left off
 
-Phase 2 of the platform agent is built and verified against the running
-stack (with the fake model -- no real model is reachable from this
-container) and awaits its PR; nothing is half-written. After it merges,
-restart the branch from `main` (`git fetch origin main && git checkout -B
-<branch> origin/main`) for phase 3.
+This round's UI changes are built and verified against the running stack
+(with the fake model) and await their PR; nothing is half-written. After it
+merges, restart the branch from `main` (`git fetch origin main && git
+checkout -B <branch> origin/main`) for phase 3.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -436,7 +479,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 33 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 30 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
@@ -454,12 +497,15 @@ opened together packing into the canvas and the stable scrollbar gutter, and
 sessions, close-then-reopen, minimised drag, Escape, scrollbar geometry), 43
 several panes of one kind (home counts, add-only Panes card, per-pane state,
 rename, fresh state after close, an old-shape session still opening), and 44
-two-way live sync across two browsers (see phase 1 above), and 45 the
-platform agent end to end (needs the agent and the fake model running).
+two-way live sync across two browsers (see phase 1 above), 45 the
+platform agent end to end, and 46 the agent panel's Global/Session chats,
+layouts, the tab ⋮, gaps, scrollbars and column resizing (45 and 46 need
+the agent and the fake model running). 14, 15, 18 and 19 were the retired
+assistant's and are gone.
 
 ## Next steps, in order
 
-1. Restart the branch from `main` once the phase 2 PR merges.
+1. Restart the branch from `main` once this round's PR merges.
 2. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,

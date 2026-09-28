@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { useSessionState } from "../sessions/SessionContext";
 import { api, CognitoUserInfo, CognitoUserPoolInfo, Environment } from "../api";
-import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -253,13 +253,7 @@ export default function CognitoPage() {
         </div>
       )}
 
-      <AiAssistantWidget
-        domain="cognito"
-        queryString={queryString}
-        onUseQuery={setQueryString}
-        selectedRows={selectedRows}
-        resultsVersion={resultsVersion}
-      />
+      <PaneSelectionShare domain="cognito" selectedRows={selectedRows} />
     </div>
   );
 }

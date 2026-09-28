@@ -4,7 +4,7 @@
  * Saved sessions (the named ones under Saved items) stay in Postgres and hold
  * only a page's *inputs* -- they're templates you start from. Open sessions
  * are the opposite: everything, including the rows currently on screen and the
- * assistant conversation about them, so a refresh puts you back exactly where
+ * session's conversation with the agent, so a refresh puts you back exactly where
  * you were.
  *
  * Those now live in Postgres too (see ./sync and the live-sessions router), so
@@ -148,15 +148,21 @@ const OUTPUT_STATE_KEYS = new Set([
   "buckets",
   "userPools",
   "tableInfo",
-  // The assistant conversation belongs to the rows it was about.
-  "threads",
-  "mode",
+  // A session's conversation with the agent is about this session's rows and
+  // runs, not something a template should start the next one with.
+  "agentChat",
+  // Left over from the old agent session type.
   "messages",
   "openingPrompt",
 ]);
 
 export function isInputStateKey(key: string): boolean {
   const leaf = key.slice(key.lastIndexOf(".") + 1);
+  // The retired ✦ assistant kept its threads under "ai." (at the session's
+  // root and in every pane), in sessions saved before the agent replaced it.
+  // Matched by that prefix rather than by leaf name: its leaf "mode" is also
+  // Base64's own encode/decode input, which a template must keep.
+  if (/(^|\.)ai\./.test(key)) return false;
   return !OUTPUT_STATE_KEYS.has(leaf);
 }
 
