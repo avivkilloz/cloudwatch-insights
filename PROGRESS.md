@@ -274,7 +274,8 @@ committed, so nothing moves until release.
 Coverage: new `smoke49` (the fit, double-click rename, picture spacing, the
 card's alignment and editors); with only the fit fix reverted it fails the
 two fit checks. smoke20/33/35/43 point at the card rows and the segmented
-control.
+control. Full run: 32 of 33; smoke29's "several sessions autosave in panel
+order" failed once (server order JWT, IoT, Diff) and passed on its re-run.
 
 ## The platform agent — agreed design and phases
 
@@ -493,6 +494,14 @@ shared, so a dashboard built on a wide monitor currently gets slid in or
 re-placed on a laptop (`resolveDashboard`), and a re-placement is stored.
 
 ## Known issues
+
+- **smoke29's panel-order check failed once** in a full run (the server had
+  the three new sessions as JWT, IoT, Diff instead of JWT, Diff, IoT) and
+  passed on re-run. Position is set from the list index on a session's first
+  push, pushes are sequential, and a reorder follows when the order differs;
+  the suspect is the second browser in that suite, whose order announcement
+  can land between the first's creates. Not reproduced yet; worth a look
+  before it's written off.
 
 - **smoke21 occasionally fails** on a click that times out under load; it
   passes on a re-run. smoke29 used to fail the same way — a fresh profile read
