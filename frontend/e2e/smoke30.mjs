@@ -84,8 +84,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   // then, mirroring the side panel's toggle at the start, the agent panel's.
   check(order.includes("session-bar-add"), "…and it has a ＋ that adds a session", JSON.stringify(order));
   const end = await page.locator(".session-bar-end > *").evaluateAll((els) => els.map((e) => e.className.split(" ")[0]));
-  check(order[order.length - 1] === "session-bar-end" && JSON.stringify(end) === '["session-bar-more","session-bar-agent"]',
-    "…with the current session's ⋮, then the agent panel's toggle, at the very end", JSON.stringify({ order, end }));
+  check(order[order.length - 1] === "session-bar-end" && JSON.stringify(end) === '["session-bar-more","session-bar-agent","icon-popover-wrap"]',
+    "…with the current session's ⋮, the agent panel's toggle, then your picture, at the very end", JSON.stringify({ order, end }));
 
   check((await page.locator(".rail").count()) === 1, "The side panel is showing");
   await page.click(".session-bar-rail");

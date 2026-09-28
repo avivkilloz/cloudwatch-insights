@@ -101,14 +101,16 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
     const more = document.querySelector(".session-bar-more").getBoundingClientRect();
     const agent = document.querySelector(".session-bar-agent").getBoundingClientRect();
     const add = document.querySelector(".session-bar-add").getBoundingClientRect();
+    // The account's picture ends the strip while the agent panel isn't docked.
+    const picture = document.querySelector('.session-bar [aria-label="Account menu"]').getBoundingClientRect();
     return {
-      agentRightmost: bar.right - agent.right < 12,
+      agentRightmost: bar.right - picture.right < 12 && picture.left >= agent.right,
       moreBeforeAgent: more.right <= agent.left && agent.left - more.right < 12,
       afterAdd: more.left > add.right,
     };
   });
   check(atEnd.agentRightmost && atEnd.moreBeforeAgent && atEnd.afterAdd,
-    "…on the right, past the ＋, just before the agent panel's toggle", JSON.stringify(atEnd));
+    "…on the right, past the ＋, just before the agent panel's toggle (and the picture)", JSON.stringify(atEnd));
 
   await page.click(".session-bar-more");
   await page.waitForSelector(".rail-row-menu");

@@ -242,7 +242,12 @@ The user's seven points:
 Coverage: `smoke48` rewritten for this round (fails at its first check on
 the previous frontend); 13 suites updated by replacement (`.session-card`
 for the Panes card, the session card's title for a session's page-info
-title, the rail's header bar).
+title, the rail's header bar). Full run: 27 of 32; the five failures were
+fixed and each re-run on its own green -- smoke30/32 now expect the picture
+after the agent toggle, smoke26 compares the card's title with the tab (the
+home form's leftover count decides the default name), and smoke35/30's
+category-dependent checks and smoke44's closed row passed once a category
+leaked by an aborted smoke48 run was gone.
 
 ## The platform agent — agreed design and phases
 

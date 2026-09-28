@@ -120,7 +120,11 @@ const V = ".session-body:not([hidden])";
   check(((await lead.getAttribute("class")) || "").includes("session-card") &&
     (await lead.locator(".session-card-kicker").innerText()).toLowerCase() === "session",
     "The body leads with the session's own card", await lead.innerText());
-  check((await lead.locator(".session-card-title").innerText()) === "IoT", "…headed by the session's name");
+  // Compared with the tab rather than a fixed name: what the home form still
+  // held from earlier (a CloudWatch count) decides the default name.
+  const leadTitle = await lead.locator(".session-card-title").innerText();
+  const tabTitle = await page.locator(".session-tab.active .session-tab-label").innerText();
+  check(leadTitle === tabTitle, "…headed by the session's name", JSON.stringify({ leadTitle, tabTitle }));
   const paneTitles = await page.locator(`${V} .aggregator-tab-label`).allTextContents();
   check(paneTitles.length === 2 && paneTitles.some((t) => t.includes("CloudWatch")),
     "CloudWatch works as a pane", JSON.stringify(paneTitles));
