@@ -352,7 +352,7 @@ architecture assumes one owner (`LiveSession.user_id`, the per-user
 `pg_notify` fan-out, per-group IAM/environments, the agent's per-user
 token), this is a multi-PR project agreed up front rather than one PR:
 
-1. **Data model + membership API (this round, PR pending).** `SessionMember`
+1. **Data model + membership API (done, PR pending).** `SessionMember`
    (session_id, user_id, permission) -- additive only, `LiveSession.user_id`
    stays the owner. Two tiers: *viewer* (read-only) and *editor* (edit
    inputs, add/remove panes, run tools -- everything except managing
@@ -360,9 +360,18 @@ token), this is a multi-PR project agreed up front rather than one PR:
    (list/invite/change permission/remove), owner-only. **Inviting someone
    does not yet let them reach the session** -- every existing route still
    checks ownership alone; that's phase 3.
-2. **Session card UI to manage members** (not started): a new section,
-   invite by username with a permission picker, list with per-row
-   permission change and remove.
+2. **Session card UI to manage members (done, PR pending).** A fourth
+   section on the card, `CardRow label="Members"`: each invited user on its
+   own line (name, a permission `<select>`, a ✕ to remove), then the invite
+   form (username + permission picker + Invite). Fetched from the API on
+   the session's own mount (`api.listSessionMembers`), not session state --
+   it's the owner's roster, not something that syncs. Errors (no such
+   user, already a member, inviting yourself) show inline as `.error-text`,
+   the same `withActionError`-style pattern Settings uses. A brand-new
+   session's row doesn't exist on the server until the debounced autosave
+   lands, so an invite made in the first ~1.2s of a new session 404s --
+   the same window every other write into a new session already has, not
+   a new failure mode this introduces.
 3. **Actually letting a member in** (not started): extend `_owned`/
    `open_sessions`/the write paths to recognise membership, not just
    ownership; extend `live_events.py`'s `pg_notify` fan-out to every member
@@ -382,6 +391,14 @@ token), this is a multi-PR project agreed up front rather than one PR:
 Coverage for phase 1: `test_session_members.py` (invite, list, change
 permission, remove, owner-only, scoped per session), full backend suite
 183/183.
+
+Coverage for phase 2: `smoke50.mjs` (new, 12 checks -- the Members row
+exists; the three invite errors; invite at a chosen permission; the field
+clears after; duplicate invite; change permission in place; survives a
+reload, proving it's server-backed and not session state; remove), fails
+against the pre-phase-2 frontend as expected. `smoke49`'s card-shape
+checks updated for the new row/section (six rows, four sections). `tsc
+--noEmit` clean.
 
 ## The platform agent — agreed design and phases
 

@@ -114,6 +114,21 @@ export interface SessionCategory {
   position: number;
 }
 
+/** "viewer" is read-only; "editor" can also edit inputs, add or remove
+ * panes, and run tools and services -- everything short of managing
+ * membership itself, which stays the owner's alone. */
+export type SessionPermission = "viewer" | "editor";
+
+/** A user other than the owner invited into a live session. Phase 1 of
+ * sharing: this is only the roster -- an invited member can't reach the
+ * session yet (that's a later phase), so today only the owner ever sees
+ * this list, for the session they already own. */
+export interface SessionMember {
+  user_id: number;
+  username: string;
+  permission: SessionPermission;
+}
+
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
  * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
  * aren't interchangeable. */
@@ -638,6 +653,21 @@ export const api = {
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
   deleteLiveSession: (clientId: string) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+
+  listSessionMembers: (clientId: string) =>
+    req<SessionMember[]>(`/live-sessions/${encodeURIComponent(clientId)}/members`),
+  inviteSessionMember: (clientId: string, username: string, permission: SessionPermission) =>
+    req<SessionMember>(`/live-sessions/${encodeURIComponent(clientId)}/members`, {
+      method: "POST",
+      body: JSON.stringify({ username, permission }),
+    }),
+  updateSessionMemberPermission: (clientId: string, userId: number, permission: SessionPermission) =>
+    req<SessionMember>(`/live-sessions/${encodeURIComponent(clientId)}/members/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ permission }),
+    }),
+  removeSessionMember: (clientId: string, userId: number) =>
+    req<void>(`/live-sessions/${encodeURIComponent(clientId)}/members/${userId}`, { method: "DELETE" }),
 
   listSessionCategories: () => req<SessionCategory[]>("/session-categories"),
   createSessionCategory: (name: string) =>

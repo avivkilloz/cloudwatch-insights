@@ -262,14 +262,17 @@ UPDATE on every start.
 credentials per service.
 
 **Sharing a session with other users is being built in phases** (`models.SessionMember`,
-`routers/live_sessions.py`'s `/members` routes). Phase 1 (done) is only the
-roster: an owner invites a user by username at a permission ("viewer" or
-"editor"); `LiveSession.user_id` stays the owner throughout, so every
-existing single-owner path -- ownership checks, the sync protocol, the
-agent's per-user token -- is untouched by this table's existence. Inviting
-someone does **not** yet let them reach the session: every read/write route
-still checks ownership alone. Planned next: a session card section to
-manage members (phase 2); then extending `_owned`, `open_sessions` and the
+`routers/live_sessions.py`'s `/members` routes, `SessionCard`'s Members
+section). Phase 1 (done) is only the roster: an owner invites a user by
+username at a permission ("viewer" or "editor"); `LiveSession.user_id`
+stays the owner throughout, so every existing single-owner path --
+ownership checks, the sync protocol, the agent's per-user token -- is
+untouched by this table's existence. Phase 2 (done) is the session card's
+own Members `CardRow` on top of that API -- fetched on the session's
+mount, not through session state, since the roster is the owner's alone
+and doesn't belong in the synced JSON. **Neither phase yet lets an invited
+member reach the session**: every read/write route still checks ownership
+alone. Planned next: extending `_owned`, `open_sessions` and the
 `pg_notify` fan-out in `live_events.py` to recognise members too, each
 still acting under **their own group's** environments and IAM role -- never
 the owner's, there is no per-session access grant -- with write permission
@@ -348,8 +351,10 @@ chat into a multi-user conversation, gated so the agent only replies when
   icon-button style, and the body's side padding matches a pane body's own
   12px so the inner section cards don't sit further in.
   Each section is a label column and a values column (`CardRow`): name and
-  description (edited in the same kind of box), adds, and layout (one
-  segmented control). In the body it folds to its header (`cardCollapsed`,
+  description (edited in the same kind of box), adds, layout (one
+  segmented control), and members (see sharing, above) -- the one section
+  that isn't backed by session state, fetched instead from its own API on
+  mount. In the body it folds to its header (`cardCollapsed`,
   per session like a minimised pane, and only there -- in the rail there's
   nothing to fold). PageInfo is
   only for non-session pages now. The description is the top-level state key
