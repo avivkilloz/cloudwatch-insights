@@ -284,6 +284,11 @@ is waiting on the user's go-ahead). A rule under the Session card's header;
 in the body the card folds to its header and name (`cardCollapsed`, per
 session); the account picture sits 6px further in from the end of its bar.
 smoke49 extended (21 checks; the new ones fail on the previous frontend).
+Full run: 31 of 33, then both fixed and green on their own -- smoke32's
+"picture at the far end" allowance widened for its new inset, and smoke44
+now waits for the closed row as it already waited for the tab to go (the
+closed list is fetched after the announcement, so it can land a moment
+later; it had failed this way twice).
 
 ## The platform agent — agreed design and phases
 

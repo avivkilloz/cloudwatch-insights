@@ -105,7 +105,14 @@ const run = async () => {
     if (!gone) await a.waitForTimeout(200);
   }
   check(gone, "Closing a session in one browser takes it off the other's strip");
-  check((await a.locator(`${CLOSED_ROW}:has-text("CloudWatch +1")`).count()) === 1, "…and lists it there as closed, dimmed");
+  // Waited for like the tab above: the closed list is fetched after the
+  // announcement that took the tab away, so it can land a moment later.
+  let listed = false;
+  for (let i = 0; i < 50 && !listed; i++) {
+    listed = (await a.locator(`${CLOSED_ROW}:has-text("CloudWatch +1")`).count()) === 1;
+    if (!listed) await a.waitForTimeout(200);
+  }
+  check(listed, "…and lists it there as closed, dimmed");
 
   // ---------- 6. back after a drop: whatever was missed is caught up ----------
   await newSession(b, "JWT");

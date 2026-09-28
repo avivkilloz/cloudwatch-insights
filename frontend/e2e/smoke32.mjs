@@ -104,7 +104,9 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
     // The account's picture ends the strip while the agent panel isn't docked.
     const picture = document.querySelector('.session-bar [aria-label="Account menu"]').getBoundingClientRect();
     return {
-      agentRightmost: bar.right - picture.right < 12 && picture.left >= agent.right,
+      // The picture sits a little in from the end (its own margin), so the
+      // allowance is wider than the buttons' padding alone.
+      agentRightmost: bar.right - picture.right < 20 && picture.left >= agent.right,
       moreBeforeAgent: more.right <= agent.left && agent.left - more.right < 12,
       afterAdd: more.left > add.right,
     };
