@@ -6,9 +6,13 @@ interface Props {
   user: User;
   onOpenSettings: () => void;
   onLogout: () => void;
+  /** "card": the avatar with the name beside it, at the foot of the side
+   * panel, its menu opening upwards. "avatar": just the picture, for the
+   * strip while the side panel is hidden. */
+  variant?: "card" | "avatar";
 }
 
-export default function UserMenu({ user, onOpenSettings, onLogout }: Props) {
+export default function UserMenu({ user, onOpenSettings, onLogout, variant = "avatar" }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -22,18 +26,35 @@ export default function UserMenu({ user, onOpenSettings, onLogout }: Props) {
   }, [open]);
 
   return (
-    <div className="icon-popover-wrap" ref={ref}>
-      <button
-        type="button"
-        className="user-menu-trigger"
-        title={user.username}
-        aria-label="Account menu"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Avatar username={user.username} avatarUrl={user.avatar_url} />
-      </button>
+    <div className={`icon-popover-wrap${variant === "card" ? " user-menu-card-wrap" : ""}`} ref={ref}>
+      {variant === "card" ? (
+        <button
+          type="button"
+          className="user-menu-card"
+          aria-label="Account menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <Avatar username={user.username} avatarUrl={user.avatar_url} size={30} />
+          <span className="user-menu-card-text">
+            <span className="user-menu-card-name">{user.username}</span>
+            <span className="user-menu-card-group">{user.group_name}</span>
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="user-menu-trigger"
+          title={user.username}
+          aria-label="Account menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <Avatar username={user.username} avatarUrl={user.avatar_url} size={24} />
+        </button>
+      )}
       {open && (
-        <div className="icon-popover user-menu-popover">
+        <div className={`icon-popover user-menu-popover${variant === "card" ? " opens-up" : ""}`}>
           <div className="user-menu-header">
             <Avatar username={user.username} avatarUrl={user.avatar_url} size={36} />
             <div>

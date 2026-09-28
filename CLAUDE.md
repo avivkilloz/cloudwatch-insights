@@ -65,7 +65,7 @@ platform-agent/      the agent container: app/ (LangChain create_agent + MCP ada
                      streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
 
 frontend/src/
-  App.tsx            shell: header, rail column, scrolling body, mounted sessions
+  App.tsx            shell: rail column (brand, sessions, page info, account), scrolling body, mounted sessions
   api.ts             the only place that talks to the backend; types + methods
   AuthContext.tsx    current user; every page gates its own features on it
   sessions/          the session model (see below)
@@ -173,7 +173,7 @@ cookie and the browser never sees the token; keep it that way.
 - The agent can't know a dashboard's pixel width, so `arrange_dashboard`
   leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
   first time it measures the canvas, then clears it.
-- **Two conversations.** *Global* (the header's input, the Agent page) is
+- **Two conversations.** *Global* (the panel's Global tab, the Agent page) is
   about the platform and lives in memory. *Session* is one per session,
   stored in that session's state under `agentChat` (so it syncs and survives
   a reload; it's an output key, so templates leave it out). A session turn
@@ -300,6 +300,18 @@ credentials per service.
   scrollbar's look depend on `:hover` either: Chrome doesn't repaint it when
   the hover changes. Headless Chromium hides scrollbars in screenshots
   (`--hide-scrollbars`); launch without it to look at one.
+- **There is no header bar.** The brand (`components/Brand.tsx`) heads the
+  rail, or starts the strip while the rail is hidden; the account menu is a
+  card at the rail column's foot (`UserMenu variant="card"`), or an avatar on
+  the strip. Anything that measured from a 53px header is measured from the
+  window's top now.
+- **A session's description** is the top-level state key `description`
+  (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it, `start()` takes
+  it, PageInfo edits it, and the agent's `_describe_session` reports it.
+- **The Panes card can move into the rail** (`components/railSlot.ts`): a
+  per-browser preference plus the rail's slot element, both small stores.
+  Only the session on screen portals its card there -- every session is
+  mounted, and all of them would land in the one slot otherwise.
 - **The rail and the dock resize** from a `ColumnResizer` in the gap beside
   them (widths per browser in localStorage); the dock's covers only the part
   of the gap that isn't the body's scrollbar, so the scrollbar stays

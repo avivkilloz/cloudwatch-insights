@@ -131,17 +131,14 @@ const run = async () => {
     JSON.stringify({ s3, s3b }));
 
   // ---------- 7. close a session right after changing it, reopen it: all there, all draggable ----------
-  // A tab closes from its own ⋮ now.
-  await page.locator(".session-tab:has-text('S3') .session-tab-more").click();
-  await page.click('.rail-row-menu button:text-is("Close")');
+  await page.locator(".session-tab:has-text('S3') .session-tab-close").click();
   await page.waitForTimeout(100);
   // Straight after the change -- well inside the sync debounce.
   await page.locator(".session-tab:has-text('CloudWatch')").click();
   await page.waitForTimeout(200);
   await drag(page, "IoT", 0, 60);
   layoutA.IoT = await box("IoT");
-  await page.locator(".session-tab:has-text('CloudWatch') .session-tab-more").click();
-  await page.click('.rail-row-menu button:text-is("Close")');
+  await page.locator(".session-tab:has-text('CloudWatch') .session-tab-close").click();
   await page.waitForTimeout(800);
   await page.locator(`${CLOSED_ROW}:has-text("CloudWatch")`).click();
   await page.waitForSelector(`${PANE("CloudWatch")}`, { timeout: 15000 });

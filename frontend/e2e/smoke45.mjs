@@ -1,5 +1,5 @@
-// The platform agent, end to end: a question typed in the header goes to the
-// agent container, which works through the backend's MCP tools as the user --
+// The platform agent, end to end: a question typed in the agent panel's Global
+// tab goes to the agent container, which works through the backend's MCP tools as the user --
 // creating sessions, filling in and running panes, arranging a dashboard --
 // and every change arrives in the panes through live sync while the dock
 // beside them shows what it's doing.
@@ -14,10 +14,14 @@ const DOCK = ".agent-dock";
 // element it scrolls to.
 const lastTurn = (page, selector) => page.locator(`${DOCK} .agent-turn`).last().locator(selector);
 
+/** Asks in the dock's Global tab -- the way in since the header's question box
+ * went: the strip's toggle (at its far end) opens the panel if it's hidden. */
 async function ask(page, text) {
-  await page.fill(".agent-input", text);
-  await page.press(".agent-input", "Enter");
-  await page.waitForSelector(DOCK);
+  if ((await page.locator(DOCK).count()) === 0) await page.click(".session-bar-agent");
+  await page.click(`${DOCK} .agent-tab:text-is("Global")`);
+  await page.fill(`${DOCK} .agent-compose-input`, text);
+  await page.press(`${DOCK} .agent-compose-input`, "Enter");
+  await page.waitForSelector(`${DOCK} .agent-question:text-is("${text}")`);
 }
 
 /** Waits for the current turn to end (the Ask button comes back). */
@@ -36,10 +40,10 @@ const run = async () => {
   await page.reload();
   await page.waitForSelector(".rail");
 
-  // ---------- 1. Asked from the header: a session made, filled in and run ----------
+  // ---------- 1. Asked from the Global tab: a session made, filled in and run ----------
   await ask(page, "encode hello agent");
   check((await page.locator(`${DOCK} .agent-question:text-is("encode hello agent")`).count()) === 1,
-    "The header question opens the agent beside the page, with the question in it");
+    "The Global tab's question goes to the agent beside the page, with the question in it");
   // While it works, the session it's building is marked as the agent's.
   const marked = await page.waitForSelector(`${ROW("Base64")} .agent-working`, { timeout: 15000 }).then(() => true, () => false);
   check(marked, "The session the agent is working on is marked in the panel while it works");
@@ -135,13 +139,16 @@ const run = async () => {
     return g.id;
   });
   const other = await openApp(browser, { username: `noagent${groupId}`, password: "pw-123456" });
-  await other.fill(".agent-input", "encode nope");
-  await other.press(".agent-input", "Enter");
-  await other.waitForSelector(DOCK);
+  // With no header box to type into, the panel's Global tab is where they'd
+  // ask -- and it says why it can't before anything is typed, with the box
+  // disabled, so there is no question to send.
+  if ((await other.locator(DOCK).count()) === 0) await other.click(".session-bar-agent");
+  await other.click(`${DOCK} .agent-tab:text-is("Global")`);
   await other.waitForSelector(`${DOCK} .error-text`, { timeout: 10000 });
   const refused = await other.locator(`${DOCK} .error-text`).allInnerTexts();
   check(refused.some((t) => t.includes("isn't turned on for your group")),
     "Someone whose group doesn't have the agent is told so, and nothing is done", JSON.stringify(refused));
+  check(await other.locator(`${DOCK} .agent-compose-input`).isDisabled(), "…with nowhere to type a question");
   check((await other.locator(ROW("Base64")).count()) === 0,
     "…and no session appears for them");
 

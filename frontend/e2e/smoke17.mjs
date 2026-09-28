@@ -65,7 +65,7 @@ async function newPanedSession(page) {
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -83,9 +83,9 @@ async function newPanedSession(page) {
   });
   await page.reload();
 
-  await page.waitForSelector(".user-menu-trigger", { timeout: 10000 });
+  await page.waitForSelector('[aria-label="Account menu"]', { timeout: 10000 });
 
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
   await page.click('.content .tabs button:has-text("Environments")');
@@ -96,7 +96,7 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Add a service or tool above");
+  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
 
   const sessionPanel = '.panel:has(h2:text-is("Panes"))';
 

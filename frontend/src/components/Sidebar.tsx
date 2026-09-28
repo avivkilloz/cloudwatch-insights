@@ -2,6 +2,7 @@ import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "
 import { useAuth } from "../AuthContext";
 import { LiveSessionSummary } from "../api";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
+import { BrandInfo, BrandMark } from "./Brand";
 import { PersistedSession } from "../sessions/storage";
 import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { useStartSession } from "../sessions/start";
@@ -40,7 +41,7 @@ const MENU_WIDTH_PX = 156;
  * built around having several open at once. The brand in the header collapses
  * it away entirely when the page needs the room.
  */
-export default function Sidebar({ open: expanded }: { open: boolean }) {
+export default function Sidebar({ open: expanded, brand }: { open: boolean; brand: BrandInfo }) {
 
   const {
     sessions,
@@ -368,24 +369,15 @@ export default function Sidebar({ open: expanded }: { open: boolean }) {
 
   return (
     <nav className="rail" aria-label="Sessions">
+      {/* The platform's name and logo head the panel now there's no header
+          bar, and are the way home -- what the Home row used to be. */}
       <button
-        className={`rail-row rail-row-home${view === "home" ? " active" : ""}`}
+        className={`rail-row rail-row-home rail-brand${view === "home" ? " active" : ""}`}
         onClick={() => show("home")}
         title="The home page: every service, tool and platform feature"
       >
-        {/* Every other row in the rail is a session or a session type; the icon
-            is what tells this one apart at a glance. */}
-        <svg className="rail-row-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <path
-            d="M2.5 7 8 2.5 13.5 7v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V7Z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-          />
-          <path d="M6.4 14V9.6h3.2V14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-        </svg>
-        <span className="rail-row-label">Home</span>
+        <BrandMark brand={brand} size={22} />
+        <span className="rail-row-label rail-brand-title">{brand.title}</span>
       </button>
 
       {/* One list: every session you have. The ones on the strip read at full

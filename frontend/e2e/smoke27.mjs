@@ -23,7 +23,7 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -68,9 +68,13 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   check(rail.border !== "0px" && parseFloat(rail.radius) > 0, "…and is shaped like a card");
   check(rail.tall && rail.left < 40, "…standing vertically on the left", JSON.stringify(rail));
 
-  // ---------- Home at the top ----------
-  const firstRow = await page.locator(".rail-row").first().textContent();
-  check(firstRow.trim() === "Home", "Home is the first entry", firstRow);
+  // ---------- The way home at the top ----------
+  // The Home row became the brand (logo and the app's title) when the header
+  // bar went, so it is found by its class rather than by the word "Home".
+  const firstRow = page.locator(".rail-row").first();
+  const firstClass = (await firstRow.getAttribute("class")) || "";
+  check(firstClass.includes("rail-row-home") && firstClass.includes("rail-brand"),
+    "The brand, the way home, is the first entry", `${firstClass} ${await firstRow.textContent()}`);
   // Against the heading element, not the rail's text: "Open" also matched
   // "OpenSearch" in the catalogue, which made this pass for the wrong reason.
   const headingBox = await page.locator('.rail-heading:text-is("Sessions")').boundingBox();
@@ -98,9 +102,10 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   await page.waitForTimeout(300);
   await newSession(page, "JWT");
   await page.waitForTimeout(300);
-  // Home is a .rail-row too, so it has to come out of the open-sessions list.
-  const openRows = (await page.locator('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed) .rail-row-label').allTextContents())
-    .filter((t) => t !== "Home");
+  // The brand is a .rail-row too, so it has to come out of the open-sessions list.
+  const openRows = await page
+    .locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label")
+    .allTextContents();
   check(JSON.stringify(openRows) === JSON.stringify(["CloudWatch", "IoT", "JWT"]),
     "Open sessions list in the order they were opened", JSON.stringify(openRows));
 
@@ -110,20 +115,20 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   check((await page.locator(".page-info-title").textContent()) === "IoT", "Clicking an open session switches to it");
   check((await page.locator(".rail-row.active .rail-row-label").textContent()) === "IoT", "…and the rail marks it active");
 
-  // ---------- Home row ----------
-  await page.click(ROW("Home"));
+  // ---------- the brand row ----------
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home-cards", { timeout: 5000 });
-  check(true, "Home shows the home page");
-  check((await page.locator(".rail-row.active .rail-row-label").count()) === 0 ||
-        (await page.locator(".rail-row.active").first().textContent()).trim() === "Home",
-    "…and Home is the active row");
+  check(true, "The brand shows the home page");
+  check((await page.locator(".rail-row.active").count()) === 0 ||
+        ((await page.locator(".rail-row.active").first().getAttribute("class")) || "").includes("rail-row-home"),
+    "…and the brand is the active row");
   check((await page.locator(ROW("IoT")).count()) === 1, "Going home does not close the open sessions");
 
   // ---------- the ⋮ menu ----------
   await page.click(`${ROW("JWT")} .rail-row-more`);
   await page.waitForSelector(".rail-row-menu");
   const items = await page.locator(".rail-row-menu button").allTextContents();
-  // Closing is in the tab's own ⋮ in the strip; the panel's ⋮ is what you do to the session.
+  // Closing is the tab's ✕ in the strip; the panel's ⋮ is what you do to the session.
   check(items.includes("Rename") && items.includes("Delete") && !items.includes("Close"),
     "The ⋮ menu offers what you do to a session, not to a tab", JSON.stringify(items));
   await page.keyboard.press("Escape");

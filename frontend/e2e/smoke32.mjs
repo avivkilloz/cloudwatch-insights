@@ -1,6 +1,7 @@
-// Each tab's own ⋮ in the strip, and the page's title/description as a card
-// under the side panel rather than above the body's first card.
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report, tabMenu } from "./harness.mjs";
+// The strip's ⋮ for the session on screen (each tab has a ✕, not a ⋮ of its
+// own -- that was tried and put back), and the page's title/description as a
+// card under the side panel rather than above the body's first card.
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
@@ -72,7 +73,7 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   check((await page.locator(".page-info-title").textContent()) === "IoT", "…and it follows a click on a tab");
 
   // Settings has no session, and still gets one.
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.icon-popover-item:text-is("Settings")');
   await page.waitForTimeout(400);
   check((await page.locator(".page-info-title").textContent()) === "Settings", "Settings has one too");
@@ -86,48 +87,58 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await page.waitForSelector(".page-info");
   check(true, "…and showing it brings both back");
 
-  // ---------- 1. each tab's ⋮ ----------
+  // ---------- 1. the strip's ⋮ ----------
   await page.click(`${TAB("IoT")} .session-tab-label`);
   await page.waitForTimeout(250);
   const tabCount = await page.locator(".session-tab").count();
-  check(tabCount === 2 && (await page.locator(".session-tab .session-tab-more").count()) === tabCount,
-    "Each tab has its own ⋮", String(tabCount));
-  // The far end of the strip is the agent panel's toggle now, mirroring the
-  // side panel's at the start; there is no strip-wide ⋮ any more.
-  check((await page.locator(".session-bar-more").count()) === 0, "There is no separate ⋮ for the strip");
+  check(tabCount === 2 && (await page.locator(".session-tab .session-tab-close").count()) === tabCount &&
+    (await page.locator(".session-tab-more").count()) === 0,
+    "Each tab has a ✕ and no ⋮ of its own", String(tabCount));
+  check((await page.locator(".session-bar-more").count()) === 1, "The strip has a ⋮ at the end");
+  // The very end is the agent panel's toggle, mirroring the side panel's at
+  // the start, so the ⋮ is the last thing before it.
   const atEnd = await page.evaluate(() => {
     const bar = document.querySelector(".session-bar").getBoundingClientRect();
+    const more = document.querySelector(".session-bar-more").getBoundingClientRect();
     const agent = document.querySelector(".session-bar-agent").getBoundingClientRect();
     const add = document.querySelector(".session-bar-add").getBoundingClientRect();
-    return { rightmost: bar.right - agent.right < 12, afterAdd: agent.left > add.right };
+    return {
+      agentRightmost: bar.right - agent.right < 12,
+      moreBeforeAgent: more.right <= agent.left && agent.left - more.right < 12,
+      afterAdd: more.left > add.right,
+    };
   });
-  check(atEnd.rightmost && atEnd.afterAdd, "The agent panel's toggle is at the end, past the ＋", JSON.stringify(atEnd));
+  check(atEnd.agentRightmost && atEnd.moreBeforeAgent && atEnd.afterAdd,
+    "…on the right, past the ＋, just before the agent panel's toggle", JSON.stringify(atEnd));
 
-  await page.click(`${TAB("IoT")} .session-tab-more`);
+  await page.click(".session-bar-more");
   await page.waitForSelector(".rail-row-menu");
   const items = await page.locator(".rail-row-menu button").allTextContents();
-  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Close", "Delete"]),
-    "…offering the panel's three, plus Close", JSON.stringify(items));
+  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Delete"]),
+    "…offering the same three as the panel's ⋮", JSON.stringify(items));
   await page.keyboard.press("Escape");
   check((await page.locator(".rail-row-menu").count()) === 0, "…and Escape closes it");
 
-  // A tab's ⋮ acts on that tab's session, not on the one showing or the first tab.
-  const label = await page.locator(`${TAB("Base64")} .session-tab-more`).getAttribute("aria-label");
-  check(label === "More for Base64", "Each ⋮ is for its own tab's session", label);
+  // It acts on the session showing, not on the first tab.
+  await page.click(`${TAB("Base64")} .session-tab-label`);
+  await page.waitForTimeout(250);
+  await page.click(".session-bar-more");
+  await page.waitForSelector(".rail-row-menu");
+  const label = await page.locator(".session-bar-more").getAttribute("aria-label");
+  check(label === "More for Base64", "It acts on the session in display, not the first tab", label);
 
   // ---------- rename from it, in place on the tab ----------
-  // From Base64's ⋮ while IoT is the one showing.
-  await tabMenu(page, "Base64", "Rename");
+  await page.click('.rail-row-menu button:text-is("Rename")');
   await page.waitForSelector(".session-tab-rename");
   check((await page.locator(".session-tab-rename").count()) === 1, "Rename turns the tab into a field");
   await page.fill(".session-tab-rename", "Renamed from the strip");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(400);
   check((await page.locator(TAB("Renamed from the strip")).count()) === 1, "…committing on Enter");
-  check((await page.locator(TAB("IoT")).count()) === 1, "…on that tab, leaving the one showing alone");
   check((await page.locator(ROW("Renamed from the strip")).count()) === 1, "…and the panel follows the new name");
 
-  await tabMenu(page, "Renamed from the strip", "Rename");
+  await page.click(".session-bar-more");
+  await page.click('.rail-row-menu button:text-is("Rename")');
   await page.waitForSelector(".session-tab-rename");
   await page.fill(".session-tab-rename", "Discarded");
   await page.keyboard.press("Escape");
@@ -135,18 +146,18 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   check((await page.locator(TAB("Renamed from the strip")).count()) === 1, "Escape keeps the old name");
   check((await page.locator(TAB("Discarded")).count()) === 0, "…without writing the typed one");
 
-  // ---------- with no session showing, the tabs keep their ⋮ ----------
+  // ---------- there is nothing to act on with no session showing ----------
   await page.click(".rail-row-home");
   await page.waitForTimeout(250);
-  check((await page.locator(".session-tab .session-tab-more").count()) === 2,
-    "On Home every open tab still has its ⋮: each acts on its own session, not the one on screen");
+  check((await page.locator(".session-bar-more").count()) === 0, "On Home the ⋮ is gone: there is no session on screen");
   check((await page.locator(".session-bar-add").count()) === 1, "…while ＋ stays, since you can always open one");
 
   // ---------- delete from it ----------
   await page.click(`${TAB("Renamed from the strip")} .session-tab-label`);
   await page.waitForTimeout(250);
   page.on("dialog", (d) => d.accept());
-  await tabMenu(page, "Renamed from the strip", "Delete");
+  await page.click(".session-bar-more");
+  await page.click('.rail-row-menu button:text-is("Delete")');
   await page.waitForTimeout(800);
   check((await page.locator(TAB("Renamed from the strip")).count()) === 0, "Delete from the strip closes the tab");
   check((await page.locator(ROW("Renamed from the strip")).count()) === 0, "…and takes it out of the panel");

@@ -43,8 +43,8 @@ LITELLM_BASE_URL=http://127.0.0.1:4010 LITELLM_API_KEY=x AGENT_MODEL=fake \
 # and start the backend with AGENT_URL=http://127.0.0.1:8100
 ```
 
-Without them, those two fail and every other suite is unaffected (22 and 23
-only check that a header question reaches the agent panel).
+Without them, those three fail and every other suite is unaffected (22 and 23
+only check that a question asked in the agent panel's Global tab reaches it).
 
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs

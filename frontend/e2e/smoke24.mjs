@@ -21,7 +21,7 @@ const V = ".session-body:not([hidden])";
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -72,11 +72,13 @@ const V = ".session-body:not([hidden])";
   // ---------- item 2: one height for every row ----------
   // The strip's tabs/+/Save-session trio is gone. Its point -- that the
   // controls line up rather than each taking its own text metrics -- now
-  // applies to the rail's rows.
+  // applies to the rail's rows. The brand that heads the rail is a row too,
+  // but a deliberately taller one (the logo, where the header used to be), so
+  // it is left out.
   const heights = await page.evaluate(() => {
     const h = (el) => Math.round(el.getBoundingClientRect().height * 100) / 100;
     return {
-      rows: [...document.querySelectorAll(".rail-row")].map((e) => [e.textContent.replace("⋮", "").trim(), h(e)]),
+      rows: [...document.querySelectorAll(".rail-row:not(.rail-brand)")].map((e) => [e.textContent.replace("⋮", "").trim(), h(e)]),
     };
   });
   const rowHeights = new Set(heights.rows.map((r) => r[1]));
@@ -138,13 +140,13 @@ const V = ".session-body:not([hidden])";
 
   // ---------- session reordering still works, by pointer ----------
   // The rail is a column, so the drag is vertical; only the Open rows move,
-  // so Home, the templates and the catalogue are excluded from the comparison.
-  const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed)";
-  const openTitles = async () =>
-    (await page.locator(`${OPEN} .rail-row-label`).allTextContents()).filter((t) => t !== "Home");
+  // so the brand (the way home), the templates and the catalogue are excluded
+  // from the comparison.
+  const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home)";
+  const openTitles = async () => await page.locator(`${OPEN} .rail-row-label`).allTextContents();
   const titlesBefore = await openTitles();
   check(titlesBefore.length >= 3, "Three sessions are open to reorder", JSON.stringify(titlesBefore));
-  const rows = page.locator(`${OPEN}:not(:has(.rail-row-label:text-is("Home")))`);
+  const rows = page.locator(OPEN);
   // The rail scrolls: clicking a catalogue row near its bottom focus-scrolls
   // it into view, which leaves the open-sessions list above the fold. Bring
   // the rows back before measuring -- page.mouse does not scroll for you.
@@ -165,7 +167,7 @@ const V = ".session-body:not([hidden])";
   check(titlesAfter.length === titlesBefore.length, "Reordering loses no sessions");
 
   // A plain click still activates (the drag threshold isn't swallowing clicks).
-  // Addressed by name rather than index: Home shares the row class.
+  // Addressed by name rather than index: the brand shares the row class.
   await page.click(`${OPEN} .rail-row-label:text-is("${titlesAfter[1]}")`);
   await page.waitForTimeout(250);
   check((await page.locator(".rail-row.active .rail-row-label").textContent()) === titlesAfter[1],

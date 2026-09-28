@@ -30,6 +30,7 @@ export default function HomePage() {
   // How many panes of each kind the new session gets; absent means none.
   const [counts, setCounts] = useState<Partial<Record<SessionType, number>>>({});
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
 
   const panes = SESSION_TYPES.filter((t) => t.enabledFor(user));
   const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
@@ -47,9 +48,10 @@ export default function HomePage() {
   }
 
   function create() {
-    start(chosen(), name);
+    start(chosen(), name, description);
     setCounts({});
     setName("");
+    setDescription("");
   }
 
   const total = chosen().length;
@@ -81,6 +83,16 @@ export default function HomePage() {
             Create
           </button>
         </div>
+        <label className="field home-description">
+          <span className="field-label">Description</span>
+          <textarea
+            value={description}
+            rows={2}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this session is for — optional, and you can change it later from the card under the side panel."
+            aria-label="Description for the new session"
+          />
+        </label>
 
         {GROUP_ORDER.map((group) => {
           const inGroup = panes.filter((t) => t.group === group);

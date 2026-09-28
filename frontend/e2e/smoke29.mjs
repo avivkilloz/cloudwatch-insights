@@ -4,7 +4,8 @@ import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSes
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
-const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed)";
+// Not the brand either: it heads the rail as a row of its own (the way home).
+const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home)";
 const ROW = (l) => `${OPEN}:has(.rail-row-label:text-is("${l}"))`;
 const CLOSED = ".rail-row-closed";
 
@@ -26,7 +27,7 @@ async function freshPage(browser) {
 }
 
 const openTitles = (page) =>
-  page.locator(`${OPEN} .rail-row-label`).allTextContents().then((t) => t.filter((x) => x !== "Home"));
+  page.locator(`${OPEN} .rail-row-label`).allTextContents();
 const closedTitles = (page) => page.locator(`${CLOSED} .rail-row-label`).allTextContents();
 
 /** The server's own view, read through the app's cookie rather than guessed at
@@ -80,7 +81,7 @@ async function menu(page, title, item) {
     "…and is there on a browser profile that has never seen it", JSON.stringify(await openTitles(other)));
   // A fresh browser lands on Home: which tab you were looking at is local, by
   // design, so the sessions are listed but none is showing yet.
-  check((await other.locator(".rail-row.active .rail-row-label").textContent()) === "Home",
+  check(((await other.locator(".rail-row.active").getAttribute("class")) || "").includes("rail-row-home"),
     "…with a new browser still landing on Home, since the active tab is local");
   await other.click(`${ROW("Base64")} .rail-row-label`);
   await other.waitForSelector(".session-body:not([hidden]) textarea");
@@ -128,7 +129,7 @@ async function menu(page, title, item) {
   check(JSON.stringify(await serverOpen(other)) === '["JWT","Diff","IoT"]',
     "Several sessions autosave in panel order", JSON.stringify(await serverOpen(other)));
 
-  const rows = other.locator(`${OPEN}:not(:has(.rail-row-label:text-is("Home")))`);
+  const rows = other.locator(OPEN);
   await rows.nth(0).scrollIntoViewIfNeeded();
   const a = await rows.nth(0).boundingBox();
   const c = await rows.nth(2).boundingBox();

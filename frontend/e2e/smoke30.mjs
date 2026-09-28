@@ -1,5 +1,5 @@
-// The session strip above the body, the rail's home icon, and the spacing that
-// lines the strip up with the cards under it.
+// The session strip above the body, the brand heading the rail, and the spacing
+// that lines the strip up with the cards under it.
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
@@ -30,12 +30,14 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await page.reload();
   await page.waitForSelector(".rail");
 
-  // ---------- 1. the gap under the header is the gap between cards ----------
+  // ---------- 1. the gap above the strip and the panel is the gap between cards ----------
+  // There is no header bar any more, so what used to be measured from its
+  // bottom edge is measured from the window's top.
   await newSession(page, "CloudWatch");
   await page.waitForSelector(ROW("CloudWatch"));
   const geo = await page.evaluate(() => {
     const box = (s) => { const e = document.querySelector(s); return e && e.getBoundingClientRect(); };
-    const header = box(".topbar"), bar = box(".session-bar"), rail = box(".rail");
+    const bar = box(".session-bar"), rail = box(".rail");
     // Skipping the session's own Panes card: it and the pane's first card are
     // separated by the tab row as well as by the gap, so the pair to measure is
     // two of the pane's own cards.
@@ -43,29 +45,33 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
       .slice(1)
       .map((e) => e.getBoundingClientRect());
     return {
-      headerToBar: Math.round(bar.top - header.bottom),
-      headerToRail: Math.round(rail.top - header.bottom),
+      topToBar: Math.round(bar.top),
+      topToRail: Math.round(rail.top),
       panelGap: panels[1] ? Math.round(panels[1].top - panels[0].bottom) : null,
       barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
       panelLeft: Math.round(panels[0].left), panelRight: Math.round(panels[0].right),
     };
   });
-  check(geo.headerToBar === geo.panelGap, "The gap under the top header is the gap between two cards", JSON.stringify(geo));
-  check(geo.headerToRail === geo.panelGap, "…and the side panel starts at the same distance", JSON.stringify(geo));
+  check(geo.topToBar === 16 && geo.panelGap === 16, "The strip starts 16px from the window's top, the gap between two cards",
+    JSON.stringify(geo));
+  check(geo.topToRail === 16, "…and the side panel starts at the same distance", JSON.stringify(geo));
   check(geo.barLeft === geo.panelLeft && geo.barRight === geo.panelRight,
     "The strip is exactly as wide as the cards below it", JSON.stringify(geo));
 
-  // ---------- 2. Home carries an icon ----------
-  check((await page.locator(".rail-row-home .rail-row-icon").count()) === 1, "Home has an icon in the side panel");
-  const iconGeo = await page.evaluate(() => {
+  // ---------- 2. the brand heads the side panel ----------
+  // The Home row became the brand when the header bar went: the logo (or the
+  // title's initial on a tile, with none set) and the app's title. It is
+  // meant to be taller than the rows under it, so their height isn't compared.
+  const mark = ".rail-row-home.rail-brand :is(.brand-logo, .brand-initial)";
+  check((await page.locator(mark).count()) === 1, "The brand has its mark in the side panel");
+  const iconGeo = await page.evaluate((markSelector) => {
     const row = document.querySelector(".rail-row-home");
-    const icon = row.querySelector(".rail-row-icon").getBoundingClientRect();
+    const icon = document.querySelector(markSelector).getBoundingClientRect();
     const label = row.querySelector(".rail-row-label").getBoundingClientRect();
-    const other = document.querySelector('.rail-row-type').getBoundingClientRect();
-    return { iconRight: icon.right, labelLeft: label.left, homeH: Math.round(row.getBoundingClientRect().height), otherH: Math.round(other.height) };
-  });
-  check(iconGeo.iconRight <= iconGeo.labelLeft, "…to the left of the word, in the same button", JSON.stringify(iconGeo));
-  check(iconGeo.homeH === iconGeo.otherH, "…without making the row a different height", JSON.stringify(iconGeo));
+    return { iconRight: icon.right, labelLeft: label.left, first: row.parentElement.firstElementChild === row };
+  }, mark);
+  check(iconGeo.iconRight <= iconGeo.labelLeft, "…to the left of the title, in the same button", JSON.stringify(iconGeo));
+  check(iconGeo.first, "…as the panel's first row", JSON.stringify(iconGeo));
 
   // ---------- 3. the strip: toggle, tabs, + ----------
   check((await page.locator(".session-bar").count()) === 1, "There is a session strip above the body");
@@ -74,11 +80,12 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
     return kids.map((e) => e.className.split(" ")[0]);
   });
   check(order[0] === "session-bar-rail", "Its first button toggles the side panel", JSON.stringify(order));
-  // At the far end, mirroring the side panel's toggle at the start, is the
-  // agent panel's; each session's ⋮ is on its own tab now.
+  // At the far end: the ⋮ for the session on screen, when there is one, and
+  // then, mirroring the side panel's toggle at the start, the agent panel's.
   check(order.includes("session-bar-add"), "…and it has a ＋ that adds a session", JSON.stringify(order));
-  check(order[order.length - 1] === "session-bar-agent", "…with the agent panel's toggle at the very end",
-    JSON.stringify(order));
+  const end = await page.locator(".session-bar-end > *").evaluateAll((els) => els.map((e) => e.className.split(" ")[0]));
+  check(order[order.length - 1] === "session-bar-end" && JSON.stringify(end) === '["session-bar-more","session-bar-agent"]',
+    "…with the current session's ⋮, then the agent panel's toggle, at the very end", JSON.stringify({ order, end }));
 
   check((await page.locator(".rail").count()) === 1, "The side panel is showing");
   await page.click(".session-bar-rail");
@@ -116,7 +123,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await newSession(page, "JWT");
 
   // ---------- closing lives on the tab, not in the panel ----------
-  check((await page.locator(`${TAB("JWT")} .session-tab-more`).count()) === 1, "Each tab has its own ⋮");
+  check((await page.locator(`${TAB("JWT")} .session-tab-close`).count()) === 1, "Each tab has its own ✕");
+  check((await page.locator(".session-tab-more").count()) === 0, "…and no ⋮ of its own; the strip has one for the session on screen");
   await closeTab(page, "JWT");
   await page.waitForTimeout(400);
   check((await page.locator(TAB("JWT")).count()) === 0, "…which closes that session");
@@ -159,7 +167,7 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await page.click(`${ROW("Renamed in place")} .rail-row-label`);
   await page.waitForTimeout(200);
   check((await page.locator(".rail-row-home.active").count()) === 0, "Not on Home to start with");
-  await page.click(".brand");
+  await page.click(".rail-brand");
   await page.waitForTimeout(250);
   check((await page.locator(".rail-row-home.active").count()) === 1, "Clicking the title goes home");
   check((await page.locator(".rail").count()) === 1, "…and leaves the side panel alone, which is the strip's job now");

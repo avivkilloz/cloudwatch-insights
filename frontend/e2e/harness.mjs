@@ -217,23 +217,24 @@ export const CLOSED_ROW = ".rail-row-closed";
 /** A tab in the strip above the body. */
 export const TAB = (label) => `.session-tab:has(.session-tab-label:text-is("${label}"))`;
 
-/** Opens a tab's ⋮ and picks one of its items ("Rename", "Save as template…",
- * "Close", "Delete"). A tab closes from its menu now, not a ✕. */
+/** Picks one of the strip's ⋮ items ("Rename", "Save as template…",
+ * "Delete") for a tab -- the ⋮ at the strip's end acts on the session on
+ * screen, so the tab is brought forward first. */
 export async function tabMenu(page, label, item) {
-  await page.click(`${TAB(label)} .session-tab-more`);
+  await page.click(`${TAB(label)} .session-tab-label`);
+  await page.click(".session-bar-more");
   await page.click(`.rail-row-menu button:text-is("${item}")`);
 }
 
-/** Closes one tab, from its ⋮. */
+/** Closes one tab, with its ✕. */
 export async function closeTab(page, label) {
-  await tabMenu(page, label, "Close");
+  await page.click(`${TAB(label)} .session-tab-close`);
 }
 
 /** Closes every open tab, the first one each time, until the strip is empty. */
 export async function closeAllTabs(page) {
-  while ((await page.locator(".session-tab-more").count()) > 0) {
-    await page.locator(".session-tab-more").first().click();
-    await page.click('.rail-row-menu button:text-is("Close")');
+  while ((await page.locator(".session-tab-close").count()) > 0) {
+    await page.locator(".session-tab-close").first().click();
     await page.waitForTimeout(150);
   }
 }

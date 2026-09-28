@@ -67,11 +67,13 @@ async function login(browser, seed) {
   check((await page.locator(".page-info-title").textContent()) === "Agent", "The agent is a page now");
   check((await page.locator(TAB("Agent")).count()) === 0, "…not a session you have copies of");
 
-  // The header bar hands its question to that page rather than opening one.
-  await page.fill(".agent-input", "what broke last night?");
-  await page.press(".agent-input", "Enter");
+  // A question asked there stays on that page rather than opening one. (It
+  // used to come from the header bar, which is gone; the agent panel isn't
+  // drawn beside the Agent page, so the page's own box is the way in.)
+  await page.fill(".content .agent-compose-input", "what broke last night?");
+  await page.press(".content .agent-compose-input", "Enter");
   await page.waitForTimeout(400);
-  check((await page.locator(".page-info-title").textContent()) === "Agent", "Asking in the header goes to the agent");
+  check((await page.locator(".page-info-title").textContent()) === "Agent", "Asking on the Agent page goes to the agent");
   check((await page.locator(".content").textContent()).includes("what broke last night?"),
     "…and the question arrives as its message");
   check((await page.locator(".session-tab").count()) === 0, "…still without opening a session");

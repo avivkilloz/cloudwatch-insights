@@ -72,7 +72,12 @@ const run = async () => {
     return [getComputedStyle(dock).position, getComputedStyle(dock).backgroundColor,
             getComputedStyle(document.body).backgroundColor];
   });
-  check(dockBg[0] === "sticky" && dockBg[1] === dockBg[2], "The strip's dock is sticky and painted in the page colour", JSON.stringify(dockBg));
+  // Compared as colours, not strings: the body's background transitions when
+  // a theme is applied, and read mid-transition the same colour comes back as
+  // "rgba(r, g, b, 1)" rather than "rgb(r, g, b)".
+  const channels = (c) => (c.match(/[\d.]+/g) || []).map(Number).concat(1).slice(0, 4).join(",");
+  check(dockBg[0] === "sticky" && channels(dockBg[1]) === channels(dockBg[2]),
+    "The strip's dock is sticky and painted in the page colour", JSON.stringify(dockBg));
 
   // ---- 2. Create sits beside the Name box ----------------------------
   const createGap = await gapBetween(page, ".home-new-row .field input", ".home-create", "x");
