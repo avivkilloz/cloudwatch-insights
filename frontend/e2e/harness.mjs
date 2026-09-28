@@ -180,7 +180,7 @@ export async function newSession(page, ...labels) {
   if (labels.length) {
     await page.waitForSelector(`${SHOWN} .aggregator-tab-label:text-is("${labels[0]}")`, { timeout: 15000 });
   } else {
-    await page.waitForSelector(`${SHOWN} h2:text-is("Panes")`, { timeout: 15000 });
+    await page.waitForSelector(`${SHOWN} .session-card`, { timeout: 15000 });
   }
   await page.waitForTimeout(250);
 }

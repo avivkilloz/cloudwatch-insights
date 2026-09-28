@@ -61,7 +61,7 @@ const run = async () => {
 
   // ---------- 3. the Panes card only adds ----------
   // Scoped to the Panes card itself: the panes inside have checkboxes of their own.
-  check((await page.locator(`${SHOWN} .panel:has(> h2:text-is("Panes")) > .toolbar input[type=checkbox]`).count()) === 0,
+  check((await page.locator(`${SHOWN} .session-card > .toolbar input[type=checkbox]`).count()) === 0,
     "The Panes card has no checkboxes -- nothing there can close a pane");
   await addPane(page, "CloudWatch");
   check((await headers()).includes("CloudWatch 3"), "+ CloudWatch adds another CloudWatch pane, numbered", JSON.stringify(await headers()));

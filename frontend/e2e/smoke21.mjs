@@ -1,6 +1,6 @@
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
 
-const SESSION = '.panel:has(h2:text-is("Panes"))';
+const SESSION = '.session-card';
 
 /** What "drop `id` into the slot `over` holds" should produce. */
 function expectedOrder(order, id, over) {
@@ -108,7 +108,7 @@ async function newPanedSession(page) {
   // and give the page its full width -- exactly what the strip's panel button is for.
   await page.click(".session-bar-rail");
   await page.waitForTimeout(300);
-  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
+  await page.waitForSelector("text=Add a service or tool from the session's card to start");
   // All six open: the heaviest re-render, which is what the old version
   // couldn't survive. At this width they wrap onto two rows.
   for (const label of ["CloudWatch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client"]) {

@@ -86,7 +86,7 @@ const VISIBLE = ".session-body:not([hidden])";
   // for the agent goes in the agent panel's Global tab.
   check((await page.locator(".topbar").count()) === 0, "There is no header bar");
   check(
-    await page.locator(".rail").evaluate((rail) => rail.firstElementChild?.classList.contains("rail-brand") ?? false),
+    await page.locator(".rail").evaluate((rail) => rail.firstElementChild?.querySelector(".rail-brand") != null),
     "The side panel's first row is the brand"
   );
   check(await page.locator(".home").isVisible(), "The app lands on the home page");
@@ -115,7 +115,7 @@ const VISIBLE = ".session-body:not([hidden])";
   await page.waitForSelector('.rail-row-label:text-is("CloudWatch")');
   check(JSON.stringify(await tabTitles(page)) === JSON.stringify(["CloudWatch"]), "Choosing a type opens a session tab");
   check(
-    (await page.locator('.page-info-title:text-is("CloudWatch")').count()) > 0,
+    (await page.locator('.session-body:not([hidden]) .session-card-title:text-is("CloudWatch")').count()) > 0,
     "The body switches to that session"
   );
 
@@ -230,7 +230,7 @@ const VISIBLE = ".session-body:not([hidden])";
   await page.click('.rail-row-label:text-is("CloudWatch")');
   // The page's title moved to the card under the panel, so that is what says
   // which session is showing.
-  await page.waitForSelector('.page-info-title:text-is("CloudWatch")');
+  await page.waitForSelector('.session-body:not([hidden]) .session-card-title:text-is("CloudWatch")');
   await page.click(".rail-row-home");
   check(await page.locator(".home").isVisible(), "Clicking the title goes home");
 

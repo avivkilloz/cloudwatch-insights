@@ -32,7 +32,7 @@ export default function SessionBar({
   railOpen: boolean;
   onToggleRail: () => void;
   brand: BrandInfo;
-  /** The account menu, while the side panel (its usual place) is hidden. */
+  /** The account's picture, unless the docked agent panel's header has it. */
   account: ReactNode;
 }) {
   const { sessions, activeId, view, close, activate, rename, show } = useSessions();
@@ -53,15 +53,12 @@ export default function SessionBar({
        strip inside it is a plain card, the same width as the cards below. */
     <div className="session-bar-dock">
       <div className="session-bar">
-        {/* With the side panel hidden, what heads it comes here: the logo (the
-            way home) and the account. Shown, they're in the panel instead. */}
+        {/* With the side panel hidden, what heads it comes here: the logo, the
+            way home. Shown, it's in the panel instead. */}
         {!railOpen && (
-          <>
-            <button className="session-bar-brand" onClick={() => show("home")} title={`${brand.title} — home`}>
-              <BrandMark brand={brand} size={20} />
-            </button>
-            {account}
-          </>
+          <button className="session-bar-brand" onClick={() => show("home")} title={`${brand.title} — home`}>
+            <BrandMark brand={brand} size={20} />
+          </button>
         )}
         <button
           className="session-bar-rail"
@@ -221,6 +218,7 @@ export default function SessionBar({
               {agent.open && <rect x="10.5" y="3.5" width="3" height="9" fill="currentColor" opacity="0.5" />}
             </svg>
           </button>
+          {account}
         </div>
       </div>
     </div>

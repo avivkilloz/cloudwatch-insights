@@ -25,12 +25,14 @@ const MAX_PER_TYPE = 10;
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { show } = useSessions();
+  const { show, categories } = useSessions();
   const { start } = useStartSession();
   // How many panes of each kind the new session gets; absent means none.
   const [counts, setCounts] = useState<Partial<Record<SessionType, number>>>({});
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // Which category it's filed in; none unless one is picked.
+  const [categoryId, setCategoryId] = useState<number | null>(null);
 
   const panes = SESSION_TYPES.filter((t) => t.enabledFor(user));
   const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
@@ -48,10 +50,11 @@ export default function HomePage() {
   }
 
   function create() {
-    start(chosen(), name, description);
+    start(chosen(), name, description, categoryId);
     setCounts({});
     setName("");
     setDescription("");
+    setCategoryId(null);
   }
 
   const total = chosen().length;
@@ -79,6 +82,24 @@ export default function HomePage() {
               aria-label="Name for the new session"
             />
           </label>
+          {/* Only when there are categories to choose from; none by default. */}
+          {categories.length > 0 && (
+            <label className="field">
+              <span className="field-label">Category</span>
+              <select
+                value={categoryId ?? ""}
+                onChange={(e) => setCategoryId(e.target.value === "" ? null : Number(e.target.value))}
+                aria-label="Category for the new session"
+              >
+                <option value="">None</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button className="home-create" onClick={create} title="Start a session holding the panes you have chosen">
             Create
           </button>

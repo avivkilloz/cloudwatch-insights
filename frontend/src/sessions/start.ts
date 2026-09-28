@@ -26,9 +26,10 @@ const START_LAYOUT = "tabs";
 export interface StartSession {
   /** A session holding exactly the panes given -- a type listed twice is two
    * panes of it -- named after the first unless a name is passed, and with
-   * the description given, if any (`SESSION_DESCRIPTION_KEY`). None at all
+   * the description given, if any (`SESSION_DESCRIPTION_KEY`), filed in the
+   * category given, if any. None at all
    * is fine: an empty session is filled from inside it. */
-  start: (panes: SessionType[], name?: string, description?: string) => void;
+  start: (panes: SessionType[], name?: string, description?: string, categoryId?: number | null) => void;
   /** A session holding one pane, named after it: the shortcut behind clicking
    * a service or tool in an Add list. */
   startOne: (pane: SessionType) => void;
@@ -48,18 +49,20 @@ export function defaultSessionName(panes: SessionType[]): string {
 }
 
 export function useStartSession(): StartSession {
-  const { sessions, open } = useSessions();
+  const { sessions, open, setSessionCategory } = useSessions();
 
-  function start(panes: SessionType[], name?: string, description?: string) {
+  function start(panes: SessionType[], name?: string, description?: string, categoryId?: number | null) {
     const title = nextTitle(name?.trim() || defaultSessionName(panes), sessions.map((s) => s.title));
     const seeded = initialPanes(panes);
     const about = description?.trim();
-    open(title, {
+    const id = open(title, {
       ...seeded,
       layout: START_LAYOUT,
       activePane: seeded.services[0] ?? null,
       ...(about ? { [SESSION_DESCRIPTION_KEY]: about } : {}),
     });
+    // Queued after the open, so it finds the session it files.
+    if (categoryId != null) setSessionCategory(id, categoryId);
   }
 
   return {

@@ -9,10 +9,9 @@ regions** by assuming a role you configure in each target account.
 The app is organised around **sessions** rather than a fixed set of tabs.
 
 - There is **no header bar**. The platform's logo and name head the **side
-  panel** (click them to go home), and your **account** is a card at the
-  panel's foot — your picture and name; click it for Settings and Log out.
-  Hide the panel (its toggle starts the strip) and the logo and your picture
-  move to the start of the strip instead. Questions for the agent go in its
+  panel** (click them to go home); hide the panel and the logo starts the
+  strip instead. Your **picture** ends the strip — or the docked agent panel's
+  header — and opens Settings and Log out. Questions for the agent go in its
   panel's **Global** tab.
 - **A session is one thing, and it holds as many pages as you like.** There is
   no separate "Aggregator" to open alongside single-service sessions — every
@@ -23,11 +22,12 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   default — two CloudWatch panes side by side is as easy as one), press
   **Create**. Choose nothing and you get an empty one to fill from inside.
   Leave the name blank and it is named after what is in it. Give it a
-  **description** too if you like — what it's for; it shows in the card under
-  the side panel, where ✎ edits it (or adds one later), and the agent reads
-  it.
-- **Inside a session, the Panes card only adds** (its ⇤ moves it into the
-  side panel, under the session's description, and ⇥ back) — "+ CloudWatch" opens
+  **description** too if you like — what it's for (the agent reads it) — and
+  file it in a **category** if you have any.
+- **Each session has its own card**: its name and description (✎ edits
+  either), what to add, and the layout. ⇤ moves the card into the side panel
+  and ⇥ back; it stays where you put it, even while the side panel is hidden.
+- **Inside a session, the card only adds** — "+ CloudWatch" opens
   another CloudWatch pane each time — and a pane is closed from its own ✕ (its
   tab's, in the tabs layout). Panes of one kind are named "CloudWatch",
   "CloudWatch 2"…, keep their own inputs and results, and can be renamed: ✎
@@ -110,7 +110,7 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   one — see [Platform agent](#platform-agent).
 
 Settings (including Environments, Users, Groups and Saved items) is reached
-from the account card and is not a session; the strip stays above it.
+from your picture's menu and is not a session; the strip stays above it.
 
 - Define **environments** — each one an AWS account paired with a single
   region — once, under Settings' **Environments** section (Admin-group
@@ -372,11 +372,10 @@ control:
   flag said, so nobody gains a page they were not given.
   Settings itself is handled separately, see below).
 
-Everything about the current user lives behind their **account card**, at the
-foot of the side panel (their picture if they've uploaded one, otherwise their
-initials, beside their name; just the picture, on the strip, while the panel
-is hidden): clicking it shows their username and group, a **Settings** link,
-and **Log out**. Settings itself is one page with a row of section tabs: **My
+Everything about the current user lives behind their **picture** (or their
+initials), at the end of the strip — or of the docked agent panel's header:
+clicking it shows their username and group, a **Settings** link, and **Log
+out**. Settings itself is one page with a row of section tabs: **My
 account** (change your own password, upload/remove your avatar), **Theme**
 (see below), and **Saved** (manage your own saved queries/searches/sessions)
 are open to every user. Admin-group members additionally get **App
@@ -618,7 +617,7 @@ The app needs two things:
    rather than `*`; this simplified example grants it account-wide the same
    way the rest of this policy does.)
 
-In the app's **Settings** (from your account card, at the foot of the side panel — Admin-group
+In the app's **Settings** (from your picture's menu, at the end of the strip — Admin-group
 members only see the sections below), add an environment for each
 account/region combination you want to query — a
 name, the 12-digit account ID, and a region — under the **Environments**

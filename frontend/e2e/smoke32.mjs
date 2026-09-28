@@ -59,18 +59,17 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   // ---------- it follows what is on screen ----------
   await newSession(page, "IoT");
   await page.waitForSelector(ROW("IoT"));
-  check((await page.locator(".page-info-title").textContent()) === "IoT", "Opening a session retitles the card");
-  // A session's description says what is in it -- its name is its own, and
-  // there is no single type to draw a description from any more.
-  const iotHelp = await page.locator(".page-info-help").textContent();
-  check(iotHelp.includes("IoT"), "…and says which panes it holds", iotHelp.slice(0, 60));
+  // A session's name and description are in its own card now (SessionCard),
+  // so the page card gives way to it.
+  check((await page.locator(".page-info").count()) === 0, "A session has no page card: its own card says what it is");
+  check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === "IoT", "…headed by the session's name");
 
   await newSession(page, "Base64");
   await page.waitForSelector(ROW("Base64"));
-  check((await page.locator(".page-info-title").textContent()) === "Base64", "Switching sessions retitles it again");
+  check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === "Base64", "Switching sessions shows that one's card");
   await page.click(`${TAB("IoT")} .session-tab-label`);
   await page.waitForTimeout(250);
-  check((await page.locator(".page-info-title").textContent()) === "IoT", "…and it follows a click on a tab");
+  check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === "IoT", "…and it follows a click on a tab");
 
   // Settings has no session, and still gets one.
   await page.click('[aria-label="Account menu"]');
@@ -102,14 +101,16 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
     const more = document.querySelector(".session-bar-more").getBoundingClientRect();
     const agent = document.querySelector(".session-bar-agent").getBoundingClientRect();
     const add = document.querySelector(".session-bar-add").getBoundingClientRect();
+    // The account's picture ends the strip while the agent panel isn't docked.
+    const picture = document.querySelector('.session-bar [aria-label="Account menu"]').getBoundingClientRect();
     return {
-      agentRightmost: bar.right - agent.right < 12,
+      agentRightmost: bar.right - picture.right < 12 && picture.left >= agent.right,
       moreBeforeAgent: more.right <= agent.left && agent.left - more.right < 12,
       afterAdd: more.left > add.right,
     };
   });
   check(atEnd.agentRightmost && atEnd.moreBeforeAgent && atEnd.afterAdd,
-    "…on the right, past the ＋, just before the agent panel's toggle", JSON.stringify(atEnd));
+    "…on the right, past the ＋, just before the agent panel's toggle (and the picture)", JSON.stringify(atEnd));
 
   await page.click(".session-bar-more");
   await page.waitForSelector(".rail-row-menu");

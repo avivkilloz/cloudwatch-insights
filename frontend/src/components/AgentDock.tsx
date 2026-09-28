@@ -1,3 +1,4 @@
+import { ReactNode } from "react";
 import AgentPanel from "./AgentPanel";
 import ColumnResizer from "./ColumnResizer";
 
@@ -13,12 +14,15 @@ export default function AgentDock({
   max,
   onResize,
   onCommit,
+  account,
 }: {
   width: number;
   /** DOCK_WIDTH.max, or less when the window hasn't the room (App.tsx). */
   max: number;
   onResize: (width: number) => void;
   onCommit: (width: number) => void;
+  /** The account's picture, which ends this panel's header while it's docked. */
+  account: ReactNode;
 }) {
   return (
     <aside className="agent-dock" aria-label="Agent" style={{ width }}>
@@ -33,7 +37,7 @@ export default function AgentDock({
         onCommit={onCommit}
       />
       <div className="panel agent-dock-panel">
-        <AgentPanel />
+        <AgentPanel account={account} />
       </div>
     </aside>
   );

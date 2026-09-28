@@ -96,9 +96,9 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
+  await page.waitForSelector("text=Add a service or tool from the session's card to start");
 
-  const sessionPanel = '.panel:has(h2:text-is("Panes"))';
+  const sessionPanel = '.session-card';
 
   // ---------- Layout naming ----------
   check(

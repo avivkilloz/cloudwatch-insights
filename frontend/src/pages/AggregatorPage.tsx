@@ -19,6 +19,8 @@ import {
   useSessionState,
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
+import SessionCard from "../components/SessionCard";
+import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
@@ -1101,31 +1103,28 @@ export default function AggregatorPage() {
   const dashboardExtentH = Object.values(dash.rects).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
 
 
-  // The Panes card goes in the side panel instead when that's the chosen
-  // place and the panel is open -- only for the session on screen, since every
-  // session is mounted and they would all portal into the one slot otherwise.
-  const panesInRail = usePanesInRail();
+  // The session's card goes in the side panel instead when that's where it
+  // was put, and stays there even while the panel is hidden (railSlot) -- only
+  // for the session on screen, since every session is mounted and they would
+  // all portal into the one slot otherwise.
+  const cardInRail = usePanesInRail();
   const railSlot = useRailSlot();
-  const { activeId, view } = useSessions();
+  const { sessions, activeId, view, rename } = useSessions();
   const onScreen = view === "session" && scope !== null && activeId === scope.id;
-  const cardInRail = panesInRail && railSlot !== null;
+  const thisSession = scope ? sessions.find((s) => s.id === scope.id) : undefined;
+  const [description, setDescription] = useSessionState<string>(SESSION_DESCRIPTION_KEY, "");
 
-  const panesCard = (
-    <div className={`panel panes-card${cardInRail ? " in-rail" : ""}`}>
-      <div className="panes-card-head">
-        {/* "Panes" rather than "Session": this card is not the session, it is
-            the controls for which panes are in it and how they are arranged.
-            What the Aggregator is for is said once, in the page header. */}
-        <h2>Panes</h2>
-        <button
-          className="panes-card-move"
-          onClick={() => setPanesInRail(!cardInRail)}
-          aria-label={cardInRail ? "Move the Panes card back above the panes" : "Move the Panes card to the side panel"}
-          title={cardInRail ? "Move back above the panes" : "Move to the side panel"}
-        >
-          {cardInRail ? "⇥" : "⇤"}
-        </button>
-      </div>
+  const sessionCard = (
+    <SessionCard
+      title={thisSession?.title ?? ""}
+      description={typeof description === "string" ? description : ""}
+      inRail={cardInRail}
+      onRename={(title) => {
+        if (scope) rename(scope.id, title);
+      }}
+      onDescribe={setDescription}
+      onMove={() => setPanesInRail(!cardInRail)}
+    >
       {/* Two rows rather than one long one -- ten buttons in a single line
           reads as an undifferentiated list, and "a search page" and "a tool"
           are different kinds of thing to reach for. Each only ever adds: a
@@ -1173,16 +1172,16 @@ export default function AggregatorPage() {
           Dashboard
         </button>
       </div>
-    </div>
+    </SessionCard>
   );
 
   return (
     <>
-      {cardInRail ? (onScreen ? createPortal(panesCard, railSlot) : null) : panesCard}
+      {cardInRail ? (onScreen && railSlot ? createPortal(sessionCard, railSlot) : null) : sessionCard}
 
       {open.length === 0 && (
         <div className="panel">
-          <p className="muted">Add a service or tool from the Panes card to start working in this session.</p>
+          <p className="muted">Add a service or tool from the session's card to start working in it.</p>
         </div>
       )}
 

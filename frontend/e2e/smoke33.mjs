@@ -1,7 +1,7 @@
 // The Aggregator's third layout: one tab per pane, only the selected one shown,
 // and every pane still mounted so nothing in flight is lost.
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
-const PANES = '.panel:has(h2:text-is("Panes"))';
+const PANES = '.session-card';
 const TAB = (l) => `.aggregator-tab:has(.aggregator-tab-label:text-is("${l}"))`;
 
 /** Shown means shown, not just "the hidden attribute is absent": .aggregator-pane

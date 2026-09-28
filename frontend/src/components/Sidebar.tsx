@@ -371,14 +371,18 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
     <nav className="rail" aria-label="Sessions">
       {/* The platform's name and logo head the panel now there's no header
           bar, and are the way home -- what the Home row used to be. */}
-      <button
-        className={`rail-row rail-row-home rail-brand${view === "home" ? " active" : ""}`}
-        onClick={() => show("home")}
-        title="The home page: every service, tool and platform feature"
-      >
-        <BrandMark brand={brand} size={22} />
-        <span className="rail-row-label rail-brand-title">{brand.title}</span>
-      </button>
+      {/* A header bar, like the agent panel's: padded as the strip is, so the
+          brand sits level with the session tabs beside it. */}
+      <div className="rail-head">
+        <button
+          className={`rail-row rail-row-home rail-brand${view === "home" ? " active" : ""}`}
+          onClick={() => show("home")}
+          title="The home page: every service, tool and platform feature"
+        >
+          <BrandMark brand={brand} size={18} />
+          <span className="rail-row-label rail-brand-title">{brand.title}</span>
+        </button>
+      </div>
 
       {/* One list: every session you have. The ones on the strip read at full
           strength, the ones you closed are dimmed -- closing takes a session

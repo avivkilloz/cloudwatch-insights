@@ -177,7 +177,7 @@ against the previous frontend. Backend 172 (a test that browser-only tools
 can be added but not filled in; the one pinning their absence updated),
 agent 6. Full run: all 31 browser suites green.
 
-**This round (not yet merged): no header bar, and the session's own card in
+**#84 (merged): no header bar, and the session's own card in
 the side panel.** The user's five asks:
 
 1. *Agent panel header*: docked or floating, the panel has a header bar
@@ -212,6 +212,42 @@ and the strip ⋮ back). Backend 173 (the agent reads a session's
 description). Full run: 32 of 32 browser suites green, after smoke35's page
 colour check was made to compare colours rather than strings (read during
 the body's background transition, the same colour serialises as rgba).
+
+**This round (not yet merged): one Session card, and the shell's edges.**
+The user's seven points:
+
+1. *Rail brand*: a header bar (`.rail-head`, sticky, ruled) padded like the
+   strip, 26px row, so the brand is level with the session tabs (measured
+   22-48, like the tabs) and the bar ends where the strip does.
+2. *Account picture*: the rail's foot card is gone. The picture ends the
+   strip, or -- with the agent panel docked -- that panel's header after its
+   layout switch; floating, it stays on the strip.
+3. *Category on a new session*: a select on the home form (None by default,
+   only when categories exist); `start()` files it after `open()`.
+4. *One Session card* (`SessionCard.tsx`) replaces the Panes card and the
+   rail's title/description card: name and description edited in place, adds,
+   layout. Body or rail (railSlot, same key), and in the rail it stays there
+   while the rail is hidden. PageInfo is for non-session pages only.
+5. *Reorder cut line*: `outline-offset: -3px` (inside the pane). Outside, the
+   body's scroll box clipped its left edge and the strip's sticky backing
+   painted over its top.
+6. *Tokens* (the user asked why so many): answered -- mostly subagent
+   migrations reading and running many suites, whole-file reads, and a
+   163-entry task list re-sent many times; the list was cleared and this
+   round's suites were migrated by targeted replacement instead.
+7. *Scrollbar at the window's edge with the dock open*: the dock is
+   `position: fixed` over the body's right (pointer-events off on its gap) and
+   `.content` pads by `--dock-width`, so the scroll box runs to the window.
+
+Coverage: `smoke48` rewritten for this round (fails at its first check on
+the previous frontend); 13 suites updated by replacement (`.session-card`
+for the Panes card, the session card's title for a session's page-info
+title, the rail's header bar). Full run: 27 of 32; the five failures were
+fixed and each re-run on its own green -- smoke30/32 now expect the picture
+after the agent toggle, smoke26 compares the card's title with the tab (the
+home form's leftover count decides the default name), and smoke35/30's
+category-dependent checks and smoke44's closed row passed once a category
+leaked by an aborted smoke48 run was gone.
 
 ## The platform agent — agreed design and phases
 
