@@ -174,7 +174,8 @@ Coverage: new `smoke47` (laptop width with the dock and rail dragged to
 their max, window narrowed and widened; both cut lines centred; the float
 panel's look; the agent adding an MQTT tester) -- 8 of its 12 checks fail
 against the previous frontend. Backend 172 (a test that browser-only tools
-can be added but not filled in; the one pinning their absence updated).
+can be added but not filled in; the one pinning their absence updated),
+agent 6. Full run: all 31 browser suites green.
 
 ## The platform agent — agreed design and phases
 
