@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { useSessionState } from "../sessions/SessionContext";
 import { api, DynamoTableInfo, Environment, SavedSession } from "../api";
-import AiAssistantWidget from "../components/AiAssistantWidget";
 import ExportMenu from "../components/ExportMenu";
 import { HideSelectedButtons, RowCheckbox, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 
@@ -315,13 +315,7 @@ export default function TablesPage() {
         </div>
       )}
 
-      <AiAssistantWidget
-        domain="tables"
-        queryString={queryString}
-        onUseQuery={setQueryString}
-        selectedRows={selectedRows}
-        resultsVersion={resultsVersion}
-      />
+      <PaneSelectionShare domain="tables" selectedRows={selectedRows} />
     </div>
   );
 }

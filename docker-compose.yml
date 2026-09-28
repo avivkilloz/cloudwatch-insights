@@ -26,12 +26,6 @@ services:
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
-      # Optional: the AI assistant (Logs page) stays hidden in the UI unless
-      # all three of these are set. Forwarded from the host the same way as
-      # the AWS_* vars above.
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
-      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
-      LITELLM_MODEL: ${LITELLM_MODEL:-}
       # Password for the "admin" user created on first startup. Leave unset
       # and the backend generates one itself, logged once here in `docker
       # compose logs backend` -- set it explicitly if you'd rather choose it.
@@ -49,9 +43,9 @@ services:
       postgres:
         condition: service_healthy
 
-  # The platform agent: calls the model through LiteLLM (the same three
-  # LITELLM_* settings as the backend's assistant; AGENT_MODEL overrides the
-  # model, and needs one that calls tools well) and acts through the backend's
+  # The platform agent: calls the model through LiteLLM (the three LITELLM_*
+  # settings; AGENT_MODEL overrides the model, and it needs one that calls
+  # tools well) and acts through the backend's
   # MCP endpoint as whoever asked. To try it without a real model:
   #   docker compose --profile fake-model up
   # and set LITELLM_BASE_URL=http://fake-model:4010 LITELLM_API_KEY=x

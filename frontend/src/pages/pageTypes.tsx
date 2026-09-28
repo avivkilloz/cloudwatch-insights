@@ -52,7 +52,7 @@ export const PAGES: PageDef[] = [
     description: "Everything you can open.",
     help:
       "Start a session over the services and tools you need, and reach the rest of the platform. A session holds " +
-      "as many of them as you like and lets one assistant see across all of them at once.",
+      "as many of them as you like, and the agent can work across all of them at once.",
     onHome: false,
     enabledFor: () => true,
   },
@@ -62,8 +62,8 @@ export const PAGES: PageDef[] = [
     description: "Ask across the whole workspace, and have it do the work.",
     help:
       "Ask about anything in the platform and have it do the work, as you: it opens the sessions it needs, fills " +
-      "in and runs the searches, lays the panes out and answers from what they found. It works across the whole " +
-      "workspace, unlike the assistant inside a session, which only sees that session's own panes.",
+      "in and runs the searches, lays the panes out and answers from what they found. This is its global chat; " +
+      "each session also has its own, in the Session tab of the agent panel.",
     onHome: true,
     enabledFor: () => true,
     render: () => <AgentPage />,

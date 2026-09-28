@@ -3,7 +3,7 @@ import { Fragment, ReactNode } from "react";
 /**
  * Minimal Markdown renderer for AI chat replies: fenced code blocks, GFM
  * pipe tables, headings, lists, and inline bold/italic/code. Not a general
- * Markdown engine -- just enough to render what the AI assistant sends back.
+ * Markdown engine -- just enough to render what the agent sends back.
  */
 export default function MarkdownLite({ text }: { text: string }) {
   return <>{parseBlocks(text)}</>;

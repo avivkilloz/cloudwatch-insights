@@ -60,7 +60,7 @@ export default function HomePage() {
         <h2 style={{ marginBottom: 4 }}>New session</h2>
         <p className="muted home-group-blurb">
           Choose what it should hold — any mix, and more than one of a kind if you like; you can add and close panes
-          later too. One assistant sees across all of them at once.
+          later too. The agent can work across all of them at once.
         </p>
 
         <div className="home-new-row">

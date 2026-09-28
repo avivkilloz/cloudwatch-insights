@@ -1,6 +1,6 @@
 {{- if .Values.agent.enabled }}
 {{- if not .Values.backend.ai.baseUrl }}
-{{- fail "agent.enabled needs a model: set backend.ai.baseUrl (and its API key) -- the agent uses the same LiteLLM proxy as the assistant." }}
+{{- fail "agent.enabled needs a model: set backend.ai.baseUrl, backend.ai.model and its API key (the LiteLLM proxy the agent calls)." }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment

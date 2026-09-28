@@ -6,10 +6,10 @@ import { useSaveAsTemplate } from "../sessions/templates";
 /**
  * What the ⋮ beside a session offers, wherever it is opened from.
  *
- * The panel's rows and the strip's current tab show the same set, because
- * they are the same things you do to a session: name it, group it, keep a
- * template of it, throw it away. Closing is not here -- that is the ✕ on the
- * tab, and it is about the strip rather than about the session.
+ * The panel's rows and the strip's tabs show the same set, because they are
+ * the same things you do to a session: name it, group it, keep a template of
+ * it, throw it away. A tab's menu also closes it (`onClose`) -- the tabs are
+ * the sessions in front of you, and taking one off the strip belongs there.
  *
  * `onRename` is the caller's, because renaming happens in place and only the
  * surface the menu was opened from knows which row or tab to turn into a field.
@@ -22,12 +22,15 @@ export default function SessionMenuItems({
   categories,
   onRename,
   onMoveToCategory,
+  onClose,
   close,
 }: {
   session: PersistedSession;
   categories?: SessionCategory[];
   onRename: () => void;
   onMoveToCategory?: (categoryId: number | null) => void;
+  /** Offered as "Close" when given: takes the session off the strip. */
+  onClose?: () => void;
   close: () => void;
 }) {
   const { remove } = useSessions();
@@ -88,6 +91,17 @@ export default function SessionMenuItems({
       >
         Save as template…
       </button>
+      {onClose && (
+        <button
+          onClick={() => {
+            close();
+            onClose();
+          }}
+          title="Take it off the strip; it stays in the panel, ready to reopen"
+        >
+          Close
+        </button>
+      )}
       {/* The only one here that loses work, so it says so and asks first. */}
       <button
         className="rail-row-menu-danger"

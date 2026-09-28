@@ -143,3 +143,34 @@ def test_who_may_ask(monkeypatch):
     assert resp.status_code == 403 and "admin" in resp.json()["detail"]
     assert client.get("/api/agent/status").json()["enabled"] is False
     assert _tokens_left() == 0
+
+
+def test_a_session_chat_tells_the_agent_which_session_it_is_about(monkeypatch):
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    resp = client.put("/api/live-sessions/s-chat", json={"type": "aggregator", "title": "Checkout", "state": {}})
+    assert resp.status_code == 200
+    received.clear()
+    ask = {**ASK, "viewing_session_id": "s-chat", "scope": "session"}
+    assert client.post("/api/agent/chat", json=ask).status_code == 200
+    assert received[0]["body"]["focus"] == {"session_id": "s-chat", "title": "Checkout"}
+    assert received[0]["viewing"] == "s-chat"
+
+    # The global chat carries no focus, even with a session on screen.
+    received.clear()
+    client.post("/api/agent/chat", json={**ASK, "viewing_session_id": "s-chat"})
+    assert "focus" not in received[0]["body"]
+
+
+def test_a_session_chat_for_a_session_that_is_gone_is_refused(monkeypatch):
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    resp = client.post("/api/agent/chat", json={**ASK, "viewing_session_id": "nope", "scope": "session"})
+    assert resp.status_code == 404
+    assert _tokens_left() == 0
+
+
+def test_a_question_can_carry_its_attached_rows(monkeypatch):
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    received.clear()
+    big = "x" * 45_000
+    resp = client.post("/api/agent/chat", json={"messages": [{"role": "user", "content": big}]})
+    assert resp.status_code == 200 and received[0]["body"]["messages"][0]["content"] == big

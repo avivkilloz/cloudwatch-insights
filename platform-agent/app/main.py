@@ -29,7 +29,8 @@ app = FastAPI(title="Platform agent")
 HEARTBEAT_SECONDS = 15.0
 
 MAX_MESSAGES = 60
-MAX_MESSAGE_CHARS = 20_000
+# The backend's own limit: a question with the rows it's about attached.
+MAX_MESSAGE_CHARS = 60_000
 
 
 class ChatMessage(BaseModel):
@@ -37,8 +38,16 @@ class ChatMessage(BaseModel):
     content: str = Field(max_length=MAX_MESSAGE_CHARS)
 
 
+class Focus(BaseModel):
+    """The session a session-scoped chat belongs to."""
+
+    session_id: str = Field(max_length=64)
+    title: str = Field(max_length=200)
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=MAX_MESSAGES)
+    focus: Optional[Focus] = None
 
 
 @app.get("/health")
@@ -71,7 +80,12 @@ async def chat(
             detail="The agent has no model configured: set LITELLM_BASE_URL, LITELLM_API_KEY and AGENT_MODEL "
             "(or LITELLM_MODEL).",
         )
-    events = run_turn(settings, [m.model_dump() for m in payload.messages], x_platform_token)
+    events = run_turn(
+        settings,
+        [m.model_dump() for m in payload.messages],
+        x_platform_token,
+        focus=payload.focus.model_dump() if payload.focus else None,
+    )
     return StreamingResponse(
         sse(events),
         media_type="text/event-stream",

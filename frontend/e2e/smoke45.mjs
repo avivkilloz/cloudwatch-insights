@@ -110,10 +110,12 @@ const run = async () => {
     "A step's Open takes you to the session it touched");
 
   // ---------- 6. The same conversation on the Agent page ----------
-  await page.click(`${DOCK} button:text-is("Full page")`);
+  // The dock's Global tab and the Agent page are one conversation.
+  await page.click(".rail-row-home");
+  await page.click('.home-card-open:has(.home-card-title:text-is("Agent"))');
   await page.waitForSelector(`.agent-session .agent-question:text-is("dashboard")`);
   check((await page.locator(".agent-session .agent-turn").count()) === 5,
-    "The Agent page shows the same conversation as the dock");
+    "The Agent page shows the same conversation as the dock's Global tab");
   check((await page.locator(DOCK).count()) === 0, "…and the dock steps aside while it's on screen");
 
   // ---------- 7. A group without the agent can't use it ----------

@@ -217,6 +217,27 @@ export const CLOSED_ROW = ".rail-row-closed";
 /** A tab in the strip above the body. */
 export const TAB = (label) => `.session-tab:has(.session-tab-label:text-is("${label}"))`;
 
+/** Opens a tab's ⋮ and picks one of its items ("Rename", "Save as template…",
+ * "Close", "Delete"). A tab closes from its menu now, not a ✕. */
+export async function tabMenu(page, label, item) {
+  await page.click(`${TAB(label)} .session-tab-more`);
+  await page.click(`.rail-row-menu button:text-is("${item}")`);
+}
+
+/** Closes one tab, from its ⋮. */
+export async function closeTab(page, label) {
+  await tabMenu(page, label, "Close");
+}
+
+/** Closes every open tab, the first one each time, until the strip is empty. */
+export async function closeAllTabs(page) {
+  while ((await page.locator(".session-tab-more").count()) > 0) {
+    await page.locator(".session-tab-more").first().click();
+    await page.click('.rail-row-menu button:text-is("Close")');
+    await page.waitForTimeout(150);
+  }
+}
+
 /** A service or tool in Add, which opens a session holding just that pane. */
 export const RAIL_TYPE = (label) => `.rail-row-type:has(.rail-row-label:text-is("${label}"))`;
 

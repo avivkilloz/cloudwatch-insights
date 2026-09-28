@@ -34,7 +34,7 @@ function withDetail(row: FlatCert, detail: IotCertificateDetail): Record<string,
 
 interface Props {
   items: IotCertificateSearchResultItem[];
-  /** Reports the checked rows up to the page, which feeds them to the AI assistant. */
+  /** Reports the checked rows up to the page, which offers them to the agent. */
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
 }
 
@@ -110,7 +110,7 @@ export default function IotCertResultsList({ items, onSelectionChange }: Props) 
         {selection.selectedCount > 0 && (
           <label
             className="checkbox-item"
-            title="Fetches which things each checked certificate is attached to and includes it in the export and in what the AI assistant sees. One request per certificate."
+            title="Fetches which things each checked certificate is attached to and includes it in the export and in what the agent is sent with a question. One request per certificate."
           >
             <input
               type="checkbox"

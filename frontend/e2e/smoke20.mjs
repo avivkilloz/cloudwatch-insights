@@ -1,6 +1,5 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closePane, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, closePane, launch, newSession, report } from "./harness.mjs";
 
-const assistCalls = [];
 const SESSION = '.panel:has(h2:text-is("Panes"))';
 
 /** Services are sessions now: started from the + in the strip under the
@@ -8,11 +7,8 @@ const SESSION = '.panel:has(h2:text-is("Panes"))';
  * first, so exactly one page is mounted and the unscoped selectors below still
  * address the one on screen -- every open session stays mounted otherwise. */
 async function openSession(page, label) {
-  // Closing is the ✕ on the tab in the strip above the body.
-  while ((await page.locator(".session-tab-close").count()) > 0) {
-    await page.locator(".session-tab-close").first().click();
-    await page.waitForTimeout(120);
-  }
+  // Closing is the "Close" in each tab's ⋮, in the strip above the body.
+  await closeAllTabs(page);
   await newSession(page, label);
 }
 
@@ -37,11 +33,6 @@ async function newPanedSession(page) {
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
 
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: true } }));
-  await page.route("**/api/ai/assist", (r) => {
-    assistCalls.push(JSON.parse(r.request().postData() || "{}"));
-    r.fulfill({ json: { reply: "ok\n```\nQ\n```", suggested_query: "Q" } });
-  });
   await page.route("**/api/tools/http-request", (r) =>
     r.fulfill({
       json: {
@@ -183,13 +174,6 @@ async function newPanedSession(page) {
     "Picking one tool opens one pane, not a grid of five"
   );
 
-  // The HTTP client carries its own assistant, so opening it inside the
-  // Aggregator must register it as a target rather than float a second widget.
-  check(
-    (await page.locator(".ai-widget-button").count()) === 1,
-    "Only one assistant button, even with a tool pane open"
-  );
-
   // A second tool opens alongside it as its own pane.
   await page.click(`${SESSION} button[aria-label="Add JWT pane"]`);
   await page.waitForSelector('.aggregator-pane:has(h3:text-is("JWT"))');
@@ -200,50 +184,24 @@ async function newPanedSession(page) {
   await closePane(page, "JWT");
   await page.waitForFunction(() => document.querySelectorAll(".aggregator-pane").length === 3);
 
-  await page.click(".ai-widget-button");
-  await page.waitForSelector(".ai-widget-panel");
-  await page.click('.ai-widget-panel .tab:has-text("Build query")');
-  let targets = await page.locator(".ai-widget-panel select option").allTextContents();
-  check(
-    targets.some((t) => t.includes("HTTP client")),
-    "The HTTP client becomes a 'Build for' target inside the Aggregator",
-    JSON.stringify(targets)
-  );
-
-  // Its exchange pools into the cross-service question like any other rows.
-  await page.click('.ai-widget-panel button[aria-label="Close"]');
+  // The tool works from inside the pane, not only as its own page.
   await page.fill(`${toolsPane} input[placeholder="https://api.example.com/resource"]`, "https://api.example.com/x");
   await page.click(`${toolsPane} button:has-text("Send")`);
   await page.waitForSelector(`${toolsPane} >> text=500 Internal Server Error`);
-  await page.click(".ai-widget-button");
-  await page.click('.ai-widget-panel .tab:has-text("About results")');
-  await page.waitForSelector(".ai-widget-panel >> text=Across HTTP client.");
-  const before = assistCalls.length;
-  await page.fill(".ai-widget-textarea", "what happened?");
-  await page.click('.ai-widget-panel button:has-text("Ask")');
-  for (let i = 0; i < 50 && assistCalls.length === before; i++) await page.waitForTimeout(100);
-  const row = assistCalls[assistCalls.length - 1]?.sample_rows?.[0];
-  check(
-    row?.service === "HTTP client" && row?.response?.status_code === 500,
-    "The tool's exchange pools into the cross-service question, tagged by service",
-    JSON.stringify(row?.service)
-  );
-  await page.click('.ai-widget-panel button[aria-label="Close"]');
+  check(true, "The HTTP client pane sends a request and shows its response");
 
-  // Closing the pane drops it as a target again.
+  // Closing the pane lets go of it: one added again in its place starts empty
+  // rather than coming back holding the closed one's request and response.
   await closePane(page, "HTTP client");
   await page.waitForFunction(() => document.querySelectorAll(".aggregator-pane").length === 2);
-  await page.click(".ai-widget-button");
-  await page.click('.ai-widget-panel .tab:has-text("Build query")');
-  targets = await page.locator(".ai-widget-panel select option").allTextContents();
-  check(
-    !targets.some((t) => t.includes("HTTP client")),
-    "Closing the tool pane drops it as an assistant target",
-    JSON.stringify(targets)
-  );
-  await page.click('.ai-widget-panel button[aria-label="Close"]');
   await page.click(`${SESSION} button[aria-label="Add HTTP client pane"]`);
   await page.waitForSelector('.aggregator-pane:has(h3:text-is("HTTP client"))');
+  const reopenedUrl = await page.locator(`${toolsPane} input[placeholder="https://api.example.com/resource"]`).inputValue();
+  check(
+    reopenedUrl === "" && (await page.locator(`${toolsPane} >> text=500 Internal Server Error`).count()) === 0,
+    "A tool pane added after closing one starts empty, not with the closed one's exchange",
+    JSON.stringify(reopenedUrl)
+  );
 
   // ---------- 2. Reordering ----------
   check(

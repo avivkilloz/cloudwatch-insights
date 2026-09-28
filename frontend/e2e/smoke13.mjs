@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
 import fs from "fs";
 
 const SCRATCH = `${SHOT}/downloads`;
@@ -20,11 +20,8 @@ async function downloadCsv(page, exportButtonSelector) {
  * first, so exactly one page is mounted and the unscoped selectors below still
  * address the one on screen -- every open session stays mounted otherwise. */
 async function openSession(page, label) {
-  // Closing is the ✕ on the tab in the strip above the body.
-  while ((await page.locator(".session-tab-close").count()) > 0) {
-    await page.locator(".session-tab-close").first().click();
-    await page.waitForTimeout(120);
-  }
+  // Closing is the "Close" in each tab's ⋮, in the strip above the body.
+  await closeAllTabs(page);
   await newSession(page, label);
 }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext";
+import { useAgent } from "../agent/AgentContext";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { useStartSession } from "../sessions/start";
@@ -16,21 +17,19 @@ import SessionMenuItems from "./SessionMenuItems";
  * lines up with the cards below it and the panel stands beside both. The panel
  * and this overlap on purpose -- the panel is the whole workspace (every
  * session you have, plus everything you could open), while this is only the
- * ones in front of you. So closing lives here, on a ✕ per tab; and the ⋮ at the
- * end offers the same things the panel's rows do, for the session on screen.
+ * ones in front of you. Each tab's ⋮ offers what the panel's rows do, plus
+ * closing it. At the far end, mirroring the panel's toggle at the start, is
+ * the agent panel's.
  */
 export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boolean; onToggleRail: () => void }) {
   const { sessions, activeId, view, close, activate, rename, show } = useSessions();
+  const agent = useAgent();
   const agentActive = useAgentActivity();
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
-  // Set when the current tab is being renamed in place, from the ⋮ below.
-  const [renaming, setRenaming] = useState(false);
-
-  // Only ever the tab you are looking at: the ⋮ here is about what is on
-  // screen, and the panel is where you reach the rest.
-  const current = view === "session" ? sessions.find((s) => s.id === activeId) : undefined;
+  // The tab being renamed in place, from its ⋮.
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   return (
     /* The dock is what sticks and what carries the page background; the
@@ -62,7 +61,7 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                 `${agentActive.has(s.id) ? " agent-active" : ""}`
               }
             >
-              {renaming && current?.id === s.id ? (
+              {renaming === s.id ? (
                 <input
                   className="session-tab-rename"
                   autoFocus
@@ -70,13 +69,13 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                   onKeyDown={(e) => {
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                     // Cleared first, so the blur that follows commits nothing.
-                    if (e.key === "Escape") setRenaming(false);
+                    if (e.key === "Escape") setRenaming(null);
                   }}
                   onBlur={(e) => {
-                    if (!renaming) return;
+                    if (renaming !== s.id) return;
                     const name = e.target.value.trim();
                     if (name && name !== s.title) rename(s.id, name);
-                    setRenaming(false);
+                    setRenaming(null);
                   }}
                   aria-label={`Rename ${s.title}`}
                 />
@@ -86,11 +85,23 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
                 </button>
               )}
               {agentActive.has(s.id) && <AgentWorking />}
-              {/* Closing lives here, not in the panel: this strip is the tabs in
-                  front of you, and a ✕ on a tab is what people reach for. */}
-              <button className="session-tab-close" onClick={() => close(s.id)} aria-label={`Close ${s.title}`} title="Close">
-                ✕
-              </button>
+              <Popover
+                glyph="⋮"
+                label={`More for ${s.title}`}
+                title="More"
+                buttonClass="session-tab-more"
+                menuClass="rail-row-menu"
+                width={170}
+              >
+                {(closeMenu) => (
+                  <SessionMenuItems
+                    session={s}
+                    onRename={() => setRenaming(s.id)}
+                    onClose={() => close(s.id)}
+                    close={closeMenu}
+                  />
+                )}
+              </Popover>
             </div>
           ))}
         </div>
@@ -161,22 +172,21 @@ export default function SessionBar({ railOpen, onToggleRail }: { railOpen: boole
           )}
         </Popover>
 
-        {/* At the far end, and only when a session is showing: it acts on that
-            one. The panel's ⋮ reaches any of them. */}
-        {current && (
-          <Popover
-            glyph="⋮"
-            label={`More for ${current.title}`}
-            title="More"
-            buttonClass="session-bar-more"
-            menuClass="rail-row-menu"
-            width={156}
-          >
-            {(closeMenu) => (
-              <SessionMenuItems session={current} onRename={() => setRenaming(true)} close={closeMenu} />
-            )}
-          </Popover>
-        )}
+        {/* At the far end, the agent panel's toggle, as the panel's own is at
+            the start -- whichever way the agent panel is laid out. */}
+        <button
+          className="session-bar-agent"
+          onClick={() => agent.setOpen(!agent.open)}
+          aria-expanded={agent.open}
+          aria-label={agent.open ? "Hide the agent panel" : "Show the agent panel"}
+          title={agent.open ? "Hide the agent panel" : "Show the agent panel"}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <line x1="9.5" y1="2.5" x2="9.5" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
+            {agent.open && <rect x="10.5" y="3.5" width="3" height="9" fill="currentColor" opacity="0.5" />}
+          </svg>
+        </button>
       </div>
     </div>
   );

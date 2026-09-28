@@ -90,9 +90,9 @@ def settings():
     llm_server.should_exit = True
 
 
-def _events(settings: Settings, text: str) -> list[dict]:
+def _events(settings: Settings, text: str, focus: dict | None = None) -> list[dict]:
     async def collect():
-        return [e async for e in run_turn(settings, [{"role": "user", "content": text}], TOKEN)]
+        return [e async for e in run_turn(settings, [{"role": "user", "content": text}], TOKEN, focus=focus)]
 
     return asyncio.run(collect())
 
@@ -167,3 +167,18 @@ def test_chat_checks_its_caller_and_its_input(monkeypatch):
     monkeypatch.setattr(agent_main, "settings", Settings(**{**configured.__dict__, "model": None}))
     resp = client.post("/chat", json=body, headers={**ok_key, "X-Platform-Token": "t"})
     assert resp.status_code == 503 and "AGENT_MODEL" in resp.json()["detail"]
+
+
+def test_a_session_chat_tells_the_model_which_session_it_is_about(settings):
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "rows\n\n---\nChecked rows attached (2, from CloudWatch):\n[]", focus={"session_id": "s1", "title": "Checkout"})
+    system = fake_llm.REQUESTS[0]["messages"][0]
+    assert system["role"] == "system"
+    assert 'chat of one session: "Checkout" (session_id s1)' in system["content"]
+    text = "".join(e["delta"] for e in events if e["type"] == "text")
+    assert "You attached 2 rows, from CloudWatch" in text
+
+    # The global chat's prompt says nothing of a session.
+    fake_llm.REQUESTS.clear()
+    _events(settings, "hello")
+    assert "chat of one session" not in fake_llm.REQUESTS[0]["messages"][0]["content"]

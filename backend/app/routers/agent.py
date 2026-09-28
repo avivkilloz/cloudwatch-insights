@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from .. import auth, models
+from .. import auth, live_store, models
 from ..db import SessionLocal, get_db
 from ..platform_tools import tokens
 
@@ -51,9 +51,14 @@ def agent_status(current_user: models.User = Depends(auth.get_current_user)):
     return AgentStatus(available=_agent_url() is not None, enabled=_allowed(current_user))
 
 
+# Room for a question with the rows it's about attached (the browser caps
+# what it attaches well below this).
+MAX_MESSAGE_CHARS = 60_000
+
+
 class AgentMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(max_length=20_000)
+    content: str = Field(max_length=MAX_MESSAGE_CHARS)
 
 
 class AgentChatRequest(BaseModel):
@@ -64,6 +69,10 @@ class AgentChatRequest(BaseModel):
     # screen ("add a pane here") and their time zone ("since 9am").
     viewing_session_id: Optional[str] = Field(default=None, max_length=64)
     timezone: Optional[str] = Field(default=None, max_length=64)
+    # "global": the platform-wide chat, free to create and change any
+    # session. "session": the chat of the session in viewing_session_id,
+    # which the agent is told to keep to.
+    scope: Literal["global", "session"] = "global"
 
 
 def _event(payload: dict) -> str:
@@ -86,6 +95,12 @@ async def agent_chat(
         )
     if payload.messages[-1].role != "user":
         raise HTTPException(status_code=400, detail="The last message has to be yours.")
+    focus = None
+    if payload.scope == "session":
+        row = live_store.get(db, current_user.id, payload.viewing_session_id) if payload.viewing_session_id else None
+        if row is None:
+            raise HTTPException(status_code=404, detail="That session doesn't exist any more, so there's nothing to talk about.")
+        focus = {"session_id": row.client_id, "title": row.title}
 
     token = tokens.mint(db, current_user, timezone=payload.timezone, viewing_session_id=payload.viewing_session_id)
     # The stream can run for minutes; it needs nothing more from this
@@ -95,7 +110,9 @@ async def agent_chat(
     service_key = os.environ.get("AGENT_SERVICE_KEY")
     if service_key:
         headers["Authorization"] = f"Bearer {service_key}"
-    body = {"messages": [m.model_dump() for m in payload.messages]}
+    body: dict = {"messages": [m.model_dump() for m in payload.messages]}
+    if focus:
+        body["focus"] = focus
 
     async def relay() -> AsyncIterator[str]:
         try:

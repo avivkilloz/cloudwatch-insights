@@ -751,6 +751,15 @@ const WriteStateContext = createContext<WriteState | null>(null);
 type DropState = (sessionId: string, prefix: string) => void;
 const DropStateContext = createContext<DropState | null>(null);
 
+/** Writes one key of any open session's state from outside it -- how the
+ * agent panel, which sits beside every session rather than inside one, keeps
+ * a session's own conversation in that session. Syncs like any other change. */
+export function useWriteSessionState(): WriteState {
+  const write = useContext(WriteStateContext);
+  if (!write) throw new Error("useWriteSessionState must be used inside <SessionsProvider>");
+  return write;
+}
+
 /** Removes every key of the current session starting with `prefix` -- a
  * closed pane's "<paneId>." -- from its stored state. A no-op outside a
  * session. Only for keys no mounted component reads any more: a mounted

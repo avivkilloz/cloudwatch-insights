@@ -78,7 +78,7 @@ interface Props {
   sortDirection?: SortDirection;
   /** Called with the full row data (same shape as each result row's fields,
    * plus environment) every time the checkbox selection changes -- lets a
-   * parent page (e.g. the AI assistant) act on exactly the rows the user
+   * parent page (e.g. the agent's session chat) act on exactly the rows the user
    * has checked. */
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
 }

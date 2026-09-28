@@ -10,7 +10,6 @@ from .db import Base, SessionLocal, engine, ensure_columns
 from .platform_tools import server as platform_server
 from .routers import (
     agent,
-    ai,
     auth,
     buckets,
     cognito,
@@ -89,7 +88,6 @@ app.include_router(iot.router)
 app.include_router(tables.router)
 app.include_router(buckets.router)
 app.include_router(cognito.router)
-app.include_router(ai.router)
 app.include_router(agent.router)
 app.include_router(tools.router)
 

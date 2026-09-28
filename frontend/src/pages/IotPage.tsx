@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { useSessionState } from "../sessions/SessionContext";
 import {
@@ -10,7 +11,6 @@ import {
   IotSearchResultItem,
   SavedSession,
 } from "../api";
-import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import IotResultsList from "../components/IotResultsList";
 import IotCertResultsList from "../components/IotCertResultsList";
@@ -252,13 +252,7 @@ export default function IotPage() {
         )}
       </div>
 
-      <AiAssistantWidget
-        domain={searchMode === "things" ? "iot-things" : "iot-certificates"}
-        queryString={queryString}
-        onUseQuery={setQueryString}
-        selectedRows={selectedRows}
-        resultsVersion={resultsVersion}
-      />
+      <PaneSelectionShare domain={searchMode === "things" ? "iot-things" : "iot-certificates"} selectedRows={selectedRows} />
     </div>
   );
 }

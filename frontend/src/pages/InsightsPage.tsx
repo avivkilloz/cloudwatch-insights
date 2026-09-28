@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PaneSelectionShare } from "../components/paneSelection";
 import { useSessionState } from "../sessions/SessionContext";
 import {
   api,
@@ -11,7 +12,6 @@ import {
   QueryResultItem,
   StartedQuery,
 } from "../api";
-import AiAssistantWidget from "../components/AiAssistantWidget";
 import EnvironmentSelector from "../components/EnvironmentSelector";
 import LogGroupSelector, { SelectionMap } from "../components/LogGroupSelector";
 import OpenSearchIndexSelector, { OpenSearchSelectionMap } from "../components/OpenSearchIndexSelector";
@@ -453,13 +453,7 @@ export default function InsightsPage({ backend }: { backend: LogsBackend }) {
         />
       </div>
 
-      <AiAssistantWidget
-        queryString={queryString}
-        onUseQuery={setQueryString}
-        selectedRows={selectedRows}
-        resultsVersion={resultsVersion}
-        domain={backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch"}
-      />
+      <PaneSelectionShare domain={backend === "opensearch" ? "logs-opensearch" : "logs-cloudwatch"} selectedRows={selectedRows} />
     </div>
   );
 }

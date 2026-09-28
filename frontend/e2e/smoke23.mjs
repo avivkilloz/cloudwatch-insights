@@ -18,8 +18,6 @@ async function saveActiveAsTemplate(page) {
       console.log("SAVEDEBUG", body.page, JSON.stringify(Object.keys(body.state || {})));
     }
   });
-  await page.route("**/api/ai/status", (r) => r.fulfill({ json: { configured: true } }));
-  await page.route("**/api/ai/assist", (r) => r.fulfill({ json: { reply: "ok", suggested_query: null } }));
   await page.route("**/api/tables/list*", (r) => r.fulfill({ json: { tables: ["DemoTable"] } }));
   await page.route("**/api/tables/describe", (r) => r.fulfill({ json: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } }));
   await page.route("**/api/tables/scan", (r) => r.fulfill({ json: { items: [{ id: "1", name: "Alice" }], scanned_count: 1, count: 1, last_evaluated_key: null } }));
@@ -162,20 +160,8 @@ async function saveActiveAsTemplate(page) {
     "A header question goes to the agent's conversation, beside the session");
   await page.click('.agent-dock [aria-label="Close the agent"]');
 
-  // ---------- 4. Clicking outside closes the AI assistant ----------
-  await newSession(page, "DynamoDB");
-  await page.click(`${V} .ai-widget-button`);
-  await page.waitForSelector(`${V} .ai-widget-panel`);
-  await page.mouse.click(700, 400);
-  await page.waitForSelector(`${V} .ai-widget-panel`, { state: "detached" });
-  check(true, "Clicking outside the assistant closes it");
-  await page.click(`${V} .ai-widget-button`);
-  await page.waitForSelector(`${V} .ai-widget-panel`);
-  await page.click(`${V} .ai-widget-textarea`);
-  check(await page.locator(`${V} .ai-widget-panel`).isVisible(), "Clicking inside it does not close it");
-  await page.click(`${V} .ai-widget-panel button[aria-label="Close"]`);
-
   // ---------- 8. Saving a session captures its real inputs ----------
+  await newSession(page, "DynamoDB");
   await page.selectOption(`${V} .panel:has-text("Choose environment and table") select`, { index: 1 });
   await page.click(`${V} button:has-text("Load tables")`);
   await page.waitForSelector(`${V} option[value="DemoTable"]`, { state: "attached" });

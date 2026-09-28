@@ -219,10 +219,10 @@ from the target-account policy below.)
    installed on the cluster.
 
 7. **(Optional) A LiteLLM proxy** (or anything else exposing an
-   OpenAI-compatible `/chat/completions` endpoint), if you want the AI
-   assistant on the Logs tab (build-a-query, ask-about-results). Skip this
-   entirely and the feature just stays hidden in the UI. When you do want
-   it, store the API key as a Secret the same way as the database password:
+   OpenAI-compatible `/chat/completions` endpoint), if you want the platform
+   agent (below). Skip this entirely and the agent's panel just says this
+   deployment doesn't run one. When you do want it, store the API key as a
+   Secret the same way as the database password:
 
    ```bash
    kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-litellm \
@@ -260,15 +260,6 @@ helm upgrade --install cloudwatch-insights ./helm/cloudwatch-insights \
 `--set backend.database.host=<DB_HOST> --set backend.database.passwordSecret.name=cloudwatch-insights-db`
 instead of `backend.database.existingSecret`.)
 
-To enable the optional AI assistant, add:
-```bash
-  --set backend.ai.baseUrl=https://litellm.example.com \
-  --set backend.ai.model=gpt-4o-mini \
-  --set backend.ai.existingSecret=cloudwatch-insights-litellm
-```
-Leaving `backend.ai.baseUrl` unset (the default) means no `LITELLM_*`
-env vars are set on the backend at all, and the feature stays hidden.
-
 ### The platform agent (optional)
 
 The agent is a third Deployment (`platform-agent/` in the repo, image
@@ -280,9 +271,12 @@ The agent calls the model, and acts through the backend's MCP endpoint
 (`/mcp`) with that token -- as the user who asked, with exactly their group's
 environments, pages and IAM role. The token is revoked when the turn ends.
 
-It needs the AI assistant's LiteLLM settings above (it uses the same proxy
-and key), and a model that is good at **tool calling**:
+It needs the LiteLLM proxy from prerequisite 7 -- set under `backend.ai`,
+where the retired ✦ assistant read it, so existing values files keep
+working -- and a model that is good at **tool calling**:
 ```bash
+  --set backend.ai.baseUrl=https://litellm.example.com \
+  --set backend.ai.existingSecret=cloudwatch-insights-litellm \
   --set agent.enabled=true \
   --set agent.image.repository=ghcr.io/<owner>/cloudwatch-insights-agent \
   --set agent.model=<a tool-calling model behind your LiteLLM>   # else backend.ai.model

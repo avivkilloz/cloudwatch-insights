@@ -28,7 +28,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 
 from .config import Settings
-from .prompt import SYSTEM_PROMPT
+from .prompt import SYSTEM_PROMPT, session_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +84,12 @@ async def run_turn(
     messages: list[dict],
     token: str,
     model: Optional[Any] = None,
+    focus: Optional[dict] = None,
 ) -> AsyncIterator[dict]:
     """Runs one turn and yields its events. `messages` is the conversation so
     far, the user's new message last, as {"role": "user" | "assistant",
-    "content"}. `model` stands in for the configured one in tests."""
+    "content"}. `focus` ({"session_id", "title"}) makes it a session's own
+    chat. `model` stands in for the configured one in tests."""
     client = MultiServerMCPClient(
         {
             "platform": {
@@ -104,7 +106,8 @@ async def run_turn(
         yield {"type": "error", "message": f"The agent couldn't reach the platform's tools ({_reason(e)})."}
         return
 
-    agent = create_agent(model or build_model(settings), tools, system_prompt=SYSTEM_PROMPT)
+    prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
+    agent = create_agent(model or build_model(settings), tools, system_prompt=prompt)
     names: dict[str, str] = {}
     try:
         async for mode, chunk in agent.astream(

@@ -1,6 +1,6 @@
 // Live sessions: autosaved to the server, so they survive a reload, follow you
 // to a brand-new browser profile, and split Close (kept) from Delete (gone).
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
@@ -41,10 +41,8 @@ async function menu(page, title, item) {
   await page.click(`.rail-row-menu button:text-is("${item}")`);
 }
 
-/** Closing lives on the tab in the strip above the body, not in the rail. */
-async function closeTab(page, title) {
-  await page.click(`.session-tab:has(.session-tab-label:text-is("${title}")) .session-tab-close`);
-}
+// Closing lives on the tab in the strip above the body -- its own ⋮, which is
+// the harness's closeTab -- not in the rail's menu.
 
 (async () => {
   const browser = await launch();

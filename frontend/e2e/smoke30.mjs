@@ -1,6 +1,6 @@
 // The session strip above the body, the rail's home icon, and the spacing that
 // lines the strip up with the cards under it.
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
@@ -74,9 +74,10 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
     return kids.map((e) => e.className.split(" ")[0]);
   });
   check(order[0] === "session-bar-rail", "Its first button toggles the side panel", JSON.stringify(order));
-  // The ⋮ for the session on screen comes after it, when there is one.
+  // At the far end, mirroring the side panel's toggle at the start, is the
+  // agent panel's; each session's ⋮ is on its own tab now.
   check(order.includes("session-bar-add"), "…and it has a ＋ that adds a session", JSON.stringify(order));
-  check(order[order.length - 1] === "session-bar-more", "…with the current session's ⋮ at the very end",
+  check(order[order.length - 1] === "session-bar-agent", "…with the agent panel's toggle at the very end",
     JSON.stringify(order));
 
   check((await page.locator(".rail").count()) === 1, "The side panel is showing");
@@ -115,8 +116,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await newSession(page, "JWT");
 
   // ---------- closing lives on the tab, not in the panel ----------
-  check((await page.locator(`${TAB("JWT")} .session-tab-close`).count()) === 1, "Each tab has its own ✕");
-  await page.click(`${TAB("JWT")} .session-tab-close`);
+  check((await page.locator(`${TAB("JWT")} .session-tab-more`).count()) === 1, "Each tab has its own ⋮");
+  await closeTab(page, "JWT");
   await page.waitForTimeout(400);
   check((await page.locator(TAB("JWT")).count()) === 0, "…which closes that session");
   check((await page.locator('.rail-row-closed .rail-row-label:text-is("JWT")').count()) === 1,
