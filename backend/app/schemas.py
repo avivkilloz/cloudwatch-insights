@@ -721,6 +721,30 @@ class LiveSessionOrder(BaseModel):
     client_ids: list[str]
 
 
+# ---- Sharing a session ----
+# Phase 1 of sharing: who is invited to a session, and at what permission.
+# "viewer" is read-only; "editor" can also edit inputs, add or remove panes,
+# and run tools and services -- everything short of managing membership
+# itself, which stays the owner's alone.
+
+SessionPermission = Literal["viewer", "editor"]
+
+
+class SessionMemberOut(BaseModel):
+    user_id: int
+    username: str
+    permission: SessionPermission
+
+
+class SessionMemberCreate(BaseModel):
+    username: str
+    permission: SessionPermission = "editor"
+
+
+class SessionMemberUpdate(BaseModel):
+    permission: SessionPermission
+
+
 # ---- Session categories ----
 # Slack-style groups for the side panel's session list. A category holds no
 # state of its own -- LiveSession.category_id is what actually assigns a

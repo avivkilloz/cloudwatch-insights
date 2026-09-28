@@ -261,6 +261,22 @@ UPDATE on every start.
 (`resolve.resolve_role_name`), through `aws_client.py`. Nothing reads ambient
 credentials per service.
 
+**Sharing a session with other users is being built in phases** (`models.SessionMember`,
+`routers/live_sessions.py`'s `/members` routes). Phase 1 (done) is only the
+roster: an owner invites a user by username at a permission ("viewer" or
+"editor"); `LiveSession.user_id` stays the owner throughout, so every
+existing single-owner path -- ownership checks, the sync protocol, the
+agent's per-user token -- is untouched by this table's existence. Inviting
+someone does **not** yet let them reach the session: every read/write route
+still checks ownership alone. Planned next: a session card section to
+manage members (phase 2); then extending `_owned`, `open_sessions` and the
+`pg_notify` fan-out in `live_events.py` to recognise members too, each
+still acting under **their own group's** environments and IAM role -- never
+the owner's, there is no per-session access grant -- with write permission
+enforced per member's tier (phase 3); then turning the session-tab agent
+chat into a multi-user conversation, gated so the agent only replies when
+`@`-mentioned (phase 4).
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record

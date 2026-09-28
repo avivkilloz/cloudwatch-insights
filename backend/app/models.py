@@ -230,6 +230,34 @@ class LiveSession(Base):
     )
 
 
+class SessionMember(Base):
+    """A user other than the owner invited into a live session, with a
+    permission tier. `LiveSession.user_id` stays the owner throughout --
+    membership is purely additive, so every existing single-owner code path
+    (ownership checks, live sync, the agent's per-user token) is untouched
+    by this table's existence.
+
+    This alone is just the roster: who is invited, and at what permission.
+    What membership actually *grants* -- an invited member being able to
+    reach the session at all, live updates reaching their browser -- is a
+    later phase built on top of this one.
+    """
+
+    __tablename__ = "session_members"
+    __table_args__ = (UniqueConstraint("session_id", "user_id", name="uq_session_members_session_user"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # "viewer": read-only. "editor": everything else -- edit inputs, add or
+    # remove panes, run tools and services. The owner is never a member of
+    # their own session; there is no row here for them.
+    permission = Column(String, nullable=False, server_default="editor")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User")
+
+
 class AgentToken(Base):
     """A short-lived credential the backend hands the platform agent for one
     chat turn, so the agent can call the MCP tools *as the user who asked* --

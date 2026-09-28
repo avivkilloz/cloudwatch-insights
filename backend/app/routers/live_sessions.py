@@ -10,6 +10,11 @@ The browser owns the ids and the ordering; this module owns durability and
 scoping. Closing a session keeps the row and stamps `closed_at`: it leaves the
 strip of tabs but stays in the side panel's list, ready to reopen. Deleting is
 the only thing that removes one.
+
+The `/members` routes at the bottom are phase 1 of sharing a session with
+other users: managing who is invited and at what permission. They don't yet
+change what an invited member can reach -- every route above still checks
+ownership alone -- that's a later phase.
 """
 
 import asyncio
@@ -19,6 +24,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -268,5 +274,94 @@ def delete_live_session(
 ):
     db.delete(_owned(db, current_user, client_id))
     notify(db, current_user.id, "delete", client_id, None, origin)
+    db.commit()
+    return None
+
+
+# ---------------------------------------------------------------- members
+#
+# Phase 1 of sharing a session: managing who is invited, and at what
+# permission. This alone doesn't yet let an invited member reach the
+# session -- every route above still checks ownership alone, by design --
+# that follows in a later phase, alongside extending live sync to members.
+# Only the owner manages membership; there's no delegated "can invite" tier.
+
+
+def _member_out(member: models.SessionMember) -> schemas.SessionMemberOut:
+    return schemas.SessionMemberOut(user_id=member.user_id, username=member.user.username, permission=member.permission)
+
+
+def _member(db: Session, session_id: int, user_id: int) -> models.SessionMember:
+    member = (
+        db.query(models.SessionMember)
+        .filter(models.SessionMember.session_id == session_id, models.SessionMember.user_id == user_id)
+        .one_or_none()
+    )
+    if member is None:
+        raise HTTPException(status_code=404, detail="That user is not a member of this session.")
+    return member
+
+
+@router.get("/{client_id}/members", response_model=list[schemas.SessionMemberOut])
+def list_session_members(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    row = _owned(db, current_user, client_id)
+    members = db.query(models.SessionMember).filter(models.SessionMember.session_id == row.id).all()
+    return [_member_out(m) for m in members]
+
+
+@router.post("/{client_id}/members", response_model=schemas.SessionMemberOut, status_code=201)
+def invite_session_member(
+    client_id: str,
+    payload: schemas.SessionMemberCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    row = _owned(db, current_user, client_id)
+    username = payload.username.strip()
+    invitee = db.query(models.User).filter(models.User.username == username).one_or_none()
+    if invitee is None:
+        raise HTTPException(status_code=404, detail=f'No user named "{username}".')
+    if invitee.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You already own this session.")
+    member = models.SessionMember(session_id=row.id, user_id=invitee.id, permission=payload.permission)
+    db.add(member)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f'"{username}" is already a member of this session.')
+    db.refresh(member)
+    return _member_out(member)
+
+
+@router.put("/{client_id}/members/{user_id}", response_model=schemas.SessionMemberOut)
+def update_session_member(
+    client_id: str,
+    user_id: int,
+    payload: schemas.SessionMemberUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    row = _owned(db, current_user, client_id)
+    member = _member(db, row.id, user_id)
+    member.permission = payload.permission
+    db.commit()
+    db.refresh(member)
+    return _member_out(member)
+
+
+@router.delete("/{client_id}/members/{user_id}", status_code=204)
+def remove_session_member(
+    client_id: str,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    row = _owned(db, current_user, client_id)
+    db.delete(_member(db, row.id, user_id))
     db.commit()
     return None

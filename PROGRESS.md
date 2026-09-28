@@ -305,12 +305,11 @@ tolerance widened, 8px 12px header padding instead of an absolute corner)
 21/21. Full `run-all.mjs` not run this round, per the user's explicit
 time/token constraint -- targeted verification only.
 
-**This round (pushed, no PR opened yet): follow-ups to #88, before the
-dynamic dashboard** (still waiting on the user's go-ahead -- a 24-column
-grid, directional push falling back to down, drop-between, no
-auto-compaction plus Tidy up, live preview). #88 was already merged when
-this round started, so the branch was restarted from `main` (same name)
-and this round's one commit rebased onto it.
+**#89 (merged): follow-ups to #88**, before the dynamic dashboard (still on
+hold -- see below). #88 had already merged when that round started, so the
+branch was restarted from `main` and the round's commit rebased onto it --
+the first time this engagement hit "the PR you're pushing to already
+merged," which is now a standing rule (see CLAUDE.md/this file's header).
 
 1. *Session card header buttons*: fold now shares a pane header button's own
    `.secondary` look and glyph (`+`/`−`), not a bespoke circular icon
@@ -331,7 +330,58 @@ and this round's one commit rebased onto it.
 Coverage: `tsc --noEmit` clean; smoke33 (tabs layout) 21/21; smoke48 22/22;
 smoke49 21/21; new backend test
 `test_the_agent_can_set_a_sessions_description_and_category`, full backend
-suite 174/174. Full `run-all.mjs` not run, same time/token constraint.
+suite 174/174.
+
+**#90 (merged): a lone session tab's left corner wasn't rounding.**
+`:first-child`/`:last-child` are equal specificity, so with exactly one tab
+both matched and whichever came later in the sheet won outright, squaring
+off the other corner. Fixed with a combined `:first-child:last-child` rule.
+
+**#91 (merged): the agent panel's Global/Session tabs joined the same way**
+as the session tabs layout (#89) and the Layout control -- one shared
+button, not two separate bordered ones with a gap. Carries the same
+defensive `:first-child:last-child` fix as #90.
+
+## Sharing a session — agreed design and phases
+
+The user wants sessions shared with other users: invited when the session
+is created, or afterward; different permission tiers; and the session-tab
+agent chat turned into a multi-user conversation the agent only joins when
+`@`-mentioned, managed from the session card. Given how much of the existing
+architecture assumes one owner (`LiveSession.user_id`, the per-user
+`pg_notify` fan-out, per-group IAM/environments, the agent's per-user
+token), this is a multi-PR project agreed up front rather than one PR:
+
+1. **Data model + membership API (this round, PR pending).** `SessionMember`
+   (session_id, user_id, permission) -- additive only, `LiveSession.user_id`
+   stays the owner. Two tiers: *viewer* (read-only) and *editor* (edit
+   inputs, add/remove panes, run tools -- everything except managing
+   membership itself). `routers/live_sessions.py` gets `/members`
+   (list/invite/change permission/remove), owner-only. **Inviting someone
+   does not yet let them reach the session** -- every existing route still
+   checks ownership alone; that's phase 3.
+2. **Session card UI to manage members** (not started): a new section,
+   invite by username with a permission picker, list with per-row
+   permission change and remove.
+3. **Actually letting a member in** (not started): extend `_owned`/
+   `open_sessions`/the write paths to recognise membership, not just
+   ownership; extend `live_events.py`'s `pg_notify` fan-out to every member
+   so a shared session updates live for everyone, the same way a second tab
+   of your own does today; enforce each member's permission tier on writes.
+   A member always acts under **their own group's** environments and IAM
+   role, never the owner's -- there is no per-session access grant, keeping
+   "access control is per group, never per user" intact. A pane pointing at
+   an environment a member's group can't reach just errors for them, the
+   same as an existing partial-failure-per-account case.
+4. **Multi-user chat** (not started): the session-tab `agentChat` state
+   becomes a real conversation between every member and the agent, each
+   message tagged with its author; the agent only replies when a message
+   `@`-mentions it (name TBD), through the same `/api/agent/chat` relay
+   that already gates on `agent_enabled`.
+
+Coverage for phase 1: `test_session_members.py` (invite, list, change
+permission, remove, owner-only, scoped per session), full backend suite
+183/183.
 
 ## The platform agent — agreed design and phases
 
