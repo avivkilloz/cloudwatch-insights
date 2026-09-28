@@ -31,6 +31,8 @@ export default function SessionCard({
   title,
   description,
   inRail,
+  collapsed,
+  onToggleCollapsed,
   onRename,
   onDescribe,
   onMove,
@@ -39,6 +41,10 @@ export default function SessionCard({
   title: string;
   description: string;
   inRail: boolean;
+  /** Folded down to its header (and the session's name). Only in the body:
+   * in the side panel it's out of the way already. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onRename: (title: string) => void;
   onDescribe: (description: string) => void;
   onMove: () => void;
@@ -85,72 +91,92 @@ export default function SessionCard({
   }
 
   const hasDescription = description.trim() !== "";
+  const folded = collapsed && !inRail;
 
   return (
-    <div className={`panel session-card${inRail ? " in-rail" : ""}`}>
+    <div className={`panel session-card${inRail ? " in-rail" : ""}${folded ? " collapsed" : ""}`}>
       <div className="session-card-head">
         <span className="session-card-kicker">Session</span>
-        <button
-          className="session-card-move"
-          onClick={onMove}
-          aria-label={inRail ? "Move the session card back above the panes" : "Move the session card to the side panel"}
-          title={inRail ? "Move back above the panes" : "Move to the side panel"}
-        >
-          {inRail ? "⇥" : "⇤"}
-        </button>
+        {/* Folded, the name is all that's left to say which session this is. */}
+        {folded && <span className="session-card-folded-title">{title}</span>}
+        <div className="session-card-actions">
+          {!inRail && (
+            <button
+              className="session-card-fold"
+              onClick={onToggleCollapsed}
+              aria-expanded={!folded}
+              aria-label={folded ? "Expand the session card" : "Collapse the session card"}
+              title={folded ? "Expand" : "Collapse"}
+            >
+              {folded ? "▸" : "▾"}
+            </button>
+          )}
+          <button
+            className="session-card-move"
+            onClick={onMove}
+            aria-label={inRail ? "Move the session card back above the panes" : "Move the session card to the side panel"}
+            title={inRail ? "Move back above the panes" : "Move to the side panel"}
+          >
+            {inRail ? "⇥" : "⇤"}
+          </button>
+        </div>
       </div>
+      {folded ? null : (
+        <>
 
-      <CardSection>
-        <CardRow label="Name">
-          {editing === "title" ? (
-            <input
-              className="session-card-input session-card-title-input"
-              autoFocus
-              defaultValue={title}
-              aria-label="Session name"
-              onKeyDown={keys("title")}
-              onBlur={blur("title")}
-            />
-          ) : (
-            <div className="session-card-text">
-              <h2 className="session-card-title">{title}</h2>
-              <button className="session-card-edit" onClick={() => setEditing("title")} aria-label="Rename the session" title="Rename">
-                ✎
-              </button>
-            </div>
-          )}
-        </CardRow>
-        <CardRow label="Description">
-          {editing === "description" ? (
-            <textarea
-              className="session-card-input session-card-description-input"
-              autoFocus
-              rows={3}
-              defaultValue={description}
-              placeholder="What this session is for"
-              aria-label="Session description"
-              onKeyDown={keys("description")}
-              onBlur={blur("description")}
-            />
-          ) : (
-            <div className="session-card-text">
-              <p className={`session-card-description${hasDescription ? "" : " muted"}`}>
-                {hasDescription ? description : "No description yet."}
-              </p>
-              <button
-                className="session-card-edit"
-                onClick={() => setEditing("description")}
-                aria-label={hasDescription ? "Edit the description" : "Add a description"}
-                title={hasDescription ? "Edit the description" : "Add a description"}
-              >
-                ✎
-              </button>
-            </div>
-          )}
-        </CardRow>
-      </CardSection>
+          <CardSection>
+            <CardRow label="Name">
+              {editing === "title" ? (
+                <input
+                  className="session-card-input session-card-title-input"
+                  autoFocus
+                  defaultValue={title}
+                  aria-label="Session name"
+                  onKeyDown={keys("title")}
+                  onBlur={blur("title")}
+                />
+              ) : (
+                <div className="session-card-text">
+                  <h2 className="session-card-title">{title}</h2>
+                  <button className="session-card-edit" onClick={() => setEditing("title")} aria-label="Rename the session" title="Rename">
+                    ✎
+                  </button>
+                </div>
+              )}
+            </CardRow>
+            <CardRow label="Description">
+              {editing === "description" ? (
+                <textarea
+                  className="session-card-input session-card-description-input"
+                  autoFocus
+                  rows={3}
+                  defaultValue={description}
+                  placeholder="What this session is for"
+                  aria-label="Session description"
+                  onKeyDown={keys("description")}
+                  onBlur={blur("description")}
+                />
+              ) : (
+                <div className="session-card-text">
+                  <p className={`session-card-description${hasDescription ? "" : " muted"}`}>
+                    {hasDescription ? description : "No description yet."}
+                  </p>
+                  <button
+                    className="session-card-edit"
+                    onClick={() => setEditing("description")}
+                    aria-label={hasDescription ? "Edit the description" : "Add a description"}
+                    title={hasDescription ? "Edit the description" : "Add a description"}
+                  >
+                    ✎
+                  </button>
+                </div>
+              )}
+            </CardRow>
+          </CardSection>
 
-      {children}
+          {children}
+        </>
+      )}
     </div>
   );
 }

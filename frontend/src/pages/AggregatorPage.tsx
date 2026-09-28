@@ -1118,12 +1118,17 @@ export default function AggregatorPage() {
   const onScreen = view === "session" && scope !== null && activeId === scope.id;
   const thisSession = scope ? sessions.find((s) => s.id === scope.id) : undefined;
   const [description, setDescription] = useSessionState<string>(SESSION_DESCRIPTION_KEY, "");
+  // Per session, like a pane's minimised state: folding one session's card
+  // says nothing about another's.
+  const [cardCollapsed, setCardCollapsed] = useSessionState<boolean>("cardCollapsed", false);
 
   const sessionCard = (
     <SessionCard
       title={thisSession?.title ?? ""}
       description={typeof description === "string" ? description : ""}
       inRail={cardInRail}
+      collapsed={cardCollapsed === true}
+      onToggleCollapsed={() => setCardCollapsed(!cardCollapsed)}
       onRename={(title) => {
         if (scope) rename(scope.id, title);
       }}

@@ -249,7 +249,7 @@ home form's leftover count decides the default name), and smoke35/30's
 category-dependent checks and smoke44's closed row passed once a category
 leaked by an aborted smoke48 run was gone.
 
-**This round (not yet merged): follow-ups to #85.**
+**#86 (merged): follow-ups to #85.**
 
 1. *Dashboard pane under the dock*: `resolveDashboard` checked overflow with
    the already-clamped width, so a pane at x 0 wider than a narrowed canvas
@@ -276,6 +276,14 @@ card's alignment and editors); with only the fit fix reverted it fails the
 two fit checks. smoke20/33/35/43 point at the card rows and the segmented
 control. Full run: 32 of 33; smoke29's "several sessions autosave in panel
 order" failed once (server order JWT, IoT, Diff) and passed on its re-run.
+
+**This round (not yet merged): card and picture touch-ups**, before the
+dynamic dashboard (whose plan -- a 24-column grid, directional push falling
+back to down, drop-between, no auto-compaction plus Tidy up, live preview --
+is waiting on the user's go-ahead). A rule under the Session card's header;
+in the body the card folds to its header and name (`cardCollapsed`, per
+session); the account picture sits 6px further in from the end of its bar.
+smoke49 extended (21 checks; the new ones fail on the previous frontend).
 
 ## The platform agent — agreed design and phases
 

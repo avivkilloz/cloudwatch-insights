@@ -134,8 +134,30 @@ const run = async () => {
   check(titleBox === descBox, "The name and the description edit in the same kind of box", JSON.stringify({ titleBox, descBox }));
   await page.locator(CARD).screenshot({ path: `${SHOT}/49-card.png` });
 
+  // The header is ruled off from what's under it, and in the body the card
+  // folds down to that header and the session's name.
+  const rule = await page.locator(`${CARD} .session-card-head`).evaluate((el) => getComputedStyle(el).borderBottomWidth);
+  check(rule === "1px", "The card's header is ruled off from its sections", rule);
+  await page.click(`${CARD} [aria-label="Collapse the session card"]`);
+  check((await page.locator(`${CARD} .session-card-row`).count()) === 0 &&
+    (await page.locator(`${CARD} .session-card-folded-title`).innerText()) === "Checkout",
+    "In the body, the card folds down to its header and the session's name");
+  await page.waitForTimeout(1600);
+  await page.reload();
+  await page.waitForSelector(CARD);
+  check((await page.locator(`${CARD} [aria-label="Expand the session card"]`).count()) === 1, "…and stays folded, kept with the session");
+  await page.click(`${CARD} [aria-label="Expand the session card"]`);
+  check((await page.locator(`${CARD} .session-card-row`).count()) === 5, "…until it's expanded again");
+  const inset = await page.evaluate(() => {
+    const h = document.querySelector(".agent-dock .agent-panel-head").getBoundingClientRect();
+    const p = document.querySelector('.agent-dock [aria-label="Account menu"]').getBoundingClientRect();
+    return Math.round(h.right - p.right);
+  });
+  check(inset >= 10, "The picture sits in from the end of the agent panel's header", `${inset}px`);
+
   await page.click(`${CARD} .session-card-move`);
   await page.waitForTimeout(300);
+  check((await page.locator(".rail-session-slot .session-card-fold").count()) === 0, "In the side panel there's nothing to fold");
   const stacked = await page.evaluate(() => {
     const row = document.querySelector(".rail-session-slot .session-card-row");
     return row.querySelector(".session-card-values").getBoundingClientRect().top >= row.querySelector(".session-card-label").getBoundingClientRect().bottom - 1;
