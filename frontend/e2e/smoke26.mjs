@@ -49,13 +49,13 @@ const V = ".session-body:not([hidden])";
 
   for (const [label, heading] of [["CloudWatch", "log groups"], ["OpenSearch", "indices"]]) {
     await newSession(page, label);
-    await page.waitForSelector(".page-info-title", { timeout: 10000 });
-    check((await page.locator(".page-info-title").textContent()) === label, `${label} opens its own session`);
+    await page.waitForSelector(".session-body:not([hidden]) .session-card-title", { timeout: 10000 });
+    check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === label, `${label} opens its own session`);
     check((await page.locator(`${V} .panel h2`).allTextContents()).every((h) => h !== "Backend"),
       `${label} has no Backend section`);
-    // Every session leads with its own Panes card, so the page's own steps
-    // start after it.
-    const steps = (await page.locator(`${V} .panel h2`).allTextContents()).filter((h) => h !== "Panes");
+    // Every session leads with its own card, so the page's own steps start
+    // after it.
+    const steps = await page.locator(`${V} .panel:not(.session-card) h2`).allTextContents();
     const step2 = steps[1];
     check(step2.includes(heading), `${label} step 2 chooses ${heading}`, step2);
   }
@@ -112,14 +112,15 @@ const V = ".session-body:not([hidden])";
   check(!/[⊞]/.test(createText) && createText === "Create", "The button that makes one is text only", createText);
   await page.screenshot({ path: `${SHOT}/26-home.png` });
 
-  // ---------- item 2: the session's card is "Panes" ----------
+  // ---------- item 2: the session's own card leads the body ----------
   await page.click('.home-card:has(.home-card-title:text-is("IoT")) button[aria-label="One more IoT"]');
   await page.click(".home-create");
   await page.waitForSelector(`${V} .aggregator-pane`, { timeout: 10000 });
-  const aggHeads = await page.locator(`${V} > .panel h2`).allTextContents();
-  check(aggHeads[0] === "Panes", "The session's controls card is called Panes", JSON.stringify(aggHeads));
-  check((await page.locator(`${V} > .panel`).first().locator("p.muted").count()) === 0,
-    "…and no longer repeats the description the page header gives");
+  const lead = page.locator(`${V} > .panel`).first();
+  check(((await lead.getAttribute("class")) || "").includes("session-card") &&
+    (await lead.locator(".session-card-kicker").innerText()).toLowerCase() === "session",
+    "The body leads with the session's own card", await lead.innerText());
+  check((await lead.locator(".session-card-title").innerText()) === "IoT", "…headed by the session's name");
   const paneTitles = await page.locator(`${V} .aggregator-tab-label`).allTextContents();
   check(paneTitles.length === 2 && paneTitles.some((t) => t.includes("CloudWatch")),
     "CloudWatch works as a pane", JSON.stringify(paneTitles));

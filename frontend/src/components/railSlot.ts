@@ -1,16 +1,17 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Where a session's Panes card is drawn: at the top of the body (the default),
- * or in the side panel under the session's title and description, which some
- * prefer -- it's the session's settings, and there it stays in view while the
- * panes scroll.
+ * Where a session's card (SessionCard: its name, description, adds and
+ * layout) is drawn: at the top of the body (the default), or in the side panel.
+ * It stays where it was put -- in the side panel even while the panel is
+ * hidden, so it's out of sight then -- until it's moved back.
  *
  * Two small stores, since the card belongs to each session's own page while
  * the place it can move to belongs to the shell: the preference (per browser,
- * like the panel's width), and the slot element the shell renders in the side
- * panel while the panel is open. The session on screen portals its card into
- * the slot when both say so; with the panel hidden it stays in the body.
+ * like the panel's width; the key predates the card's merge with the page-info
+ * card, and is kept so the choice survives), and the slot element the shell
+ * renders in the side panel while the panel is open. The session on screen
+ * portals its card into the slot.
  */
 
 const KEY = "cwi-panes-in-rail";

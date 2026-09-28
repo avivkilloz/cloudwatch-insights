@@ -93,8 +93,8 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
 
   // ---------- making one from the home page ----------
   await newSession(page, "CloudWatch");
-  await page.waitForSelector(".page-info-title", { timeout: 10000 });
-  check((await page.locator(".page-info-title").textContent()) === "CloudWatch",
+  await page.waitForSelector(".session-body:not([hidden]) .session-card-title", { timeout: 10000 });
+  check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === "CloudWatch",
     "A session named after its one pane opens");
   check((await page.locator(ROW("CloudWatch")).count()) === 1, "…and it is listed under Sessions");
 
@@ -112,7 +112,7 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   // ---------- switching between them ----------
   await page.click(`${ROW("IoT")} .rail-row-label`);
   await page.waitForTimeout(300);
-  check((await page.locator(".page-info-title").textContent()) === "IoT", "Clicking an open session switches to it");
+  check((await page.locator(".session-body:not([hidden]) .session-card-title").textContent()) === "IoT", "Clicking an open session switches to it");
   check((await page.locator(".rail-row.active .rail-row-label").textContent()) === "IoT", "…and the rail marks it active");
 
   // ---------- the brand row ----------

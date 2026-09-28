@@ -1,3 +1,4 @@
+import { ReactNode } from "react";
 import { useAgent } from "../agent/AgentContext";
 import AgentChat from "./AgentChat";
 
@@ -9,7 +10,7 @@ import AgentChat from "./AgentChat";
  * it over the page; floating, a ✕ puts it away (docked, that's the strip's
  * toggle).
  */
-export default function AgentPanel() {
+export default function AgentPanel({ account }: { account?: ReactNode }) {
   const { tab, setTab, layout, setLayout, setOpen, viewingSessionId } = useAgent();
   return (
     <div className="agent-panel">
@@ -43,6 +44,7 @@ export default function AgentPanel() {
           >
             {layout === "dock" ? <FloatIcon /> : <DockIcon />}
           </button>
+          {account}
           {/* Docked, the strip's toggle beside it already hides it; floating,
               the panel is away from the strip and wants its own. */}
           {layout === "float" && (

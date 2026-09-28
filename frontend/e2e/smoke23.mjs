@@ -203,8 +203,8 @@ async function saveActiveAsTemplate(page) {
 
   // Same for a session holding several panes, which used to save almost nothing.
   await newSession(page);
-  await page.click(`${V} .panel:has(h2:text-is("Panes")) button[aria-label="Add CloudWatch pane"]`);
-  await page.click(`${V} .panel:has(h2:text-is("Panes")) button[aria-label="Add Cognito pane"]`);
+  await page.click(`${V} .session-card button[aria-label="Add CloudWatch pane"]`);
+  await page.click(`${V} .session-card button[aria-label="Add Cognito pane"]`);
   await page.click(`${V} button:text-is("Stacked")`);
   await page.waitForTimeout(200);
   await page.fill(`${V} .aggregator-pane:has(h3:text-is("CloudWatch")) textarea`, "fields @timestamp | filter saved");

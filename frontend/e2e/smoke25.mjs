@@ -91,10 +91,10 @@ const V = ".session-body:not([hidden])";
   // ---------- item 5: page title and description ----------
   // A session's title is its own name now, not a type's label, and the
   // description says what is in it.
-  const aggIntro = await page.locator(".page-info-title").textContent();
+  const aggIntro = await page.locator(".session-body:not([hidden]) .session-card-title").textContent();
   check(aggIntro === "CloudWatch +1", "A session's card carries the name it was given", aggIntro);
-  const aggHelp = (await page.locator(".page-info-help").textContent()) || "";
-  check(aggHelp.includes("CloudWatch") && aggHelp.includes("DynamoDB"), "…and says what is in it", aggHelp);
+  const tabsShown = (await page.locator(`${V} .aggregator-tab-label`).allTextContents()).join(",");
+  check(tabsShown.includes("CloudWatch") && tabsShown.includes("DynamoDB"), "…and its panes are what it holds", tabsShown);
   check((await page.locator(`${V} .aggregator-pane .page-intro`).count()) === 0,
     "Panes inside the Aggregator do not each repeat a page header");
 
@@ -102,9 +102,9 @@ const V = ".session-body:not([hidden])";
     await newSession(page, label);
     await page.waitForTimeout(400);
     // A session is named after its one pane, or "JWT 2" if that name is taken.
-    const shown = await page.locator(".page-info-title").textContent();
+    const shown = await page.locator(".session-body:not([hidden]) .session-card-title").textContent();
     check(shown.startsWith(title), `${label} session is named after the pane in it`, shown);
-    check(((await page.locator(".page-info-help").textContent()) || "").length > 40, `${label} page explains what it's for`);
+    check((await page.locator(`${V} .session-card-description`).count()) === 1, `${label} session's card has a line for its description`);
   }
 
   // ---------- item 6: tools use cards ----------
@@ -113,7 +113,7 @@ const V = ".session-body:not([hidden])";
   // GET is bodyless, so there is no Body card yet and no Response until one comes back.
   // Every session leads with its own Panes card, so the tool's own cards are
   // what comes after it.
-  const httpPanels = (await page.locator(`${V} .panel h2`).allTextContents()).filter((h) => h !== "Panes");
+  const httpPanels = (await page.locator(`${V} .panel:not(.session-card) h2`).allTextContents());
   check(JSON.stringify(httpPanels) === JSON.stringify(["Request", "Headers"]),
     "HTTP client is laid out as cards", JSON.stringify(httpPanels));
   await page.selectOption(`${V} select >> nth=0`, "POST");
@@ -129,7 +129,7 @@ const V = ".session-body:not([hidden])";
   for (const tool of ["JWT", "Base64", "Diff", "MQTT tester"]) {
     await newSession(page, tool);
     await page.waitForTimeout(400);
-    const n = (await page.locator(`${V} .panel h2`).allTextContents()).filter((h) => h !== "Panes").length;
+    const n = (await page.locator(`${V} .panel:not(.session-card) h2`).allTextContents()).length;
     check(n >= 1, `${tool} is laid out as cards`, `panels=${n}`);
   }
   await page.screenshot({ path: `${SHOT}/25-mqtt.png` });

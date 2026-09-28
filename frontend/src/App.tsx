@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import { api, Settings } from "./api";
 import { useAuth } from "./AuthContext";
 import { AgentProvider, useAgent } from "./agent/AgentContext";
@@ -160,16 +160,11 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     }
   }, [railOpen]);
 
-  // Where the header's avatar went: a card at the foot of the side panel, or
-  // just the picture on the strip while the panel is hidden.
-  const account = user ? (
-    <UserMenu
-      user={user}
-      onOpenSettings={() => show("settings")}
-      onLogout={handleLogout}
-      variant={railOpen ? "card" : "avatar"}
-    />
-  ) : null;
+  // The account's picture, at the far right of whatever reaches the window's
+  // right edge: the docked agent panel's header when it's open, otherwise the
+  // strip (a floating agent panel is over the page, not a column, so it
+  // leaves the picture on the strip).
+  const account = user ? <UserMenu user={user} onOpenSettings={() => show("settings")} onLogout={handleLogout} /> : null;
 
   // The widths actually drawn, and how far each resizer may go, so the body
   // keeps BODY_MIN_WIDTH. The shell is its 16px left padding, the rail and the
@@ -193,8 +188,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   return (
     <div className="app">
       {/* No header bar: the brand heads the side panel (or starts the strip
-          while it's hidden), the account is a card at the panel's foot, and a
-          question for the agent goes in the agent panel's Global tab. */}
+          while it's hidden), the account's picture ends the strip (or the
+          docked agent panel's header), and a question for the agent goes in
+          the agent panel's Global tab. */}
       <div className="shell">
         {/* The panel and the page's own title share a column: "what I have"
             above, "what I am looking at" below. Below rather than above so the
@@ -206,7 +202,6 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             <PageInfo />
             {/* The session's Panes card, when it's been moved here (railSlot). */}
             <div className="rail-session-slot" ref={setRailSlot} />
-            <div className="rail-account">{account}</div>
             <ColumnResizer
               className="rail-resizer"
               label="Resize the side panel"
@@ -224,12 +219,19 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             scrollbar takes its width out of .content, so a strip outside it
             ended up wider than the cards by exactly the scrollbar. Sticky, so
             it still behaves like a header. */}
-        <main className="content">
+        {/* The body's scroll box runs to the window's right edge whether or not
+            the agent panel is docked, so its scrollbar always sits against the
+            window: the docked panel is drawn over the right of it (fixed, see
+            .agent-dock) and the body pads itself clear of it by its width. */}
+        <main
+          className="content"
+          style={{ "--dock-width": `${dockShown ? dockShownWidth : 0}px` } as CSSProperties}
+        >
           <SessionBar
             railOpen={railOpen}
             onToggleRail={() => setRailOpen((v) => !v)}
             brand={brand}
-            account={railOpen ? null : account}
+            account={dockShown ? null : account}
           />
 
         {view === "home" && <HomePage />}
@@ -267,6 +269,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             max={dockMax}
             onResize={setDockWidth}
             onCommit={(w) => storeWidth(DOCK_WIDTH_KEY, w)}
+            account={account}
           />
         )}
         {agent.layout === "float" && view !== "agent" && <AgentFloat />}

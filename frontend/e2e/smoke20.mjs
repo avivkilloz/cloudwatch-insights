@@ -1,6 +1,6 @@
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, closePane, launch, newSession, report } from "./harness.mjs";
 
-const SESSION = '.panel:has(h2:text-is("Panes"))';
+const SESSION = '.session-card';
 
 /** Services are sessions now: started from the + in the strip under the
  * header rather than tabs in the header. Any session already open is closed
@@ -134,7 +134,7 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
+  await page.waitForSelector("text=Add a service or tool from the session's card to start");
 
   // ---------- 1. Individual tools are options ----------
   const toolNames = ["HTTP client", "MQTT tester", "JWT", "Base64", "Diff"];
