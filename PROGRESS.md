@@ -213,7 +213,7 @@ description). Full run: 32 of 32 browser suites green, after smoke35's page
 colour check was made to compare colours rather than strings (read during
 the body's background transition, the same colour serialises as rgba).
 
-**This round (not yet merged): one Session card, and the shell's edges.**
+**#85 (merged): one Session card, and the shell's edges.**
 The user's seven points:
 
 1. *Rail brand*: a header bar (`.rail-head`, sticky, ruled) padded like the
@@ -248,6 +248,33 @@ after the agent toggle, smoke26 compares the card's title with the tab (the
 home form's leftover count decides the default name), and smoke35/30's
 category-dependent checks and smoke44's closed row passed once a category
 leaked by an aborted smoke48 run was gone.
+
+**This round (not yet merged): follow-ups to #85.**
+
+1. *Dashboard pane under the dock*: `resolveDashboard` checked overflow with
+   the already-clamped width, so a pane at x 0 wider than a narrowed canvas
+   was drawn at full width. Checked with the stored width now; the stored
+   width is kept, so it grows back.
+2. *A more dynamic dashboard*: suggestions given to the user, nothing built
+   yet (see below).
+3. *Double-click a session tab* to rename it.
+4. *Picture spacing*: 8px clear of the toggle before it, strip and dock.
+5. *Session card as one form*: `CardRow`/`CardSection`, a 96px label column
+   (labels over values in the rail), three ruled sections, the move button
+   absolutely in the corner, one `.session-card-input` style for both
+   editors, the layout as a segmented control (2×2 in the rail).
+
+**Dashboard ideas offered, not started** (the user's call): push the panes
+in the way down (Grafana-style) instead of stopping the drag at the nearest
+free spot; drop on a free spot anywhere; drop between two panes to insert;
+shrink a neighbour to its minimum before refusing; and an optional
+"tidy up" (compact upwards). Preview each as the ghost outline before it's
+committed, so nothing moves until release.
+
+Coverage: new `smoke49` (the fit, double-click rename, picture spacing, the
+card's alignment and editors); with only the fit fix reverted it fails the
+two fit checks. smoke20/33/35/43 point at the card rows and the segmented
+control.
 
 ## The platform agent — agreed design and phases
 
@@ -442,7 +469,7 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 173 backend, 6 agent, 32 Playwright suites (this round's full
+- **Tests:** 173 backend, 6 agent, 33 Playwright suites (this round's full
   run is recorded above).
 
 ## In progress / where I left off
@@ -583,7 +610,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 32 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 33 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,

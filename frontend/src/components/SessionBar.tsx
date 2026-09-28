@@ -104,7 +104,16 @@ export default function SessionBar({
                   aria-label={`Rename ${s.title}`}
                 />
               ) : (
-                <button className="session-tab-label" onClick={() => activate(s.id)} title={s.title}>
+                <button
+                  className="session-tab-label"
+                  onClick={() => activate(s.id)}
+                  // As a pane's tab renames on double-click in the tabs layout.
+                  onDoubleClick={() => {
+                    activate(s.id);
+                    setRenaming(true);
+                  }}
+                  title={`${s.title} — double-click to rename`}
+                >
                   {s.title}
                 </button>
               )}

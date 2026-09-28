@@ -150,8 +150,8 @@ async function newPanedSession(page) {
   );
   // The picker separates the two kinds of thing.
   check(
-    (await page.locator(`${SESSION} .toolbar:has-text("Services") .aggregator-add-pane`).count()) === 6 &&
-      (await page.locator(`${SESSION} .toolbar:has-text("Tools") .aggregator-add-pane`).count()) === 5,
+    (await page.locator(`${SESSION} .session-card-row:has(.session-card-label:text-is("Services")) .aggregator-add-pane`).count()) === 6 &&
+      (await page.locator(`${SESSION} .session-card-row:has(.session-card-label:text-is("Tools")) .aggregator-add-pane`).count()) === 5,
     "The picker groups search services and tools separately"
   );
 

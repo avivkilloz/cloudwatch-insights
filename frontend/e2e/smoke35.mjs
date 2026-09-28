@@ -102,10 +102,10 @@ const run = async () => {
   check(addable === 1, "…and the Panes card still offers another CloudWatch pane to add", `${addable} add buttons`);
 
   // ---- 3. Tabs is the first layout option ----------------------------
-  const layoutButtons = await page.locator(`${SHOWN} .toolbar:has(span:text-is("Layout")) button`).allInnerTexts();
+  const layoutButtons = await page.locator(`${SHOWN} .segmented[aria-label="Layout"] button`).allInnerTexts();
   check(JSON.stringify(layoutButtons) === JSON.stringify(["Tabs", "Side by side", "Stacked", "Dashboard"]),
     "Tabs is the first layout offered", JSON.stringify(layoutButtons));
-  const active = await page.locator(`${SHOWN} .toolbar:has(span:text-is("Layout")) button:not(.secondary)`).innerText();
+  const active = await page.locator(`${SHOWN} .segmented[aria-label="Layout"] button:not(.secondary)`).innerText();
   check(active === "Tabs", "…and the one a new session starts in", active);
 
   // A second service from Add is its own session, not a second pane.
