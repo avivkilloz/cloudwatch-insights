@@ -79,8 +79,12 @@ const run = async () => {
   const [brand, tab] = [await rect(page, ".rail-head .rail-brand"), await rect(page, ".session-tab")];
   check(Math.abs(brand.top - tab.top) <= 1 && Math.abs(brand.height - tab.height) <= 1,
     "The side panel's brand is a header bar level with the session tabs", JSON.stringify({ brand, tab }));
-  const [head, strip] = [await rect(page, ".rail-head"), await rect(page, ".session-bar")];
-  check(Math.abs(head.bottom - strip.bottom) <= 1, "…ending where the strip does", JSON.stringify({ head, strip }));
+  // The rule sits a little lower than the strip's own bottom now -- room to
+  // breathe under the row, without moving the row itself -- matching the
+  // docked agent panel's own header rule instead.
+  const [head, dockHead] = [await rect(page, ".rail-head"), await rect(page, ".agent-dock .agent-panel-head")];
+  check(Math.abs(head.bottom - dockHead.bottom) <= 1, "…ending level with the agent panel's own header rule",
+    JSON.stringify({ head, dockHead }));
   const dockEnd = await page.locator(".agent-dock .agent-panel-actions > *").evaluateAll((els) => els.map((e) => e.className));
   check(dockEnd.length === 2 && dockEnd[0].includes("agent-icon-btn") && dockEnd[1].includes("icon-popover-wrap"),
     "Docked, the agent panel's header ends with the account's picture, after the layout switch", JSON.stringify(dockEnd));

@@ -313,12 +313,18 @@ credentials per service.
   picture ends the strip, or the docked agent panel's header (a floating one
   leaves it on the strip). Anything that measured from a 53px header is
   measured from the window's top now.
-- **A session's card** (`components/SessionCard.tsx`) is one form -- a label
-  column and a values column (`CardRow`), three ruled sections
-  (`CardSection`): its name and description (edited in the same kind of
-  box), its adds, and its layout (one segmented control). In the body it
-  folds to its header (`cardCollapsed`, per session like a minimised
-  pane); in the rail it doesn't. PageInfo is
+- **A session's card** (`components/SessionCard.tsx`) is styled like a pane
+  card: a header bar (`.session-card-head`, `panel-alt`, clicking it folds
+  the card, like a pane's own header) and, in its body, one inner bordered
+  card per section (`CardSection`) instead of a ruled line between them.
+  Header buttons (`session-card-fold`, `session-card-move`) stop their click
+  from bubbling to the header or it double-toggles and cancels out -- the
+  same trap `AggregatorPage.tsx`'s own pane header comment already names.
+  Each section is a label column and a values column (`CardRow`): name and
+  description (edited in the same kind of box), adds, and layout (one
+  segmented control). In the body it folds to its header (`cardCollapsed`,
+  per session like a minimised pane, and only there -- in the rail there's
+  nothing to fold). PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`

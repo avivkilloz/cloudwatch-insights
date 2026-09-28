@@ -93,9 +93,22 @@ export default function SessionCard({
   const hasDescription = description.trim() !== "";
   const folded = collapsed && !inRail;
 
+  // The whole header toggles, like a pane's -- so its buttons have to stop
+  // their click bubbling there, or a press on Fold would toggle twice (once
+  // from the button, once from the header it bubbles to) and cancel out.
+  function headerClick() {
+    if (!inRail) onToggleCollapsed();
+  }
+  function stop<E extends { stopPropagation(): void }>(fn: () => void) {
+    return (e: E) => {
+      e.stopPropagation();
+      fn();
+    };
+  }
+
   return (
     <div className={`panel session-card${inRail ? " in-rail" : ""}${folded ? " collapsed" : ""}`}>
-      <div className="session-card-head">
+      <div className="session-card-head" onClick={headerClick}>
         <span className="session-card-kicker">Session</span>
         {/* Folded, the name is all that's left to say which session this is. */}
         {folded && <span className="session-card-folded-title">{title}</span>}
@@ -103,7 +116,7 @@ export default function SessionCard({
           {!inRail && (
             <button
               className="session-card-fold"
-              onClick={onToggleCollapsed}
+              onClick={stop(onToggleCollapsed)}
               aria-expanded={!folded}
               aria-label={folded ? "Expand the session card" : "Collapse the session card"}
               title={folded ? "Expand" : "Collapse"}
@@ -113,7 +126,7 @@ export default function SessionCard({
           )}
           <button
             className="session-card-move"
-            onClick={onMove}
+            onClick={stop(onMove)}
             aria-label={inRail ? "Move the session card back above the panes" : "Move the session card to the side panel"}
             title={inRail ? "Move back above the panes" : "Move to the side panel"}
           >
@@ -122,7 +135,7 @@ export default function SessionCard({
         </div>
       </div>
       {folded ? null : (
-        <>
+        <div className="session-card-body">
 
           <CardSection>
             <CardRow label="Name">
@@ -175,7 +188,7 @@ export default function SessionCard({
           </CardSection>
 
           {children}
-        </>
+        </div>
       )}
     </div>
   );

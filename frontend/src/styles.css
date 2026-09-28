@@ -2427,7 +2427,7 @@ th {
 
 .agent-dock-panel .agent-panel-head,
 .agent-float-panel .agent-panel-head {
-  padding: 5px 6px;
+  padding: 5px 6px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -2634,7 +2634,7 @@ th {
   top: -8px;
   z-index: 2;
   margin: -8px -6px 6px;
-  padding: 5px 6px;
+  padding: 5px 6px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
@@ -2642,7 +2642,21 @@ th {
 .rail-row.rail-brand {
   height: 26px;
   gap: 7px;
-  padding: 0 8px;
+  padding: 0 8px 0 2px;
+}
+
+/* Unlike every other row, the brand never shows a background pill -- hover
+   and selection only change the text, as the old top-header logo did. */
+.rail-row.rail-brand,
+.rail-row.rail-brand:hover,
+.rail-row.rail-brand.active {
+  background: none;
+  border-color: transparent;
+}
+
+.rail-row.rail-brand:hover .rail-brand-title,
+.rail-row.rail-brand.active .rail-brand-title {
+  color: var(--accent);
 }
 
 .rail-brand-title {
@@ -2671,29 +2685,34 @@ th {
   background: var(--panel-alt);
 }
 
-/* ---- The session's card, at the top of the body or in the side panel ---- */
-
-/* One form: a label column and a values column, the same in every row, and
-   three sections (what it is, what it holds, how it's laid out) ruled apart.
-   The move button sits in the card's corner rather than a row of its own. */
+/* ---- The session's card, styled like a pane card: a header (click it, or
+   the fold button, to collapse/expand -- both stop the click from bubbling to
+   the other), and inner cards for each section instead of ruled-off groups. */
 .session-card {
   position: relative;
-  padding: 12px 16px 14px;
+  padding: 0;
 }
 
-/* Ruled off from the sections under it, as they are from each other. */
 .session-card-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 22px;
-  padding-bottom: 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  background: var(--panel-alt);
+  border-radius: 8px 8px 0 0;
+}
+
+/* In the side panel there's nothing to fold -- the card is already out of the
+   way -- so its header doesn't toggle. */
+.session-card:not(.in-rail) .session-card-head {
+  cursor: pointer;
+  user-select: none;
 }
 
 .session-card.collapsed .session-card-head {
-  padding-bottom: 0;
   border-bottom: none;
+  border-radius: 8px;
 }
 
 .session-card-folded-title {
@@ -2705,12 +2724,12 @@ th {
   font-weight: 600;
 }
 
+/* Pushed to the header's far end regardless of what's before them. */
 .session-card-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: flex;
+  flex: none;
   gap: 2px;
+  margin-left: auto;
 }
 
 .session-card-kicker {
@@ -2743,24 +2762,30 @@ th {
 .session-card-move:hover,
 .session-card-fold:hover,
 .session-card-edit:hover {
-  background: var(--panel-alt);
+  background: var(--panel);
   border-color: var(--border);
   color: var(--accent);
 }
 
+.session-card-body {
+  padding: 12px 16px 14px;
+}
+
+/* Each section its own bordered card, the way an embedded page's cards sit
+   inside a pane's body (`.aggregator-pane-body .panel`) -- consistent with
+   panes, and a clearer separation than a thin rule between rows. */
 .session-card-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
 }
 
 .session-card-section + .session-card-section {
-  border-top: 1px solid var(--border);
-}
-
-.session-card-section:last-child {
-  padding-bottom: 0;
+  margin-top: 10px;
 }
 
 .session-card-row {
@@ -2884,19 +2909,21 @@ th {
   display: none;
 }
 
-/* The side panel is narrow: the label sits over its values, the card's padding
-   comes down to the side panel's cards', and it scrolls rather than pushing
-   the rest of the column off the bottom. */
+/* The side panel is narrow: the label sits over its values, the card scrolls
+   rather than pushing the rest of the column off the bottom, and its inner
+   cards and controls run tighter than the body's do. */
 .session-card.in-rail {
   margin: 0;
-  padding: 10px 12px 12px;
   max-height: 60vh;
   overflow-y: auto;
 }
 
-.session-card.in-rail .session-card-actions {
-  top: 6px;
-  right: 6px;
+.session-card.in-rail .session-card-body {
+  padding: 10px 12px 12px;
+}
+
+.session-card.in-rail .session-card-section {
+  padding: 8px 10px;
 }
 
 .session-card.in-rail .session-card-row {

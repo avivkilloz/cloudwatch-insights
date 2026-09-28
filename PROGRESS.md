@@ -277,18 +277,36 @@ two fit checks. smoke20/33/35/43 point at the card rows and the segmented
 control. Full run: 32 of 33; smoke29's "several sessions autosave in panel
 order" failed once (server order JWT, IoT, Diff) and passed on its re-run.
 
-**This round (not yet merged): card and picture touch-ups**, before the
-dynamic dashboard (whose plan -- a 24-column grid, directional push falling
-back to down, drop-between, no auto-compaction plus Tidy up, live preview --
-is waiting on the user's go-ahead). A rule under the Session card's header;
-in the body the card folds to its header and name (`cardCollapsed`, per
-session); the account picture sits 6px further in from the end of its bar.
-smoke49 extended (21 checks; the new ones fail on the previous frontend).
-Full run: 31 of 33, then both fixed and green on their own -- smoke32's
-"picture at the far end" allowance widened for its new inset, and smoke44
-now waits for the closed row as it already waited for the tab to go (the
-closed list is fetched after the announcement, so it can land a moment
-later; it had failed this way twice).
+**#87 (merged): card and picture touch-ups.** A rule under the Session
+card's header; in the body the card folds to its header and name
+(`cardCollapsed`, per session); the account picture sits 6px further in from
+the end of its bar. smoke49 extended to 21 checks. Full run: 31 of 33, then
+green -- smoke32's "picture at the far end" allowance widened for its new
+inset, and smoke44 now waits for the closed row as it already waited for the
+tab to go.
+
+**This round (not yet merged): rail brand and Session card, pane-styled.**
+Before the dynamic dashboard, still waiting on the user's go-ahead (a
+24-column grid, directional push falling back to down, drop-between, no
+auto-compaction plus Tidy up, live preview).
+
+1. *Rail brand*: closer to the left edge; hover/active now highlight only
+   the text (`.rail-brand-title`), no background pill -- as the old
+   top-header logo did.
+2. *Rail-head rule*: lowered (padding-bottom 5px → 10px) without moving the
+   brand row itself, so it now lines up with the docked agent panel's own
+   header rule instead of the session strip's bottom.
+3. *Session card, restyled like a pane card*: a clickable header bar
+   (`.session-card-head`, `panel-alt`) that folds/expands the card (the
+   fold and move buttons stop their click bubbling, the same trap the pane
+   header comment already names), and each section (`CardSection`) is now
+   its own bordered inner card instead of being ruled off by a line.
+
+Coverage: `tsc --noEmit` clean; smoke48 (rail-head alignment check retargeted
+at the agent panel's header rule) 22/22; smoke49 (move-button corner
+tolerance widened, 8px 12px header padding instead of an absolute corner)
+21/21. Full `run-all.mjs` not run this round, per the user's explicit
+time/token constraint -- targeted verification only.
 
 ## The platform agent — agreed design and phases
 
