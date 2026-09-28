@@ -9,8 +9,16 @@ import {
   useState,
   PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { api, SavedSession } from "../api";
-import { SessionKeyScope, useDropSessionKeys, useSessionScope, useSessionState } from "../sessions/SessionContext";
+import {
+  SessionKeyScope,
+  useDropSessionKeys,
+  useSessionScope,
+  useSessions,
+  useSessionState,
+} from "../sessions/SessionContext";
+import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
@@ -1093,65 +1101,88 @@ export default function AggregatorPage() {
   const dashboardExtentH = Object.values(dash.rects).reduce((h, r) => Math.max(h, r.y + r.h + DASHBOARD_GAP), 400);
 
 
-  return (
-    <>
-      <div className="panel">
+  // The Panes card goes in the side panel instead when that's the chosen
+  // place and the panel is open -- only for the session on screen, since every
+  // session is mounted and they would all portal into the one slot otherwise.
+  const panesInRail = usePanesInRail();
+  const railSlot = useRailSlot();
+  const { activeId, view } = useSessions();
+  const onScreen = view === "session" && scope !== null && activeId === scope.id;
+  const cardInRail = panesInRail && railSlot !== null;
+
+  const panesCard = (
+    <div className={`panel panes-card${cardInRail ? " in-rail" : ""}`}>
+      <div className="panes-card-head">
         {/* "Panes" rather than "Session": this card is not the session, it is
             the controls for which panes are in it and how they are arranged.
             What the Aggregator is for is said once, in the page header. */}
         <h2>Panes</h2>
-        {/* Two rows rather than one long one -- ten buttons in a single line
-            reads as an undifferentiated list, and "a search page" and "a tool"
-            are different kinds of thing to reach for. Each only ever adds: a
-            session can hold several panes of one kind, so there's no single
-            pane a toggle could mean. Closing is the pane's own ✕. */}
-        {[
-          { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
-          { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
-        ].map((group) => {
-          const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
-          if (shown.length === 0) return null;
-          return (
-            <div className="toolbar" key={group.heading}>
-              <span className="field-label" style={{ minWidth: 62 }}>
-                {group.heading}
-              </span>
-              {shown.map((x) => (
-                <button
-                  key={x.id}
-                  className="secondary aggregator-add-pane"
-                  onClick={() => addPane(x.id)}
-                  title={`Add a new ${x.label} pane`}
-                  aria-label={`Add ${x.label} pane`}
-                >
-                  + {x.label}
-                </button>
-              ))}
-            </div>
-          );
-        })}
-        <div className="toolbar">
-          <span className="muted">Layout</span>
-          {/* Tabs first because it is what a new session starts in: the order
-              here is the order you are likely to want them. */}
-          <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
-            Tabs
-          </button>
-          <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
-            Side by side
-          </button>
-          <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
-            Stacked
-          </button>
-          <button className={layout === "dashboard" ? "" : "secondary"} onClick={() => setLayout("dashboard")}>
-            Dashboard
-          </button>
-        </div>
+        <button
+          className="panes-card-move"
+          onClick={() => setPanesInRail(!cardInRail)}
+          aria-label={cardInRail ? "Move the Panes card back above the panes" : "Move the Panes card to the side panel"}
+          title={cardInRail ? "Move back above the panes" : "Move to the side panel"}
+        >
+          {cardInRail ? "⇥" : "⇤"}
+        </button>
       </div>
+      {/* Two rows rather than one long one -- ten buttons in a single line
+          reads as an undifferentiated list, and "a search page" and "a tool"
+          are different kinds of thing to reach for. Each only ever adds: a
+          session can hold several panes of one kind, so there's no single
+          pane a toggle could mean. Closing is the pane's own ✕. */}
+      {[
+        { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
+        { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
+      ].map((group) => {
+        const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
+        if (shown.length === 0) return null;
+        return (
+          <div className="toolbar" key={group.heading}>
+            <span className="field-label" style={{ minWidth: 62 }}>
+              {group.heading}
+            </span>
+            {shown.map((x) => (
+              <button
+                key={x.id}
+                className="secondary aggregator-add-pane"
+                onClick={() => addPane(x.id)}
+                title={`Add a new ${x.label} pane`}
+                aria-label={`Add ${x.label} pane`}
+              >
+                + {x.label}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+      <div className="toolbar">
+        <span className="muted">Layout</span>
+        {/* Tabs first because it is what a new session starts in: the order
+            here is the order you are likely to want them. */}
+        <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
+          Tabs
+        </button>
+        <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
+          Side by side
+        </button>
+        <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
+          Stacked
+        </button>
+        <button className={layout === "dashboard" ? "" : "secondary"} onClick={() => setLayout("dashboard")}>
+          Dashboard
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {cardInRail ? (onScreen ? createPortal(panesCard, railSlot) : null) : panesCard}
 
       {open.length === 0 && (
         <div className="panel">
-          <p className="muted">Add a service or tool above to start working in this session.</p>
+          <p className="muted">Add a service or tool from the Panes card to start working in this session.</p>
         </div>
       )}
 

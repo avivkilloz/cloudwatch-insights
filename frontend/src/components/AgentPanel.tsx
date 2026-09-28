@@ -6,7 +6,8 @@ import AgentChat from "./AgentChat";
  * for the global chat (the platform: start sessions, look across them) and
  * one for the session on screen (change it, ask about what's checked in it).
  * The header switches between docking the panel beside the page and floating
- * it over the page, and ✕ puts it away.
+ * it over the page; floating, a ✕ puts it away (docked, that's the strip's
+ * toggle).
  */
 export default function AgentPanel() {
   const { tab, setTab, layout, setLayout, setOpen, viewingSessionId } = useAgent();
@@ -42,9 +43,13 @@ export default function AgentPanel() {
           >
             {layout === "dock" ? <FloatIcon /> : <DockIcon />}
           </button>
-          <button className="agent-icon-btn" onClick={() => setOpen(false)} aria-label="Close the agent" title="Close">
-            ✕
-          </button>
+          {/* Docked, the strip's toggle beside it already hides it; floating,
+              the panel is away from the strip and wants its own. */}
+          {layout === "float" && (
+            <button className="agent-icon-btn" onClick={() => setOpen(false)} aria-label="Close the agent" title="Close">
+              ✕
+            </button>
+          )}
         </div>
       </div>
       <AgentChat scope={tab} />

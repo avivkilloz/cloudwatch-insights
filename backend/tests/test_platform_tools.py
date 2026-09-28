@@ -229,6 +229,20 @@ def test_adding_and_removing_panes_follows_the_browsers_rules(mcp):
     assert "no pane" in call_error(mcp, token, "remove_pane", session_id=session, pane_id="nope")
 
 
+def test_a_sessions_description_is_what_the_agent_reads_it_for(mcp):
+    token = _token()
+    resp = client.put(
+        "/api/live-sessions/s-about",
+        json={"type": "aggregator", "title": "Checkout", "state": {"description": "Why checkout 500s since Tuesday"}},
+    )
+    assert resp.status_code == 200
+    described = call(mcp, token, "get_session", session_id="s-about")
+    assert described["description"] == "Why checkout 500s since Tuesday"
+    listed = call(mcp, token, "list_sessions")
+    about = [s for s in (listed["sessions"] if isinstance(listed, dict) else listed) if s["session_id"] == "s-about"]
+    assert about and about[0]["description"] == "Why checkout 500s since Tuesday"
+
+
 def test_browser_only_tools_can_be_added_and_named_but_not_filled_in(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]

@@ -4,6 +4,7 @@ import { useAuth } from "./AuthContext";
 import { AgentProvider, useAgent } from "./agent/AgentContext";
 import AgentDock, { DOCK_WIDTH } from "./components/AgentDock";
 import AgentFloat from "./components/AgentFloat";
+import { BrandInfo } from "./components/Brand";
 import ColumnResizer, { storedWidth, storeWidth } from "./components/ColumnResizer";
 import AgentPage from "./pages/AgentPage";
 import AggregatorPage from "./pages/AggregatorPage";
@@ -12,6 +13,7 @@ import { PAGES } from "./pages/pageTypes";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
 import PageInfo from "./components/PageInfo";
+import { setRailSlot } from "./components/railSlot";
 import SessionBar from "./components/SessionBar";
 import Sidebar from "./components/Sidebar";
 
@@ -125,26 +127,13 @@ interface ShellProps {
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
   const { sessions, activeId, view, ready, show, open } = useSessions();
-  const [prompt, setPrompt] = useState("");
 
   async function handleLogout() {
     await logout();
   }
 
-  // A question typed in the header goes to the agent's global conversation,
-  // and opens the agent panel beside (or over) whatever is on screen rather
-  // than taking you away from it: what the agent does lands in sessions, and
-  // this is how you watch it.
   const agent = useAgent();
-
-  function askAgent() {
-    const text = prompt.trim();
-    if (!text || agent.running) return;
-    setPrompt("");
-    agent.setTab("global");
-    agent.ask(text, "global");
-    agent.setOpen(true);
-  }
+  const brand: BrandInfo = { title: appTitle, logoUrl: appLogoUrl };
 
   const [railWidth, setRailWidth] = useState(() =>
     storedWidth(RAIL_WIDTH_KEY, RAIL_WIDTH.initial, RAIL_WIDTH.min, RAIL_WIDTH.max),
@@ -171,6 +160,17 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
     }
   }, [railOpen]);
 
+  // Where the header's avatar went: a card at the foot of the side panel, or
+  // just the picture on the strip while the panel is hidden.
+  const account = user ? (
+    <UserMenu
+      user={user}
+      onOpenSettings={() => show("settings")}
+      onLogout={handleLogout}
+      variant={railOpen ? "card" : "avatar"}
+    />
+  ) : null;
+
   // The widths actually drawn, and how far each resizer may go, so the body
   // keeps BODY_MIN_WIDTH. The shell is its 16px left padding, the rail and the
   // gap after it, the body, and the dock (whose own margin takes back the gap
@@ -192,33 +192,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
 
   return (
     <div className="app">
-      <header className="topbar">
-        {/* The panel has its own toggle in the strip below now, so the brand
-            is free to do the obvious thing and take you home. */}
-        <button className="brand" onClick={() => show("home")} title="Go to the home page">
-          {appLogoUrl && <img className="brand-logo" src={appLogoUrl} alt="" />}
-          {appTitle}
-        </button>
-        {/* Where the service tabs used to be. Those are sessions now, in the
-            bar below; this is the way in to the agent that works across them. */}
-        <div className="agent-bar">
-          <input
-            type="text"
-            className="agent-input"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") askAgent();
-            }}
-            placeholder="Ask the agent…"
-            aria-label="Ask the agent"
-          />
-        </div>
-        <div className="topbar-right">
-          {user && <UserMenu user={user} onOpenSettings={() => show("settings")} onLogout={handleLogout} />}
-        </div>
-      </header>
-
+      {/* No header bar: the brand heads the side panel (or starts the strip
+          while it's hidden), the account is a card at the panel's foot, and a
+          question for the agent goes in the agent panel's Global tab. */}
       <div className="shell">
         {/* The panel and the page's own title share a column: "what I have"
             above, "what I am looking at" below. Below rather than above so the
@@ -226,8 +202,11 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             description is longer. */}
         {railOpen && (
           <div className="rail-column" style={{ width: railShown }}>
-            <Sidebar open={railOpen} />
+            <Sidebar open={railOpen} brand={brand} />
             <PageInfo />
+            {/* The session's Panes card, when it's been moved here (railSlot). */}
+            <div className="rail-session-slot" ref={setRailSlot} />
+            <div className="rail-account">{account}</div>
             <ColumnResizer
               className="rail-resizer"
               label="Resize the side panel"
@@ -246,7 +225,12 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             ended up wider than the cards by exactly the scrollbar. Sticky, so
             it still behaves like a header. */}
         <main className="content">
-          <SessionBar railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
+          <SessionBar
+            railOpen={railOpen}
+            onToggleRail={() => setRailOpen((v) => !v)}
+            brand={brand}
+            account={railOpen ? null : account}
+          />
 
         {view === "home" && <HomePage />}
         {view === "settings" && (

@@ -14,15 +14,21 @@ import { initialPanes } from "./panes";
 import { sessionTypeLabel } from "./registry";
 import { Template, templateState } from "./templates";
 
+/** What a session is for, in its owner's words: a top-level key of its state,
+ * so it syncs with the rest of it, and a template keeps it (it's an input,
+ * not a result). Shown, and edited, in the card under the side panel. */
+export const SESSION_DESCRIPTION_KEY = "description";
+
 /** The layout a session starts in. Tabs: one pane at a time, which is what
  * most sessions hold, and the others are a click away in the picker. */
 const START_LAYOUT = "tabs";
 
 export interface StartSession {
   /** A session holding exactly the panes given -- a type listed twice is two
-   * panes of it -- named after the first unless a name is passed. None at all
+   * panes of it -- named after the first unless a name is passed, and with
+   * the description given, if any (`SESSION_DESCRIPTION_KEY`). None at all
    * is fine: an empty session is filled from inside it. */
-  start: (panes: SessionType[], name?: string) => void;
+  start: (panes: SessionType[], name?: string, description?: string) => void;
   /** A session holding one pane, named after it: the shortcut behind clicking
    * a service or tool in an Add list. */
   startOne: (pane: SessionType) => void;
@@ -44,10 +50,16 @@ export function defaultSessionName(panes: SessionType[]): string {
 export function useStartSession(): StartSession {
   const { sessions, open } = useSessions();
 
-  function start(panes: SessionType[], name?: string) {
+  function start(panes: SessionType[], name?: string, description?: string) {
     const title = nextTitle(name?.trim() || defaultSessionName(panes), sessions.map((s) => s.title));
     const seeded = initialPanes(panes);
-    open(title, { ...seeded, layout: START_LAYOUT, activePane: seeded.services[0] ?? null });
+    const about = description?.trim();
+    open(title, {
+      ...seeded,
+      layout: START_LAYOUT,
+      activePane: seeded.services[0] ?? null,
+      ...(about ? { [SESSION_DESCRIPTION_KEY]: about } : {}),
+    });
   }
 
   return {

@@ -183,24 +183,9 @@ body {
   height: 100vh;
 }
 
-.topbar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  padding: 10px 20px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 15px;
-  justify-self: start;
-}
-
+/* The brand: the logo (or the title's first letter on a tile), which heads
+   the side panel -- there is no header bar -- and starts the strip while the
+   panel is hidden. */
 .brand-logo {
   height: 24px;
   width: 24px;
@@ -208,34 +193,22 @@ body {
   border-radius: 4px;
 }
 
+.brand-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 5px;
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  font-weight: 700;
+  line-height: 1;
+}
+
 .tabs {
   display: flex;
   gap: 6px;
   justify-self: center;
-}
-
-/* The brand is a button now (it navigates home), so it has to shed the
-   button chrome and keep looking like a title. */
-button.brand {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--text);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-button.brand:hover {
-  color: var(--accent);
-}
-
-.agent-bar {
-  justify-self: center;
-  width: min(560px, 46vw);
-}
-
-.agent-input {
-  width: 100%;
 }
 
 /* UI chrome is chrome, not content. Without this a click-drag that starts on
@@ -320,10 +293,51 @@ button,
   border-radius: 8px;
 }
 
+.page-info-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .page-info-title {
   margin: 0 0 5px;
   font-size: 14px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-info-edit {
+  flex: none;
+  margin: -3px -4px 0 0;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.page-info-edit:hover {
+  background: var(--panel-alt);
+  color: var(--accent);
+}
+
+/* The owner's own words read at full strength; the generated line about
+   what's in the session stays dim. */
+.page-info-description {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.page-info-description-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12px;
 }
 
 .page-info-help {
@@ -782,10 +796,6 @@ button,
   margin: 0;
 }
 
-.topbar-right {
-  justify-self: end;
-}
-
 .tab {
   background: transparent;
   border: 1px solid var(--border);
@@ -880,6 +890,7 @@ button,
 
 .session-bar-rail,
 .session-bar-add,
+.session-bar-more,
 .session-bar-agent {
   display: flex;
   align-items: center;
@@ -900,14 +911,20 @@ button,
 
 .session-bar-rail:hover,
 .session-bar-add:hover,
+.session-bar-more:hover,
 .session-bar-agent:hover,
-.session-bar-add[aria-expanded="true"] {
+.session-bar-add[aria-expanded="true"],
+.session-bar-more[aria-expanded="true"] {
   background: var(--panel-alt);
   color: var(--accent);
 }
 
-/* Pushed to the far end, mirroring the panel's toggle at the start. */
-.session-bar-agent {
+/* Pushed to the far end: the ⋮ acts on the session on screen, not on the
+   list, and the agent panel's toggle mirrors the side panel's at the start. */
+.session-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
 
@@ -945,7 +962,7 @@ button,
 }
 
 .session-tab.active .session-tab-label,
-.session-tab.active .session-tab-more {
+.session-tab.active .session-tab-close {
   color: var(--accent-text);
 }
 
@@ -963,26 +980,19 @@ button,
   font-size: 12.5px;
 }
 
-/* Where the ✕ used to be: the tab's own menu, closing included. */
-.session-tab-more {
+.session-tab-close {
   flex: none;
   padding: 0 7px 0 4px;
   border: none;
   background: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1;
 }
 
-.session-tab-more:hover,
-.session-tab-more[aria-expanded="true"] {
-  color: var(--accent);
-}
-
-.session-tab.active .session-tab-more:hover {
-  color: var(--accent-text);
-  opacity: 0.8;
+.session-tab-close:hover {
+  color: var(--error);
 }
 
 /* Portalled to the body, like the rail's ⋮ menu and for the same reason: the
@@ -1582,7 +1592,7 @@ th {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 167px);
 }
 
 /* Minimised: the pane is just its header, so round it off and drop the border
@@ -2068,6 +2078,19 @@ th {
   flex: none;
 }
 
+.home-description {
+  display: block;
+  max-width: 560px;
+  margin: 8px 0 4px;
+}
+
+.home-description textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+}
+
 /* "Start new session…" leads the Add list, so it reads as the way in rather
    than one more thing among the templates. */
 .rail-row-new .rail-row-label {
@@ -2235,13 +2258,13 @@ th {
   font-size: 13px;
 }
 
-/* The page gives the conversation the viewport's height, less the header and
-   strip above it, so the transcript scrolls inside it and the box to type in
-   stays in view. */
+/* The page gives the conversation the viewport's height, less the strip above
+   it, so the transcript scrolls inside it and the box to type in stays in
+   view. */
 .agent-page-panel {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 170px);
+  height: calc(100vh - 117px);
   min-height: 320px;
 }
 
@@ -2396,10 +2419,11 @@ th {
   animation: agent-working-pulse 1.2s ease-in-out infinite;
 }
 
-/* Drawn the way the ✦ assistant's panel was, which read better floating than
-   the dock's card does: a header bar with a rule under it, the conversation
-   edge to edge, and the box to type in on a band of its own. The dock keeps
-   the plain card, since it sits among the body's cards. */
+/* Drawn the way the ✦ assistant's panel was, docked or floating: a header bar
+   with a rule under it, the conversation edge to edge, and the box to type in
+   on a band of its own. The header bar is padded like the tab strip beside it
+   (5px 6px), so docked, the Global and Session tabs sit level with the
+   strip's session tabs rather than 16px down inside a card. */
 .agent-float-panel {
   position: fixed;
   right: 24px;
@@ -2416,39 +2440,65 @@ th {
   overflow: hidden;
 }
 
+.agent-dock-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.agent-dock-panel .agent-panel,
 .agent-float-panel .agent-panel {
   gap: 0;
 }
 
-/* Room on the left for the grip in the corner. */
+.agent-dock-panel .agent-panel-head,
 .agent-float-panel .agent-panel-head {
-  padding: 8px 10px 8px 26px;
+  padding: 5px 6px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
+/* Room on the left for the grip in the corner. */
+.agent-float-panel .agent-panel-head {
+  padding-left: 26px;
+}
+
+/* The same size as a session tab on the strip. */
+.agent-dock-panel .agent-tab,
 .agent-float-panel .agent-tab {
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  line-height: normal;
 }
 
+.agent-dock-panel .agent-icon-btn,
 .agent-float-panel .agent-icon-btn {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 26px;
 }
 
+.agent-dock-panel .agent-icon-btn:hover,
 .agent-float-panel .agent-icon-btn:hover {
   border-color: var(--border);
   color: var(--text);
 }
 
+.agent-dock-panel .agent-chat,
 .agent-float-panel .agent-chat {
   gap: 0;
   font-size: 13.5px;
 }
 
+.agent-dock-panel .agent-transcript {
+  padding: 12px 16px;
+}
+
 .agent-float-panel .agent-transcript {
   padding: 10px 12px;
+}
+
+.agent-dock-panel .agent-chat > p {
+  margin: 0;
+  padding: 0 16px 8px;
 }
 
 .agent-float-panel .agent-chat > p {
@@ -2456,10 +2506,18 @@ th {
   padding: 0 12px 8px;
 }
 
+.agent-dock-panel .agent-compose,
 .agent-float-panel .agent-compose {
-  padding: 10px 12px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.agent-dock-panel .agent-compose {
+  padding: 12px 16px 16px;
+}
+
+.agent-float-panel .agent-compose {
+  padding: 10px 12px;
 }
 
 .agent-float-panel .agent-compose-input {
@@ -2592,4 +2650,178 @@ th {
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
+}
+
+/* ---- Where the header bar's contents went ---- */
+
+/* The side panel's first row: the platform's logo and name, the way home. A
+   touch larger than the rows under it, since it heads them. */
+.rail-row.rail-brand {
+  gap: 9px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.rail-brand-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* The strip's logo while the side panel is hidden: a button the size of the
+   strip's others. */
+.session-bar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.session-bar-brand:hover {
+  background: var(--panel-alt);
+}
+
+/* The avatar on the strip opens its menu rightwards: it's at the strip's
+   start, and the menu's usual right edge would run off the window. */
+.session-bar .user-menu-popover {
+  left: 0;
+  right: auto;
+}
+
+/* The account: a card fixed at the foot of the side panel's column, pushed
+   down by whatever the column above it doesn't use. */
+.rail-account {
+  flex: none;
+  margin-top: auto;
+}
+
+.user-menu-card-wrap {
+  display: block;
+}
+
+.user-menu-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-menu-card:hover,
+.user-menu-card[aria-expanded="true"] {
+  background: var(--panel-alt);
+}
+
+.user-menu-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-menu-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-card-group {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* At the foot of the window, so it opens upwards, as wide as the card. */
+.user-menu-popover.opens-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  min-width: 0;
+}
+
+/* ---- The Panes card, in the body or moved to the side panel ---- */
+
+.panes-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panes-card-move {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panes-card-move:hover {
+  background: var(--panel-alt);
+  color: var(--accent);
+}
+
+/* Empty whenever no card is in it (the panel's column has a gap, and an
+   empty slot would double it). */
+.rail-session-slot {
+  flex: none;
+  min-height: 0;
+}
+
+.rail-session-slot:empty {
+  display: none;
+}
+
+/* The side panel is narrow: the card's own padding comes down to the page
+   info card's, it scrolls rather than pushing the account card off the
+   bottom, and each row's heading takes a line of its own over its buttons. */
+.panes-card.in-rail {
+  margin: 0;
+  padding: 10px 12px 12px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.panes-card.in-rail h2 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.panes-card.in-rail .toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.panes-card.in-rail .toolbar > .field-label,
+.panes-card.in-rail .toolbar > .muted {
+  flex-basis: 100%;
+  min-width: 0 !important;
+  font-size: 11.5px;
+}
+
+.panes-card.in-rail .toolbar button {
+  padding: 3px 8px;
+  font-size: 12px;
 }

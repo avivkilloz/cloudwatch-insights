@@ -25,7 +25,7 @@ const V = ".session-body:not([hidden])";
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {

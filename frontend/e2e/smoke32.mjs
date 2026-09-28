@@ -72,7 +72,7 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   check((await page.locator(".page-info-title").textContent()) === "IoT", "…and it follows a click on a tab");
 
   // Settings has no session, and still gets one.
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.icon-popover-item:text-is("Settings")');
   await page.waitForTimeout(400);
   check((await page.locator(".page-info-title").textContent()) === "Settings", "Settings has one too");

@@ -27,7 +27,7 @@ async function login(page) {
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -45,11 +45,13 @@ async function login(page) {
   });
   await page.reload();
 
-  await page.waitForSelector(".user-menu-trigger", { timeout: 10000 });
+  await page.waitForSelector('[aria-label="Account menu"]', { timeout: 10000 });
 }
 
+// The brand heads the rail as a row of its own (the way home, where the Home
+// row used to be), so it is left out of the sessions by its class.
 const tabTitles = async (page) =>
-  (await page.locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed) .rail-row-label").allTextContents()).filter((t) => t !== "Home");
+  await page.locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label").allTextContents();
 
 /** Scoped to the session on screen: every open session stays mounted, so an
  * unscoped selector matches the hidden ones too. */
@@ -65,7 +67,7 @@ const VISIBLE = ".session-body:not([hidden])";
 
   // Settings is no longer a header tab -- it's a view reached from the user
   // menu, with the session strip still visible above it.
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
   check((await page.locator(".rail").count()) === 1, "Settings keeps the session strip visible above it");
@@ -75,12 +77,18 @@ const VISIBLE = ".session-body:not([hidden])";
   await page.fill('input[placeholder="111122223333"]', "111122223333");
   await page.click('button:has-text("Add environment")');
   await page.waitForSelector("text=Demo Env");
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home");
 
   // ---------- Header ----------
   check((await page.locator("nav.tabs").count()) === 0, "The service tabs are gone from the header");
-  check((await page.locator(".agent-input").count()) === 1, "The header has the agent search bar instead");
+  // No header bar at all now: the brand heads the side panel, and a question
+  // for the agent goes in the agent panel's Global tab.
+  check((await page.locator(".topbar").count()) === 0, "There is no header bar");
+  check(
+    await page.locator(".rail").evaluate((rail) => rail.firstElementChild?.classList.contains("rail-brand") ?? false),
+    "The side panel's first row is the brand"
+  );
   check(await page.locator(".home").isVisible(), "The app lands on the home page");
   check(
     (await page.locator(".home-card").count()) > 0,
@@ -178,14 +186,15 @@ const VISIBLE = ".session-body:not([hidden])";
   );
 
   // ---------- Closing ----------
-  // Closing is "Close" in that session's tab's ⋮ in the strip; the rail's row count
-  // also takes in Home, the templates and the catalogue, so wait on the open
+  // Closing is the ✕ on that session's tab in the strip; the rail's row count
+  // also takes in the brand, the templates and the catalogue, so wait on the open
   // sessions themselves.
   await closeTab(page, "CloudWatch 2");
   await page.waitForFunction(
     () =>
-      [...document.querySelectorAll(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed) .rail-row-label")]
-        .filter((e) => e.textContent !== "Home").length === 2,
+      document.querySelectorAll(
+        ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label",
+      ).length === 2,
   );
   check(
     JSON.stringify(await tabTitles(page)) === JSON.stringify(["CloudWatch", "DynamoDB"]),
@@ -200,26 +209,29 @@ const VISIBLE = ".session-body:not([hidden])";
     "A closed session stays closed after a refresh"
   );
 
-  // ---------- The header prompt goes to the agent ----------
-  // To the agent's one conversation, opened in the dock beside what's on
-  // screen rather than taking you away from it (smoke45 covers the agent
-  // actually answering and acting).
-  await page.fill(".agent-input", "which sessions do I have open?");
-  await page.press(".agent-input", "Enter");
-  await page.waitForSelector(".agent-dock");
+  // ---------- A question goes to the agent ----------
+  // In the agent panel's Global tab now the header box is gone, docked beside
+  // what's on screen rather than taking you away from it (smoke45 covers the
+  // agent actually answering and acting).
+  if ((await page.locator(".agent-dock").count()) === 0) await page.click(".session-bar-agent");
+  await page.click('.agent-dock .agent-tab:text-is("Global")');
+  await page.fill(".agent-dock .agent-compose-input", "which sessions do I have open?");
+  await page.press(".agent-dock .agent-compose-input", "Enter");
+  await page.waitForSelector('.agent-dock .agent-question:text-is("which sessions do I have open?")');
   check(
     (await page.locator('.agent-dock .agent-question:text-is("which sessions do I have open?")').count()) === 1,
-    "The header bar takes the question to the agent, in the dock"
+    "The Global tab takes the question to the agent, in the dock"
   );
-  await page.click('.agent-dock [aria-label="Close the agent"]');
+  // The docked panel has no ✕ of its own; the strip's toggle puts it away.
+  await page.click(".session-bar-agent");
   await page.screenshot({ path: `${SHOT}/sessions-home.png` });
 
-  // Clicking the brand returns home from a session.
+  // Clicking the brand (the side panel's first row) returns home from a session.
   await page.click('.rail-row-label:text-is("CloudWatch")');
   // The page's title moved to the card under the panel, so that is what says
   // which session is showing.
   await page.waitForSelector('.page-info-title:text-is("CloudWatch")');
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   check(await page.locator(".home").isVisible(), "Clicking the title goes home");
 
   await browser.close();

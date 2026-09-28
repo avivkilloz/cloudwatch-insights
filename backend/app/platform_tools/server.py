@@ -166,6 +166,12 @@ def _describe_session(row: models.LiveSession, detail: bool = False) -> dict:
         "layout": state.get("layout") or "tabs",
         "panes": [_describe_pane(state, p, detail) for p in _pane_ids(state)],
     }
+    # What the session is for, in its owner's words (the browser's
+    # SESSION_DESCRIPTION_KEY) -- the best clue the agent has to what a
+    # request about "this session" is after.
+    description = state.get("description")
+    if isinstance(description, str) and description.strip():
+        out["description"] = description
     if row.closed_at is not None:
         out["closed"] = True
     if detail:

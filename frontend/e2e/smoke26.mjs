@@ -22,7 +22,7 @@ const V = ".session-body:not([hidden])";
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -75,7 +75,7 @@ const V = ".session-body:not([hidden])";
   await page.screenshot({ path: `${SHOT}/26-strip.png`, clip: { x: 0, y: 50, width: 900, height: 80 } });
 
   // ---------- item 4: Settings has a title and description ----------
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
   check((await page.locator(".page-info-title").textContent()) === "Settings", "Settings has a page title");
@@ -88,7 +88,7 @@ const V = ".session-body:not([hidden])";
   // The corner tick this used to check became a − n + count (a session can
   // hold several panes of a kind); what's kept is that it sits tidily on the
   // card -- along its foot, right-aligned, below the title and description.
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home-cards");
   const pick = await page.evaluate(() => {
     const card = document.querySelector(".home-card:has(.home-card-count)");

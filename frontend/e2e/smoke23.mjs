@@ -38,7 +38,7 @@ async function saveActiveAsTemplate(page) {
   // Sessions live on the server now, so they outlast a browser profile as well
   // as a reload. Start from a clean slate rather than inheriting whatever an
   // earlier suite left open.
-  await page.waitForSelector(".rail, .user-menu-trigger", { timeout: 15000 });
+  await page.waitForSelector(".rail", { timeout: 15000 });
   await page.evaluate(async () => {
     for (const url of ["/api/live-sessions", "/api/live-sessions/closed"]) {
       for (const s of await (await fetch(url, { credentials: "same-origin" })).json()) {
@@ -56,9 +56,9 @@ async function saveActiveAsTemplate(page) {
   });
   await page.reload();
 
-  await page.waitForSelector(".user-menu-trigger", { timeout: 10000 });
+  await page.waitForSelector('[aria-label="Account menu"]', { timeout: 10000 });
 
-  await page.click(".user-menu-trigger");
+  await page.click('[aria-label="Account menu"]');
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
   await page.click('.content .tabs button:has-text("Environments")');
@@ -69,7 +69,7 @@ async function saveActiveAsTemplate(page) {
     await page.click('button:has-text("Add environment")');
     await page.waitForSelector("text=Demo Env");
   }
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home-cards");
 
   // ---------- 1. Strip is a card in the page background colour ----------
@@ -111,7 +111,7 @@ async function saveActiveAsTemplate(page) {
   check(clipping.inViewport, "…and stays inside the viewport");
   await page.keyboard.press("Escape");
   // That opened a session; the checks below expect the home page.
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home-cards");
 
   // ---------- 7. Tools are panes of their own, there is no Tools page ----------
@@ -133,7 +133,7 @@ async function saveActiveAsTemplate(page) {
   check((await page.locator(`${V} textarea[placeholder^="Paste a JWT"]`).count()) === 1, "A home card opens that session");
 
   // ---------- 6b. Multi-select opens an Aggregator with those panes ----------
-  await page.click('.rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):has(.rail-row-label:text-is("Home"))');
+  await page.click(".rail-row-home");
   await page.waitForSelector(".home-cards");
   await page.click('.home-card:has(.home-card-title:text-is("CloudWatch")) button[aria-label="One more CloudWatch"]');
   await page.click('.home-card:has(.home-card-title:text-is("IoT")) button[aria-label="One more IoT"]');
@@ -152,13 +152,17 @@ async function saveActiveAsTemplate(page) {
   check((await page.locator(`${V} .aggregator-tab-label`).allTextContents()).length === 1,
     "Panes can still be removed inside the session");
 
-  // ---------- 5b. The header prompt goes to the agent ----------
-  await page.fill(".agent-input", "what is open?");
-  await page.press(".agent-input", "Enter");
-  await page.waitForSelector(".agent-dock");
+  // ---------- 5b. A question goes to the agent ----------
+  // Typed in the agent panel's Global tab now there is no header box; the
+  // strip's toggle opens the panel, and hides it again (docked, it has no ✕).
+  if ((await page.locator(".agent-dock").count()) === 0) await page.click(".session-bar-agent");
+  await page.click('.agent-dock .agent-tab:text-is("Global")');
+  await page.fill(".agent-dock .agent-compose-input", "what is open?");
+  await page.press(".agent-dock .agent-compose-input", "Enter");
+  await page.waitForSelector('.agent-dock .agent-question:text-is("what is open?")');
   check((await page.locator('.agent-dock .agent-question:text-is("what is open?")').count()) === 1,
-    "A header question goes to the agent's conversation, beside the session");
-  await page.click('.agent-dock [aria-label="Close the agent"]');
+    "A Global-tab question goes to the agent's conversation, beside the session");
+  await page.click(".session-bar-agent");
 
   // ---------- 8. Saving a session captures its real inputs ----------
   await newSession(page, "DynamoDB");
