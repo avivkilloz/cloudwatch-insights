@@ -186,10 +186,13 @@ cookie and the browser never sees the token; keep it that way.
   (as a JSON block after it, capped to fit the backend's 60k-character
   message limit). The assistant itself (`/api/ai`, `ai_assistant.py`, the
   floating widget) is gone; `backend.ai` in Helm is now only the agent's.
-- MQTT and JWT aren't agent-drivable on purpose: their state is browser-only
-  (a live connection; a pasted credential). Anything with side effects
-  outside the platform (sending HTTP, publishing) isn't a tool until the
-  approval step exists.
+- MQTT and JWT aren't agent-*drivable* on purpose: their state is
+  browser-only (a live connection; a pasted credential). They are still in
+  `KINDS`, with no inputs, so the agent can add, name and arrange them --
+  left out entirely, it told a user asking for an MQTT tester that none
+  existed. Every kind the user's group has belongs in `KINDS`. Anything with
+  side effects outside the platform (sending HTTP, publishing) isn't a tool
+  until the approval step exists.
 - The MCP endpoint owns a fresh SDK session manager per app lifespan
   (`McpEndpoint`), so tests that call `/mcp` need `with TestClient(app)`.
   `mcp` is pinned to 1.x on both sides: `langchain-mcp-adapters` requires it.
@@ -293,10 +296,18 @@ credentials per service.
 - **Scrollbars are styled once, at the end of `styles.css`**: WebKit/Blink
   pseudo-elements at `--scrollbar-size`, and `scrollbar-width: thin` only for
   Firefox. Never set `scrollbar-width` on an element: Chrome then ignores the
-  pseudo-elements for it and draws a different, wider bar.
+  pseudo-elements for it and draws a different, wider bar. Don't make a
+  scrollbar's look depend on `:hover` either: Chrome doesn't repaint it when
+  the hover changes. Headless Chromium hides scrollbars in screenshots
+  (`--hide-scrollbars`); launch without it to look at one.
 - **The rail and the dock resize** from a `ColumnResizer` in the gap beside
   them (widths per browser in localStorage); the dock's covers only the part
-  of the gap that isn't the body's scrollbar, so the scrollbar stays grabbable.
+  of the gap that isn't the body's scrollbar, so the scrollbar stays
+  grabbable, but draws its line in the middle of the whole gap. Neither may
+  squeeze the body below `BODY_MIN_WIDTH` (App.tsx): each resizer's max is
+  what the window leaves, and a stored width is drawn narrower (not
+  forgotten) when the window shrinks. A layout inside the body must also fit
+  any width it's given (`minmax(min(420px, 100%), 1fr)`, not `420px`).
 
 ## Constraints
 

@@ -148,6 +148,35 @@ browser suites green; smoke46 fails at its first step against the previous
 frontend. smoke41 and smoke42 now measure the scrollbar (6px, inside the
 16px gap) instead of reading `scrollbar-width`.
 
+**Follow-ups from the user trying it (same PR, #82):**
+
+1. *A pane ran on behind the dock.* Reproduced at 1280px: a wide dock (and
+   rail) squeezed the body to ~100-300px, the side-by-side layout's 420px
+   minimum track overflowed, and the body scrolled sideways under the dock.
+   The dashboard itself refits correctly (checked through several drag and
+   resize sequences). Fix: `BODY_MIN_WIDTH` (440) in App.tsx caps each
+   resizer at what the window leaves and draws a stored width narrower when
+   the window shrinks; the columns track is `minmax(min(420px, 100%), 1fr)`.
+2. *"I meant the MQTT tester"*: the agent answered that no such tool existed,
+   because browser-only kinds weren't in `KINDS`. MQTT tester and JWT are
+   now there with no inputs: addable, nameable, and a run or an input says
+   what the user has to do in them. Fake model gains `add <kind>`.
+3. *Floating panel*: restyled after the old assistant's (header bar with a
+   rule, edge-to-edge conversation, ruled compose band, the 16px box with a
+   four-dot grip, the old corner button size). The dock keeps its card.
+4. *Scrollbar and cut line*: the dock's dashed line is now drawn in the
+   middle of the 16px gap (it was centred in the 10px left of the scrollbar,
+   3px off); the thumb is a lighter 4px pill inset in its 6px track. A
+   hover-only body scrollbar was tried and dropped: Chrome doesn't repaint a
+   styled scrollbar on :hover changes.
+
+Coverage: new `smoke47` (laptop width with the dock and rail dragged to
+their max, window narrowed and widened; both cut lines centred; the float
+panel's look; the agent adding an MQTT tester) -- 8 of its 12 checks fail
+against the previous frontend. Backend 172 (a test that browser-only tools
+can be added but not filled in; the one pinning their absence updated),
+agent 6. Full run: all 31 browser suites green.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,
@@ -341,7 +370,7 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 171 backend, 6 agent, 30 Playwright suites (this round's full
+- **Tests:** 172 backend, 6 agent, 31 Playwright suites (this round's full
   run is recorded above).
 
 ## In progress / where I left off
@@ -482,7 +511,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 30 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 31 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,

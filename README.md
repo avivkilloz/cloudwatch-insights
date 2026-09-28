@@ -325,7 +325,13 @@ session as well.
 The panel docks beside the page or floats over it (the icon in its header
 switches), and the button at the far end of the tab strip shows or hides it.
 Drag the gap beside the side panel or the docked agent panel to resize it;
-double-click to reset.
+double-click to reset. Neither grows so far that the page between them has no
+room for a pane: on a smaller window they stop sooner, and draw narrower
+until the window is wide enough again.
+
+It can add any pane your group has to a session. The MQTT tester and JWT
+tool it can add but not fill in: what's in them stays in your browser (a live
+connection, a pasted token), so it tells you what to do in them instead.
 
 It can do what your group can and nothing more -- the same environments, the
 same pages, the same IAM role -- and only if an admin has turned **Platform
