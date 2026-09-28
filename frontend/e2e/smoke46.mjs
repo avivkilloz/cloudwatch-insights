@@ -7,13 +7,16 @@
 //   assistant did; it's gone.
 // - The panel docked beside the page or floating over it, switched from its
 //   own header, and shown or hidden from the end of the tab strip.
-// - Each tab's own ⋮ (rename, save as template, close, delete) instead of a ✕.
+// - Each tab's ✕, and one ⋮ at the strip's end (rename, save as template,
+//   delete) for the session on screen -- a ⋮ per tab was tried and put back.
 // - One 16px gap between columns and cards, the dock included; every
 //   scrollbar the same thin size; the rail and the dock resizable by
 //   dragging the gap beside them.
 //
 // Needs the agent and the scripted stand-in model running, like smoke45.
-import { SHOT, SHOWN, TAB, ROW, check, clearWorkspace, launch, newSession, openApp, report, tabMenu } from "./harness.mjs";
+import {
+  SHOT, SHOWN, TAB, ROW, check, clearWorkspace, closeTab, launch, newSession, openApp, report, tabMenu,
+} from "./harness.mjs";
 
 const DOCK = ".agent-dock";
 const lastTurn = (page, selector) => page.locator(`${DOCK} .agent-turn`).last().locator(selector);
@@ -166,24 +169,28 @@ const run = async () => {
   await page.dblclick(".rail-resizer");
   check(Math.round((await box(page, ".rail-column")).width) === 212, "A double-click puts a column back to its usual width");
 
-  // ---------- 6. Each tab's ⋮ ----------
-  check((await page.locator(".session-tab-close").count()) === 0, "Tabs have no ✕ any more");
-  await page.click(`${TAB("CloudWatch")} .session-tab-more`);
+  // ---------- 6. Each tab's ✕, and the strip's one ⋮ ----------
+  const tabCount = await page.locator(".session-tab").count();
+  check(tabCount === 2 && (await page.locator(".session-tab .session-tab-close").count()) === tabCount,
+    "Each tab has a ✕", String(tabCount));
+  check((await page.locator(".session-tab-more").count()) === 0, "…and no ⋮ of its own");
+  await page.click(`${TAB("CloudWatch")} .session-tab-label`);
+  await page.click(".session-bar-more");
   const items = await page.locator(".rail-row-menu button").allInnerTexts();
-  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Close", "Delete"]),
-    "Each tab's ⋮ offers rename, save as template, close and delete", JSON.stringify(items));
+  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Delete"]),
+    "The strip's ⋮ offers rename, save as template and delete", JSON.stringify(items));
   await page.click('.rail-row-menu button:text-is("Rename")');
   await page.fill(".session-tab-rename", "Renamed here");
   await page.press(".session-tab-rename", "Enter");
   check((await page.locator(TAB("Renamed here")).count()) === 1, "Rename works in place on the tab");
-  await tabMenu(page, "Renamed here", "Close");
-  check((await page.locator(TAB("Renamed here")).count()) === 0, "Close takes the tab off the strip");
+  await closeTab(page, "Renamed here");
+  check((await page.locator(TAB("Renamed here")).count()) === 0, "The tab's ✕ takes it off the strip");
   check((await page.locator(`.rail-row-closed:has-text("Renamed here")`).count()) === 1, "…and it stays in the panel, closed");
   page.once("dialog", (d) => d.accept());
   await tabMenu(page, "Base64", "Delete");
   await page.waitForTimeout(500);
   check((await page.locator(TAB("Base64")).count()) === 0 && (await page.locator(ROW("Base64")).count()) === 0,
-    "Delete throws the session away, after asking");
+    "Delete from the strip's ⋮ throws the session away, after asking");
 
   await clearWorkspace(page);
   await browser.close();

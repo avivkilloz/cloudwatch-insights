@@ -2667,6 +2667,13 @@ th {
   font-weight: 600;
 }
 
+/* Inset like the Home icon it replaced, so the mark starts on the same line
+   as every other row's label rather than against the row's edge. */
+.rail-brand .brand-initial,
+.rail-brand .brand-logo {
+  margin-left: 8px;
+}
+
 /* The strip's logo while the side panel is hidden: a button the size of the
    strip's others. */
 .session-bar-brand {

@@ -134,7 +134,7 @@ async function newPanedSession(page) {
   await page.waitForSelector("text=Demo Env");
 
   await newPanedSession(page);
-  await page.waitForSelector("text=Add a service or tool above");
+  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
 
   // ---------- 1. Individual tools are options ----------
   const toolNames = ["HTTP client", "MQTT tester", "JWT", "Base64", "Diff"];

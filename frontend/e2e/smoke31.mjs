@@ -1,5 +1,5 @@
 // One Sessions list holding open and closed alike, templates under Add, the
-// strip as wide as the cards, and a Home icon that does not move.
+// strip as wide as the cards, and a brand mark (the way home) that does not move.
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
@@ -61,27 +61,30 @@ const TPL = `Template under Add ${Date.now()}`;
   check(geo.barLeft === geo.panelLeft, "…and so does its left edge", JSON.stringify(geo));
   check(geo.sticky === "sticky", "…and its dock is what pins it to the top", JSON.stringify(geo));
 
-  // ---------- 2. the Home icon does not move between states ----------
+  // ---------- 2. the brand's mark does not move between states ----------
+  // The Home row's icon became the brand's mark (the logo, or the title's
+  // initial on a tile) when the header bar went; the row is still the way home.
   const iconInset = () => page.evaluate(() => {
     const row = document.querySelector(".rail-row-home");
-    const i = row.querySelector(".rail-row-icon").getBoundingClientRect();
+    const i = row.querySelector(".brand-logo, .brand-initial").getBoundingClientRect();
     return Math.round(i.left - row.getBoundingClientRect().left);
   });
   const whileSession = await iconInset();
+  // A session row's label while it is the selected one, to hold the brand's to.
+  const sessionActive = await page.evaluate(() =>
+    getComputedStyle(document.querySelector(".rail-row.active .rail-row-label")).color);
   await page.click(".rail-row-home");
   await page.waitForTimeout(250);
   const whileHome = await iconInset();
-  check(whileSession === whileHome, "The Home icon sits at the same inset whether or not Home is selected",
+  check(whileSession === whileHome, "The brand's mark sits at the same inset whether or not home is selected",
     `${whileSession} vs ${whileHome}`);
   check(whileSession >= 6, "…and not jammed against the panel's edge", String(whileSession));
-  // The rule that broke it also owned the active label's colour.
-  const labelColour = await page.evaluate(() => {
-    const row = document.querySelector(".rail-row-home");
-    const icon = getComputedStyle(row.querySelector(".rail-row-icon")).color;
-    return { label: getComputedStyle(row.querySelector(".rail-row-label")).color, icon };
-  });
-  check(labelColour.label === labelColour.icon, "The selected row's label and icon share the accent colour",
-    JSON.stringify(labelColour));
+  // The rule that broke it also owned the active label's colour. The mark
+  // carries its own colours now, so the title is held to any selected row's.
+  const labelColour = await page.evaluate(() =>
+    getComputedStyle(document.querySelector(".rail-row-home.active .rail-row-label")).color);
+  check(labelColour === sessionActive, "The selected brand's title takes the same accent as any selected row",
+    JSON.stringify({ labelColour, sessionActive }));
 
   // ---------- 3. closing keeps the session in the panel ----------
   await newSession(page, "Base64");

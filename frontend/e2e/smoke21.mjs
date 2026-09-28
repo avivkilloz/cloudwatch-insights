@@ -108,7 +108,7 @@ async function newPanedSession(page) {
   // and give the page its full width -- exactly what the strip's panel button is for.
   await page.click(".session-bar-rail");
   await page.waitForTimeout(300);
-  await page.waitForSelector("text=Add a service or tool above");
+  await page.waitForSelector("text=Add a service or tool from the Panes card to start");
   // All six open: the heaviest re-render, which is what the old version
   // couldn't survive. At this width they wrap onto two rows.
   for (const label of ["CloudWatch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client"]) {
