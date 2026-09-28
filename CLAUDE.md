@@ -186,6 +186,13 @@ cookie and the browser never sees the token; keep it that way.
   (as a JSON block after it, capped to fit the backend's 60k-character
   message limit). The assistant itself (`/api/ai`, `ai_assistant.py`, the
   floating widget) is gone; `backend.ai` in Helm is now only the agent's.
+- **A session's description and category are agent-settable too**
+  (`set_description`, `set_category`/`list_categories`), the same as the
+  session card's own fields -- `set_category` finds or creates the named
+  `SessionCategory` and sets it on the row directly inside the `mutate`
+  callback, the same way `rename` sets `row.title`; category_id isn't part
+  of session `state`, so it isn't touched by the state dict the callback
+  edits.
 - MQTT and JWT aren't agent-*drivable* on purpose: their state is
   browser-only (a live connection; a pasted credential). They are still in
   `KINDS`, with no inputs, so the agent can add, name and arrange them --
@@ -320,6 +327,10 @@ credentials per service.
   Header buttons (`session-card-fold`, `session-card-move`) stop their click
   from bubbling to the header or it double-toggles and cancels out -- the
   same trap `AggregatorPage.tsx`'s own pane header comment already names.
+  Fold and move share a pane header button's own `.secondary` look and box
+  (`+`/`−` to fold, same as a pane's own minimise button), not a bespoke
+  icon-button style, and the body's side padding matches a pane body's own
+  12px so the inner section cards don't sit further in.
   Each section is a label column and a values column (`CardRow`): name and
   description (edited in the same kind of box), adds, and layout (one
   segmented control). In the body it folds to its header (`cardCollapsed`,
@@ -334,6 +345,14 @@ credentials per service.
   It stays where it was put -- in the rail even while the rail is hidden.
   Only the session on screen portals its card there -- every session is
   mounted, and all of them would land in the one slot otherwise.
+- **The tabs layout's pane tabs are one joined, evenly-divided row**
+  (`.aggregator-tabs`/`.aggregator-tab`), like the session card's own
+  segmented Layout control -- each tab is `flex: 1 1 0` rather than sized to
+  its label, so the row is always as wide as a pane in the stacked layout
+  (the same container, no width rule needed) however many tabs are open.
+  The Settings page's own section tabs (`.settings-tabs`, wrapping the
+  general-purpose `.tabs`/`.tab` pair) are joined the same way; other uses
+  of `.tabs`/`.tab` (e.g. Saved items) keep their old shrink-wrapped look.
 - **The rail and the dock resize** from a `ColumnResizer` in the gap beside
   them (widths per browser in localStorage), each drawing its line in the
   middle of the 16px gap. Neither may

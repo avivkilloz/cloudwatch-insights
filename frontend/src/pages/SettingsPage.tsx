@@ -327,7 +327,7 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
 
   return (
     <div>
-      <div className="tabs" style={{ justifySelf: "start", marginBottom: 14, flexWrap: "wrap" }}>
+      <div className="tabs settings-tabs" style={{ marginBottom: 14 }}>
         {sections.map((s) => (
           <button key={s.id} className={`tab ${section === s.id ? "active" : ""}`} onClick={() => setSection(s.id)}>
             {s.label}

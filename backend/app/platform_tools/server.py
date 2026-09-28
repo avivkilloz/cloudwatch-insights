@@ -8,7 +8,8 @@ sees it, and each tool acts as that user. Tools fall into three groups:
   allows (`get_context`), their open sessions, and the names a pane's inputs
   need (log groups, domains, tables, buckets, user pools).
 - *Shaping a session:* create one, add, remove and rename panes, pick the
-  layout, arrange a dashboard, fill in a pane's inputs.
+  layout, arrange a dashboard, fill in a pane's inputs, set its description
+  or file it into a side-panel category.
 - *Running a pane* -- read-only searches only. The run happens here, and its
   results land in the pane's own result keys.
 
@@ -33,6 +34,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
 from .. import live_store, models, schemas
@@ -158,7 +161,7 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     return out
 
 
-def _describe_session(row: models.LiveSession, detail: bool = False) -> dict:
+def _describe_session(db: Session, row: models.LiveSession, detail: bool = False) -> dict:
     state = row.state or {}
     out: dict[str, Any] = {
         "session_id": row.client_id,
@@ -172,6 +175,10 @@ def _describe_session(row: models.LiveSession, detail: bool = False) -> dict:
     description = state.get("description")
     if isinstance(description, str) and description.strip():
         out["description"] = description
+    if row.category_id is not None:
+        category = db.get(models.SessionCategory, row.category_id)
+        if category is not None:
+            out["category"] = category.name
     if row.closed_at is not None:
         out["closed"] = True
     if detail:
@@ -195,7 +202,7 @@ async def get_context() -> dict:
         if caller.viewing_session_id:
             row = live_store.get(db, user.id, caller.viewing_session_id)
             if row is not None and row.closed_at is None:
-                viewing = _describe_session(row)
+                viewing = _describe_session(db, row)
         return {
             "user": user.username,
             "group": user.group.name if user.group else None,
@@ -215,7 +222,7 @@ async def get_context() -> dict:
 async def list_sessions() -> dict:
     """The user's open sessions, in the order their panel shows them, with each one's panes."""
     with _acting() as (db, user, _):
-        return {"sessions": [_describe_session(r) for r in live_store.open_sessions(db, user.id)]}
+        return {"sessions": [_describe_session(db, r) for r in live_store.open_sessions(db, user.id)]}
 
 
 @mcp.tool()
@@ -225,7 +232,7 @@ async def get_session(session_id: str) -> dict:
         row = live_store.get(db, user.id, session_id)
         if row is None:
             raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
-        return _describe_session(row, detail=True)
+        return _describe_session(db, row, detail=True)
 
 
 # ---------------------------------------------------------------- names for inputs
@@ -347,7 +354,7 @@ async def create_session(title: str, panes: list[PaneSpec], layout: Layout = "ta
         pane_ids = [_add_pane(state, kind_for(user, p.kind), p.title) for p in panes]
         state["activePane"] = pane_ids[0] if pane_ids else None
         row = live_store.create(db, user.id, title, state, ORIGIN)
-        return _describe_session(row) | {"pane_ids": pane_ids}
+        return _describe_session(db, row) | {"pane_ids": pane_ids}
 
 
 @mcp.tool()
@@ -381,7 +388,7 @@ async def remove_pane(session_id: str, pane_id: str) -> dict:
     """Removes a pane from a session, with its inputs and results."""
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, lambda s, _r: _remove_pane(s, pane_id), ORIGIN)
-        return _describe_session(row)
+        return _describe_session(db, row)
 
 
 @mcp.tool()
@@ -400,7 +407,76 @@ async def rename(session_id: str, title: str, pane_id: Optional[str] = None) -> 
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(row)
+        return _describe_session(db, row)
+
+
+@mcp.tool()
+async def set_description(session_id: str, description: str) -> dict:
+    """Sets what a session is for (its card's Description field) -- blank clears it."""
+    text = description.strip()
+
+    def change(state: dict, _row: models.LiveSession) -> None:
+        if text:
+            state["description"] = text
+        else:
+            state.pop("description", None)
+
+    with _acting() as (db, user, _):
+        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+        return _describe_session(db, row)
+
+
+@mcp.tool()
+async def list_categories() -> dict:
+    """The side panel's session categories (Slack-style groups a session can be filed into)."""
+    with _acting() as (db, user, _):
+        rows = (
+            db.query(models.SessionCategory)
+            .filter(models.SessionCategory.user_id == user.id)
+            .order_by(models.SessionCategory.position, models.SessionCategory.id)
+            .all()
+        )
+        return {"categories": [c.name for c in rows]}
+
+
+def _find_or_create_category(db: Session, user: models.User, name: str) -> models.SessionCategory:
+    existing = (
+        db.query(models.SessionCategory)
+        .filter(models.SessionCategory.user_id == user.id, models.SessionCategory.name == name)
+        .one_or_none()
+    )
+    if existing is not None:
+        return existing
+    position = db.query(models.SessionCategory).filter(models.SessionCategory.user_id == user.id).count()
+    category = models.SessionCategory(user_id=user.id, name=name, position=position)
+    db.add(category)
+    try:
+        db.flush()
+    except IntegrityError:
+        # Created by a concurrent call between the query above and this flush.
+        db.rollback()
+        existing = (
+            db.query(models.SessionCategory)
+            .filter(models.SessionCategory.user_id == user.id, models.SessionCategory.name == name)
+            .one()
+        )
+        return existing
+    return category
+
+
+@mcp.tool()
+async def set_category(session_id: str, category: Optional[str] = None) -> dict:
+    """Files a session into a named side-panel category, creating it if it doesn't already exist (list_categories
+    shows the existing ones). Omit category, or pass one that's blank, to take the session out of its category."""
+
+    with _acting() as (db, user, _):
+        category_id = _find_or_create_category(db, user, category.strip()).id if category and category.strip() else None
+
+        def change(_state: dict, row: models.LiveSession) -> None:
+            row.category_id = category_id
+
+        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+        return _describe_session(db, row)
 
 
 @mcp.tool()
@@ -416,7 +492,7 @@ async def set_layout(session_id: str, layout: Layout, active_pane: Optional[str]
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(row)
+        return _describe_session(db, row)
 
 
 class DashboardCell(BaseModel):
@@ -456,7 +532,7 @@ async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(row)
+        return _describe_session(db, row)
 
 
 def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inputs: dict[str, Any]) -> PaneKind:
