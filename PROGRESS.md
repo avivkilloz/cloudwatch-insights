@@ -305,10 +305,12 @@ tolerance widened, 8px 12px header padding instead of an absolute corner)
 21/21. Full `run-all.mjs` not run this round, per the user's explicit
 time/token constraint -- targeted verification only.
 
-**This round (pushed to #88, not yet merged): follow-ups to #88, before the
+**This round (pushed, no PR opened yet): follow-ups to #88, before the
 dynamic dashboard** (still waiting on the user's go-ahead -- a 24-column
 grid, directional push falling back to down, drop-between, no
-auto-compaction plus Tidy up, live preview).
+auto-compaction plus Tidy up, live preview). #88 was already merged when
+this round started, so the branch was restarted from `main` (same name)
+and this round's one commit rebased onto it.
 
 1. *Session card header buttons*: fold now shares a pane header button's own
    `.secondary` look and glyph (`+`/`−`), not a bespoke circular icon
