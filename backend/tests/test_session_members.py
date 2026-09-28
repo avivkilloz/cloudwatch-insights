@@ -106,7 +106,9 @@ def test_only_the_owner_manages_membership():
 
     client.post("/api/live-sessions/s1/members", json={"username": "eve"})
     assert eve.put(f"/api/live-sessions/s1/members/{eve_id}", json={"permission": "viewer"}).status_code == 404
-    assert eve.delete(f"/api/live-sessions/s1/members/{eve_id}").status_code == 404
+    # Except removing herself: leaving a session shared with you needs no
+    # ownership, only being on it (see test_session_sharing.py).
+    assert eve.delete(f"/api/live-sessions/s1/members/{eve_id}").status_code == 204
 
 
 def test_membership_is_scoped_to_its_own_session():

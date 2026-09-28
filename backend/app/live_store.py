@@ -101,12 +101,26 @@ def _base36(n: int) -> str:
     return out or "0"
 
 
+def _participants(db: Session, row: models.LiveSession) -> list[int]:
+    """Everyone an "upsert" of this session's content is announced to: its
+    owner, and every invited SessionMember -- true live collaboration, the
+    same as a second tab of your own already got before sharing existed.
+    A session with no members (almost all of them) costs one extra, cheap,
+    indexed query and returns just the owner, same as before this existed."""
+    member_ids = [
+        uid for (uid,) in db.query(models.SessionMember.user_id).filter(models.SessionMember.session_id == row.id)
+    ]
+    return [row.user_id, *member_ids]
+
+
 def commit_write(db: Session, row: models.LiveSession, origin: Optional[str]) -> None:
-    """The end of every write to a session: a new version, announced to the
-    owner's open tabs on commit. The row must already be locked (or new)."""
+    """The end of every write to a session: a new version, announced on
+    commit to every open tab that can reach it -- the owner's and every
+    member's. The row must already be locked (or new)."""
     row.version = (row.version or 0) + 1
     db.flush()
-    notify(db, row.user_id, "upsert", row.client_id, row.version, origin)
+    for user_id in _participants(db, row):
+        notify(db, user_id, "upsert", row.client_id, row.version, origin)
     db.commit()
     db.refresh(row)
 

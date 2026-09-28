@@ -262,23 +262,60 @@ UPDATE on every start.
 credentials per service.
 
 **Sharing a session with other users is being built in phases** (`models.SessionMember`,
-`routers/live_sessions.py`'s `/members` routes, `SessionCard`'s Members
-section). Phase 1 (done) is only the roster: an owner invites a user by
-username at a permission ("viewer" or "editor"); `LiveSession.user_id`
-stays the owner throughout, so every existing single-owner path --
-ownership checks, the sync protocol, the agent's per-user token -- is
-untouched by this table's existence. Phase 2 (done) is the session card's
-own Members `CardRow` on top of that API -- fetched on the session's
-mount, not through session state, since the roster is the owner's alone
-and doesn't belong in the synced JSON. **Neither phase yet lets an invited
-member reach the session**: every read/write route still checks ownership
-alone. Planned next: extending `_owned`, `open_sessions` and the
-`pg_notify` fan-out in `live_events.py` to recognise members too, each
-still acting under **their own group's** environments and IAM role -- never
-the owner's, there is no per-session access grant -- with write permission
-enforced per member's tier (phase 3); then turning the session-tab agent
-chat into a multi-user conversation, gated so the agent only replies when
-`@`-mentioned (phase 4).
+`routers/live_sessions.py`'s `/members` routes and its own `_reachable`,
+`SessionCard`'s Members section). Phase 1 (done) is only the roster: an
+owner invites a user by username at a permission ("viewer" or "editor").
+Phase 2 (done) is the session card's own Members `CardRow` on top of that
+API -- fetched on the session's mount, not through session state, since the
+roster is the owner's alone and doesn't belong in the synced JSON.
+
+**Phase 3 (done): an invited member can actually reach the session.**
+`_reachable()` in `routers/live_sessions.py` replaces `_owned()` for every
+route except delete and managing the roster (both stay strictly the
+owner's): it returns the row plus the caller's own `SessionMember` if
+they're not its owner, 404 either way if they're neither. `state`, `title`,
+`type` and `version` are the one document every reachable caller sees
+alike -- an editor can write them (a viewer gets 403), the same live way a
+second tab of the owner's own always could: `commit_write` in
+`live_store.py` now fans an "upsert" out to every participant (owner +
+members), not just the row's `user_id`, so an editor's edit reaches every
+open browser that can see the session, live, through the existing
+per-user `pg_notify`/SSE plumbing -- unchanged itself, just called once per
+participant instead of once. **`position`, `category_id` and `closed_at`
+are never shared, though** -- `SessionMember` carries its own copies of all
+three, because a session shared with several people needs one independent
+panel position/category/closed-state per person, the same as it needs one
+independent `SessionCategory` per person (`category_id` points at *that
+member's own* categories, never the owner's). A member's PUT/close writes
+only ever touch their own `SessionMember` row for these; the owner's PUT
+and close are completely unchanged. Deleting stays owner-only (cascades to
+every member via `ON DELETE CASCADE`); a member instead **leaves**
+(`DELETE /{client_id}/members/{their_own_user_id}`, allowed for self-removal
+even though managing anyone *else*'s membership stays the owner's alone).
+
+A `client_id` is only unique *per owner*
+(`uq_live_sessions_user_client` -- two different people's browsers can mint
+the same one), so `_reachable` never looks a session up by client_id alone
+once ownership fails: it goes through the caller's own `SessionMember` row,
+which is what stops it from ever resolving to some other owner's unrelated
+session that happens to share an id.
+
+Every reachable caller still acts under **their own group's** environments
+and IAM role, never the owner's -- there is no per-session access grant,
+"access control is per group, never per user" holds exactly as before.
+`LiveSessionOut`/`Summary` gained a `role` field (`"owner"` or the
+member's permission) for exactly this reason on the frontend too: a
+viewer's autosave has nowhere to go, so `sync.ts`'s `pushOne` skips the PUT
+outright for `role === "viewer"` -- without that guard, the mere act of
+*receiving* someone else's live edit would queue a save right back that
+403s on every flush for as long as the session stayed open. That one guard
+is deliberately the whole frontend change here: nothing else (the rail, a
+pane's controls, "add pane", "run") is gated on role yet -- a viewer can
+still click things that will fail server-side. Graying those out is its
+own future phase, not bundled into this one.
+
+Next: turning the session-tab agent chat into a multi-user conversation,
+gated so the agent only replies when `@`-mentioned (phase 4).
 
 ## Conventions
 

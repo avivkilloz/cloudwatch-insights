@@ -59,6 +59,7 @@ export function fromWire(row: LiveSession): PersistedSession {
     categoryId: row.category_id,
     state: decode<Record<string, unknown>>(JSON.stringify(row.state)),
     truncated: row.truncated,
+    role: row.role,
   };
 }
 
@@ -229,6 +230,12 @@ export class WorkspaceSync {
   /** Sends one session if it changed since the server last accepted it. False
    * when the request failed and the session is still unsynced. */
   private async pushOne(session: PersistedSession, index: number): Promise<boolean> {
+    // A viewer's own edits (if the UI let any happen) have nowhere to go --
+    // the server refuses this session's writes outright (403) -- and without
+    // this, the mere act of *receiving* someone else's live change here would
+    // otherwise queue a save right back, failing on every flush for as long
+    // as the session stays open.
+    if (session.role === "viewer") return true;
     const print = fingerprint(session);
     if (this.synced.get(session.id) === print) return true;
     try {

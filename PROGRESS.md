@@ -372,16 +372,32 @@ token), this is a multi-PR project agreed up front rather than one PR:
    lands, so an invite made in the first ~1.2s of a new session 404s --
    the same window every other write into a new session already has, not
    a new failure mode this introduces.
-3. **Actually letting a member in** (not started): extend `_owned`/
-   `open_sessions`/the write paths to recognise membership, not just
-   ownership; extend `live_events.py`'s `pg_notify` fan-out to every member
-   so a shared session updates live for everyone, the same way a second tab
-   of your own does today; enforce each member's permission tier on writes.
-   A member always acts under **their own group's** environments and IAM
-   role, never the owner's -- there is no per-session access grant, keeping
-   "access control is per group, never per user" intact. A pane pointing at
-   an environment a member's group can't reach just errors for them, the
-   same as an existing partial-failure-per-account case.
+3. **Actually letting a member in (done, PR pending).** `_reachable()`
+   replaces `_owned()` for every route except delete and the roster itself
+   (both stay owner-only): the row, plus the caller's own `SessionMember`
+   if they're not the owner. `state`/`title`/`type`/`version` are the one
+   shared document -- an editor can write them (a viewer gets 403);
+   `position`/`category_id`/`closed_at` are never shared, each member (and
+   the owner) has their own copy of all three, since a session held open by
+   several people needs an independent panel position, category and closed
+   state per person, decided explicitly (not the simpler "shared with you"
+   list originally floated). `live_store.commit_write` now fans an
+   "upsert" out to every participant (owner + members) instead of just the
+   owner, so an editor's write reaches every other open browser live,
+   through the existing per-user `pg_notify`/SSE plumbing unchanged, just
+   called once per participant. A member always acts under **their own
+   group's** environments and IAM role, never the owner's -- no per-session
+   access grant, "access control is per group, never per user" intact. A
+   member leaves via `DELETE /{client_id}/members/{their_own_user_id}`
+   (self-removal, allowed even though managing anyone else's membership
+   stays the owner's); deleting the session outright stays owner-only.
+   One necessary frontend change rides along: `LiveSessionOut`/`Summary`
+   gained a `role` field, and `sync.ts`'s autosave skips the PUT outright
+   for a viewer -- without it, merely *receiving* someone else's live edit
+   would queue a save that 403s on every flush. Nothing else in the
+   frontend is gated on role yet (a viewer can still click a control that
+   fails server-side) -- that's deliberately left to a later phase, not
+   bundled into this one.
 4. **Multi-user chat** (not started): the session-tab `agentChat` state
    becomes a real conversation between every member and the agent, each
    message tagged with its author; the agent only replies when a message
@@ -399,6 +415,27 @@ reload, proving it's server-backed and not session state; remove), fails
 against the pre-phase-2 frontend as expected. `smoke49`'s card-shape
 checks updated for the new row/section (six rows, four sections). `tsc
 --noEmit` clean.
+
+Coverage for phase 3: new `test_session_sharing.py` (13 tests -- a member
+can GET/PUT per their permission, 403 for a viewer, 409 for a stale editor
+write, the shared state is genuinely one document, position/category/closed
+state are each participant's own and never leak to another, reorder moves
+the right row for whoever asks, delete stays owner-only and cascades to
+members, leaving works and doesn't touch the owner's copy); 9 of the 13
+fail against the pre-phase-3 backend, confirming the suite exercises real
+new behavior. `test_session_members.py`'s owner-only test updated (a
+member removing themselves is now 204, not 404 -- the deliberate new
+"leave" rule). Full backend suite 196/196. Manually verified live in the
+browser with two real logged-in users (an owner and an invited editor):
+the editor's shared session shows up automatically in their own panel
+purely from the existing frontend's generic sync code (no rail/UI changes
+needed for that); the owner's rename of the session reached the editor's
+already-open tab **live**, with no reload, through the unmodified SSE
+stream; an invited viewer's browser made zero PUT attempts for the shared
+session over several autosave cycles, confirming the sync.ts guard.
+`tsc --noEmit` clean; smoke29/33/34/35/44/48/49/50 (164 checks across the
+suites most likely to touch position/category/closed/reorder for an
+*owned* session) all still green, unchanged.
 
 ## The platform agent — agreed design and phases
 

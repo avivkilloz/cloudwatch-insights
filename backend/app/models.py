@@ -233,14 +233,20 @@ class LiveSession(Base):
 class SessionMember(Base):
     """A user other than the owner invited into a live session, with a
     permission tier. `LiveSession.user_id` stays the owner throughout --
-    membership is purely additive, so every existing single-owner code path
-    (ownership checks, live sync, the agent's per-user token) is untouched
-    by this table's existence.
+    membership is additive, so every existing single-owner code path
+    (ownership checks, live sync, the agent's per-user token) still works
+    unmodified for the owner's own view.
 
-    This alone is just the roster: who is invited, and at what permission.
-    What membership actually *grants* -- an invited member being able to
-    reach the session at all, live updates reaching their browser -- is a
-    later phase built on top of this one.
+    A member's *own* view of the shared session -- their panel position,
+    which of their own categories they filed it under, whether they've
+    closed it -- can't live on `LiveSession` itself: those columns are the
+    owner's alone, and a session shared with several people needs one
+    independent view per person, the same way each of them can see the
+    session's *state* while organizing it differently in their own panel.
+    So this table carries that view too, mirroring the fields `LiveSession`
+    carries for the owner. `category_id` points at one of the *member's
+    own* categories (`SessionCategory.user_id` is that member, not the
+    owner) -- categorizing a shared session never touches anyone else's.
     """
 
     __tablename__ = "session_members"
@@ -253,9 +259,17 @@ class SessionMember(Base):
     # remove panes, run tools and services. The owner is never a member of
     # their own session; there is no row here for them.
     permission = Column(String, nullable=False, server_default="editor")
+    # This member's own position among their sessions (owned and shared,
+    # ordered together), which of their own categories they filed it under
+    # (if any), and whether they've closed it -- same meaning as the
+    # matching LiveSession columns, just scoped to this one member.
+    position = Column(Integer, nullable=False, server_default="0")
+    category_id = Column(Integer, ForeignKey("session_categories.id", ondelete="SET NULL"), nullable=True, index=True)
+    closed_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User")
+    session = relationship("LiveSession")
 
 
 class AgentToken(Base):

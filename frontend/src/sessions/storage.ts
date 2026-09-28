@@ -15,6 +15,8 @@
  * this browser is looking at, not something to follow you to another machine.
  */
 
+import { SessionRole } from "../api";
+
 const DB_NAME = "cloud-insights-sessions";
 const DB_VERSION = 1;
 const STORE = "workspaces";
@@ -39,6 +41,12 @@ export interface PersistedSession {
   /** Set when state was dropped to stay under the cap, so the session can say
    * what happened rather than looking like it returned nothing. */
   truncated?: boolean;
+  /** "owner" for one of this browser's own, or the permission it was shared
+   * at. Undefined for a session cached before sharing existed -- treated as
+   * "owner", since only owned sessions could be cached then. Read-only
+   * (`sync.ts`'s own guard against pushing a viewer's session) is the only
+   * thing this affects so far; nothing here gates the rest of the UI yet. */
+  role?: SessionRole;
 }
 
 export interface Workspace {

@@ -70,6 +70,14 @@ export interface SavedSession<T = Record<string, unknown>> {
  * silently -- handing the page back a selection it can no longer read. The
  * backend stores it as opaque JSON either way.
  */
+/** The caller's own relationship to a session: "owner" for their own, or
+ * whatever permission they were invited at if it's shared with them.
+ * position/category_id/closed_at are always this caller's own view too --
+ * the owner's, or the caller's own as an invited member -- never someone
+ * else's, even though `state` and `version` are the one document everyone
+ * who can reach the session sees alike. */
+export type SessionRole = "owner" | "editor" | "viewer";
+
 /** A closed session as the side panel lists it. No `state`: nothing trims the
  * closed list, so sending every session's rows on every page load would make
  * the app slower the longer you had used it. The rows arrive with
@@ -83,6 +91,7 @@ export interface LiveSessionSummary {
   /** Which side-panel category it was in when closed, so the panel can still
    * group it there dimmed rather than pulling it into a separate list. */
   category_id: number | null;
+  role: SessionRole;
 }
 
 export interface LiveSession {
@@ -99,6 +108,7 @@ export interface LiveSession {
   truncated: boolean;
   /** Null while it is open; set once it is closed but still reopenable. */
   closed_at: string | null;
+  role: SessionRole;
   /** Bumped by the server on every write, whoever made it. A write says which
    * version it was made from, and one made from an older version is refused
    * (409) so the writer merges instead of overwriting a change it never saw. */
@@ -641,7 +651,9 @@ export const api = {
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
   putLiveSession: (
     clientId: string,
-    payload: Omit<LiveSession, "client_id" | "closed_at" | "version"> & { base_version?: number },
+    // role is the server's own read on the caller's relationship to the
+    // session -- never something the client says.
+    payload: Omit<LiveSession, "client_id" | "closed_at" | "version" | "role"> & { base_version?: number },
   ) =>
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
       method: "PUT",
