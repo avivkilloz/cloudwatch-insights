@@ -104,7 +104,7 @@ by the user): see the phase 1 notes below.
 **#81: the agent's phase 2** (merged): the MCP server, the agent container,
 streaming chat -- see the phase 2 notes below.
 
-**This round (not yet merged): the agent panel replaces the assistant, and
+**#82 and #83 (merged): the agent panel replaces the assistant, and
 the shell around it.** The user's six asks, in order:
 
 1. *Global and Session conversations* in the agent panel. Global is the old
@@ -148,7 +148,7 @@ browser suites green; smoke46 fails at its first step against the previous
 frontend. smoke41 and smoke42 now measure the scrollbar (6px, inside the
 16px gap) instead of reading `scrollbar-width`.
 
-**Follow-ups from the user trying it (same PR, #82):**
+**Follow-ups from the user trying it (#83):**
 
 1. *A pane ran on behind the dock.* Reproduced at 1280px: a wide dock (and
    rail) squeezed the body to ~100-300px, the side-by-side layout's 420px
@@ -176,6 +176,40 @@ panel's look; the agent adding an MQTT tester) -- 8 of its 12 checks fail
 against the previous frontend. Backend 172 (a test that browser-only tools
 can be added but not filled in; the one pinning their absence updated),
 agent 6. Full run: all 31 browser suites green.
+
+**This round (not yet merged): no header bar, and the session's own card in
+the side panel.** The user's five asks:
+
+1. *Agent panel header*: docked or floating, the panel has a header bar
+   padded like the strip (5px 6px), so docked its Global/Session tabs sit
+   level with the session tabs (measured equal). The dock's ✕ is gone -- the
+   strip's toggle hides it; floating keeps one.
+2. *Tabs*: the per-tab ⋮ from #82 is reverted: a ✕ on each tab again, and
+   one ⋮ (Rename, Save as template, Delete) for the session on screen, in a
+   `.session-bar-end` group just before the agent panel's toggle.
+3. *No header bar*: the brand (`Brand.tsx`: logo, or the title's initial on
+   a tile) heads the rail as its first row, replacing Home (same
+   `.rail-row-home` class), and starts the strip while the rail is hidden.
+   The account is a card at the rail column's foot (`UserMenu
+   variant="card"`, menu opens upwards); with the rail hidden, an avatar on
+   the strip after the logo (not asked for -- otherwise there'd be no way to
+   Settings or Log out). The header's question box went too: the Global tab
+   is the same conversation. Heights that allowed for the 53px header were
+   given it back.
+4. *Descriptions*: `description`, a top-level state key: optional on the
+   home page's start form, shown in PageInfo (full strength; the generated
+   "X in one session" line only when there's none), ✎ to edit (Enter saves,
+   Escape cancels -- the blur that follows is skipped). Templates keep it;
+   the agent's `_describe_session` reports it.
+5. *Panes card in the rail*: ⇤ on the card moves it under PageInfo, ⇥ back,
+   per browser (`railSlot.ts`). Only the session on screen portals it; with
+   the rail hidden it's back in the body.
+
+Coverage: new `smoke48` (the lot); against the previous frontend it fails
+at its first check. Eighteen suites migrated (account menu selector, the
+Global tab instead of the header box, the brand row instead of Home, tab ✕
+and the strip ⋮ back). Backend 173 (the agent reads a session's
+description).
 
 ## The platform agent — agreed design and phases
 
@@ -370,7 +404,7 @@ Everything below is merged and verified against the running app.
   flag per page — CloudWatch and OpenSearch now separate), users, app title and
   logo, themes, and one **Saved items** panel (Session Templates first, then Log
   Queries, IoT Searches, S3, DynamoDB, HTTP Requests, MQTT Topics).
-- **Tests:** 172 backend, 6 agent, 31 Playwright suites (this round's full
+- **Tests:** 173 backend, 6 agent, 32 Playwright suites (this round's full
   run is recorded above).
 
 ## In progress / where I left off
@@ -511,7 +545,7 @@ session; recovery was `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` on
 `_smoke` and restarting the backend, which re-bootstraps the admin.)
 
 **Browser suites** live in the repo at `frontend/e2e/`. `node e2e/run-all.mjs`
-from `frontend/` runs all 31 — about 25 minutes, one line per suite — and
+from `frontend/` runs all 32 — about 25 minutes, one line per suite — and
 `node e2e/run-all.mjs 29 33` or `node e2e/smokeNN.mjs` runs a subset. They need
 the dev stack up and they clear the workspace first, so point them at a scratch
 database. `frontend/e2e/README.md` has the configuration (`E2E_BASE_URL`,
