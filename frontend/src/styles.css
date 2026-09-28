@@ -1634,6 +1634,13 @@ th {
   border-radius: 0 8px 8px 0;
 }
 
+/* The only tab is both first and last -- the two rules above are equal
+   specificity, so whichever comes later in the sheet would otherwise win
+   outright and square off the other side. */
+.aggregator-tab:first-child:last-child {
+  border-radius: 8px;
+}
+
 .aggregator-tab.active {
   background: var(--accent-dim);
   border-color: var(--accent-dim);
