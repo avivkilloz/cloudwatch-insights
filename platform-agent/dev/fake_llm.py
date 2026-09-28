@@ -13,6 +13,8 @@ Scripts (the user's message decides):
 - "encode <text>"  -- a new session with a Base64 pane, filled in and run.
 - "dashboard"      -- a new session of three panes, arranged as a dashboard.
 - "here"           -- a Diff pane added to the session the user is looking at.
+- "add <kind>"     -- a pane of the kind whose name starts with <kind> (e.g.
+                      "add mqtt") added to the session being looked at.
 - "break"          -- a tool call that fails, and the model saying so.
 - "rows"           -- (a session's chat) says how many checked rows came
                       attached to the question, and from which panes.
@@ -124,6 +126,20 @@ def _next(text: str, results: list[tuple[str, Any]]) -> dict:
                 inputs={"left": "one\ntwo", "right": "one\nthree"},
             )
         return _say(f"Added a Diff pane to {viewing['title']} and filled both sides in.")
+    if lowered.startswith("add "):
+        wanted = lowered[len("add ") :].strip()
+        if step == 0:
+            return _call("get_context")
+        context = results[0][1] if isinstance(results[0][1], dict) else {}
+        viewing = context.get("viewing_session")
+        if not viewing:
+            return _say("You aren't looking at a session, so there's nowhere to put it.")
+        kind = next((k for k in context.get("pane_kinds", []) if k["label"].lower().startswith(wanted)), None)
+        if kind is None:
+            return _say(f"There's no pane kind called {wanted}.")
+        if step == 1:
+            return _call("add_pane", session_id=viewing["session_id"], kind=kind["kind"])
+        return _say(f"Added a {kind['label']} pane to {viewing['title']}.")
     if lowered.startswith("rows"):
         attached = re.search(r"Checked rows attached \((\d+), from ([^)]*)\)", text)
         if not attached:
@@ -151,7 +167,7 @@ def _next(text: str, results: list[tuple[str, Any]]) -> dict:
         if step == 0:
             return _call("run_pane", session_id="no-such-session", pane_id="nope")
         return _say(f"That didn't work: {results[0][1]}")
-    return _say("I'm the development stand-in model. Try: encode <text>, dashboard, here, break, rows, or query <text>.")
+    return _say("I'm the development stand-in model. Try: encode <text>, dashboard, here, add <kind>, break, rows, or query <text>.")
 
 
 def _chunk(model: str, delta: dict, finish: Optional[str] = None) -> str:

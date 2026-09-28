@@ -138,7 +138,9 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     kind = KINDS.get(type_)
     if kind is None:
         out["note"] = "The agent can't fill in or run this kind of pane."
-    if not detail or kind is None:
+    elif not kind.inputs:
+        out["note"] = kind.run_help
+    if not detail or kind is None or not kind.inputs:
         return out
     values = pane_values(state, pane_id)
     out["inputs"] = {i.key: values[i.key] for i in kind.inputs if i.key in values}
@@ -457,6 +459,8 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
     rc = RunContext(db=db, user=user, timezone=caller.timezone)
     unknown = [k for k in inputs if kind.input(k) is None]
     if unknown:
+        if not kind.inputs:
+            raise InputError(kind.run_help)
         keys = ", ".join(i.key for i in kind.inputs)
         raise InputError(f"{kind.label} has no input {', '.join(unknown)}. Its inputs are: {keys}.")
     converted = {k: _convert(kind, k, v, rc) for k, v in inputs.items()}

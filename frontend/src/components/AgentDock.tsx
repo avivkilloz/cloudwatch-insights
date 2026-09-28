@@ -10,10 +10,13 @@ export const DOCK_WIDTH = { initial: 380, min: 300, max: 720 };
  */
 export default function AgentDock({
   width,
+  max,
   onResize,
   onCommit,
 }: {
   width: number;
+  /** DOCK_WIDTH.max, or less when the window hasn't the room (App.tsx). */
+  max: number;
   onResize: (width: number) => void;
   onCommit: (width: number) => void;
 }) {
@@ -24,6 +27,7 @@ export default function AgentDock({
         label="Resize the agent panel"
         width={width}
         {...DOCK_WIDTH}
+        max={max}
         grow={-1}
         onResize={onResize}
         onCommit={onCommit}

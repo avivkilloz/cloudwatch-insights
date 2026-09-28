@@ -15,17 +15,37 @@ import PageInfo from "./components/PageInfo";
 import SessionBar from "./components/SessionBar";
 import Sidebar from "./components/Sidebar";
 
+import UserMenu from "./components/UserMenu";
+import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
+import { TemplatesProvider } from "./sessions/templates";
+import { PersistedSession } from "./sessions/storage";
+import { applyTheme, getInitialTheme, ThemeId } from "./theme";
+
 /** Whether the left rail is showing, and how wide it and the agent's dock are.
  * Per-browser preferences, not workspace state. */
 const RAIL_STORAGE_KEY = "cwi-rail";
 const RAIL_WIDTH_KEY = "cwi-rail-width";
 const DOCK_WIDTH_KEY = "cwi-agent-width";
 const RAIL_WIDTH = { initial: 212, min: 160, max: 420 };
-import UserMenu from "./components/UserMenu";
-import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
-import { TemplatesProvider } from "./sessions/templates";
-import { PersistedSession } from "./sessions/storage";
-import { applyTheme, getInitialTheme, ThemeId } from "./theme";
+
+/** The narrowest the body's scroll box gets squeezed by the columns beside it:
+ * room for one 420px pane (the side-by-side layout's column) and the 16px gap
+ * after it. Without a floor, a wide rail and a wide dock on a laptop screen
+ * left the body a few hundred pixels, its panes ran on under the dock, and
+ * the body scrolled sideways behind it. A width you chose is kept, and comes
+ * back when the window has room for it again; it's only drawn narrower. */
+const BODY_MIN_WIDTH = 440;
+
+/** The window's width, followed as it changes, for the limit above. */
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
 
 const DEFAULT_APP_TITLE = "Cloud Insights";
 const DEFAULT_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -132,6 +152,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   const [dockWidth, setDockWidth] = useState(() =>
     storedWidth(DOCK_WIDTH_KEY, DOCK_WIDTH.initial, DOCK_WIDTH.min, DOCK_WIDTH.max),
   );
+  const windowWidth = useWindowWidth();
 
   // Remembered per browser: collapsing the rail is a working preference, not
   // workspace data, so it never goes near the session store.
@@ -149,6 +170,21 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
       // best-effort persistence only
     }
   }, [railOpen]);
+
+  // The widths actually drawn, and how far each resizer may go, so the body
+  // keeps BODY_MIN_WIDTH. The shell is its 16px left padding, the rail and the
+  // gap after it, the body, and the dock (whose own margin takes back the gap
+  // before it, and whose 16px right padding is inside its width).
+  const dockShown = agent.layout === "dock" && agent.open && view !== "agent";
+  const railRoom = (dockWidthNow: number) =>
+    windowWidth - 16 - 16 - BODY_MIN_WIDTH - (dockShown ? dockWidthNow : 0);
+  const railMax = Math.max(RAIL_WIDTH.min, Math.min(RAIL_WIDTH.max, railRoom(DOCK_WIDTH.min)));
+  const railShown = Math.min(railWidth, railMax);
+  const dockMax = Math.max(
+    DOCK_WIDTH.min,
+    Math.min(DOCK_WIDTH.max, windowWidth - 16 - (railOpen ? railShown + 16 : 0) - BODY_MIN_WIDTH),
+  );
+  const dockShownWidth = Math.min(dockWidth, dockMax);
 
   // Nothing renders until the workspace has been read back, so a restored
   // session never flashes as empty first.
@@ -189,14 +225,15 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             panel's own rows stay put instead of shifting down whenever a
             description is longer. */}
         {railOpen && (
-          <div className="rail-column" style={{ width: railWidth }}>
+          <div className="rail-column" style={{ width: railShown }}>
             <Sidebar open={railOpen} />
             <PageInfo />
             <ColumnResizer
               className="rail-resizer"
               label="Resize the side panel"
-              width={railWidth}
+              width={railShown}
               {...RAIL_WIDTH}
+              max={Math.max(RAIL_WIDTH.min, Math.min(RAIL_WIDTH.max, railRoom(dockShownWidth)))}
               grow={1}
               onResize={setRailWidth}
               onCommit={(w) => storeWidth(RAIL_WIDTH_KEY, w)}
@@ -240,8 +277,13 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             showing you is hidden behind it -- a dashboard re-measures its
             canvas and fits. Floating: a corner button and a panel over the
             page. Neither on the Agent page, which is the global chat already. */}
-        {agent.layout === "dock" && agent.open && view !== "agent" && (
-          <AgentDock width={dockWidth} onResize={setDockWidth} onCommit={(w) => storeWidth(DOCK_WIDTH_KEY, w)} />
+        {dockShown && (
+          <AgentDock
+            width={dockShownWidth}
+            max={dockMax}
+            onResize={setDockWidth}
+            onCommit={(w) => storeWidth(DOCK_WIDTH_KEY, w)}
+          />
         )}
         {agent.layout === "float" && view !== "agent" && <AgentFloat />}
       </div>

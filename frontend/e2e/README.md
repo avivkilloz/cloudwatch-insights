@@ -31,7 +31,7 @@ Configuration, all optional:
 | `E2E_PLAYWRIGHT` | — | an installed Playwright to import, if `playwright` does not resolve |
 | `E2E_CHROMIUM` | — | a Chromium executable to use instead of Playwright's own |
 
-`smoke45` and `smoke46` (the platform agent) also need the agent container running with the
+`smoke45`, `smoke46` and `smoke47` (the platform agent) also need the agent container running with the
 scripted stand-in model, and the backend pointed at it -- a real model would
 answer differently every time:
 

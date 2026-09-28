@@ -12,8 +12,10 @@ The key names and value shapes are the browser's, and have to stay in step
 with the pages that read them (InsightsPage, IotPage, TablesPage, BucketsPage,
 CognitoPage, and the tools). A kind whose state lives only in the browser's
 memory (the MQTT tester, whose connection is the browser's own, and the JWT
-tool, which keeps a pasted token out of storage on purpose) isn't listed: the
-agent can't show anything in it.
+tool, which keeps a pasted token out of storage on purpose) is listed with no
+inputs: the agent can put one in a session, and name or arrange it, but has
+nothing it could fill in there. Leaving them out entirely made the agent tell
+a user asking for an MQTT tester that there was no such thing.
 
 Adding a kind is adding an entry to `KINDS`; nothing else here names one.
 """
@@ -773,6 +775,24 @@ KINDS: dict[str, PaneKind] = {
             ),
             run_help="You can fill the request in, but not send it: sending reaches outside the platform, and "
             "needs the user's approval, which isn't available yet. Tell the user to press Send.",
+        ),
+        PaneKind(
+            type="tool-mqtt",
+            label="MQTT tester",
+            flag="tools_enabled",
+            about="An MQTT client on an environment's IoT Core endpoint: subscribe to topics and publish messages.",
+            inputs=(),
+            run_help="You can add it, but not fill it in or connect it: its environment, topics and connection "
+            "live only in the user's browser. Tell the user to pick the environment and press Connect.",
+        ),
+        PaneKind(
+            type="tool-jwt",
+            label="JWT",
+            flag="tools_enabled",
+            about="Decode a JSON Web Token, or build and sign one.",
+            inputs=(),
+            run_help="You can add it, but not fill it in: a token pasted into it stays in the user's browser, on "
+            "purpose, since it's a credential. Tell the user to paste the token into it.",
         ),
         PaneKind(
             type="tool-base64",
