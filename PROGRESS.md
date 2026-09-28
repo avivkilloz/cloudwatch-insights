@@ -209,7 +209,9 @@ Coverage: new `smoke48` (the lot); against the previous frontend it fails
 at its first check. Eighteen suites migrated (account menu selector, the
 Global tab instead of the header box, the brand row instead of Home, tab ✕
 and the strip ⋮ back). Backend 173 (the agent reads a session's
-description).
+description). Full run: 32 of 32 browser suites green, after smoke35's page
+colour check was made to compare colours rather than strings (read during
+the body's background transition, the same colour serialises as rgba).
 
 ## The platform agent — agreed design and phases
 
