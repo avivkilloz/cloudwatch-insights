@@ -24,7 +24,7 @@ const run = async () => {
   const tabs = () => page.locator(`${SHOWN} .aggregator-tab-label`).allInnerTexts();
   const headers = () => page.locator(`${SHOWN} .aggregator-pane-header h3`).allInnerTexts();
   const layoutTo = async (name) => {
-    await page.click(`${SHOWN} .toolbar button:text-is("${name}")`);
+    await page.click(`${SHOWN} .segmented[aria-label="Layout"] button:text-is("${name}")`);
     await page.waitForTimeout(250);
   };
 
@@ -61,7 +61,7 @@ const run = async () => {
 
   // ---------- 3. the Panes card only adds ----------
   // Scoped to the Panes card itself: the panes inside have checkboxes of their own.
-  check((await page.locator(`${SHOWN} .session-card > .toolbar input[type=checkbox]`).count()) === 0,
+  check((await page.locator(`${SHOWN} .session-card input[type=checkbox]`).count()) === 0,
     "The Panes card has no checkboxes -- nothing there can close a pane");
   await addPane(page, "CloudWatch");
   check((await headers()).includes("CloudWatch 3"), "+ CloudWatch adds another CloudWatch pane, numbered", JSON.stringify(await headers()));

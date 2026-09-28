@@ -215,7 +215,12 @@ computed moves by itself whenever anything before it changes, which was the
 the first free place. Panes never overlap or come within the 16px gap
 (`resolveRect`), a minimised pane's footprint is just its 40px header (but its
 stored height is kept), and the right boundary is the canvas's measured width
-— the same as the "Panes" card's, so panes line up with the cards above.
+— the same as the session card's, so panes line up with the cards above.
+When the canvas narrows (a wider dock, a smaller window), a pane past its edge
+is slid in and cut down to fit *for drawing only*; its stored rect keeps its
+own width, so it grows back when there's room. Whether it's past the edge is
+asked of that stored width -- asked of the cut-down one, a pane flush with
+the left edge never counted as overflowing and ran on under the dock.
 
 **Workspace JSON is tagged** (`sessions/storage.ts`): `__cwiSet` / `__cwiMap` so
 `Set`/`Map` survive persistence. Plain `JSON.stringify` flattens a Set to `{}`
@@ -308,8 +313,10 @@ credentials per service.
   picture ends the strip, or the docked agent panel's header (a floating one
   leaves it on the strip). Anything that measured from a 53px header is
   measured from the window's top now.
-- **A session's card** (`components/SessionCard.tsx`) is its name and
-  description (both edited in place), its adds and its layout; PageInfo is
+- **A session's card** (`components/SessionCard.tsx`) is one form -- a label
+  column and a values column (`CardRow`), three ruled sections
+  (`CardSection`): its name and description (edited in the same kind of
+  box), its adds, and its layout (one segmented control); PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`

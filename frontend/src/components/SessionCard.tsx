@@ -1,16 +1,32 @@
 import { ReactNode, useRef, useState } from "react";
 
 /**
- * A session's own card: its name and description, both editable in place, and
- * (as children) what it holds and how that's laid out -- the adds and the
- * layout picker. It replaced two cards that each said half of this: the Panes
- * card at the top of the body, and a title-and-description card under the
- * side panel.
+ * A session's own card: what it is (name and description, both editable in
+ * place), what it holds (the adds) and how that's laid out -- three sections,
+ * ruled apart, every row a label in one column and its values in the next, so
+ * the card reads as one form rather than a heap of buttons. In the side panel,
+ * which is narrow, each label sits over its values instead.
  *
- * It lives either at the top of the body or in the side panel (⇤ / ⇥, per
- * browser, `railSlot.ts`), and stays wherever it was put -- in the side panel
- * even while that's hidden -- until it's moved back.
+ * It lives either at the top of the body or in the side panel (the corner
+ * button, per browser, `railSlot.ts`), and stays wherever it was put -- in the
+ * side panel even while that's hidden -- until it's moved back.
  */
+
+/** One row: its label, and whatever it holds. */
+export function CardRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="session-card-row">
+      <span className="session-card-label">{label}</span>
+      <div className="session-card-values">{children}</div>
+    </div>
+  );
+}
+
+/** A group of rows, ruled off from the one before it. */
+export function CardSection({ children }: { children: ReactNode }) {
+  return <div className="session-card-section">{children}</div>;
+}
+
 export default function SessionCard({
   title,
   description,
@@ -68,6 +84,8 @@ export default function SessionCard({
     };
   }
 
+  const hasDescription = description.trim() !== "";
+
   return (
     <div className={`panel session-card${inRail ? " in-rail" : ""}`}>
       <div className="session-card-head">
@@ -82,52 +100,55 @@ export default function SessionCard({
         </button>
       </div>
 
-      {editing === "title" ? (
-        <input
-          className="session-card-title-input"
-          autoFocus
-          defaultValue={title}
-          aria-label="Session name"
-          onKeyDown={keys("title")}
-          onBlur={blur("title")}
-        />
-      ) : (
-        <div className="session-card-line">
-          <h2 className="session-card-title">{title}</h2>
-          <button className="session-card-edit" onClick={() => setEditing("title")} aria-label="Rename the session" title="Rename">
-            ✎
-          </button>
-        </div>
-      )}
-
-      {editing === "description" ? (
-        <textarea
-          className="session-card-description-input"
-          autoFocus
-          rows={3}
-          defaultValue={description}
-          placeholder="What this session is for"
-          aria-label="Session description"
-          onKeyDown={keys("description")}
-          onBlur={blur("description")}
-        />
-      ) : (
-        <div className="session-card-line">
-          {description.trim() ? (
-            <p className="session-card-description">{description}</p>
+      <CardSection>
+        <CardRow label="Name">
+          {editing === "title" ? (
+            <input
+              className="session-card-input session-card-title-input"
+              autoFocus
+              defaultValue={title}
+              aria-label="Session name"
+              onKeyDown={keys("title")}
+              onBlur={blur("title")}
+            />
           ) : (
-            <p className="session-card-description muted">No description yet.</p>
+            <div className="session-card-text">
+              <h2 className="session-card-title">{title}</h2>
+              <button className="session-card-edit" onClick={() => setEditing("title")} aria-label="Rename the session" title="Rename">
+                ✎
+              </button>
+            </div>
           )}
-          <button
-            className="session-card-edit"
-            onClick={() => setEditing("description")}
-            aria-label={description.trim() ? "Edit the description" : "Add a description"}
-            title={description.trim() ? "Edit the description" : "Add a description"}
-          >
-            ✎
-          </button>
-        </div>
-      )}
+        </CardRow>
+        <CardRow label="Description">
+          {editing === "description" ? (
+            <textarea
+              className="session-card-input session-card-description-input"
+              autoFocus
+              rows={3}
+              defaultValue={description}
+              placeholder="What this session is for"
+              aria-label="Session description"
+              onKeyDown={keys("description")}
+              onBlur={blur("description")}
+            />
+          ) : (
+            <div className="session-card-text">
+              <p className={`session-card-description${hasDescription ? "" : " muted"}`}>
+                {hasDescription ? description : "No description yet."}
+              </p>
+              <button
+                className="session-card-edit"
+                onClick={() => setEditing("description")}
+                aria-label={hasDescription ? "Edit the description" : "Add a description"}
+                title={hasDescription ? "Edit the description" : "Add a description"}
+              >
+                ✎
+              </button>
+            </div>
+          )}
+        </CardRow>
+      </CardSection>
 
       {children}
     </div>

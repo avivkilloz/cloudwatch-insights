@@ -19,7 +19,7 @@ import {
   useSessionState,
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
-import SessionCard from "../components/SessionCard";
+import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
@@ -146,8 +146,13 @@ function resolveDashboard(
       placed.push(id);
       continue;
     }
+    // Whether it overflows is asked of its stored width, not the one already
+    // cut down to the canvas: asked of the cut-down one, a pane flush with
+    // the left edge (x 0, so 0 + canvas is never past the canvas) kept its
+    // full width and ran on under the agent panel whenever the canvas
+    // narrowed -- a wider dock, or a smaller window.
     const w = Math.min(r.w, Math.max(DASHBOARD_MIN_W, maxWidth));
-    const fitted = r.x + w > maxWidth ? { ...r, x: Math.max(0, maxWidth - w), w } : r;
+    const fitted = r.x + r.w > maxWidth ? { ...r, x: Math.max(0, maxWidth - w), w } : r;
     const fp = footprintOf(id, fitted);
     if (taken.some((t) => rectsOverlap(fp, t, DASHBOARD_GAP))) {
       placed.push(id);
@@ -1130,48 +1135,56 @@ export default function AggregatorPage() {
           are different kinds of thing to reach for. Each only ever adds: a
           session can hold several panes of one kind, so there's no single
           pane a toggle could mean. Closing is the pane's own ✕. */}
-      {[
-        { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
-        { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
-      ].map((group) => {
-        const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
-        if (shown.length === 0) return null;
-        return (
-          <div className="toolbar" key={group.heading}>
-            <span className="field-label" style={{ minWidth: 62 }}>
-              {group.heading}
-            </span>
-            {shown.map((x) => (
+      <CardSection>
+        {[
+          { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
+          { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
+        ].map((group) => {
+          const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
+          if (shown.length === 0) return null;
+          return (
+            <CardRow label={group.heading} key={group.heading}>
+              {shown.map((x) => (
+                <button
+                  key={x.id}
+                  className="secondary aggregator-add-pane"
+                  onClick={() => addPane(x.id)}
+                  title={`Add a new ${x.label} pane`}
+                  aria-label={`Add ${x.label} pane`}
+                >
+                  + {x.label}
+                </button>
+              ))}
+            </CardRow>
+          );
+        })}
+      </CardSection>
+      <CardSection>
+        <CardRow label="Layout">
+          {/* One control, not four buttons: exactly one of these is ever on.
+              Tabs first because it is what a new session starts in: the
+              order here is the order you are likely to want them. */}
+          <div className="segmented" role="group" aria-label="Layout">
+            {(
+              [
+                ["tabs", "Tabs"],
+                ["columns", "Side by side"],
+                ["stacked", "Stacked"],
+                ["dashboard", "Dashboard"],
+              ] as const
+            ).map(([value, label]) => (
               <button
-                key={x.id}
-                className="secondary aggregator-add-pane"
-                onClick={() => addPane(x.id)}
-                title={`Add a new ${x.label} pane`}
-                aria-label={`Add ${x.label} pane`}
+                key={value}
+                className={layout === value ? "" : "secondary"}
+                aria-pressed={layout === value}
+                onClick={() => setLayout(value)}
               >
-                + {x.label}
+                {label}
               </button>
             ))}
           </div>
-        );
-      })}
-      <div className="toolbar">
-        <span className="muted">Layout</span>
-        {/* Tabs first because it is what a new session starts in: the order
-            here is the order you are likely to want them. */}
-        <button className={layout === "tabs" ? "" : "secondary"} onClick={() => setLayout("tabs")}>
-          Tabs
-        </button>
-        <button className={layout === "columns" ? "" : "secondary"} onClick={() => setLayout("columns")}>
-          Side by side
-        </button>
-        <button className={layout === "stacked" ? "" : "secondary"} onClick={() => setLayout("stacked")}>
-          Stacked
-        </button>
-        <button className={layout === "dashboard" ? "" : "secondary"} onClick={() => setLayout("dashboard")}>
-          Dashboard
-        </button>
-      </div>
+        </CardRow>
+      </CardSection>
     </SessionCard>
   );
 

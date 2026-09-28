@@ -40,7 +40,7 @@ const mountedPanes = (page) =>
   await page.waitForSelector(PANES);
 
   // ---------- it leads the two that were there ----------
-  const layouts = await page.locator(`${PANES} .toolbar:has(span:text-is("Layout")) button`).allTextContents();
+  const layouts = await page.locator(`${PANES} .segmented[aria-label="Layout"] button`).allTextContents();
   check(JSON.stringify(layouts) === JSON.stringify(["Tabs", "Side by side", "Stacked", "Dashboard"]),
     "Tabs is offered first, being what a session starts in", JSON.stringify(layouts));
 
