@@ -2681,11 +2681,36 @@ th {
   padding: 12px 16px 14px;
 }
 
+/* Ruled off from the sections under it, as they are from each other. */
 .session-card-head {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: 22px;
-  margin-bottom: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-card.collapsed .session-card-head {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.session-card-folded-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.session-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
 }
 
 .session-card-kicker {
@@ -2696,13 +2721,8 @@ th {
   color: var(--text-dim);
 }
 
-.session-card-move {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-}
-
 .session-card-move,
+.session-card-fold,
 .session-card-edit {
   display: inline-flex;
   align-items: center;
@@ -2721,6 +2741,7 @@ th {
 }
 
 .session-card-move:hover,
+.session-card-fold:hover,
 .session-card-edit:hover {
   background: var(--panel-alt);
   border-color: var(--border);
@@ -2873,7 +2894,7 @@ th {
   overflow-y: auto;
 }
 
-.session-card.in-rail .session-card-move {
+.session-card.in-rail .session-card-actions {
   top: 6px;
   right: 6px;
 }
@@ -2923,4 +2944,7 @@ th {
 .session-bar-end > .icon-popover-wrap,
 .agent-panel-actions > .icon-popover-wrap {
   margin-left: 8px;
+  /* ...and a little further in from the end of the bar than the buttons
+     are, so it doesn't sit pressed into the card's corner. */
+  margin-right: 6px;
 }

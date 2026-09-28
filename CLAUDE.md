@@ -316,7 +316,9 @@ credentials per service.
 - **A session's card** (`components/SessionCard.tsx`) is one form -- a label
   column and a values column (`CardRow`), three ruled sections
   (`CardSection`): its name and description (edited in the same kind of
-  box), its adds, and its layout (one segmented control); PageInfo is
+  box), its adds, and its layout (one segmented control). In the body it
+  folds to its header (`cardCollapsed`, per session like a minimised
+  pane); in the rail it doesn't. PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`
