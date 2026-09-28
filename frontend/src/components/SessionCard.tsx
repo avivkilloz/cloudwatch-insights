@@ -115,17 +115,17 @@ export default function SessionCard({
         <div className="session-card-actions">
           {!inRail && (
             <button
-              className="session-card-fold"
+              className="session-card-fold secondary"
               onClick={stop(onToggleCollapsed)}
               aria-expanded={!folded}
               aria-label={folded ? "Expand the session card" : "Collapse the session card"}
               title={folded ? "Expand" : "Collapse"}
             >
-              {folded ? "▸" : "▾"}
+              {folded ? "+" : "−"}
             </button>
           )}
           <button
-            className="session-card-move"
+            className="session-card-move secondary"
             onClick={stop(onMove)}
             aria-label={inRail ? "Move the session card back above the panes" : "Move the session card to the side panel"}
             title={inRail ? "Move back above the panes" : "Move to the side panel"}

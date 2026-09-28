@@ -285,10 +285,7 @@ green -- smoke32's "picture at the far end" allowance widened for its new
 inset, and smoke44 now waits for the closed row as it already waited for the
 tab to go.
 
-**This round (not yet merged): rail brand and Session card, pane-styled.**
-Before the dynamic dashboard, still waiting on the user's go-ahead (a
-24-column grid, directional push falling back to down, drop-between, no
-auto-compaction plus Tidy up, live preview).
+**#88 (PR opened, not yet merged): rail brand and Session card, pane-styled.**
 
 1. *Rail brand*: closer to the left edge; hover/active now highlight only
    the text (`.rail-brand-title`), no background pill -- as the old
@@ -307,6 +304,32 @@ at the agent panel's header rule) 22/22; smoke49 (move-button corner
 tolerance widened, 8px 12px header padding instead of an absolute corner)
 21/21. Full `run-all.mjs` not run this round, per the user's explicit
 time/token constraint -- targeted verification only.
+
+**This round (pushed to #88, not yet merged): follow-ups to #88, before the
+dynamic dashboard** (still waiting on the user's go-ahead -- a 24-column
+grid, directional push falling back to down, drop-between, no
+auto-compaction plus Tidy up, live preview).
+
+1. *Session card header buttons*: fold now shares a pane header button's own
+   `.secondary` look and glyph (`+`/`−`), not a bespoke circular icon
+   button; the body's side padding matches a pane body's (16px → 12px), so
+   the inner section cards don't sit further in than a pane's own do.
+2. *Tabs layout, joined and evenly divided*: `.aggregator-tab` is
+   `flex: 1 1 0` and the tabs are joined edge to edge (like the session
+   card's segmented Layout control), always as wide as a pane in the
+   stacked layout since it's the same container. The Settings page's own
+   section tabs get the same treatment (`.settings-tabs`); other `.tabs`
+   uses (Saved items) are untouched.
+3. *The agent can set a session's description and category*: two new MCP
+   tools, `set_description` and `set_category` (plus `list_categories`) --
+   `set_category` finds or creates the named `SessionCategory` and sets it
+   directly on the row inside `mutate`, the same way `rename` sets
+   `row.title`. `_describe_session` now reports `category` too.
+
+Coverage: `tsc --noEmit` clean; smoke33 (tabs layout) 21/21; smoke48 22/22;
+smoke49 21/21; new backend test
+`test_the_agent_can_set_a_sessions_description_and_category`, full backend
+suite 174/174. Full `run-all.mjs` not run, same time/token constraint.
 
 ## The platform agent — agreed design and phases
 

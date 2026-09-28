@@ -243,6 +243,29 @@ def test_a_sessions_description_is_what_the_agent_reads_it_for(mcp):
     assert about and about[0]["description"] == "Why checkout 500s since Tuesday"
 
 
+def test_the_agent_can_set_a_sessions_description_and_category(mcp):
+    token = _token()
+    session = call(mcp, token, "create_session", title="Checkout", panes=[{"kind": "tool-diff"}])["session_id"]
+
+    described = call(mcp, token, "set_description", session_id=session, description="Why checkout 500s")
+    assert described["description"] == "Why checkout 500s"
+    assert _row(session).state["description"] == "Why checkout 500s"
+    described = call(mcp, token, "set_description", session_id=session, description="  ")
+    assert "description" not in described
+
+    assert call(mcp, token, "list_categories") == {"categories": []}
+    described = call(mcp, token, "set_category", session_id=session, category="Incidents")
+    assert described["category"] == "Incidents"
+    assert call(mcp, token, "list_categories") == {"categories": ["Incidents"]}
+    # A second session filing into the same name reuses it, not a duplicate.
+    other = call(mcp, token, "create_session", title="Other", panes=[{"kind": "tool-diff"}])["session_id"]
+    call(mcp, token, "set_category", session_id=other, category="Incidents")
+    assert call(mcp, token, "list_categories") == {"categories": ["Incidents"]}
+
+    described = call(mcp, token, "set_category", session_id=session)
+    assert "category" not in described
+
+
 def test_browser_only_tools_can_be_added_and_named_but_not_filled_in(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]
