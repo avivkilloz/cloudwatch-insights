@@ -137,13 +137,15 @@ const run = async () => {
     const pane = document.querySelector(".aggregator-pane");
     const paneRect = pane.getBoundingClientRect();
     return {
-      scrollbarWidth: style.scrollbarWidth,
+      scrollbarSize: content.offsetWidth - content.clientWidth,
       scrollbarGutter: style.scrollbarGutter,
       contentRight: contentRect.right,
       paneRight: paneRect.right,
     };
   });
-  check(gap.scrollbarWidth === "thin", "The scrollbar is styled thin, closer to the border", JSON.stringify(gap));
+  // Measured, not read off scrollbar-width: Chrome ignores the ::-webkit-scrollbar
+  // styling on any element that sets that property, so styles.css leaves it to Firefox.
+  check(gap.scrollbarSize === 6, "The scrollbar is styled thin, closer to the border", JSON.stringify(gap));
   check(gap.scrollbarGutter.includes("stable"), "…and its space is permanently reserved rather than shifting layout when it appears",
     JSON.stringify(gap));
   check(gap.contentRight - gap.paneRight >= 15, "…leaving cards a visible gap from it rather than touching it",

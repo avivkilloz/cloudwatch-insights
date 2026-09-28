@@ -143,7 +143,10 @@ measurements, resizing); smoke45 reaches the Agent page from Home; the four
 assistant-only suites (14, 15, 18, 19) retired, the assistant parts of 16,
 17, 20, 22, 23 removed, and every suite that closed a tab with its ✕ now uses
 the harness's `closeTab`/`tabMenu`. Backend 171 (the assistant's tests gone,
-three relay tests for session scope added), agent 6.
+three relay tests for session scope added), agent 6. Full run: all 30
+browser suites green; smoke46 fails at its first step against the previous
+frontend. smoke41 and smoke42 now measure the scrollbar (6px, inside the
+16px gap) instead of reading `scrollbar-width`.
 
 ## The platform agent — agreed design and phases
 
