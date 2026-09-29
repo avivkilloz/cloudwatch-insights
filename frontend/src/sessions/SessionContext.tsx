@@ -511,6 +511,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
               truncated: !!session.truncated,
               closed_at: null,
               category_id: session.categoryId ?? null,
+              role: session.role ?? "owner",
             },
             ...c.filter((s) => s.client_id !== id),
           ]);

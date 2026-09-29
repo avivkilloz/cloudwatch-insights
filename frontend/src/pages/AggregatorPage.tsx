@@ -10,7 +10,7 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { api, SavedSession } from "../api";
+import { api, SavedSession, SessionMember, SessionPermission } from "../api";
 import {
   SessionKeyScope,
   useDropSessionKeys,
@@ -1122,6 +1122,67 @@ export default function AggregatorPage() {
   // says nothing about another's.
   const [cardCollapsed, setCardCollapsed] = useSessionState<boolean>("cardCollapsed", false);
 
+  // Sharing, phase 1: the roster lives in its own table, not session state --
+  // it's the owner managing who's invited, not something that belongs in the
+  // synced JSON every write announces (and today, only the owner can ever be
+  // here to manage it: an invited member can't reach the session yet).
+  const [members, setMembers] = useState<SessionMember[]>([]);
+  const [memberError, setMemberError] = useState<string | null>(null);
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [invitePermission, setInvitePermission] = useState<SessionPermission>("editor");
+
+  useEffect(() => {
+    if (!scope) return;
+    let cancelled = false;
+    api
+      .listSessionMembers(scope.id)
+      .then((m) => {
+        if (!cancelled) setMembers(m);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [scope?.id]);
+
+  async function withMemberError(fn: () => Promise<void>) {
+    setMemberError(null);
+    try {
+      await fn();
+    } catch (e: any) {
+      setMemberError(e?.message ?? "Something went wrong.");
+    }
+  }
+
+  function inviteMember(e: React.FormEvent) {
+    e.preventDefault();
+    const username = inviteUsername.trim();
+    if (!username || !scope) return;
+    withMemberError(async () => {
+      const member = await api.inviteSessionMember(scope.id, username, invitePermission);
+      setMembers((m) => [...m, member]);
+      setInviteUsername("");
+    });
+  }
+
+  function changeMemberPermission(userId: number, permission: SessionPermission) {
+    if (!scope) return;
+    withMemberError(() =>
+      api.updateSessionMemberPermission(scope.id, userId, permission).then((updated) => {
+        setMembers((m) => m.map((x) => (x.user_id === userId ? updated : x)));
+      }),
+    );
+  }
+
+  function removeMember(userId: number) {
+    if (!scope) return;
+    withMemberError(() =>
+      api.removeSessionMember(scope.id, userId).then(() => {
+        setMembers((m) => m.filter((x) => x.user_id !== userId));
+      }),
+    );
+  }
+
   const sessionCard = (
     <SessionCard
       title={thisSession?.title ?? ""}
@@ -1187,6 +1248,58 @@ export default function AggregatorPage() {
                 {label}
               </button>
             ))}
+          </div>
+        </CardRow>
+      </CardSection>
+      <CardSection>
+        <CardRow label="Members">
+          {/* Phase 1 of sharing: invite by username, at a permission, and
+              manage who's invited -- see CLAUDE.md for what this does and
+              doesn't grant yet. */}
+          <div className="session-members">
+            {members.map((m) => (
+              <div className="session-member" key={m.user_id}>
+                <span className="session-member-name">{m.username}</span>
+                <select
+                  className="session-member-permission"
+                  value={m.permission}
+                  onChange={(e) => changeMemberPermission(m.user_id, e.target.value as SessionPermission)}
+                  aria-label={`${m.username}'s permission`}
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                </select>
+                <button
+                  className="session-member-remove"
+                  onClick={() => removeMember(m.user_id)}
+                  aria-label={`Remove ${m.username}`}
+                  title={`Remove ${m.username}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <form className="session-member-invite" onSubmit={inviteMember}>
+              <input
+                className="session-card-input"
+                placeholder="Username"
+                value={inviteUsername}
+                onChange={(e) => setInviteUsername(e.target.value)}
+                aria-label="Username to invite"
+              />
+              <select
+                value={invitePermission}
+                onChange={(e) => setInvitePermission(e.target.value as SessionPermission)}
+                aria-label="Permission for the invited user"
+              >
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+              <button type="submit" className="secondary" disabled={!inviteUsername.trim()}>
+                Invite
+              </button>
+            </form>
+            {memberError && <p className="error-text">{memberError}</p>}
           </div>
         </CardRow>
       </CardSection>

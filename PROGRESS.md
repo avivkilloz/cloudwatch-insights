@@ -305,12 +305,11 @@ tolerance widened, 8px 12px header padding instead of an absolute corner)
 21/21. Full `run-all.mjs` not run this round, per the user's explicit
 time/token constraint -- targeted verification only.
 
-**This round (pushed, no PR opened yet): follow-ups to #88, before the
-dynamic dashboard** (still waiting on the user's go-ahead -- a 24-column
-grid, directional push falling back to down, drop-between, no
-auto-compaction plus Tidy up, live preview). #88 was already merged when
-this round started, so the branch was restarted from `main` (same name)
-and this round's one commit rebased onto it.
+**#89 (merged): follow-ups to #88**, before the dynamic dashboard (still on
+hold -- see below). #88 had already merged when that round started, so the
+branch was restarted from `main` and the round's commit rebased onto it --
+the first time this engagement hit "the PR you're pushing to already
+merged," which is now a standing rule (see CLAUDE.md/this file's header).
 
 1. *Session card header buttons*: fold now shares a pane header button's own
    `.secondary` look and glyph (`+`/`−`), not a bespoke circular icon
@@ -331,7 +330,172 @@ and this round's one commit rebased onto it.
 Coverage: `tsc --noEmit` clean; smoke33 (tabs layout) 21/21; smoke48 22/22;
 smoke49 21/21; new backend test
 `test_the_agent_can_set_a_sessions_description_and_category`, full backend
-suite 174/174. Full `run-all.mjs` not run, same time/token constraint.
+suite 174/174.
+
+**#90 (merged): a lone session tab's left corner wasn't rounding.**
+`:first-child`/`:last-child` are equal specificity, so with exactly one tab
+both matched and whichever came later in the sheet won outright, squaring
+off the other corner. Fixed with a combined `:first-child:last-child` rule.
+
+**#91 (merged): the agent panel's Global/Session tabs joined the same way**
+as the session tabs layout (#89) and the Layout control -- one shared
+button, not two separate bordered ones with a gap. Carries the same
+defensive `:first-child:last-child` fix as #90.
+
+## Sharing a session — agreed design and phases
+
+The user wants sessions shared with other users: invited when the session
+is created, or afterward; different permission tiers; and the session-tab
+agent chat turned into a multi-user conversation the agent only joins when
+`@`-mentioned, managed from the session card. Given how much of the existing
+architecture assumes one owner (`LiveSession.user_id`, the per-user
+`pg_notify` fan-out, per-group IAM/environments, the agent's per-user
+token), this is a multi-PR project agreed up front rather than one PR:
+
+1. **Data model + membership API (done, PR pending).** `SessionMember`
+   (session_id, user_id, permission) -- additive only, `LiveSession.user_id`
+   stays the owner. Two tiers: *viewer* (read-only) and *editor* (edit
+   inputs, add/remove panes, run tools -- everything except managing
+   membership itself). `routers/live_sessions.py` gets `/members`
+   (list/invite/change permission/remove), owner-only. **Inviting someone
+   does not yet let them reach the session** -- every existing route still
+   checks ownership alone; that's phase 3.
+2. **Session card UI to manage members (done, PR pending).** A fourth
+   section on the card, `CardRow label="Members"`: each invited user on its
+   own line (name, a permission `<select>`, a ✕ to remove), then the invite
+   form (username + permission picker + Invite). Fetched from the API on
+   the session's own mount (`api.listSessionMembers`), not session state --
+   it's the owner's roster, not something that syncs. Errors (no such
+   user, already a member, inviting yourself) show inline as `.error-text`,
+   the same `withActionError`-style pattern Settings uses. A brand-new
+   session's row doesn't exist on the server until the debounced autosave
+   lands, so an invite made in the first ~1.2s of a new session 404s --
+   the same window every other write into a new session already has, not
+   a new failure mode this introduces.
+3. **Actually letting a member in (done, PR pending).** `_reachable()`
+   replaces `_owned()` for every route except delete and the roster itself
+   (both stay owner-only): the row, plus the caller's own `SessionMember`
+   if they're not the owner. `state`/`title`/`type`/`version` are the one
+   shared document -- an editor can write them (a viewer gets 403);
+   `position`/`category_id`/`closed_at` are never shared, each member (and
+   the owner) has their own copy of all three, since a session held open by
+   several people needs an independent panel position, category and closed
+   state per person, decided explicitly (not the simpler "shared with you"
+   list originally floated). `live_store.commit_write` now fans an
+   "upsert" out to every participant (owner + members) instead of just the
+   owner, so an editor's write reaches every other open browser live,
+   through the existing per-user `pg_notify`/SSE plumbing unchanged, just
+   called once per participant. A member always acts under **their own
+   group's** environments and IAM role, never the owner's -- no per-session
+   access grant, "access control is per group, never per user" intact. A
+   member leaves via `DELETE /{client_id}/members/{their_own_user_id}`
+   (self-removal, allowed even though managing anyone else's membership
+   stays the owner's); deleting the session outright stays owner-only.
+   One necessary frontend change rides along: `LiveSessionOut`/`Summary`
+   gained a `role` field, and `sync.ts`'s autosave skips the PUT outright
+   for a viewer -- without it, merely *receiving* someone else's live edit
+   would queue a save that 403s on every flush. Nothing else in the
+   frontend is gated on role yet (a viewer can still click a control that
+   fails server-side) -- that's deliberately left to a later phase, not
+   bundled into this one.
+4. **Multi-user chat (done, PR pending).** Needed almost no new plumbing:
+   `agentChat` is a key in the same `state` phase 3 already made the one
+   shared document, so it was already syncing live to every member the
+   moment a session had any. What this phase adds: `AgentTurn` gains
+   `author`/`agentInvoked`; gating (does a message need `@platform-agent`
+   to get a reply) is client-side and keyed on whether the session is
+   *actually* shared (an unshared session's chat is untouched -- every
+   message still goes to the agent, exactly as before); `routers/agent.py`
+   uses the new `live_store.reachable()` so a member can start a session
+   turn at all; `sync.ts`'s merge treats the chat log as append-only
+   (union by turn id) instead of "one side's whole array wins", so two
+   people's messages in the same debounce window don't clobber each other.
+   **Known gap, confirmed not just anticipated**: the agent's own tools
+   (`get_context`'s `viewing_session`, everything built on
+   `live_store.get`/`mutate`) stay strictly owner-scoped, so a member who
+   mentions the agent can talk to it but can't get it to act on the
+   session -- it says "You aren't looking at a session, so there's nowhere
+   to put it." Fixing that means auditing every `platform_tools` function
+   that writes owner-only row fields directly (the same care phase 3 put
+   into the browser's own routes) -- a further phase, not part of this one.
+
+Coverage for phase 1: `test_session_members.py` (invite, list, change
+permission, remove, owner-only, scoped per session), full backend suite
+183/183.
+
+Coverage for phase 2: `smoke50.mjs` (new, 12 checks -- the Members row
+exists; the three invite errors; invite at a chosen permission; the field
+clears after; duplicate invite; change permission in place; survives a
+reload, proving it's server-backed and not session state; remove), fails
+against the pre-phase-2 frontend as expected. `smoke49`'s card-shape
+checks updated for the new row/section (six rows, four sections). `tsc
+--noEmit` clean.
+
+Coverage for phase 3: new `test_session_sharing.py` (13 tests -- a member
+can GET/PUT per their permission, 403 for a viewer, 409 for a stale editor
+write, the shared state is genuinely one document, position/category/closed
+state are each participant's own and never leak to another, reorder moves
+the right row for whoever asks, delete stays owner-only and cascades to
+members, leaving works and doesn't touch the owner's copy); 9 of the 13
+fail against the pre-phase-3 backend, confirming the suite exercises real
+new behavior. `test_session_members.py`'s owner-only test updated (a
+member removing themselves is now 204, not 404 -- the deliberate new
+"leave" rule). Full backend suite 196/196. Manually verified live in the
+browser with two real logged-in users (an owner and an invited editor):
+the editor's shared session shows up automatically in their own panel
+purely from the existing frontend's generic sync code (no rail/UI changes
+needed for that); the owner's rename of the session reached the editor's
+already-open tab **live**, with no reload, through the unmodified SSE
+stream; an invited viewer's browser made zero PUT attempts for the shared
+session over several autosave cycles, confirming the sync.ts guard.
+`tsc --noEmit` clean; smoke29/33/34/35/44/48/49/50 (164 checks across the
+suites most likely to touch position/category/closed/reorder for an
+*owned* session) all still green, unchanged.
+
+Coverage for phase 4: new `smoke51.mjs` (7 checks, two real logged-in
+users -- a plain message never reaches the agent once shared; it shows
+who sent it; a member sees the owner's message live, labelled and on the
+left; mentioning the agent (and only that message) gets a reply; neither
+side's message is lost); fails against the pre-phase-4 frontend (4 of 7,
+then errors out on the diverged flow) confirming real new behavior.
+`test_agent_chat.py` gained a test that an invited member's session-scope
+chat reaches `focus` instead of 404ing. Full backend suite still green;
+`tsc --noEmit` clean; smoke22/23/45/46/47 (110 checks, the suites that
+touch the agent chat directly) all still green, unchanged -- an unshared
+session's chat behaves exactly as it did before this phase.
+
+5. **The agent's own tools, on a shared session (done, PR pending).**
+   Closes the gap phase 4 confirmed: an invited member could chat but
+   couldn't get the agent to act on the session, since every tool went
+   through `live_store.get`/`mutate`, strictly owner-scoped. Backend-only
+   -- no frontend change needed, since the gap was in the platform-agent's
+   own reach, not in what reached it. `live_store.get` stays owner-only on
+   purpose (it's what one caller still wants); every tool now goes through
+   `live_store.reachable()` (or the new `reachable_sessions()` for
+   `list_sessions`, sorted by *the caller's own* position on a shared row)
+   the same as the browser's own routes since phase 3. `mutate()` hands its
+   callback the caller's own `SessionMember` (`None` for the owner),
+   refuses a viewer outright with a sentence naming why, and reopens the
+   *caller's own* closed-state on write. `set_category` is the one tool
+   that needed real branching (writes `member.category_id`, not
+   `row.category_id`, for a non-owner) -- everything else's callback picked
+   up the new parameter unused, since `state`/`title` are the one shared
+   document. `_describe_session` gained a required caller id and now
+   reports that caller's own role/category/closed-state instead of always
+   the owner's.
+
+Coverage for phase 5: 5 new tests in `test_platform_tools.py` -- a member
+reaches `get_session`/`list_sessions` and sees their own role; a viewer's
+`add_pane` is refused ("read-only access") and the state is untouched; an
+editor's `add_pane` succeeds and the owner's own read sees it; `set_category`
+sets the member's own category, never the owner's row; `get_context`'s
+`viewing_session` reports an invited editor's role. All 5 fail against the
+pre-phase-5 `live_store.py`/`platform_tools/server.py`, confirming they
+exercise real new behavior. Full backend suite 202/202. `tsc --noEmit`
+clean (no frontend files touched this phase).
+`platform-agent/tests` needs no changes: it drives the real LangChain agent
+against its own hand-rolled stub MCP server, never the real
+`platform_tools/server.py`, so nothing in this phase reaches it.
 
 ## The platform agent — agreed design and phases
 

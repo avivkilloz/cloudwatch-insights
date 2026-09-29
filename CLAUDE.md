@@ -261,6 +261,161 @@ UPDATE on every start.
 (`resolve.resolve_role_name`), through `aws_client.py`. Nothing reads ambient
 credentials per service.
 
+**Sharing a session with other users is being built in phases** (`models.SessionMember`,
+`routers/live_sessions.py`'s `/members` routes and its own `_reachable`,
+`SessionCard`'s Members section). Phase 1 (done) is only the roster: an
+owner invites a user by username at a permission ("viewer" or "editor").
+Phase 2 (done) is the session card's own Members `CardRow` on top of that
+API -- fetched on the session's mount, not through session state, since the
+roster is the owner's alone and doesn't belong in the synced JSON.
+
+**Phase 3 (done): an invited member can actually reach the session.**
+`_reachable()` in `routers/live_sessions.py` replaces `_owned()` for every
+route except delete and managing the roster (both stay strictly the
+owner's): it returns the row plus the caller's own `SessionMember` if
+they're not its owner, 404 either way if they're neither. `state`, `title`,
+`type` and `version` are the one document every reachable caller sees
+alike -- an editor can write them (a viewer gets 403), the same live way a
+second tab of the owner's own always could: `commit_write` in
+`live_store.py` now fans an "upsert" out to every participant (owner +
+members), not just the row's `user_id`, so an editor's edit reaches every
+open browser that can see the session, live, through the existing
+per-user `pg_notify`/SSE plumbing -- unchanged itself, just called once per
+participant instead of once. **`position`, `category_id` and `closed_at`
+are never shared, though** -- `SessionMember` carries its own copies of all
+three, because a session shared with several people needs one independent
+panel position/category/closed-state per person, the same as it needs one
+independent `SessionCategory` per person (`category_id` points at *that
+member's own* categories, never the owner's). A member's PUT/close writes
+only ever touch their own `SessionMember` row for these; the owner's PUT
+and close are completely unchanged. Deleting stays owner-only (cascades to
+every member via `ON DELETE CASCADE`); a member instead **leaves**
+(`DELETE /{client_id}/members/{their_own_user_id}`, allowed for self-removal
+even though managing anyone *else*'s membership stays the owner's alone).
+
+A `client_id` is only unique *per owner*
+(`uq_live_sessions_user_client` -- two different people's browsers can mint
+the same one), so `_reachable` never looks a session up by client_id alone
+once ownership fails: it goes through the caller's own `SessionMember` row,
+which is what stops it from ever resolving to some other owner's unrelated
+session that happens to share an id.
+
+Every reachable caller still acts under **their own group's** environments
+and IAM role, never the owner's -- there is no per-session access grant,
+"access control is per group, never per user" holds exactly as before.
+`LiveSessionOut`/`Summary` gained a `role` field (`"owner"` or the
+member's permission) for exactly this reason on the frontend too: a
+viewer's autosave has nowhere to go, so `sync.ts`'s `pushOne` skips the PUT
+outright for `role === "viewer"` -- without that guard, the mere act of
+*receiving* someone else's live edit would queue a save right back that
+403s on every flush for as long as the session stayed open. That one guard
+is deliberately the whole frontend change here: nothing else (the rail, a
+pane's controls, "add pane", "run") is gated on role yet -- a viewer can
+still click things that will fail server-side. Graying those out is its
+own future phase, not bundled into this one.
+
+**Phase 4 (done): the session-tab chat is a real conversation, not just
+one user's Q&A with the agent.** The mechanism needed almost none of its
+own plumbing -- `agentChat` is a key in the same `state` dict phase 3
+already made the one shared document, so once a session has members, every
+turn synced there already reaches everyone live, for free. What phase 4
+actually adds:
+- `AgentTurn` gains `author` (who asked -- absent on an unshared session's
+  turns, and in the Global tab, which is always just you) and
+  `agentInvoked` (false for a plain message between people).
+- **Gated on whether the session is actually shared, not on scope alone**:
+  an unshared session's chat behaves exactly as before (every message goes
+  to the agent) -- `AgentContext.tsx`'s `isShared()` checks the viewer's own
+  `role` (a member already knows) or, for the owner, a one-time
+  `listSessionMembers` fetch per session viewed (an owner has no other way
+  to learn their own session is shared). Once shared, a message that
+  doesn't match `@platform-agent\b` (case-insensitive) is appended straight
+  to state via `writeSessionState` and never reaches `/api/agent/chat` at
+  all -- the gating is entirely client-side, since there's no security
+  reason to enforce it server-side, only a product one (not answering every
+  line of a chat). A mention still gets the full existing flow, with the
+  question prefixed `"<name>: "` for the agent's own benefit once shared
+  (never for an unshared session, so a message like "rows" that already
+  triggers something specific isn't quietly changed into "you: rows").
+- `routers/agent.py`'s own session-scope check uses the new
+  `live_store.reachable()` (owner or member) instead of `live_store.get`
+  (owner only), so an invited member can start a turn about a shared
+  session at all. **The agent's own tools still can't act on it for
+  anyone but the owner** -- `get_context`'s `viewing_session` (and every
+  tool built on `live_store.get`/`mutate`) stays strictly owner-scoped (see
+  `live_store.get`'s own docstring) since several tools write owner-only
+  row fields directly (`rename`, `set_category`) the way phase 3 took care
+  to route through the *right* target for the *browser's* writes; doing
+  the same throughout `platform_tools/server.py` is its own future phase.
+  So today, a member who mentions the agent can talk to it, but a request
+  that needs the agent to touch the session itself gets "You aren't
+  looking at a session, so there's nowhere to put it" -- confirmed, not
+  just anticipated, by asking the fake model directly as an invited member.
+- `sync.ts`'s `mergeSession` treats `agentChat` as an append log, not an
+  ordinary "whichever side changed it wins" value: `mergeChatTurns` unions
+  by turn id (remote's own turns, plus whatever this side added that base
+  didn't have). Without this, two people's messages landing in the same
+  ~1.2s debounce window could see one silently overwrite the other, since
+  every other key's merge picks one whole value rather than combining
+  array elements -- fine for a field someone edits in place, wrong for a
+  chat log where every message is meant to survive.
+- The compose box's placeholder and the empty-chat intro say the
+  `@platform-agent` convention once a session is shared; someone else's
+  message renders on the left (`.agent-question-theirs`) instead of the
+  right, so a shared conversation reads like any other chat UI.
+
+Verified live with two real users (an owner and an invited editor): a
+plain message never reaches the agent once shared, mentioning it does, the
+owner sees the editor's message and its author label live and vice versa,
+and neither side's message is lost when both send within the same
+debounce window.
+
+**Phase 5 (done): the agent's own tools reach a session shared with the
+caller, not just one they own.** This closes the gap phase 4 confirmed
+rather than just anticipated. `live_store.get` stays strictly owner-only
+(its docstring says so, and one caller still wants exactly that reading);
+everything the agent's tools use instead goes through
+`live_store.reachable()` (owner match first, then the caller's own
+`SessionMember` via the same join `_reachable` in the router uses) or the
+new `live_store.reachable_sessions()` for `list_sessions` (owned rows plus
+every row shared with the caller, sorted by *that caller's own*
+`position` -- a shared row's position lives on their `SessionMember`, not
+the owner's row, same as phase 3 already keeps category and closed-state
+separate per person). `live_store.mutate()` now hands its `change`
+callback the caller's own `SessionMember` (`None` for the owner) alongside
+the state and the row, refuses outright with "You have read-only access
+to this session" for a viewer, and reopens *the caller's own* closed-state
+on a write (`member.closed_at`, never the owner's) -- exactly the split
+phase 3 already drew for the browser's own PUT. Every `platform_tools`
+function built on `mutate`'s callback picked up the new parameter
+(`_member`, unused, in most of them since `state`/`title` are the one
+shared document); only `set_category` needed real branching, writing
+`member.category_id` instead of `row.category_id` when the caller isn't
+the owner -- the same "per participant, never the owner's" rule its
+phase-3 sibling (`position`/`closed_at`) already followed, just not yet
+applied to this one field. `_describe_session` (what every tool's session
+description is built from) gained a required caller `user_id` and now
+reports that caller's own `role` ("owner" or their permission) and their
+own category/closed-state, resolved through a small `_membership()` lookup
+-- a viewer tool call fails with a message naming *why* ("read-only
+access"), not just *that* it failed. `mutate`'s return signature stayed a
+plain `(row, result)` rather than growing a third `member` element, to
+keep the ~10 call sites' unpacking untouched; `_describe_session` instead
+re-resolves membership itself, one extra indexed query traded for far
+fewer call-site edits. Verified against the pre-phase-5 code the same way
+phase 3's tests were: 5 new tests in `test_platform_tools.py` (a viewer
+member reaches `get_session`/`list_sessions` and sees their own role; a
+viewer's `add_pane` is refused and the state is untouched; an editor's
+`add_pane` succeeds and the owner's own read sees it; `set_category` on a
+shared session sets the member's own category, never the owner's row;
+`get_context`'s `viewing_session` reports an invited editor's role) all
+fail against the pre-phase-5 `live_store.py`/`server.py`, confirming they
+exercise real new behavior; full backend suite green afterward.
+`platform-agent/tests` needs no changes -- it drives the real LangChain
+agent against its own hand-rolled stub MCP server (`get_context`,
+`create_session`, `run_pane`), never the real `platform_tools/server.py`,
+so nothing here touches it.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record
@@ -332,8 +487,10 @@ credentials per service.
   icon-button style, and the body's side padding matches a pane body's own
   12px so the inner section cards don't sit further in.
   Each section is a label column and a values column (`CardRow`): name and
-  description (edited in the same kind of box), adds, and layout (one
-  segmented control). In the body it folds to its header (`cardCollapsed`,
+  description (edited in the same kind of box), adds, layout (one
+  segmented control), and members (see sharing, above) -- the one section
+  that isn't backed by session state, fetched instead from its own API on
+  mount. In the body it folds to its header (`cardCollapsed`,
   per session like a minimised pane, and only there -- in the rail there's
   nothing to fold). PageInfo is
   only for non-session pages now. The description is the top-level state key

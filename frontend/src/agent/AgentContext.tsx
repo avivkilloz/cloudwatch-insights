@@ -22,6 +22,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AgentChatMessage, AgentEvent, AgentStatus, api, ApiError } from "../api";
+import { useAuth } from "../AuthContext";
 import { useSessions, useWriteSessionState } from "../sessions/SessionContext";
 import { SessionSelection } from "./selection";
 
@@ -44,7 +45,21 @@ export interface AgentTurn {
   steps: AgentStep[];
   status: "running" | "done" | "failed" | "stopped";
   error?: string;
+  /** Who asked, in a session's own chat -- several people can share one, so
+   * (unlike the Global tab, always just "you") a turn has to say. Absent on
+   * a turn from before sharing existed, or in the Global conversation. */
+  author?: { id: number; name: string };
+  /** False for a plain message between people in a shared session's chat --
+   * never sent to the agent at all. Undefined (treated as true) for every
+   * turn from before this existed, and always true in the Global tab. */
+  agentInvoked?: boolean;
 }
+
+// The one thing that makes the agent answer in a session's chat once it has
+// more than one person in it -- otherwise it would answer every message,
+// drowning out the people talking to each other. `\b` keeps it from also
+// matching inside a longer word ("@platform-agentic").
+const AGENT_MENTION = /@platform-agent\b/i;
 
 export type AgentScope = "global" | "session";
 export type AgentLayout = "dock" | "float";
@@ -66,6 +81,9 @@ interface AgentApi {
   clear: (scope: AgentScope) => void;
   /** The session the Session tab is about: the one on screen. */
   viewingSessionId: string | null;
+  /** Whether that session has anyone else on it -- once it does, the agent
+   * only answers a message that mentions it, so the compose box can say so. */
+  viewingSessionShared: boolean;
   follow: boolean;
   setFollow: (follow: boolean) => void;
   tab: AgentScope;
@@ -97,12 +115,19 @@ const ATTACH_CELL_CHARS = 2_000;
 
 function history(turns: AgentTurn[]): AgentChatMessage[] {
   return turns
-    .filter((t) => t.status !== "running" && t.answer.trim())
+    .filter((t) => t.status !== "running" && (t.answer.trim() || t.agentInvoked === false))
     .slice(-HISTORY_TURNS)
-    .flatMap((t) => [
-      { role: "user" as const, content: t.attached ? `${t.question}\n\n(Attached: ${t.attached}.)` : t.question },
-      { role: "assistant" as const, content: t.answer },
-    ]);
+    .flatMap((t) => {
+      const question = t.author ? `${t.author.name}: ${t.question}` : t.question;
+      // A plain message nobody sent to the agent -- still worth it seeing,
+      // so a later @mention has the conversation that led up to it, but
+      // there's no reply of its own to include.
+      if (t.agentInvoked === false) return [{ role: "user" as const, content: question }];
+      return [
+        { role: "user" as const, content: t.attached ? `${question}\n\n(Attached: ${t.attached}.)` : question },
+        { role: "assistant" as const, content: t.answer },
+      ];
+    });
 }
 
 function timezone(): string {
@@ -185,8 +210,15 @@ let turnCounter = 0;
 export function AgentProvider({ children }: { children: ReactNode }) {
   const { sessions, activeId, view, activate } = useSessions();
   const writeSessionState = useWriteSessionState();
+  const { user } = useAuth();
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [globalTurns, setGlobalTurns] = useState<AgentTurn[]>([]);
+  // Sessions the owner's own roster fetch found had at least one member --
+  // an invited member always knows their own view is shared (`role` says
+  // so), but the owner's own `role` is always "owner" whether or not anyone
+  // else is on it, so their side needs this to know when the agent should
+  // start waiting for a mention instead of answering every message.
+  const [sharedSessions, setSharedSessions] = useState<Set<string>>(new Set());
   // The turn in flight, whichever conversation it's in. A session's turn
   // joins that session's stored conversation only once it's over: writing
   // every streamed word into session state would sync the session a word at
@@ -227,12 +259,53 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   globalRef.current = globalTurns;
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const sharedSessionsRef = useRef(sharedSessions);
+  sharedSessionsRef.current = sharedSessions;
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const storedTurns = useCallback((sessionId: string): AgentTurn[] => {
     const session = sessionsRef.current.find((s) => s.id === sessionId);
     const stored = session?.state[SESSION_CHAT_KEY];
     return Array.isArray(stored) ? (stored as AgentTurn[]) : [];
   }, []);
+
+  // Only the owner's own browser needs to ask -- an invited member's `role`
+  // already says their view is shared. Refetched whenever the session on
+  // screen changes; a membership change mid-visit catching up a beat late
+  // (the next switch away and back) costs nothing worse than one message
+  // guessing the old way.
+  useEffect(() => {
+    if (!viewingSessionId) return;
+    const session = sessionsRef.current.find((s) => s.id === viewingSessionId);
+    if (session?.role && session.role !== "owner") return;
+    let cancelled = false;
+    api
+      .listSessionMembers(viewingSessionId)
+      .then((members) => {
+        if (cancelled) return;
+        setSharedSessions((prev) => {
+          const has = members.length > 0;
+          if (has === prev.has(viewingSessionId)) return prev;
+          const next = new Set(prev);
+          if (has) next.add(viewingSessionId);
+          else next.delete(viewingSessionId);
+          return next;
+        });
+      })
+      .catch(() => {
+        // Not the owner (a member's own fetch 404s -- their `role` already
+        // covered them above) or offline; either way, nothing to update.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewingSessionId]);
+
+  function isShared(sessionId: string): boolean {
+    const role = sessionsRef.current.find((s) => s.id === sessionId)?.role;
+    return (role !== undefined && role !== "owner") || sharedSessionsRef.current.has(sessionId);
+  }
 
   useEffect(() => {
     if (!pendingFollow) return;
@@ -258,14 +331,40 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const sessionId = scope === "session" ? viewingRef.current : null;
       if (scope === "session" && !sessionId) return;
 
-      const attachment = selection ? withAttachment(question, selection) : null;
+      // Several people can share one session's conversation (the Global tab
+      // never has more than one); once it's actually shared, every turn
+      // there says who asked, and one without a mention just joins it as a
+      // message, without troubling the agent -- otherwise it would answer
+      // every line of a chat, drowning out the people in it. An ordinary,
+      // unshared session keeps behaving exactly as it always did: no
+      // author, no gating, nothing prefixed onto the question.
+      const shared = scope === "session" && isShared(sessionId!);
+      const author = shared && userRef.current ? { id: userRef.current.id, name: userRef.current.username } : undefined;
+      if (shared && !AGENT_MENTION.test(question)) {
+        const id = `t${Date.now().toString(36)}${(turnCounter++).toString(36)}`;
+        const chatTurn: AgentTurn = { id, question, author, answer: "", steps: [], status: "done", agentInvoked: false };
+        writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), chatTurn].slice(-KEPT_TURNS));
+        return;
+      }
+
+      const promptQuestion = author ? `${author.name}: ${question}` : question;
+      const attachment = selection ? withAttachment(promptQuestion, selection) : null;
       const earlier = scope === "global" ? globalRef.current : storedTurns(sessionId!);
       const messages = [
         ...history(earlier),
-        { role: "user" as const, content: attachment ? attachment.content : question },
+        { role: "user" as const, content: attachment ? attachment.content : promptQuestion },
       ];
       const id = `t${Date.now().toString(36)}${(turnCounter++).toString(36)}`;
-      const first: AgentTurn = { id, question, attached: attachment?.attached, answer: "", steps: [], status: "running" };
+      const first: AgentTurn = {
+        id,
+        question,
+        attached: attachment?.attached,
+        answer: "",
+        steps: [],
+        status: "running",
+        author,
+        agentInvoked: true,
+      };
       setLive({ scope, sessionId, turn: first });
 
       const controller = new AbortController();
@@ -360,6 +459,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       stop,
       clear,
       viewingSessionId,
+      viewingSessionShared: viewingSessionId ? isShared(viewingSessionId) : false,
       follow,
       setFollow,
       tab,
@@ -369,7 +469,24 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       open,
       setOpen,
     }),
-    [status, shownGlobal, sessionTurns, live, ask, stop, clear, viewingSessionId, follow, tab, layout, setLayout, open, setOpen],
+    [
+      status,
+      shownGlobal,
+      sessionTurns,
+      live,
+      ask,
+      stop,
+      clear,
+      viewingSessionId,
+      sessions,
+      sharedSessions,
+      follow,
+      tab,
+      layout,
+      setLayout,
+      open,
+      setOpen,
+    ],
   );
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 }

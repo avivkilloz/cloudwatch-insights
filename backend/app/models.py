@@ -230,6 +230,48 @@ class LiveSession(Base):
     )
 
 
+class SessionMember(Base):
+    """A user other than the owner invited into a live session, with a
+    permission tier. `LiveSession.user_id` stays the owner throughout --
+    membership is additive, so every existing single-owner code path
+    (ownership checks, live sync, the agent's per-user token) still works
+    unmodified for the owner's own view.
+
+    A member's *own* view of the shared session -- their panel position,
+    which of their own categories they filed it under, whether they've
+    closed it -- can't live on `LiveSession` itself: those columns are the
+    owner's alone, and a session shared with several people needs one
+    independent view per person, the same way each of them can see the
+    session's *state* while organizing it differently in their own panel.
+    So this table carries that view too, mirroring the fields `LiveSession`
+    carries for the owner. `category_id` points at one of the *member's
+    own* categories (`SessionCategory.user_id` is that member, not the
+    owner) -- categorizing a shared session never touches anyone else's.
+    """
+
+    __tablename__ = "session_members"
+    __table_args__ = (UniqueConstraint("session_id", "user_id", name="uq_session_members_session_user"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # "viewer": read-only. "editor": everything else -- edit inputs, add or
+    # remove panes, run tools and services. The owner is never a member of
+    # their own session; there is no row here for them.
+    permission = Column(String, nullable=False, server_default="editor")
+    # This member's own position among their sessions (owned and shared,
+    # ordered together), which of their own categories they filed it under
+    # (if any), and whether they've closed it -- same meaning as the
+    # matching LiveSession columns, just scoped to this one member.
+    position = Column(Integer, nullable=False, server_default="0")
+    category_id = Column(Integer, ForeignKey("session_categories.id", ondelete="SET NULL"), nullable=True, index=True)
+    closed_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User")
+    session = relationship("LiveSession")
+
+
 class AgentToken(Base):
     """A short-lived credential the backend hands the platform agent for one
     chat turn, so the agent can call the MCP tools *as the user who asked* --

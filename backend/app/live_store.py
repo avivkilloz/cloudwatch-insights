@@ -101,21 +101,63 @@ def _base36(n: int) -> str:
     return out or "0"
 
 
+def _participants(db: Session, row: models.LiveSession) -> list[int]:
+    """Everyone an "upsert" of this session's content is announced to: its
+    owner, and every invited SessionMember -- true live collaboration, the
+    same as a second tab of your own already got before sharing existed.
+    A session with no members (almost all of them) costs one extra, cheap,
+    indexed query and returns just the owner, same as before this existed."""
+    member_ids = [
+        uid for (uid,) in db.query(models.SessionMember.user_id).filter(models.SessionMember.session_id == row.id)
+    ]
+    return [row.user_id, *member_ids]
+
+
 def commit_write(db: Session, row: models.LiveSession, origin: Optional[str]) -> None:
-    """The end of every write to a session: a new version, announced to the
-    owner's open tabs on commit. The row must already be locked (or new)."""
+    """The end of every write to a session: a new version, announced on
+    commit to every open tab that can reach it -- the owner's and every
+    member's. The row must already be locked (or new)."""
     row.version = (row.version or 0) + 1
     db.flush()
-    notify(db, row.user_id, "upsert", row.client_id, row.version, origin)
+    for user_id in _participants(db, row):
+        notify(db, user_id, "upsert", row.client_id, row.version, origin)
     db.commit()
     db.refresh(row)
 
 
 def get(db: Session, user_id: int, client_id: str, lock: bool = False) -> Optional[models.LiveSession]:
+    """Strictly the caller's own row. `reachable` is the membership-aware
+    version `mutate` and the platform agent's reads use; this stays
+    owner-only for the one caller that still wants exactly that (a test
+    helper reading a row back by its known owner)."""
     query = db.query(models.LiveSession).filter(
         models.LiveSession.user_id == user_id, models.LiveSession.client_id == client_id
     )
     return (query.with_for_update() if lock else query).one_or_none()
+
+
+def reachable(
+    db: Session, user_id: int, client_id: str, lock: bool = False
+) -> tuple[Optional[models.LiveSession], Optional[models.SessionMember]]:
+    """Like `get`, but also recognizes the caller's own membership -- for a
+    read that should work for an invited member too (today, only the agent
+    chat relay's "which session is this about" check) without granting them
+    anything `get` doesn't: no row-level field of theirs is touched here.
+    `(None, None)` if the caller is neither the owner nor a member."""
+    row = get(db, user_id, client_id, lock)
+    if row is not None:
+        return row, None
+    member_query = (
+        db.query(models.SessionMember)
+        .join(models.LiveSession, models.SessionMember.session_id == models.LiveSession.id)
+        .filter(models.SessionMember.user_id == user_id, models.LiveSession.client_id == client_id)
+    )
+    member = (member_query.with_for_update(of=models.SessionMember) if lock else member_query).first()
+    if member is None:
+        return None, None
+    row_query = db.query(models.LiveSession).filter(models.LiveSession.id == member.session_id)
+    row = (row_query.with_for_update() if lock else row_query).one()
+    return row, member
 
 
 def open_sessions(db: Session, user_id: int) -> list[models.LiveSession]:
@@ -125,6 +167,26 @@ def open_sessions(db: Session, user_id: int) -> list[models.LiveSession]:
         .order_by(models.LiveSession.position, models.LiveSession.id)
         .all()
     )
+
+
+def reachable_sessions(db: Session, user_id: int) -> list[models.LiveSession]:
+    """Every open session this user can reach: their own, and every one
+    shared with them that they haven't closed themselves -- in their own
+    panel order (a shared row sorts by *this* user's own position, on their
+    SessionMember, not the owner's `row.position`). Mirrors
+    `routers/live_sessions.py`'s own `_open_pairs`, for `list_sessions`.
+    A caller wanting a shared row's category/closed state for *this* user
+    still goes through `_describe_session`, which resolves that itself."""
+    owned = [(row, row.position) for row in open_sessions(db, user_id)]
+    shared = [
+        (member.session, member.position)
+        for member in db.query(models.SessionMember).filter(
+            models.SessionMember.user_id == user_id, models.SessionMember.closed_at.is_(None)
+        )
+    ]
+    pairs = owned + shared
+    pairs.sort(key=lambda pair: (pair[1], pair[0].id))
+    return [row for row, _ in pairs]
 
 
 def create(db: Session, user_id: int, title: str, state: dict, origin: Optional[str]) -> models.LiveSession:
@@ -154,22 +216,35 @@ def mutate(
     db: Session,
     user_id: int,
     client_id: str,
-    change: Callable[[dict, models.LiveSession], T],
+    change: Callable[[dict, models.LiveSession, Optional[models.SessionMember]], T],
     origin: Optional[str],
 ) -> tuple[models.LiveSession, T]:
     """Read-modify-write one session under its row lock, so a browser save
     landing at the same moment is either before this (and this change is made
     on top of it) or after (and is refused as stale, and merged). `change`
-    gets a copy of the state to edit in place, and the row for its title;
-    whatever it returns is handed back. Writing to a closed session reopens
-    it, the same as a browser's PUT does."""
-    row = get(db, user_id, client_id, lock=True)
+    gets a copy of the state to edit in place, the row (for its title, which
+    is shared), and the caller's own `SessionMember` if they're not its
+    owner -- `None` for the owner; whatever `change` returns is handed back.
+
+    Reachable through membership as well as ownership, same as the
+    browser's own PUT (`routers/live_sessions.py`): a viewer's mutate is
+    refused outright (they may still read, through `reachable`/`get_context`/
+    `get_session`/`list_sessions`), and an editor's write reopens *their
+    own* view of a closed session (`member.closed_at`), never the owner's or
+    another member's -- the owner's own mutate still reopens `row.closed_at`
+    exactly as before. `change` itself has to route any *other* row-level
+    field it sets (as `set_category` does for `row.category_id`) the same
+    way, since state is the one thing here that's genuinely shared."""
+    row, member = reachable(db, user_id, client_id, lock=True)
     if row is None:
         db.rollback()
         raise StoreError(f"There is no session with id '{client_id}'. List the sessions to find the right one.")
+    if member is not None and member.permission == "viewer":
+        db.rollback()
+        raise StoreError("You have read-only access to this session.")
     state = copy.deepcopy(row.state or {})
     try:
-        result = change(state, row)
+        result = change(state, row, member)
         _check_size(state)
     except Exception:
         db.rollback()
@@ -177,7 +252,10 @@ def mutate(
     # A new object, not the edited original: SQLAlchemy only notices a JSON
     # column changed when it is assigned.
     row.state = state
-    row.closed_at = None
+    if member is None:
+        row.closed_at = None
+    else:
+        member.closed_at = None
     commit_write(db, row, origin)
     return row, result
 

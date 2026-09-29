@@ -97,7 +97,15 @@ async def agent_chat(
         raise HTTPException(status_code=400, detail="The last message has to be yours.")
     focus = None
     if payload.scope == "session":
-        row = live_store.get(db, current_user.id, payload.viewing_session_id) if payload.viewing_session_id else None
+        # Reachable, not just owned -- an invited member can talk about a
+        # session shared with them the same as its owner can, even though
+        # the agent's own tools (below) still can't act on it for anyone but
+        # the owner (see live_store.get's docstring).
+        row, _ = (
+            live_store.reachable(db, current_user.id, payload.viewing_session_id)
+            if payload.viewing_session_id
+            else (None, None)
+        )
         if row is None:
             raise HTTPException(status_code=404, detail="That session doesn't exist any more, so there's nothing to talk about.")
         focus = {"session_id": row.client_id, "title": row.title}

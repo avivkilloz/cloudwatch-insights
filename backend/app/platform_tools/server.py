@@ -161,13 +161,31 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     return out
 
 
-def _describe_session(db: Session, row: models.LiveSession, detail: bool = False) -> dict:
+def _membership(db: Session, row: models.LiveSession, user_id: int) -> Optional[models.SessionMember]:
+    if row.user_id == user_id:
+        return None
+    return (
+        db.query(models.SessionMember)
+        .filter(models.SessionMember.session_id == row.id, models.SessionMember.user_id == user_id)
+        .one_or_none()
+    )
+
+
+def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail: bool = False) -> dict:
+    """Every field here is the *caller's own view* -- their own role,
+    category and closed state if they're a member, never the owner's or
+    another member's, even though `state` (panes, layout, description) is
+    the one document every reachable caller sees alike."""
     state = row.state or {}
+    member = _membership(db, row, user_id)
     out: dict[str, Any] = {
         "session_id": row.client_id,
         "title": row.title,
         "layout": state.get("layout") or "tabs",
         "panes": [_describe_pane(state, p, detail) for p in _pane_ids(state)],
+        # "owner", or the permission this caller was invited at -- a viewer
+        # knows from this alone why a change tool just refused them.
+        "role": "owner" if member is None else member.permission,
     }
     # What the session is for, in its owner's words (the browser's
     # SESSION_DESCRIPTION_KEY) -- the best clue the agent has to what a
@@ -175,11 +193,13 @@ def _describe_session(db: Session, row: models.LiveSession, detail: bool = False
     description = state.get("description")
     if isinstance(description, str) and description.strip():
         out["description"] = description
-    if row.category_id is not None:
-        category = db.get(models.SessionCategory, row.category_id)
+    category_id = row.category_id if member is None else member.category_id
+    if category_id is not None:
+        category = db.get(models.SessionCategory, category_id)
         if category is not None:
             out["category"] = category.name
-    if row.closed_at is not None:
+    closed_at = row.closed_at if member is None else member.closed_at
+    if closed_at is not None:
         out["closed"] = True
     if detail:
         out["active_pane"] = state.get("activePane")
@@ -200,9 +220,10 @@ async def get_context() -> dict:
             zone_name, local = "UTC", now
         viewing = None
         if caller.viewing_session_id:
-            row = live_store.get(db, user.id, caller.viewing_session_id)
-            if row is not None and row.closed_at is None:
-                viewing = _describe_session(db, row)
+            row, member = live_store.reachable(db, user.id, caller.viewing_session_id)
+            closed = (row.closed_at if member is None else member.closed_at) if row is not None else None
+            if row is not None and closed is None:
+                viewing = _describe_session(db, row, user.id)
         return {
             "user": user.username,
             "group": user.group.name if user.group else None,
@@ -220,19 +241,21 @@ async def get_context() -> dict:
 
 @mcp.tool()
 async def list_sessions() -> dict:
-    """The user's open sessions, in the order their panel shows them, with each one's panes."""
+    """The user's open sessions, in the order their panel shows them, with each one's panes -- their own, and any
+    shared with them."""
     with _acting() as (db, user, _):
-        return {"sessions": [_describe_session(db, r) for r in live_store.open_sessions(db, user.id)]}
+        return {"sessions": [_describe_session(db, r, user.id) for r in live_store.reachable_sessions(db, user.id)]}
 
 
 @mcp.tool()
 async def get_session(session_id: str) -> dict:
-    """One session in detail: its layout, and each pane's inputs and what its last run left (as counts)."""
+    """One session in detail: its layout, and each pane's inputs and what its last run left (as counts). Reachable
+    through a session shared with the caller as well as one they own."""
     with _acting() as (db, user, _):
-        row = live_store.get(db, user.id, session_id)
+        row, _ = live_store.reachable(db, user.id, session_id)
         if row is None:
             raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
-        return _describe_session(db, row, detail=True)
+        return _describe_session(db, row, user.id, detail=True)
 
 
 # ---------------------------------------------------------------- names for inputs
@@ -354,15 +377,18 @@ async def create_session(title: str, panes: list[PaneSpec], layout: Layout = "ta
         pane_ids = [_add_pane(state, kind_for(user, p.kind), p.title) for p in panes]
         state["activePane"] = pane_ids[0] if pane_ids else None
         row = live_store.create(db, user.id, title, state, ORIGIN)
-        return _describe_session(db, row) | {"pane_ids": pane_ids}
+        return _describe_session(db, row, user.id) | {"pane_ids": pane_ids}
 
 
 @mcp.tool()
 async def add_pane(session_id: str, kind: str, title: Optional[str] = None) -> dict:
-    """Adds an empty pane of a kind to a session and shows it. Returns the new pane's id."""
+    """Adds an empty pane of a kind to a session and shows it. Returns the new pane's id. Works on a session shared
+    with the caller as an editor, the same as one they own; a viewer can't (403)."""
     with _acting() as (db, user, _):
         pane_kind = kind_for(user, kind)
-        row, pane_id = live_store.mutate(db, user.id, session_id, lambda s, _r: _add_pane(s, pane_kind, title), ORIGIN)
+        row, pane_id = live_store.mutate(
+            db, user.id, session_id, lambda s, _r, _m: _add_pane(s, pane_kind, title), ORIGIN
+        )
         return {"session_id": row.client_id, "pane_id": pane_id, "title": _pane_title(row.state, pane_id)}
 
 
@@ -387,18 +413,19 @@ def _remove_pane(state: dict, pane_id: str) -> None:
 async def remove_pane(session_id: str, pane_id: str) -> dict:
     """Removes a pane from a session, with its inputs and results."""
     with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, lambda s, _r: _remove_pane(s, pane_id), ORIGIN)
-        return _describe_session(db, row)
+        row, _ = live_store.mutate(db, user.id, session_id, lambda s, _r, _m: _remove_pane(s, pane_id), ORIGIN)
+        return _describe_session(db, row, user.id)
 
 
 @mcp.tool()
 async def rename(session_id: str, title: str, pane_id: Optional[str] = None) -> dict:
-    """Renames a session, or with pane_id one of its panes."""
+    """Renames a session, or with pane_id one of its panes. A session's own name is shared -- renaming one an editor
+    was invited to renames it for its owner too, the same as editing anything else in it would."""
     title = title.strip()
     if not title:
         raise ToolError("A name can't be blank.")
 
-    def change(state: dict, row: models.LiveSession) -> None:
+    def change(state: dict, row: models.LiveSession, _member: Optional[models.SessionMember]) -> None:
         if pane_id is None:
             row.title = title[:200]
         else:
@@ -407,7 +434,7 @@ async def rename(session_id: str, title: str, pane_id: Optional[str] = None) -> 
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(db, row)
+        return _describe_session(db, row, user.id)
 
 
 @mcp.tool()
@@ -415,7 +442,7 @@ async def set_description(session_id: str, description: str) -> dict:
     """Sets what a session is for (its card's Description field) -- blank clears it."""
     text = description.strip()
 
-    def change(state: dict, _row: models.LiveSession) -> None:
+    def change(state: dict, _row: models.LiveSession, _member: Optional[models.SessionMember]) -> None:
         if text:
             state["description"] = text
         else:
@@ -423,7 +450,7 @@ async def set_description(session_id: str, description: str) -> dict:
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(db, row)
+        return _describe_session(db, row, user.id)
 
 
 @mcp.tool()
@@ -467,16 +494,20 @@ def _find_or_create_category(db: Session, user: models.User, name: str) -> model
 @mcp.tool()
 async def set_category(session_id: str, category: Optional[str] = None) -> dict:
     """Files a session into a named side-panel category, creating it if it doesn't already exist (list_categories
-    shows the existing ones). Omit category, or pass one that's blank, to take the session out of its category."""
+    shows the existing ones). Omit category, or pass one that's blank, to take the session out of its category. On a
+    session shared with the caller, this is *their own* category -- never the owner's, or another member's."""
 
     with _acting() as (db, user, _):
         category_id = _find_or_create_category(db, user, category.strip()).id if category and category.strip() else None
 
-        def change(_state: dict, row: models.LiveSession) -> None:
-            row.category_id = category_id
+        def change(_state: dict, row: models.LiveSession, member: Optional[models.SessionMember]) -> None:
+            if member is None:
+                row.category_id = category_id
+            else:
+                member.category_id = category_id
 
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(db, row)
+        return _describe_session(db, row, user.id)
 
 
 @mcp.tool()
@@ -484,7 +515,7 @@ async def set_layout(session_id: str, layout: Layout, active_pane: Optional[str]
     """How a session's panes are arranged: tabs (one at a time; active_pane picks which), columns (side by side),
     stacked, or dashboard (free placement -- use arrange_dashboard to place them)."""
 
-    def change(state: dict, _row) -> None:
+    def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
         state["layout"] = layout
         if active_pane is not None:
             _pane(state, active_pane)
@@ -492,7 +523,7 @@ async def set_layout(session_id: str, layout: Layout, active_pane: Optional[str]
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(db, row)
+        return _describe_session(db, row, user.id)
 
 
 class DashboardCell(BaseModel):
@@ -511,7 +542,7 @@ async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
     right, each given a width in columns out of 12 (a row's widths add up to at most 12). Panes you leave out are put
     in the first free space after these."""
 
-    def change(state: dict, _row) -> None:
+    def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
         seen: set[str] = set()
         for row in rows:
             if sum(c.width for c in row.panes) > DASHBOARD_COLUMNS:
@@ -532,7 +563,7 @@ async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
 
     with _acting() as (db, user, _):
         row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
-        return _describe_session(db, row)
+        return _describe_session(db, row, user.id)
 
 
 def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inputs: dict[str, Any]) -> PaneKind:
@@ -570,7 +601,7 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
     value. The user sees them filled in at once. Doesn't run anything -- run_pane does."""
     with _acting() as (db, user, caller):
         row, _ = live_store.mutate(
-            db, user.id, session_id, lambda s, _r: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
+            db, user.id, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
         return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
 
@@ -620,7 +651,7 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
             db,
             user.id,
             session_id,
-            lambda s, _r: _apply_inputs(s, user, db, caller, pane_id, inputs or {}),
+            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs or {}),
             ORIGIN,
         )
         if kind.run is None:
@@ -632,7 +663,7 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
             return {"session_id": session_id, "pane_id": pane_id, **result.summary}
         writes = json.loads(json.dumps(result.writes))  # our own copy to trim
         row, trimmed = live_store.mutate(
-            db, user.id, session_id, lambda s, _r: _write_results(s, pane_id, writes), ORIGIN
+            db, user.id, session_id, lambda s, _r, _m: _write_results(s, pane_id, writes), ORIGIN
         )
         out = {"session_id": session_id, "pane_id": pane_id, **result.summary}
         if trimmed:

@@ -683,8 +683,16 @@ class LiveSessionUpsert(BaseModel):
     base_version: Optional[int] = None
 
 
+# The caller's own relationship to a session: "owner" for their own, or
+# whatever permission they were invited at. Position, category and closed
+# state below are always *this caller's own view* -- the owner's columns on
+# LiveSession for "owner", this member's own columns on SessionMember
+# otherwise -- never someone else's, even though `state` itself (and
+# `version`) is the one shared document everyone sees alike.
+SessionRole = Literal["owner", "editor", "viewer"]
+
+
 class LiveSessionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     client_id: str
     type: str
     title: str
@@ -694,6 +702,7 @@ class LiveSessionOut(BaseModel):
     truncated: bool
     closed_at: Optional[datetime] = None
     version: int = 0
+    role: SessionRole = "owner"
 
 
 class LiveSessionSummary(BaseModel):
@@ -701,7 +710,6 @@ class LiveSessionSummary(BaseModel):
     without its rows. Nothing trims the closed list, so sending every session's
     state on every page load would make the app slower the longer you used it."""
 
-    model_config = ConfigDict(from_attributes=True)
     client_id: str
     type: str
     title: str
@@ -711,6 +719,7 @@ class LiveSessionSummary(BaseModel):
     # of pulling it into a separate list -- without this the closed listing had
     # no way to say which category a session belonged to before it was closed.
     category_id: Optional[int] = None
+    role: SessionRole = "owner"
 
 
 class LiveSessionOrder(BaseModel):
@@ -719,6 +728,30 @@ class LiveSessionOrder(BaseModel):
     that another tab has since deleted shouldn't fail the whole request."""
 
     client_ids: list[str]
+
+
+# ---- Sharing a session ----
+# Phase 1 of sharing: who is invited to a session, and at what permission.
+# "viewer" is read-only; "editor" can also edit inputs, add or remove panes,
+# and run tools and services -- everything short of managing membership
+# itself, which stays the owner's alone.
+
+SessionPermission = Literal["viewer", "editor"]
+
+
+class SessionMemberOut(BaseModel):
+    user_id: int
+    username: str
+    permission: SessionPermission
+
+
+class SessionMemberCreate(BaseModel):
+    username: str
+    permission: SessionPermission = "editor"
+
+
+class SessionMemberUpdate(BaseModel):
+    permission: SessionPermission
 
 
 # ---- Session categories ----

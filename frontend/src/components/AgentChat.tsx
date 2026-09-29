@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentScope, AgentStep, AgentTurn, useAgent } from "../agent/AgentContext";
 import { useSessionSelection } from "../agent/selection";
+import { useAuth } from "../AuthContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
 import { useSessions } from "../sessions/SessionContext";
 import MarkdownLite from "./MarkdownLite";
@@ -92,28 +93,33 @@ function Step({ step }: { step: AgentStep }) {
   );
 }
 
-function Turn({ turn }: { turn: AgentTurn }) {
+function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
   return (
     <div className="agent-turn">
-      <div className="agent-question">
+      <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
+        {turn.author && <span className="agent-turn-author">{turn.author.name}</span>}
         {turn.question}
         {turn.attached && <div className="agent-attached">📎 {turn.attached}</div>}
       </div>
-      <div className="agent-answer">
-        {turn.steps.length > 0 && (
-          <ul className="agent-steps">
-            {turn.steps.map((s) => (
-              <Step key={s.id} step={s} />
-            ))}
-          </ul>
-        )}
-        {turn.answer && <MarkdownLite text={turn.answer} />}
-        {turn.status === "running" && !turn.answer && turn.steps.length === 0 && (
-          <p className="muted agent-thinking">Thinking…</p>
-        )}
-        {turn.status === "stopped" && <p className="muted">Stopped.</p>}
-        {turn.error && <p className="error-text">{turn.error}</p>}
-      </div>
+      {/* A plain message between people never went to the agent -- nothing
+          of its own to show under it. */}
+      {turn.agentInvoked !== false && (
+        <div className="agent-answer">
+          {turn.steps.length > 0 && (
+            <ul className="agent-steps">
+              {turn.steps.map((s) => (
+                <Step key={s.id} step={s} />
+              ))}
+            </ul>
+          )}
+          {turn.answer && <MarkdownLite text={turn.answer} />}
+          {turn.status === "running" && !turn.answer && turn.steps.length === 0 && (
+            <p className="muted agent-thinking">Thinking…</p>
+          )}
+          {turn.status === "stopped" && <p className="muted">Stopped.</p>}
+          {turn.error && <p className="error-text">{turn.error}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -127,9 +133,26 @@ const INTRO: Record<AgentScope, string> = {
     "rows in a pane and ask about them.",
 };
 
+const SHARED_INTRO =
+  "This session's shared, so this is a chat: whoever's on it can talk here too. The agent only joins in when a " +
+  "message mentions @platform-agent.";
+
 export default function AgentChat({ scope }: { scope: AgentScope }) {
-  const { status, globalTurns, sessionTurns, running, runningIn, ask, stop, clear, follow, setFollow, viewingSessionId } =
-    useAgent();
+  const {
+    status,
+    globalTurns,
+    sessionTurns,
+    running,
+    runningIn,
+    ask,
+    stop,
+    clear,
+    follow,
+    setFollow,
+    viewingSessionId,
+    viewingSessionShared,
+  } = useAgent();
+  const { user } = useAuth();
   const { sessions } = useSessions();
   const selection = useSessionSelection(scope === "session" ? viewingSessionId : null);
   const [input, setInput] = useState("");
@@ -167,6 +190,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   }
 
   const sessionTitle = sessionId ? sessions.find((s) => s.id === sessionId)?.title : undefined;
+  const shared = scope === "session" && viewingSessionShared;
 
   return (
     <div className="agent-chat">
@@ -174,11 +198,11 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
         {turns.length === 0 && !unavailable && (
           <p className="muted">
             {scope === "session" && sessionTitle ? <strong>{sessionTitle}. </strong> : null}
-            {INTRO[scope]}
+            {shared ? SHARED_INTRO : INTRO[scope]}
           </p>
         )}
         {turns.map((t) => (
-          <Turn key={t.id} turn={t} />
+          <Turn key={t.id} turn={t} mine={!t.author || t.author.id === user?.id} />
         ))}
         <div ref={endRef} />
       </div>
@@ -203,7 +227,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
               send();
             }
           }}
-          placeholder={scope === "session" ? "Ask about this session…" : "Ask the agent…"}
+          placeholder={shared ? "Chat, or mention @platform-agent…" : scope === "session" ? "Ask about this session…" : "Ask the agent…"}
           aria-label={scope === "session" ? "Message the agent about this session" : "Message the agent"}
           disabled={!!unavailable}
         />

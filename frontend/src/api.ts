@@ -70,6 +70,14 @@ export interface SavedSession<T = Record<string, unknown>> {
  * silently -- handing the page back a selection it can no longer read. The
  * backend stores it as opaque JSON either way.
  */
+/** The caller's own relationship to a session: "owner" for their own, or
+ * whatever permission they were invited at if it's shared with them.
+ * position/category_id/closed_at are always this caller's own view too --
+ * the owner's, or the caller's own as an invited member -- never someone
+ * else's, even though `state` and `version` are the one document everyone
+ * who can reach the session sees alike. */
+export type SessionRole = "owner" | "editor" | "viewer";
+
 /** A closed session as the side panel lists it. No `state`: nothing trims the
  * closed list, so sending every session's rows on every page load would make
  * the app slower the longer you had used it. The rows arrive with
@@ -83,6 +91,7 @@ export interface LiveSessionSummary {
   /** Which side-panel category it was in when closed, so the panel can still
    * group it there dimmed rather than pulling it into a separate list. */
   category_id: number | null;
+  role: SessionRole;
 }
 
 export interface LiveSession {
@@ -99,6 +108,7 @@ export interface LiveSession {
   truncated: boolean;
   /** Null while it is open; set once it is closed but still reopenable. */
   closed_at: string | null;
+  role: SessionRole;
   /** Bumped by the server on every write, whoever made it. A write says which
    * version it was made from, and one made from an older version is refused
    * (409) so the writer merges instead of overwriting a change it never saw. */
@@ -112,6 +122,21 @@ export interface SessionCategory {
   id: number;
   name: string;
   position: number;
+}
+
+/** "viewer" is read-only; "editor" can also edit inputs, add or remove
+ * panes, and run tools and services -- everything short of managing
+ * membership itself, which stays the owner's alone. */
+export type SessionPermission = "viewer" | "editor";
+
+/** A user other than the owner invited into a live session. Phase 1 of
+ * sharing: this is only the roster -- an invited member can't reach the
+ * session yet (that's a later phase), so today only the owner ever sees
+ * this list, for the session they already own. */
+export interface SessionMember {
+  user_id: number;
+  username: string;
+  permission: SessionPermission;
 }
 
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
@@ -626,7 +651,9 @@ export const api = {
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
   putLiveSession: (
     clientId: string,
-    payload: Omit<LiveSession, "client_id" | "closed_at" | "version"> & { base_version?: number },
+    // role is the server's own read on the caller's relationship to the
+    // session -- never something the client says.
+    payload: Omit<LiveSession, "client_id" | "closed_at" | "version" | "role"> & { base_version?: number },
   ) =>
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
       method: "PUT",
@@ -638,6 +665,21 @@ export const api = {
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
   deleteLiveSession: (clientId: string) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+
+  listSessionMembers: (clientId: string) =>
+    req<SessionMember[]>(`/live-sessions/${encodeURIComponent(clientId)}/members`),
+  inviteSessionMember: (clientId: string, username: string, permission: SessionPermission) =>
+    req<SessionMember>(`/live-sessions/${encodeURIComponent(clientId)}/members`, {
+      method: "POST",
+      body: JSON.stringify({ username, permission }),
+    }),
+  updateSessionMemberPermission: (clientId: string, userId: number, permission: SessionPermission) =>
+    req<SessionMember>(`/live-sessions/${encodeURIComponent(clientId)}/members/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ permission }),
+    }),
+  removeSessionMember: (clientId: string, userId: number) =>
+    req<void>(`/live-sessions/${encodeURIComponent(clientId)}/members/${userId}`, { method: "DELETE" }),
 
   listSessionCategories: () => req<SessionCategory[]>("/session-categories"),
   createSessionCategory: (name: string) =>
