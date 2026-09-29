@@ -416,6 +416,25 @@ agent against its own hand-rolled stub MCP server (`get_context`,
 `create_session`, `run_pane`), never the real `platform_tools/server.py`,
 so nothing here touches it.
 
+**The invite field suggests usernames as you type.** A follow-up to phase 2's
+UI, not a new access-control phase: `GET /api/users/suggest?prefix=` (new,
+`routers/users.py`) returns up to 8 `{id, username}` matches, ordered,
+excluding the caller. Deliberately **not** `require_admin` like `list_users`
+-- open to any authenticated user, since the invite endpoint it feeds was
+already open to inviting any user by exact username, in any group; this only
+makes that existing reach discoverable instead of requiring an exact guess
+(a real widening of *what's easy to enumerate*, decided explicitly, not
+assumed). Deliberately `UserSuggestion` (id/username only), never the full
+`UserOut` (group, admin, tab flags), and capped at 8 rather than a
+browsable listing -- an empty prefix returns `[]`, not everyone. The
+frontend debounces (150ms) so it's one request per pause in typing, not
+one per keystroke, and filters out anyone already a member client-side (no
+point suggesting someone the invite would just 409 on). Selecting a
+suggestion (`onMouseDown` + `preventDefault`, not `onClick` -- the click
+would land after the input's own `onBlur` already closed the dropdown)
+fills the field the same as typing the exact name would; the existing
+submit flow is otherwise untouched.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record

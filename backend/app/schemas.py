@@ -754,6 +754,16 @@ class SessionMemberUpdate(BaseModel):
     permission: SessionPermission
 
 
+class UserSuggestion(BaseModel):
+    """Just enough to fill an invite field's dropdown -- never the full
+    UserOut (group_id/group_name/is_admin/tab flags), since this is reachable
+    by any authenticated user, not just admins (see routers/users.py's
+    suggest_users)."""
+
+    id: int
+    username: str
+
+
 # ---- Session categories ----
 # Slack-style groups for the side panel's session list. A category holds no
 # state of its own -- LiveSession.category_id is what actually assigns a

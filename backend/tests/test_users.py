@@ -73,6 +73,58 @@ def test_non_admin_cannot_manage_users_or_groups():
     assert carol.put("/api/settings", json={"app_title": "Hijacked"}).status_code == 403
 
 
+# ---------------------------------------------------------------- username suggestions (invite field autocomplete)
+
+def test_suggest_users_matches_by_prefix_case_insensitively():
+    group = _create_group("Viewers")
+    client.post("/api/users", json={"username": "gabi1", "password": "x", "group_id": group["id"]})
+    client.post("/api/users", json={"username": "gar2", "password": "x", "group_id": group["id"]})
+    client.post("/api/users", json={"username": "harriet", "password": "x", "group_id": group["id"]})
+
+    resp = client.get("/api/users/suggest", params={"prefix": "g"})
+    assert resp.status_code == 200
+    assert {u["username"] for u in resp.json()} == {"gabi1", "gar2"}
+
+    resp = client.get("/api/users/suggest", params={"prefix": "ga"})
+    assert {u["username"] for u in resp.json()} == {"gabi1", "gar2"}
+
+    resp = client.get("/api/users/suggest", params={"prefix": "gab"})
+    assert [u["username"] for u in resp.json()] == ["gabi1"]
+
+    # Case-insensitive, since a user typing doesn't match a stored case exactly.
+    resp = client.get("/api/users/suggest", params={"prefix": "GAB"})
+    assert [u["username"] for u in resp.json()] == ["gabi1"]
+
+    # Each row is just enough to fill the dropdown, not the full user record.
+    assert set(resp.json()[0]) == {"id", "username"}
+
+
+def test_suggest_users_excludes_self_and_empty_prefix():
+    group = _create_group("Viewers")
+    client.post("/api/users", json={"username": "dana", "password": "dana-pass", "group_id": group["id"]})
+    dana = _login_as("dana", "dana-pass")
+
+    # Inviting yourself makes no sense, so you're never your own suggestion.
+    assert dana.get("/api/users/suggest", params={"prefix": "dan"}).json() == []
+
+    # An empty prefix is never a full listing -- that stays admin-only.
+    assert client.get("/api/users/suggest", params={"prefix": ""}).json() == []
+    assert client.get("/api/users/suggest").json() == []
+
+
+def test_suggest_users_is_open_to_any_authenticated_user():
+    group = _create_group("Viewers")
+    client.post("/api/users", json={"username": "erin", "password": "erin-pass", "group_id": group["id"]})
+    client.post("/api/users", json={"username": "frank", "password": "x", "group_id": group["id"]})
+    erin = _login_as("erin", "erin-pass")
+
+    # Unlike GET /api/users, this reaches a non-admin -- the invite endpoint
+    # it feeds is already open to any user, cross-group, by exact username.
+    resp = erin.get("/api/users/suggest", params={"prefix": "fra"})
+    assert resp.status_code == 200
+    assert [u["username"] for u in resp.json()] == ["frank"]
+
+
 def test_admin_cannot_delete_own_account():
     resp = client.get("/api/auth/me")
     my_id = resp.json()["id"]

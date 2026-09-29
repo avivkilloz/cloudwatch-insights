@@ -10,7 +10,7 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { api, SavedSession, SessionMember, SessionPermission } from "../api";
+import { api, SavedSession, SessionMember, SessionPermission, UserSuggestion } from "../api";
 import {
   SessionKeyScope,
   useDropSessionKeys,
@@ -1130,6 +1130,9 @@ export default function AggregatorPage() {
   const [memberError, setMemberError] = useState<string | null>(null);
   const [inviteUsername, setInviteUsername] = useState("");
   const [invitePermission, setInvitePermission] = useState<SessionPermission>("editor");
+  const [usernameSuggestions, setUsernameSuggestions] = useState<UserSuggestion[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
 
   useEffect(() => {
     if (!scope) return;
@@ -1145,6 +1148,59 @@ export default function AggregatorPage() {
     };
   }, [scope?.id]);
 
+  // Debounced, and filtered against who's already invited (suggesting someone
+  // already a member would just 409 on invite) -- one request per pause in
+  // typing, not one per keystroke.
+  useEffect(() => {
+    const prefix = inviteUsername.trim();
+    if (!prefix) {
+      setUsernameSuggestions([]);
+      setSuggestionsOpen(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const invited = new Set(members.map((m) => m.user_id));
+      api
+        .suggestUsers(prefix)
+        .then((matches) => {
+          if (cancelled) return;
+          setUsernameSuggestions(matches.filter((u) => !invited.has(u.id)));
+          setSuggestionsOpen(true);
+          setHighlightedSuggestion(-1);
+        })
+        .catch(() => {});
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inviteUsername, members]);
+
+  function pickSuggestion(user: UserSuggestion) {
+    setInviteUsername(user.username);
+    setUsernameSuggestions([]);
+    setSuggestionsOpen(false);
+    setHighlightedSuggestion(-1);
+  }
+
+  function onUsernameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!suggestionsOpen || usernameSuggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedSuggestion((i) => (i + 1) % usernameSuggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedSuggestion((i) => (i <= 0 ? usernameSuggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter" && highlightedSuggestion >= 0) {
+      e.preventDefault();
+      pickSuggestion(usernameSuggestions[highlightedSuggestion]);
+    } else if (e.key === "Escape") {
+      setSuggestionsOpen(false);
+      setHighlightedSuggestion(-1);
+    }
+  }
+
   async function withMemberError(fn: () => Promise<void>) {
     setMemberError(null);
     try {
@@ -1158,6 +1214,7 @@ export default function AggregatorPage() {
     e.preventDefault();
     const username = inviteUsername.trim();
     if (!username || !scope) return;
+    setSuggestionsOpen(false);
     withMemberError(async () => {
       const member = await api.inviteSessionMember(scope.id, username, invitePermission);
       setMembers((m) => [...m, member]);
@@ -1280,13 +1337,45 @@ export default function AggregatorPage() {
               </div>
             ))}
             <form className="session-member-invite" onSubmit={inviteMember}>
-              <input
-                className="session-card-input"
-                placeholder="Username"
-                value={inviteUsername}
-                onChange={(e) => setInviteUsername(e.target.value)}
-                aria-label="Username to invite"
-              />
+              <div className="session-member-invite-field">
+                <input
+                  className="session-card-input"
+                  placeholder="Username"
+                  value={inviteUsername}
+                  onChange={(e) => setInviteUsername(e.target.value)}
+                  onKeyDown={onUsernameKeyDown}
+                  onFocus={() => {
+                    if (usernameSuggestions.length > 0) setSuggestionsOpen(true);
+                  }}
+                  onBlur={() => setSuggestionsOpen(false)}
+                  aria-label="Username to invite"
+                  role="combobox"
+                  aria-expanded={suggestionsOpen}
+                  aria-autocomplete="list"
+                  autoComplete="off"
+                />
+                {suggestionsOpen && usernameSuggestions.length > 0 && (
+                  <div className="username-suggestions" role="listbox">
+                    {usernameSuggestions.map((u, i) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        role="option"
+                        aria-selected={i === highlightedSuggestion}
+                        className={"username-suggestion" + (i === highlightedSuggestion ? " active" : "")}
+                        onMouseDown={(e) => {
+                          // Picks the suggestion before the input's onBlur can
+                          // close the dropdown out from under this click.
+                          e.preventDefault();
+                          pickSuggestion(u);
+                        }}
+                      >
+                        {u.username}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <select
                 value={invitePermission}
                 onChange={(e) => setInvitePermission(e.target.value as SessionPermission)}

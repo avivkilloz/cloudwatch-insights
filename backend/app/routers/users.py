@@ -13,6 +13,32 @@ def list_users(db: Session = Depends(get_db), _admin: models.User = Depends(auth
     return [auth.user_out(u) for u in users]
 
 
+@router.get("/suggest", response_model=list[schemas.UserSuggestion])
+def suggest_users(
+    prefix: str = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Usernames starting with `prefix`, for the session card's invite field --
+    open to any authenticated user (not `require_admin` like `list_users`),
+    since the invite endpoint it feeds already lets any user invite any other
+    user by exact username, in any group: this only makes that existing
+    reach discoverable instead of requiring an exact guess. Deliberately a
+    UserSuggestion (id/username only), never the full UserOut, and capped
+    rather than a browsable full listing."""
+    prefix = prefix.strip()
+    if not prefix:
+        return []
+    matches = (
+        db.query(models.User)
+        .filter(models.User.username.ilike(f"{prefix}%"), models.User.id != current_user.id)
+        .order_by(models.User.username)
+        .limit(8)
+        .all()
+    )
+    return [schemas.UserSuggestion(id=u.id, username=u.username) for u in matches]
+
+
 @router.post("", response_model=schemas.UserOut, status_code=201)
 def create_user(
     payload: schemas.UserCreate, db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)
