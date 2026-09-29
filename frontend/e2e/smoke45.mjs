@@ -51,9 +51,15 @@ const run = async () => {
   const steps = await stepTexts(page);
   check(
     JSON.stringify(steps) ===
-      JSON.stringify(["Looked at what you can reach", "Created session “Base64”", "Ran a pane"]),
+      JSON.stringify([
+        // Every turn opens with its own read of the asker's context (agent.py).
+        "Checked who's asking and what they can reach",
+        "Looked at what you can reach",
+        "Created session “Base64”",
+        "Ran a pane",
+      ]),
     "Each step it took is listed, in order, in words", JSON.stringify(steps));
-  check((await lastTurn(page, ".agent-step-ok").count()) === 3, "…each one marked as done");
+  check((await lastTurn(page, ".agent-step-ok").count()) === 4, "…each one marked as done");
   const answer = await lastTurn(page, ".agent-answer").innerText();
   check(answer.includes("aGVsbG8gYWdlbnQ="), "Its answer streams in, carrying the result", answer);
 

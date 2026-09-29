@@ -33,9 +33,22 @@ MAX_MESSAGES = 60
 MAX_MESSAGE_CHARS = 60_000
 
 
+class HistoryStep(BaseModel):
+    """A tool an earlier answer used, as the browser kept it: what was
+    called, whether it worked, and the start of what it returned."""
+
+    name: str = Field(max_length=100)
+    args: dict = Field(default_factory=dict)
+    ok: bool = True
+    summary: str = Field(default="", max_length=2_000)
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=MAX_MESSAGE_CHARS)
+    # An assistant message's tool steps, so the model sees what it actually
+    # ran (and for whom) rather than only what it said.
+    steps: Optional[list[HistoryStep]] = Field(default=None, max_length=40)
 
 
 class Focus(BaseModel):
@@ -82,7 +95,7 @@ async def chat(
         )
     events = run_turn(
         settings,
-        [m.model_dump() for m in payload.messages],
+        [m.model_dump(exclude_none=True) for m in payload.messages],
         x_platform_token,
         focus=payload.focus.model_dump() if payload.focus else None,
     )

@@ -36,10 +36,21 @@ def _auth(ctx: Context) -> None:
     seen_auth.append(ctx.request_context.request.headers.get("authorization", ""))
 
 
+# Who the stub says is asking -- a test changes it to play a second person
+# in a shared chat.
+CONTEXT = {"user": "admin", "environments": [{"id": 1, "name": "IoT Test"}], "viewing_session": None}
+
+
 @stub.tool()
 async def get_context(ctx: Context) -> dict:
     _auth(ctx)
-    return {"user": "admin", "viewing_session": None}
+    return CONTEXT
+
+
+@stub.tool()
+async def get_session(session_id: str, ctx: Context) -> dict:
+    _auth(ctx)
+    return {"session_id": session_id, "title": "Checkout", "panes": [{"pane_id": "iot", "kind": "iot"}]}
 
 
 @stub.tool()
@@ -90,23 +101,40 @@ def settings():
     llm_server.should_exit = True
 
 
-def _events(settings: Settings, text: str, focus: dict | None = None) -> list[dict]:
+def _events(settings: Settings, text: str, focus: dict | None = None, earlier: list[dict] | None = None) -> list[dict]:
+    messages = [*(earlier or []), {"role": "user", "content": text}]
+
     async def collect():
-        return [e async for e in run_turn(settings, [{"role": "user", "content": text}], TOKEN, focus=focus)]
+        return [e async for e in run_turn(settings, messages, TOKEN, focus=focus)]
 
     return asyncio.run(collect())
+
+
+def _answer(events: list[dict]) -> str:
+    """The answer as the browser ends up holding it: text deltas appended,
+    retracts taking characters back off the end."""
+    answer = ""
+    for e in events:
+        if e["type"] == "text":
+            answer += e["delta"]
+        elif e["type"] == "retract":
+            answer = answer[: len(answer) - e["chars"]]
+    return answer
 
 
 def test_a_turn_calls_the_tools_with_the_users_token_and_streams_what_happened(settings):
     seen_auth.clear()
     events = _events(settings, "encode hi")
 
-    calls = [e["name"] for e in events if e["type"] == "tool_call"]
+    # Every turn opens with a fresh read of the context, before the model
+    # says anything; then the model's own calls.
+    assert events[0] == {"type": "tool_call", "id": "turn-context", "name": "get_context", "args": {}, "preamble": True}
+    calls = [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")]
     assert calls == ["get_context", "create_session", "run_pane"]
     results = [e for e in events if e["type"] == "tool_result"]
     assert all(r["ok"] for r in results)
     # The session a tool touched rides on its result, for the browser to follow.
-    assert [r.get("session_id") for r in results] == [None, "s-new", "s-new"]
+    assert [r.get("session_id") for r in results] == [None, None, "s-new", "s-new"]
     text = "".join(e["delta"] for e in events if e["type"] == "text")
     assert "aGk=" in text
     # Streamed as it came, not in one piece.
@@ -117,7 +145,7 @@ def test_a_turn_calls_the_tools_with_the_users_token_and_streams_what_happened(s
 
 def test_a_failing_tool_is_told_to_the_model_rather_than_ending_the_turn(settings):
     events = _events(settings, "break")
-    result = next(e for e in events if e["type"] == "tool_result")
+    result = next(e for e in events if e["type"] == "tool_result" and e["id"] != "turn-context")
     assert result["ok"] is False and "no-such-session" in result["summary"]
     assert "session_id" not in result
     text = "".join(e["delta"] for e in events if e["type"] == "text")
@@ -182,3 +210,73 @@ def test_a_session_chat_tells_the_model_which_session_it_is_about(settings):
     fake_llm.REQUESTS.clear()
     _events(settings, "hello")
     assert "chat of one session" not in fake_llm.REQUESTS[0]["messages"][0]["content"]
+
+
+def test_a_session_chat_starts_from_the_session_as_it_is_now(settings):
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "hello", focus={"session_id": "s1", "title": "Checkout"})
+    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble")]
+    assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("get_session", {"session_id": "s1"})]
+    system = fake_llm.REQUESTS[0]["messages"][0]["content"]
+    assert "get_session (this chat's session):" in system and '"pane_id":"iot"' in system
+
+
+def test_the_context_is_whoever_asked_this_turn_not_what_an_earlier_answer_said(settings, monkeypatch):
+    # A shared chat: someone without IoT Prod asked first and was told there
+    # isn't one. When someone who has it asks, the turn's own read is theirs.
+    earlier = [
+        {"role": "user", "content": "avivil-backend: search iot prod"},
+        {
+            "role": "assistant",
+            "content": "There is no IoT Prod environment available.",
+            "steps": [{"name": "get_context", "args": {}, "ok": True, "summary": '{"user": "avivil-backend"}'}],
+        },
+    ]
+    monkeypatch.setitem(CONTEXT, "user", "avivil")
+    monkeypatch.setitem(CONTEXT, "environments", [{"id": 1, "name": "IoT Test"}, {"id": 9, "name": "IoT Prod"}])
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "whoami", earlier=earlier)
+    assert "You're avivil, and you can reach: IoT Test, IoT Prod." in _answer(events)
+
+    # And the earlier answer went back to the model with the call behind it,
+    # not as bare words.
+    sent = fake_llm.REQUESTS[0]["messages"]
+    calls = [m for m in sent if m.get("tool_calls")]
+    assert calls and calls[0]["tool_calls"][0]["function"]["name"] == "get_context"
+    tool = next(m for m in sent if m.get("role") == "tool")
+    assert "avivil-backend" in tool["content"]
+    assert sent[-2] == {"role": "assistant", "content": "There is no IoT Prod environment available."}
+
+
+def test_reasoning_is_kept_apart_from_the_answer(settings):
+    events = _events(settings, "think")
+    answer = _answer(events)
+    assert "</think>" not in answer and "<think>" not in answer
+    assert answer == "Creating it now.\n\nDone: the Thought session is open."
+    thinking = "".join(e["delta"] for e in events if e["type"] == "thinking")
+    assert "I should create one first." in thinking and "I'll say so briefly." in thinking
+    assert "</think>" not in thinking
+    # Still a real turn: the call between the two steps happened.
+    assert [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")] == ["create_session"]
+    assert events[-1] == {"type": "done"}
+
+
+def test_a_step_going_round_in_circles_is_stopped(settings):
+    started = time.monotonic()
+    events = _events(settings, "loop")
+    assert events[-1]["type"] == "error" and "repeating itself" in events[-1]["message"]
+    # Stopped early, not after all thirty rounds -- and the rounds shown are
+    # taken back, so the chat isn't left holding a wall of them.
+    assert time.monotonic() - started < 10
+    assert _answer(events) == ""
+
+
+def test_an_answer_with_rows_no_tool_returned_carries_a_notice(settings):
+    events = _events(settings, "invent")
+    notice = next(e for e in events if e["type"] == "notice")
+    assert "test-device-001" in notice["message"]
+    assert events[-1] == {"type": "done"}
+
+    # One built from what the tools did return carries none.
+    events = _events(settings, "encode hi")
+    assert not [e for e in events if e["type"] == "notice"]

@@ -21,6 +21,13 @@ class Settings:
     # A turn's ceiling on model-and-tool steps, so one confused turn can't
     # loop until the token expires.
     max_steps: int
+    # Left to the model's own default unless set. This used to be pinned to
+    # 0, and greedy decoding is exactly what reasoning models (the ones that
+    # think in <think> tags) are documented to loop under: one turn wrote the
+    # same four sentences of plan over and over until it ran out of tokens.
+    temperature: Optional[float] = None
+    # A ceiling on one step's output, so a step that does go wrong ends.
+    max_tokens: Optional[int] = None
 
     @property
     def configured(self) -> bool:
@@ -37,4 +44,6 @@ def load() -> Settings:
         mcp_url=os.environ.get("PLATFORM_MCP_URL", "http://backend:8000/mcp"),
         service_key=os.environ.get("AGENT_SERVICE_KEY") or None,
         max_steps=int(os.environ.get("AGENT_MAX_STEPS", "40")),
+        temperature=float(os.environ["AGENT_TEMPERATURE"]) if os.environ.get("AGENT_TEMPERATURE") else None,
+        max_tokens=int(os.environ["AGENT_MAX_TOKENS"]) if os.environ.get("AGENT_MAX_TOKENS") else None,
     )

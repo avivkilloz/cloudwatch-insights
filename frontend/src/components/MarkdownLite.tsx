@@ -10,7 +10,11 @@ export default function MarkdownLite({ text }: { text: string }) {
 }
 
 const CODE_BLOCK_RE = /```[a-zA-Z0-9_+-]*\n?([\s\S]*?)```/g;
-const TABLE_SEPARATOR_RE = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/;
+// One column or several: "|---|" is as much a separator row as "|---|---|".
+// Requiring a second column left a one-column table (a list of thing names)
+// as literal pipes and dashes. The pipe itself is still required (see
+// isTableStart), so a bare "---" under a line of prose isn't mistaken for one.
+const TABLE_SEPARATOR_RE = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/;
 
 function parseBlocks(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -70,7 +74,10 @@ function renderBlock(block: string, key: string): ReactNode {
   let n = 0;
 
   const isTableStart = (idx: number): boolean =>
-    lines[idx].includes("|") && idx + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[idx + 1].trim());
+    lines[idx].includes("|") &&
+    idx + 1 < lines.length &&
+    lines[idx + 1].includes("|") &&
+    TABLE_SEPARATOR_RE.test(lines[idx + 1].trim());
 
   while (i < lines.length) {
     const headingMatch = HEADING_RE.exec(lines[i]);

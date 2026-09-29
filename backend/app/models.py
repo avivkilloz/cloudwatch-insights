@@ -286,7 +286,13 @@ class AgentToken(Base):
     It also carries what the turn knows about the asker that the MCP tools
     need and can't otherwise learn: their browser's time zone (a query's
     "since 9am" means their 9am) and the session they were looking at ("add
-    a pane here")."""
+    a pane here").
+
+    A session chat's turn is also held to that one session
+    (`session_scope_id`, the row's id): the tools refuse to change any other
+    session, or create one, with it. The prompt already asked for that, and a
+    model that didn't listen wrote into a session the user wasn't looking at
+    -- which looked, from the chat, like work done in the background."""
 
     __tablename__ = "agent_tokens"
 
@@ -296,3 +302,4 @@ class AgentToken(Base):
     expires_at = Column(DateTime, nullable=False)
     timezone = Column(String, nullable=True)
     viewing_session_id = Column(String, nullable=True)
+    session_scope_id = Column(Integer, nullable=True)

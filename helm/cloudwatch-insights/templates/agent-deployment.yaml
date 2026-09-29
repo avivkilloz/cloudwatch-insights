@@ -58,6 +58,14 @@ spec:
               {{- end }}
             - name: AGENT_MAX_STEPS
               value: {{ .Values.agent.maxSteps | quote }}
+            {{- if ne (toString .Values.agent.temperature) "" }}
+            - name: AGENT_TEMPERATURE
+              value: {{ .Values.agent.temperature | quote }}
+            {{- end }}
+            {{- if .Values.agent.maxTokens }}
+            - name: AGENT_MAX_TOKENS
+              value: {{ .Values.agent.maxTokens | quote }}
+            {{- end }}
             {{- if .Values.agent.serviceKey.existingSecret }}
             - name: AGENT_SERVICE_KEY
               valueFrom:

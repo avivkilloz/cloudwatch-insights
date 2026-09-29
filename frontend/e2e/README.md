@@ -31,7 +31,7 @@ Configuration, all optional:
 | `E2E_PLAYWRIGHT` | — | an installed Playwright to import, if `playwright` does not resolve |
 | `E2E_CHROMIUM` | — | a Chromium executable to use instead of Playwright's own |
 
-`smoke45`, `smoke46` and `smoke47` (the platform agent) also need the agent container running with the
+`smoke45`, `smoke46`, `smoke47`, `smoke56` and `smoke57` (the platform agent) also need the agent container running with the
 scripted stand-in model, and the backend pointed at it -- a real model would
 answer differently every time:
 
@@ -43,7 +43,7 @@ LITELLM_BASE_URL=http://127.0.0.1:4010 LITELLM_API_KEY=x AGENT_MODEL=fake \
 # and start the backend with AGENT_URL=http://127.0.0.1:8100
 ```
 
-Without them, those three fail and every other suite is unaffected (22 and 23
+Without them, those five fail and every other suite is unaffected (22 and 23
 only check that a question asked in the agent panel's Global tab reaches it).
 
 Playwright is deliberately **not** a dependency of this package — it would add a

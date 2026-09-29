@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
-from app import models
+from app import live_store, models
 from app.db import SessionLocal
 from app.main import app
 from app.platform_tools import tokens
@@ -42,6 +42,7 @@ async def stub_chat(request: Request):
             "token_valid": caller is not None,
             "timezone": caller.timezone if caller else None,
             "viewing": caller.viewing_session_id if caller else None,
+            "scope_id": caller.session_scope_id if caller else None,
         }
     )
 
@@ -121,6 +122,20 @@ def test_a_turn_is_relayed_with_a_token_that_is_gone_when_it_ends(monkeypatch):
     assert _tokens_left() == 0
 
 
+def test_an_earlier_answers_steps_are_relayed_with_it(monkeypatch):
+    # So the agent sees which tools an answer came from, not only its words.
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    received.clear()
+    step = {"name": "run_pane", "args": {"pane_id": "iot"}, "ok": False, "summary": "Environment 9 is not configured"}
+    messages = [
+        {"role": "user", "content": "search prod"},
+        {"role": "assistant", "content": "That failed.", "steps": [step]},
+        {"role": "user", "content": "again"},
+    ]
+    assert client.post("/api/agent/chat", json={**ASK, "messages": messages}).status_code == 200
+    assert received[0]["body"]["messages"] == messages
+
+
 def test_an_unreachable_agent_is_a_readable_error_and_still_revokes_the_token(monkeypatch):
     monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_free_port()}")
     resp = client.post("/api/agent/chat", json=ASK)
@@ -156,11 +171,21 @@ def test_a_session_chat_tells_the_agent_which_session_it_is_about(monkeypatch):
     assert client.post("/api/agent/chat", json=ask).status_code == 200
     assert received[0]["body"]["focus"] == {"session_id": "s-chat", "title": "Checkout"}
     assert received[0]["viewing"] == "s-chat"
+    # And its token is held to that session's row, for the tools to enforce.
+    db = SessionLocal()
+    try:
+        admin = db.query(models.User).filter(models.User.username == "admin").one()
+        row_id = live_store.get(db, admin.id, "s-chat").id
+    finally:
+        db.close()
+    assert received[0]["scope_id"] == row_id
 
-    # The global chat carries no focus, even with a session on screen.
+    # The global chat carries no focus, even with a session on screen, and
+    # isn't held to any session.
     received.clear()
     client.post("/api/agent/chat", json={**ASK, "viewing_session_id": "s-chat"})
     assert "focus" not in received[0]["body"]
+    assert received[0]["scope_id"] is None
 
 
 def test_a_session_chat_for_a_session_that_is_gone_is_refused(monkeypatch):

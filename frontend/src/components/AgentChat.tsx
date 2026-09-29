@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { AgentScope, AgentStep, AgentTurn, useAgent } from "../agent/AgentContext";
+import { AgentScope, AgentStep, AgentTurn, splitThinking, useAgent } from "../agent/AgentContext";
 import { useSessionSelection } from "../agent/selection";
 import { useAuth } from "../AuthContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
@@ -26,6 +26,12 @@ function kindLabel(kind: unknown): string {
 function describe(step: AgentStep): string {
   const a = step.args;
   const done = step.status !== "running";
+  // The reads every turn starts with, told apart from the model's own calls
+  // to the same tools -- otherwise the list opened "Looked at what you can
+  // reach" twice whenever the model checked again for itself.
+  if (step.preamble && step.name === "get_context")
+    return done ? "Checked who's asking and what they can reach" : "Checking who's asking…";
+  if (step.preamble && step.name === "get_session") return done ? "Read this session as it is now" : "Reading this session…";
   switch (step.name) {
     case "get_context":
       return done ? "Looked at what you can reach" : "Looking at what you can reach…";
@@ -99,7 +105,23 @@ function Step({ step }: { step: AgentStep }) {
   );
 }
 
+/** The model's reasoning, folded: there if you want to see how it got to its
+ * answer, out of the way of the answer itself. */
+function Thoughts({ text, live }: { text: string; live: boolean }) {
+  return (
+    <details className="agent-thoughts">
+      <summary className={live ? "agent-thinking" : undefined}>{live ? "Thinking…" : "Thought process"}</summary>
+      <div className="agent-thoughts-text">{text.trim()}</div>
+    </details>
+  );
+}
+
 function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
+  // Turns stored before reasoning was kept apart still carry it inline.
+  const legacy = splitThinking(turn.answer);
+  const thoughts = [turn.thoughts ?? "", legacy.thoughts].filter((t) => t.trim()).join("\n\n");
+  const answer = legacy.answer;
+  const running = turn.status === "running";
   return (
     <div className="agent-turn">
       <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
@@ -111,6 +133,7 @@ function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
           of its own to show under it. */}
       {turn.agentInvoked !== false && (
         <div className="agent-answer">
+          {thoughts && <Thoughts text={thoughts} live={running && !answer} />}
           {turn.steps.length > 0 && (
             <ul className="agent-steps">
               {turn.steps.map((s) => (
@@ -118,10 +141,9 @@ function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
               ))}
             </ul>
           )}
-          {turn.answer && <MarkdownLite text={turn.answer} />}
-          {turn.status === "running" && !turn.answer && turn.steps.length === 0 && (
-            <p className="muted agent-thinking">Thinking…</p>
-          )}
+          {answer && <MarkdownLite text={answer} />}
+          {running && !answer && !thoughts && turn.steps.length === 0 && <p className="muted agent-thinking">Thinking…</p>}
+          {turn.notice && <p className="agent-notice">⚠ {turn.notice}</p>}
           {turn.status === "stopped" && <p className="muted">Stopped.</p>}
           {turn.error && <p className="error-text">{turn.error}</p>}
         </div>

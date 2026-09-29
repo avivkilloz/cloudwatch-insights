@@ -33,6 +33,11 @@ export interface AgentStep {
   status: "running" | "ok" | "failed";
   summary?: string;
   sessionId?: string;
+  /** One of the reads every turn starts with (what the asker can reach, the
+   * session as it is), made by the agent service rather than chosen by the
+   * model -- left out of the history sent back, since each turn makes its
+   * own fresh. */
+  preamble?: boolean;
 }
 
 export interface AgentTurn {
@@ -42,9 +47,15 @@ export interface AgentTurn {
    * themselves went to the agent, and aren't kept. */
   attached?: string;
   answer: string;
+  /** The model's reasoning, kept apart from its answer: shown folded, never
+   * sent back to it. */
+  thoughts?: string;
   steps: AgentStep[];
   status: "running" | "done" | "failed" | "stopped";
   error?: string;
+  /** A warning about the answer, from the agent service (e.g. details in it
+   * that none of the turn's tools returned). */
+  notice?: string;
   /** Who asked, in a session's own chat -- several people can share one, so
    * (unlike the Global tab, always just "you") a turn has to say. Absent on
    * a turn from before sharing existed, or in the Global conversation. */
@@ -118,6 +129,20 @@ const KEPT_TURNS = 40;
 const ATTACH_CHARS = 40_000;
 const ATTACH_CELL_CHARS = 2_000;
 
+/** An answer stored before reasoning was kept apart, split the same way the
+ * agent service splits it now: whatever came before the last "</think>" was
+ * reasoning. Without this, old turns kept showing literal "</think>" tags --
+ * and fed them back to the model as if it had said them. */
+export function splitThinking(answer: string): { thoughts: string; answer: string } {
+  const at = answer.lastIndexOf("</think>");
+  if (at < 0) return { thoughts: "", answer };
+  const thoughts = answer
+    .slice(0, at)
+    .replace(/<\/?think>/g, "\n\n")
+    .trim();
+  return { thoughts, answer: answer.slice(at + "</think>".length).trim() };
+}
+
 function history(turns: AgentTurn[]): AgentChatMessage[] {
   return turns
     .filter((t) => t.status !== "running" && (t.answer.trim() || t.agentInvoked === false))
@@ -128,9 +153,15 @@ function history(turns: AgentTurn[]): AgentChatMessage[] {
       // so a later @mention has the conversation that led up to it, but
       // there's no reply of its own to include.
       if (t.agentInvoked === false) return [{ role: "user" as const, content: question }];
+      // The steps go back with the answer: with only its words, the model
+      // couldn't tell a reported run from a made-up one, or see whose
+      // get_context an earlier "there's no such environment" came from.
+      const steps = t.steps
+        .filter((s) => !s.preamble)
+        .map((s) => ({ name: s.name, args: s.args, ok: s.status === "ok", summary: s.summary ?? "" }));
       return [
         { role: "user" as const, content: t.attached ? `${question}\n\n(Attached: ${t.attached}.)` : question },
-        { role: "assistant" as const, content: t.answer },
+        { role: "assistant" as const, content: splitThinking(t.answer).answer, ...(steps.length ? { steps } : {}) },
       ];
     });
 }
@@ -175,10 +206,17 @@ function withAttachment(question: string, selection: SessionSelection): { conten
   return { content, attached: `${rows.length === 1 ? "1 row" : `${rows.length} rows`} (${attached})` };
 }
 
+// What a stored turn keeps of its reasoning: it rides along in session state.
+const KEPT_THOUGHT_CHARS = 4_000;
+
 /** A finished turn as a session keeps it: small, and never "running". */
 function forKeeping(turn: AgentTurn): AgentTurn {
   return {
     ...turn,
+    thoughts:
+      turn.thoughts && turn.thoughts.length > KEPT_THOUGHT_CHARS
+        ? `${turn.thoughts.slice(0, KEPT_THOUGHT_CHARS)}…`
+        : turn.thoughts,
     status: turn.status === "running" ? "failed" : turn.status,
     steps: turn.steps.map((s) => ({
       ...s,
@@ -260,10 +298,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // Opening a session (not just switching between two already-open ones --
   // that leaves whatever tab you picked alone) defaults the panel to the
   // Session tab, the same way the initial state above does for a session
-  // already on screen at load.
+  // already on screen at load. Except while a Global turn is running: then
+  // it's the agent opening the session (Follow), and switching tabs hid the
+  // very turn doing it -- its steps and answer carried on out of sight.
   const prevViewRef = useRef(view);
+  const liveScopeRef = useRef<AgentScope | null>(null);
+  liveScopeRef.current = live?.scope ?? null;
   useEffect(() => {
-    if (view === "session" && prevViewRef.current !== "session") setTab("session");
+    if (view === "session" && prevViewRef.current !== "session" && liveScopeRef.current !== "global") setTab("session");
     prevViewRef.current = view;
   }, [view]);
 
@@ -396,10 +438,21 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const onEvent = (event: AgentEvent) => {
         if (event.type === "text") {
           change((t) => ({ ...t, answer: t.answer + event.delta }));
+        } else if (event.type === "thinking") {
+          change((t) => ({ ...t, thoughts: (t.thoughts ?? "") + event.delta }));
+        } else if (event.type === "retract") {
+          // Words already shown that turned out to be reasoning (sent again
+          // as thinking right after) or a step stopped for looping.
+          change((t) => ({ ...t, answer: event.chars > 0 ? t.answer.slice(0, -event.chars) : t.answer }));
+        } else if (event.type === "notice") {
+          change((t) => ({ ...t, notice: event.message }));
         } else if (event.type === "tool_call") {
           change((t) => ({
             ...t,
-            steps: [...t.steps, { id: event.id, name: event.name, args: event.args ?? {}, status: "running" }],
+            steps: [
+              ...t.steps,
+              { id: event.id, name: event.name, args: event.args ?? {}, status: "running", preamble: event.preamble },
+            ],
           }));
         } else if (event.type === "tool_result") {
           change((t) => ({
