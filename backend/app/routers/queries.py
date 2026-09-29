@@ -1,12 +1,12 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import aws_client, auth, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/queries", tags=["queries"])
 
@@ -54,6 +54,11 @@ async def start_queries(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "logs_enabled", "CloudWatch Logs Insights")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     loop = asyncio.get_event_loop()
     tasks = []
     for target in payload.targets:
@@ -142,6 +147,11 @@ async def get_results(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "logs_enabled", "CloudWatch Logs Insights")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     loop = asyncio.get_event_loop()
     tasks = []
     for q in payload.queries:
@@ -209,6 +219,13 @@ async def stop_queries(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "logs_enabled", "CloudWatch Logs Insights")
+    except ResolveError:
+        # Best-effort, like every other failure in this endpoint -- stopping
+        # a query that couldn't have been started isn't itself a read.
+        return None
+
     loop = asyncio.get_event_loop()
     tasks = []
     for q in payload.queries:

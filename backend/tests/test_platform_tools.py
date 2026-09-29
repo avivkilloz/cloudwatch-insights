@@ -212,6 +212,42 @@ def test_a_kind_the_group_lacks_can_not_be_added(mcp):
     assert "DynamoDB" in error
 
 
+def test_add_pane_also_refuses_a_kind_the_group_lacks(mcp):
+    bob_id = _group(agent_enabled=True, tables_enabled=False)
+    token = _token(bob_id)
+    session = call(mcp, token, "create_session", title="x", panes=[{"kind": "tool-base64"}])["session_id"]
+    error = call_error(mcp, token, "add_pane", session_id=session, kind="tables")
+    assert "DynamoDB" in error
+    db = SessionLocal()
+    try:
+        row = live_store.get(db, bob_id, session)
+    finally:
+        db.close()
+    assert row.state["services"] == ["tool-base64"]
+
+
+def test_run_pane_also_refuses_an_environment_outside_the_group(mcp):
+    hidden = _environment("Hidden")
+    bob = _group(agent_enabled=True)
+    token = _token(bob)
+    session = call(mcp, token, "create_session", title="s", panes=[{"kind": "iot"}])["session_id"]
+    error = call_error(
+        mcp, token, "run_pane", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [hidden]}
+    )
+    assert "isn't visible" in error
+
+
+def test_a_shared_sessions_pane_is_still_gated_by_the_members_own_group_not_the_owners(mcp):
+    # The owner's group has "tables" turned on; the invited editor's doesn't
+    # -- the pane already exists in the shared session, but the member's own
+    # agent still can't touch it, exactly as if they'd tried to add it fresh.
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[{"kind": "tables"}])["session_id"]
+    bob = _group(agent_enabled=True, tables_enabled=False)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+    error = call_error(mcp, _token(bob), "set_pane_inputs", session_id=session, pane_id="tables", inputs={})
+    assert "DynamoDB" in error
+
+
 def test_adding_and_removing_panes_follows_the_browsers_rules(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-base64"}])["session_id"]

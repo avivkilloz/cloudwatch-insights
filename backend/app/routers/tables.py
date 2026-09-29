@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, dynamodb_client, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
 
@@ -15,6 +15,7 @@ def list_tables(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "tables_enabled", "DynamoDB")
         environment = resolve_environment(db, environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
@@ -35,6 +36,7 @@ def describe_table(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "tables_enabled", "DynamoDB")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
@@ -57,6 +59,7 @@ def scan_table(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "tables_enabled", "DynamoDB")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:

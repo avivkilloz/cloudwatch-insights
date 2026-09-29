@@ -1,12 +1,12 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import aws_client, auth, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/log-groups", tags=["log-groups"])
 
@@ -42,6 +42,11 @@ async def get_log_groups(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "logs_enabled", "CloudWatch Logs Insights")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:

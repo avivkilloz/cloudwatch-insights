@@ -243,12 +243,25 @@ migration later.
 `UserGroup`, which carries the IAM role name, the visible environments and one
 boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
 `/api/auth/me` returns those booleans so the frontend can decide what to offer.
-The per-service routes do *not* re-check them -- the environment list and the
-group's IAM role are what bound a call there -- but the agent's MCP tools do
-(`platform_tools/panes.kind_for`, `_flagged`), since the agent must never
-reach further than its user's UI would. Closing that gap in the routers is
-worth doing; don't assume it's there. The **Admin** group (`is_admin`) always
-sees every environment.
+The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
+`_flagged`), since the agent must never reach further than its user's UI
+would -- **and so do the per-service routes now** (`resolve.require_flag`,
+called at the top of every AWS-calling endpoint in `queries.py`, `tables.py`,
+`buckets.py`, `cognito.py`, `opensearch.py`, `iot.py`, `log_groups.py`,
+`tools.py`, right where `resolve_environment`/`resolve_role_name` already
+were). This used to be a real, if not agent-reachable, gap: a group with an
+environment and a role but a page's flag off could still reach that page's
+API by a raw request, since only the frontend's own offer of the button (and
+the agent's tools) ever checked the flag -- environment and role were the
+*only* thing the routers themselves re-verified. Found and closed while
+investigating a report of the agent reaching services/environments/roles a
+user shouldn't have (that report's own mechanism was never reproduced by
+tracing the agent's tool chain -- `kind_for`, environment validation and role
+resolution all held at every call site checked, including the shared-session
+cross-group case and `add_pane`/`run_pane` specifically; `test_router_flags.py`
+and the new `test_platform_tools.py` cases cover both boundaries now, not
+just `create_session`/`set_pane_inputs`). The Admin group (`is_admin`)
+always passes both checks, same as before.
 
 **No migration framework.** `ensure_columns()` in `db.py` adds missing columns
 on startup (only ones safe to backfill — nullable or with a server default) and

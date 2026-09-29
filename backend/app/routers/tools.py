@@ -3,15 +3,20 @@ from sqlalchemy.orm import Session
 
 from .. import auth, iot_mqtt_signer, models, schemas, tools_http_client
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
 
 @router.post("/http-request", response_model=schemas.HttpToolResponse)
 def send_http_request(
-    payload: schemas.HttpToolRequest, _current_user: models.User = Depends(auth.get_current_user)
+    payload: schemas.HttpToolRequest, current_user: models.User = Depends(auth.get_current_user)
 ):
+    try:
+        require_flag(current_user, "tools_enabled", "Tools")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     headers = {h.key: h.value for h in payload.headers}
     try:
         result = tools_http_client.send_request(payload.method, payload.url, headers=headers, body=payload.body)
@@ -37,6 +42,7 @@ def get_mqtt_presigned_url(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "tools_enabled", "Tools")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
