@@ -80,10 +80,21 @@ const run = async () => {
   check(shown.length === 1 && shown[0] === gabi, "One more letter narrows it to just gabi1", JSON.stringify(shown));
   await page.locator(MEMBERS_ROW).screenshot({ path: `${SHOT}/52-suggestions.png` });
 
+  // ---------- the dropdown is as wide as the input, not the whole row ----------
+  const inputBox = await page.locator(INPUT).boundingBox();
+  const dropdownBox = await page.locator(SUGGESTIONS).boundingBox();
+  check(Math.abs(inputBox.width - dropdownBox.width) < 2, "The dropdown's width matches the input's own",
+    `input=${inputBox.width} dropdown=${dropdownBox.width}`);
+
   // ---------- clicking a suggestion fills the field and closes the dropdown ----------
   await page.click(`${SUGGESTIONS} .username-suggestion:text-is("${gabi}")`);
   check((await page.locator(INPUT).inputValue()) === gabi, "Clicking a suggestion fills the field with it");
   check((await page.locator(SUGGESTIONS).count()) === 0, "…and closes the dropdown");
+  // The debounced fetch effect still runs once for the picked name (matching
+  // it exactly) -- past its 150ms delay is where a suppressed re-run had to
+  // actually take effect, or the dropdown reopens right back up on its own.
+  await page.waitForTimeout(400);
+  check((await page.locator(SUGGESTIONS).count()) === 0, "…and it's still closed once that debounced fetch would have fired");
 
   // ---------- the normal invite flow still works from a picked suggestion ----------
   await page.click(`${MEMBERS_ROW} .session-member-invite button[type="submit"]`);

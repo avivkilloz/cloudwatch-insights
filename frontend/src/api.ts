@@ -149,6 +149,16 @@ export interface UserSuggestion {
   username: string;
 }
 
+/** Everyone who can currently reach a session -- the owner and every invited
+ * member -- for @mentioning them in its chat. Unlike `SessionMember`'s list
+ * (the roster `/members` manages, owner-only), `listSessionParticipants` is
+ * reachable by any participant and includes the owner too. */
+export interface SessionParticipant {
+  user_id: number;
+  username: string;
+  role: SessionRole;
+}
+
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
  * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
  * aren't interchangeable. */
@@ -691,6 +701,8 @@ export const api = {
     }),
   removeSessionMember: (clientId: string, userId: number) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}/members/${userId}`, { method: "DELETE" }),
+  listSessionParticipants: (clientId: string) =>
+    req<SessionParticipant[]>(`/live-sessions/${encodeURIComponent(clientId)}/participants`),
 
   listSessionCategories: () => req<SessionCategory[]>("/session-categories"),
   createSessionCategory: (name: string) =>

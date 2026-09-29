@@ -84,6 +84,11 @@ interface AgentApi {
   /** Whether that session has anyone else on it -- once it does, the agent
    * only answers a message that mentions it, so the compose box can say so. */
   viewingSessionShared: boolean;
+  /** Re-checks whether a session is shared right away, rather than waiting
+   * for the next time it's viewed -- the session card's own invite/remove/
+   * permission-change handlers call this on success, so the chat gates
+   * itself correctly without needing a reload to notice. */
+  refreshShared: (sessionId: string) => void;
   follow: boolean;
   setFollow: (follow: boolean) => void;
   tab: AgentScope;
@@ -271,36 +276,36 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Only the owner's own browser needs to ask -- an invited member's `role`
-  // already says their view is shared. Refetched whenever the session on
-  // screen changes; a membership change mid-visit catching up a beat late
-  // (the next switch away and back) costs nothing worse than one message
-  // guessing the old way.
-  useEffect(() => {
-    if (!viewingSessionId) return;
-    const session = sessionsRef.current.find((s) => s.id === viewingSessionId);
-    if (session?.role && session.role !== "owner") return;
-    let cancelled = false;
+  // already says their view is shared. `refreshShared` (below) shares this
+  // same fetch so the session card's own member-management handlers can
+  // trigger it too, on success, without waiting for the next view.
+  const refreshShared = useCallback((sessionId: string) => {
     api
-      .listSessionMembers(viewingSessionId)
+      .listSessionMembers(sessionId)
       .then((members) => {
-        if (cancelled) return;
         setSharedSessions((prev) => {
           const has = members.length > 0;
-          if (has === prev.has(viewingSessionId)) return prev;
+          if (has === prev.has(sessionId)) return prev;
           const next = new Set(prev);
-          if (has) next.add(viewingSessionId);
-          else next.delete(viewingSessionId);
+          if (has) next.add(sessionId);
+          else next.delete(sessionId);
           return next;
         });
       })
       .catch(() => {
         // Not the owner (a member's own fetch 404s -- their `role` already
-        // covered them above) or offline; either way, nothing to update.
+        // covers them) or offline; either way, nothing to update.
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [viewingSessionId]);
+  }, []);
+
+  // Refetched whenever the session on screen changes, so switching to a
+  // session catches up on a membership change made while it was last open.
+  useEffect(() => {
+    if (!viewingSessionId) return;
+    const session = sessionsRef.current.find((s) => s.id === viewingSessionId);
+    if (session?.role && session.role !== "owner") return;
+    refreshShared(viewingSessionId);
+  }, [viewingSessionId, refreshShared]);
 
   function isShared(sessionId: string): boolean {
     const role = sessionsRef.current.find((s) => s.id === sessionId)?.role;
@@ -460,6 +465,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       clear,
       viewingSessionId,
       viewingSessionShared: viewingSessionId ? isShared(viewingSessionId) : false,
+      refreshShared,
       follow,
       setFollow,
       tab,
@@ -478,6 +484,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       stop,
       clear,
       viewingSessionId,
+      refreshShared,
       sessions,
       sharedSessions,
       follow,

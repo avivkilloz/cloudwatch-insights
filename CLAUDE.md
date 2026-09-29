@@ -435,6 +435,50 @@ would land after the input's own `onBlur` already closed the dropdown)
 fills the field the same as typing the exact name would; the existing
 submit flow is otherwise untouched.
 
+**Four follow-up fixes/features on top of sharing, reported after real use:**
+1. The invite dropdown was as wide as the whole invite row, not the input it
+   belongs to -- `.session-member-invite .session-card-input`'s own
+   `max-width: 560px` capped the input but not its wrapper
+   (`.session-member-invite-field`, `flex: 1`), so the dropdown (anchored
+   `left: 0; right: 0` to that wrapper) visibly overhung the field on a wide
+   card. Fixed by capping the wrapper the same 560px.
+2. Picking a suggestion set `inviteUsername` to that exact name, which
+   re-triggered the debounced fetch effect and reopened the dropdown with
+   the one match that name now finds. `suppressNextSuggestFetch` (a ref, not
+   state -- it has to be read and cleared inside the very next effect run,
+   before a render) skips exactly that one re-run; typing anything further
+   clears it back to normal.
+3. Inviting someone updated the agent panel's own "is this session shared"
+   gating (`AgentContext`'s `sharedSessions`) only the next time the session
+   was viewed (a reload, or switching away and back) -- the one-time
+   `listSessionMembers` fetch that answers this had no way to know an invite
+   had just happened. `AgentContext` now exposes `refreshShared(sessionId)`
+   (the same fetch, pulled out of the view-change effect so both can call
+   it), and the session card's `inviteMember`/`removeMember` call it on
+   success -- immediate, no reload.
+4. The session chat's compose box now suggests "@" mentions: every current
+   participant plus the agent's own handle (`AGENT_HANDLE`), narrowing as
+   you type. Unlike the invite field's username search (a global, unbounded
+   user list needing server-side prefix search and a debounce), a session's
+   participants are few, so this fetches the whole small list once **per
+   mention** (the moment "@" starts one, via the new
+   `GET /{client_id}/participants`) and filters it locally after that --
+   never cached across mentions, so an invite made moments earlier is never
+   stale here either. `/participants` is deliberately reachable by any
+   participant, not owner-only like `/members`: it's read-only, carries none
+   of that route's management capability, and includes the owner (which
+   `/members` doesn't), since a member @mentioning someone needs the
+   owner's name as much as any other participant's. Picking a suggestion
+   splices `@name ` into the compose text at the mention's own span (found
+   via the textarea's `selectionStart`), not a whole-value replace, since a
+   mention can sit anywhere in a longer message, not just at the end.
+   Related, closing a gap `_describe_session` had (an owner asking the agent
+   "are there members here?" got "no members" even when there were --
+   nothing in that function ever looked): it now reports a `members` list
+   (username + role) whenever a session actually has more than just its
+   owner, sourced the same way the new route is, so every tool built on it
+   (`get_context`, `get_session`, `list_sessions`) answers correctly.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record

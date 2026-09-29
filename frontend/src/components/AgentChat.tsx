@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api";
 import { AgentScope, AgentStep, AgentTurn, useAgent } from "../agent/AgentContext";
 import { useSessionSelection } from "../agent/selection";
 import { useAuth } from "../AuthContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
 import { useSessions } from "../sessions/SessionContext";
 import MarkdownLite from "./MarkdownLite";
+
+/** The agent's own @mention handle -- always offered alongside whoever else
+ * is on the session, even one with no other members, since @mentioning it is
+ * always a valid thing to type (it's just never *required* until shared). */
+const AGENT_HANDLE = "platform-agent";
 
 /**
  * One conversation with the platform agent -- the global one, or the chat of
@@ -158,8 +164,72 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   const [input, setInput] = useState("");
   const [attach, setAttach] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const composeRef = useRef<HTMLTextAreaElement | null>(null);
 
   const sessionId = scope === "session" ? viewingSessionId : null;
+
+  // Who "@" can mention in this session's chat: every current participant,
+  // plus the agent's own handle, which is always offerable. Fetched fresh
+  // each time a mention *starts* (below), not cached per session view --
+  // an invite made moments ago has to show up the next time someone types
+  // "@", the same immediacy `refreshShared` gives the chat's own gating.
+  // Small and session-scoped, so unlike the invite field's username search
+  // (a global, unbounded user list) this needs no server-side prefix search
+  // or debounce: fetch the whole small list once per mention, filter it
+  // locally on every keystroke after that.
+  const [participants, setParticipants] = useState<{ username: string }[]>([]);
+  const mentionCandidates = useMemo(() => {
+    const names = participants.map((p) => p.username).filter((name) => name !== user?.username);
+    return [...new Set([...names, AGENT_HANDLE])];
+  }, [participants, user?.username]);
+
+  // The "@word" just before the caret, if any -- `start` is where the "@"
+  // itself sits, so a pick can splice the mention in over exactly that span.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionHighlighted, setMentionHighlighted] = useState(-1);
+  const mentionSuggestions = useMemo(() => {
+    if (!mention) return [];
+    const q = mention.query.toLowerCase();
+    return mentionCandidates.filter((name) => name.toLowerCase().startsWith(q)).slice(0, 8);
+  }, [mention, mentionCandidates]);
+
+  function onComposeChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setInput(value);
+    const caret = e.target.selectionStart ?? value.length;
+    const match = /(?:^|\s)@([A-Za-z0-9_.-]*)$/.exec(value.slice(0, caret));
+    if (match && scope === "session" && sessionId) {
+      if (mention === null) {
+        api
+          .listSessionParticipants(sessionId)
+          .then(setParticipants)
+          .catch(() => setParticipants([]));
+      }
+      setMention({ start: caret - match[1].length - 1, query: match[1] });
+      setMentionHighlighted(-1);
+    } else {
+      setMention(null);
+    }
+  }
+
+  function pickMention(name: string) {
+    if (!mention) return;
+    const before = input.slice(0, mention.start);
+    const after = input.slice(mention.start + 1 + mention.query.length);
+    const inserted = `@${name} `;
+    setInput(before + inserted + after);
+    setMention(null);
+    setMentionHighlighted(-1);
+    // The value above hasn't reached the DOM node yet this tick -- set the
+    // caret once it has, or the browser leaves it where the click landed.
+    requestAnimationFrame(() => {
+      const el = composeRef.current;
+      if (!el) return;
+      const pos = before.length + inserted.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  }
   const turns = scope === "global" ? globalTurns : sessionId ? sessionTurns(sessionId) : [];
   const last = turns[turns.length - 1];
   const checked = selection.summaries.reduce((n, s) => n + s.count, 0);
@@ -216,21 +286,66 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             {selection.summaries.map((s) => `${s.count} in ${s.pane}`).join(", ")})
           </label>
         )}
-        <textarea
-          className="agent-compose-input"
-          value={input}
-          rows={2}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder={shared ? "Chat, or mention @platform-agent…" : scope === "session" ? "Ask about this session…" : "Ask the agent…"}
-          aria-label={scope === "session" ? "Message the agent about this session" : "Message the agent"}
-          disabled={!!unavailable}
-        />
+        <div className="agent-compose-field">
+          <textarea
+            ref={composeRef}
+            className="agent-compose-input"
+            value={input}
+            rows={2}
+            onChange={onComposeChange}
+            onKeyDown={(e) => {
+              if (mention && mentionSuggestions.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionHighlighted((i) => (i + 1) % mentionSuggestions.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionHighlighted((i) => (i <= 0 ? mentionSuggestions.length - 1 : i - 1));
+                  return;
+                }
+                if (e.key === "Escape") {
+                  setMention(null);
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  pickMention(mentionSuggestions[mentionHighlighted >= 0 ? mentionHighlighted : 0]);
+                  return;
+                }
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            onBlur={() => setMention(null)}
+            placeholder={shared ? "Chat, or mention @platform-agent…" : scope === "session" ? "Ask about this session…" : "Ask the agent…"}
+            aria-label={scope === "session" ? "Message the agent about this session" : "Message the agent"}
+            disabled={!!unavailable}
+          />
+          {mention && mentionSuggestions.length > 0 && (
+            <div className="username-suggestions" role="listbox">
+              {mentionSuggestions.map((name, i) => (
+                <button
+                  key={name}
+                  type="button"
+                  role="option"
+                  aria-selected={i === mentionHighlighted}
+                  className={"username-suggestion" + (i === mentionHighlighted ? " active" : "")}
+                  onMouseDown={(e) => {
+                    // Picks before the textarea's own onBlur can close this out from under the click.
+                    e.preventDefault();
+                    pickMention(name);
+                  }}
+                >
+                  @{name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="agent-compose-actions">
           {scope === "global" && (
             <label className="agent-follow" title="Go to each session the agent works on, as it gets there">
