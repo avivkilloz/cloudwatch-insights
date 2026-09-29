@@ -614,6 +614,29 @@ still works; an `@mention` still shows the question, with the existing
 pre-fix code (the box is disabled, nothing can be typed at all); `tsc
 --noEmit` clean; smoke51/53/54 unaffected.
 
+**Two reports about the agent's answers themselves (done/mitigated).**
+`MarkdownLite.tsx` only recognized a heading or table when a blank line
+sat around it -- a real model's output often doesn't, so one landed as a
+literal `<p>`, "|" and "###" shown as plain text. Rewritten to scan a
+block's lines and catch a heading/table/list wherever it starts, not just
+at `lines[0]` of a whole blank-line-delimited block. New `smoke56.mjs` (6
+checks, `dev/fake_llm.py`'s new `"markdown"` script -- a table with no
+blank line before it, a heading with none after); fails against the
+pre-fix renderer (table doesn't render, heading text shows literally).
+Also reported: the agent sometimes answers from an earlier run instead of
+running the tool again for a new request, and answers about a session
+without re-reading it first -- worse once a session has other members.
+Checked the orchestration code (`agent.py`, `routers/agent.py`) for an
+actual bug first: `focus`/`viewing_session_id` are already passed on every
+session-scope turn, nothing skips a tool call on its own account -- this
+is the underlying model's own instruction-following, not something fixable
+with certainty here. Mitigated the one lever this codebase has:
+`prompt.py`'s wording is now more emphatic about running the tool for
+*this* turn's request and never answering from an earlier run, and about
+calling `get_session` again before answering about a session's current
+state. No test asserts on this (the fake model doesn't read the prompt);
+`tsc --noEmit` and `platform-agent/tests` (6/6) both clean.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

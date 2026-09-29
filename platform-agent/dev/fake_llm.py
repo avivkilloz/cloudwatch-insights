@@ -16,6 +16,10 @@ Scripts (the user's message decides):
 - "add <kind>"     -- a pane of the kind whose name starts with <kind> (e.g.
                       "add mqtt") added to the session being looked at.
 - "break"          -- a tool call that fails, and the model saying so.
+- "markdown"       -- a reply mixing a table and a heading straight into
+                      surrounding prose, no blank line either side -- what a
+                      real model sends often enough that the renderer has to
+                      cope with it, not just the tidy blank-line-delimited shape.
 - "rows"           -- (a session's chat) says how many checked rows came
                       attached to the question, and from which panes.
 - "query <text>"   -- (a session's chat) writes <text> as the query of the
@@ -163,6 +167,16 @@ def _next(text: str, results: list[tuple[str, Any]]) -> dict:
                 inputs={"queryString": wanted},
             )
         return _say(f"Wrote the query into {takes_query[0]['title']}.")
+    if lowered.startswith("markdown"):
+        return _say(
+            "Here are the things I found:\n"
+            " Thing Name | Connected |\n"
+            "|------------|-----------|\n"
+            "| Z3563HMR | No |\n"
+            "| J2354KNC | Yes |\n"
+            "### Summary\n"
+            "One of two is connected."
+        )
     if lowered.startswith("break"):
         if step == 0:
             return _call("run_pane", session_id="no-such-session", pane_id="nope")

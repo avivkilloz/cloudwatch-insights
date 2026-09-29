@@ -53,42 +53,80 @@ function parseTextBlocks(text: string, keyBase: number): ReactNode[] {
   return blocks.map((block, i) => renderBlock(block, `${keyBase}-${i}`));
 }
 
+const BULLET_RE = /^\s*[-*+]\s+/;
+const ORDERED_RE = /^\s*\d+\.\s+/;
+const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+
+/** Scans a block's lines for headings, tables and lists wherever they start,
+ * rather than requiring the whole block to be one shape -- the model doesn't
+ * reliably put a blank line before a heading or table, and a block that
+ * mixes prose with one (a common shape: "Here's what I found:\n| Name |...")
+ * used to fall through to one plain paragraph, "###" and all, because only
+ * `lines[0]`/`lines.length === 1` were ever checked. */
 function renderBlock(block: string, key: string): ReactNode {
   const lines = block.split("\n");
+  const nodes: ReactNode[] = [];
+  let i = 0;
+  let n = 0;
 
-  if (lines.length >= 2 && lines[0].includes("|") && TABLE_SEPARATOR_RE.test(lines[1].trim())) {
-    return renderTable(lines, key);
-  }
+  const isTableStart = (idx: number): boolean =>
+    lines[idx].includes("|") && idx + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[idx + 1].trim());
 
-  const headingMatch = /^(#{1,6})\s+(.*)$/.exec(lines[0]);
-  if (headingMatch && lines.length === 1) {
-    return (
-      <div key={key} style={{ fontWeight: 600, margin: "8px 0 4px" }}>
-        {renderInline(headingMatch[2], key)}
-      </div>
+  while (i < lines.length) {
+    const headingMatch = HEADING_RE.exec(lines[i]);
+    if (headingMatch) {
+      nodes.push(
+        <div key={`${key}-${n}`} style={{ fontWeight: 600, margin: "8px 0 4px" }}>
+          {renderInline(headingMatch[2], `${key}-${n++}`)}
+        </div>,
+      );
+      i++;
+      continue;
+    }
+
+    if (isTableStart(i)) {
+      let end = i + 2;
+      while (end < lines.length && lines[end].trim() !== "" && lines[end].includes("|")) end++;
+      nodes.push(renderTable(lines.slice(i, end), `${key}-${n++}`));
+      i = end;
+      continue;
+    }
+
+    if (BULLET_RE.test(lines[i]) || ORDERED_RE.test(lines[i])) {
+      const ordered = ORDERED_RE.test(lines[i]);
+      const test = ordered ? ORDERED_RE : BULLET_RE;
+      let end = i;
+      while (end < lines.length && test.test(lines[end])) end++;
+      const items = lines.slice(i, end);
+      const ListTag = ordered ? "ol" : "ul";
+      nodes.push(
+        <ListTag key={`${key}-${n}`} style={{ margin: "4px 0", paddingLeft: 20 }}>
+          {items.map((l, li) => (
+            <li key={li} style={{ fontSize: 13 }}>
+              {renderInline(l.replace(/^\s*([-*+]|\d+\.)\s+/, ""), `${key}-${n}-${li}`)}
+            </li>
+          ))}
+        </ListTag>,
+      );
+      n++;
+      i = end;
+      continue;
+    }
+
+    // Plain text: a run of lines that don't start a heading, table or list.
+    let end = i + 1;
+    while (end < lines.length && !HEADING_RE.test(lines[end]) && !isTableStart(end) && !BULLET_RE.test(lines[end]) && !ORDERED_RE.test(lines[end])) {
+      end++;
+    }
+    nodes.push(
+      <p key={`${key}-${n}`} style={{ whiteSpace: "pre-wrap", margin: "4px 0" }}>
+        {renderInline(lines.slice(i, end).join("\n"), `${key}-${n++}`)}
+      </p>,
     );
+    i = end;
   }
 
-  const isBulletList = lines.every((l) => /^\s*[-*+]\s+/.test(l));
-  const isOrderedList = lines.every((l) => /^\s*\d+\.\s+/.test(l));
-  if (isBulletList || isOrderedList) {
-    const ListTag = isOrderedList ? "ol" : "ul";
-    return (
-      <ListTag key={key} style={{ margin: "4px 0", paddingLeft: 20 }}>
-        {lines.map((l, i) => (
-          <li key={i} style={{ fontSize: 13 }}>
-            {renderInline(l.replace(/^\s*([-*+]|\d+\.)\s+/, ""), `${key}-${i}`)}
-          </li>
-        ))}
-      </ListTag>
-    );
-  }
-
-  return (
-    <p key={key} style={{ whiteSpace: "pre-wrap", margin: "4px 0" }}>
-      {renderInline(lines.join("\n"), key)}
-    </p>
-  );
+  return <Fragment key={key}>{nodes}</Fragment>;
 }
 
 function renderTable(lines: string[], key: string): ReactNode {
