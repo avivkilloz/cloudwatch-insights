@@ -19,6 +19,13 @@ LiteLLM and Bedrock, and neither is specific to one model or one tool:
   an answer that ends by announcing a step ("Let me search now:") it never
   took. The user saw the turn stop. Such a step is asked once, per turn, to
   carry on; the reply it gives instead is what the turn keeps.
+- **An answer built from nothing this turn returned.** In a shared chat a
+  member without IoT Prod was told "Found 20 things in IoT Prod" and shown
+  another person's earlier rows, no tool called. grounding.py already
+  noticed and put a warning under it; now such an answer is taken back
+  (its id goes in `discarded`, and the turn retracts its words) and the
+  model is asked once to run the tool or say it can't. Only a second
+  answer that still does it is shown, with the warning.
 """
 
 import json
@@ -29,6 +36,7 @@ from typing import Any, Optional
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage
 
+from . import grounding
 from .text import CLOSE
 
 # What Bedrock (and most providers) accept as a tool name or tool call id.
@@ -36,10 +44,21 @@ VALID_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # A valid name for a call nobody could read, answered "not a valid tool".
 UNREADABLE = "unreadable_tool_call"
 
+# Both start the same way: the model is told they aren't the user's words.
+FROM_PLATFORM = "(From the platform, not the user:"
 NUDGE = (
-    "(From the platform, not the user: your last reply ended without an answer or a tool call. Carry on -- make "
-    "the tool call you meant to, or give your answer.)"
+    f"{FROM_PLATFORM} your last reply ended without an answer or a tool call. Carry on -- make the tool call you "
+    "meant to, or give your answer.)"
 )
+
+
+def correction(missing: list[str]) -> str:
+    quoted = ", ".join(f"“{m}”" for m in missing[:3])
+    return (
+        f"{FROM_PLATFORM} your answer gives details ({quoted}) that nothing this turn returned. Earlier messages don't "
+        "count: they may be out of date, or someone else's. If results are wanted, run the tool now and answer from "
+        "what it returns; if you can't, say so plainly.)"
+    )
 
 
 def _text(content: Any) -> str:
@@ -50,14 +69,36 @@ def _text(content: Any) -> str:
     return ""
 
 
+def _visible(message: AIMessage) -> str:
+    return _text(message.content).rsplit(CLOSE, 1)[-1].strip()
+
+
 def stopped_short(message: AIMessage) -> bool:
     """Whether a step ended with nothing the user can use: no tool call, and
     either no answer (only reasoning, or nothing) or one that ends on the
     colon of a step it announced and never took."""
     if message.tool_calls or message.invalid_tool_calls:
         return False
-    visible = _text(message.content).rsplit(CLOSE, 1)[-1].strip()
+    visible = _visible(message)
     return not visible or visible.endswith(":")
+
+
+def _this_turn(messages: list) -> list[str]:
+    """What this turn has seen, for grounding an answer: the user's latest
+    message (with the reads attached to it) and every tool call and result
+    since."""
+    start = max(
+        (i for i, m in enumerate(messages) if isinstance(m, HumanMessage) and not _text(m.content).startswith(FROM_PLATFORM)),
+        default=0,
+    )
+    seen: list[str] = []
+    for m in messages[start:]:
+        if isinstance(m, HumanMessage) and _text(m.content).startswith(FROM_PLATFORM):
+            continue
+        seen.append(_text(m.content))
+        for call in getattr(m, "tool_calls", None) or []:
+            seen.append(json.dumps(call.get("args"), ensure_ascii=False))
+    return seen
 
 
 def _json_in(text: str) -> Optional[dict]:
@@ -112,6 +153,10 @@ class TurnGuard(AgentMiddleware):
         super().__init__()
         self.names = tool_names | {UNREADABLE}
         self.nudged = False
+        self.corrected = False
+        # Ids of answers replaced by a corrected one, whose words the turn
+        # takes back from the chat.
+        self.discarded: set[str] = set()
 
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelResponse:
         response = await handler(request)
@@ -119,6 +164,15 @@ class TurnGuard(AgentMiddleware):
         if message is not None and not self.nudged and stopped_short(message):
             self.nudged = True
             response = await handler(request.override(messages=[*request.messages, message, HumanMessage(NUDGE)]))
+            message = _last_ai(response)
+        if message is not None and not self.corrected and not (message.tool_calls or message.invalid_tool_calls):
+            missing = grounding.ungrounded(_visible(message), _this_turn(request.messages))
+            if missing:
+                self.corrected = True
+                if message.id:
+                    self.discarded.add(message.id)
+                retry = [*request.messages, message, HumanMessage(correction(missing))]
+                response = await handler(request.override(messages=retry))
         return ModelResponse(
             result=[repair(m, self.names) if isinstance(m, AIMessage) else m for m in response.result],
             structured_response=response.structured_response,

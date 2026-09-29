@@ -66,6 +66,8 @@ function describe(step: AgentStep): string {
       return done ? "Filled in a pane" : "Filling in a pane…";
     case "run_pane":
       return done ? "Ran a pane" : "Running a pane…";
+    case "inspect_row":
+      return done ? "Looked at a row in full" : "Looking at a row…";
     case "unreadable_tool_call":
       // The model's tool call came back garbled; the agent answered it as a
       // call to no tool, so the model could try again (platform-agent's repair.py).

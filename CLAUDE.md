@@ -638,12 +638,27 @@ fixed where it happens:
   `temperature` is no longer pinned to 0 (`AGENT_TEMPERATURE`, Helm
   `agent.temperature`, unset by default): greedy decoding is what reasoning
   models are documented to loop under. `AGENT_MAX_TOKENS` caps a step.
-- **An answer whose details no tool returned carries a warning**
-  (`grounding.py`, a `notice` event): its table cells and `code` spans are
-  looked for in the turn's tool outputs, tool args and the user's own
-  message (attached rows count); when most of 3+ are found nowhere, the
-  browser shows it under the answer. It checks, it doesn't block -- the
-  answer still shows, flagged.
+- **An answer whose details no tool returned is taken back and redone**
+  (`grounding.py`, checked in `TurnGuard`): its table cells and `code`
+  spans are looked for in this turn's tool outputs, tool args and the
+  user's own message with its reads (attached rows count); when most of 3+
+  are found nowhere, the answer's id goes in `guard.discarded`, the turn
+  retracts its words, and the model is told once which details nothing
+  returned and to run the tool or say it can't. A member was shown another
+  person's earlier rows as "Found 20 things in IoT Prod", nothing run. A
+  second answer that still does it shows, with the warning (`notice`) under
+  it, as before.
+- **A row can be looked at in full** (`inspect_row`): the run's sample cuts
+  values down, and a search can't show what only a row's own detail holds.
+  A kind opts in from its registry entry (`PaneKind.rows`, the last run as
+  rows in sample order; `detail`, a second look-up, acting as the caller
+  and refused for an environment they can't reach), and `get_context` says
+  which kinds can. IoT's detail is the thing's shadows, certificates and
+  jobs -- a model asked about "deviceType in the Search shadow" had written
+  a filter on a shape it never saw, misread the error, and said shadow
+  indexing was off. The prompt's matching rule is generic: an error or an
+  empty result is about the input first; look at the data and try another
+  form before calling a feature missing.
 - **Acting "on behalf of" someone else is refused by the server**, not just
   the prompt: a run acts as the asker, so a shared pane its owner pointed
   at an environment the asker can't see gets that environment's "not

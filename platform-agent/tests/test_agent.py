@@ -278,8 +278,22 @@ def test_a_step_going_round_in_circles_is_stopped(settings):
     assert _answer(events) == ""
 
 
-def test_an_answer_with_rows_no_tool_returned_carries_a_notice(settings):
+def test_an_answer_with_rows_no_tool_returned_is_taken_back_and_redone(settings):
+    # A member without IoT Prod was shown another person's earlier rows as
+    # "Found 20 things in IoT Prod", nothing run. The answer is taken back
+    # out of the chat and the model asked once to run the tool or say so.
+    fake_llm.REQUESTS.clear()
     events = _events(settings, "invent")
+    assert _answer(events) == "I haven't run a search this turn, so I have no results to show yet."
+    assert any(e["type"] == "retract" for e in events)
+    assert not [e for e in events if e["type"] == "notice"]
+    assert len(fake_llm.REQUESTS) == 2 and "nothing this turn returned" in fake_llm.REQUESTS[1]["messages"][-1]["content"]
+    assert events[-1] == {"type": "done"}
+
+
+def test_an_answer_that_still_invents_rows_carries_a_notice(settings):
+    events = _events(settings, "invent stubborn")
+    assert "test-device-001" in _answer(events)
     notice = next(e for e in events if e["type"] == "notice")
     assert "test-device-001" in notice["message"]
     assert events[-1] == {"type": "done"}

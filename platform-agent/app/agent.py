@@ -225,9 +225,8 @@ async def run_turn(
         session = seen[-1] if len(seen) > before else None
 
     prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
-    agent = create_agent(
-        model or build_model(settings), tools, system_prompt=prompt, middleware=[TurnGuard(set(by_name))]
-    )
+    guard = TurnGuard(set(by_name))
+    agent = create_agent(model or build_model(settings), tools, system_prompt=prompt, middleware=[guard])
     history = conversation(messages, set(by_name))
     # The reads go with the message they were made for, as the last thing the
     # model reads -- not in the system prompt, many turns of conversation
@@ -268,6 +267,13 @@ async def run_turn(
                 if not (isinstance(message, AIMessageChunk) and meta.get("langgraph_node") == "model"):
                     continue
                 if step is not None and message.id and step_id and message.id != step_id:
+                    if step_id in guard.discarded:
+                        # An answer TurnGuard replaced with a corrected one:
+                        # its words come back out of the chat.
+                        for event in [*step.end(), *step.abandon()]:
+                            yield event
+                        thought = thought or bool(step.thinking)
+                        step, step_id, checked = None, None, 0
                     for event in finish_step():
                         yield event
                 if step is None:

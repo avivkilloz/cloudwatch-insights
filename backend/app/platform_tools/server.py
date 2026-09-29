@@ -279,6 +279,54 @@ async def get_session(session_id: str) -> dict:
         return _describe_session(db, row, user.id, detail=True)
 
 
+# What inspect_row hands back at most; a row with a huge value is cut down.
+INSPECT_CHARS = 20_000
+
+
+def _bounded(value: Any) -> Any:
+    if len(json.dumps(value, default=str)) <= INSPECT_CHARS:
+        return value
+    if isinstance(value, dict):
+        return {k: _bounded(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_bounded(v) for v in value[:50]]
+    if isinstance(value, str):
+        return value[:2000] + "…"
+    return value
+
+
+@mcp.tool()
+async def inspect_row(session_id: str, pane_id: str, row: int) -> dict:
+    """One row of a pane's last run in full, rather than the run's shortened sample -- and for some kinds more than
+    the run fetched (get_context's pane_kinds say which, under inspect_row). `row` counts from 0 in the order the run's
+    sample listed them. Look at one before writing a filter on data you haven't seen the shape of. Changes nothing."""
+    with _acting() as (db, user, caller):
+        found, _ = live_store.reachable(db, user.id, session_id)
+        if found is None:
+            raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
+        kind = kind_for(user, _pane(found.state, pane_id))
+        if kind.rows is None:
+            raise InputError(f"{kind.label} panes have no rows to inspect.")
+        values = pane_values(found.state, pane_id)
+        rows = kind.rows(values)
+        if not rows:
+            raise InputError("This pane has no results yet. Run it first.")
+        if not 0 <= row < len(rows):
+            raise InputError(f"There's no row {row}: the last run has rows 0 to {len(rows) - 1}.")
+        picked = rows[row]
+        if kind.detail is not None:
+            # A second look-up acts as the caller, like a run: in a shared
+            # session the row may be from an environment only its owner has.
+            environment_id = picked.get("environment_id")
+            if environment_id is not None and environment_id not in {e.id for e in _environments(db, user)}:
+                raise InputError(
+                    f"That row is from environment {environment_id}, which you can't reach, so it can't be looked "
+                    "up for you."
+                )
+            picked = await kind.detail(RunContext(db=db, user=user, timezone=caller.timezone), values, picked)
+        return {"session_id": session_id, "pane_id": pane_id, "row": row, "of": len(rows), "detail": _bounded(picked)}
+
+
 # ---------------------------------------------------------------- names for inputs
 
 

@@ -26,7 +26,8 @@ Scripts (the user's message decides):
 - "loop"           -- the same few sentences of plan, over and over, never
                       calling anything: what a reasoning model at
                       temperature 0 was seen doing.
-- "invent"         -- a table of results that no tool ever returned.
+- "invent"         -- a table of results that no tool ever returned; told
+                      so, it owns up. "invent stubborn" does it again.
 - "whoami"         -- answers with the user and environments in the context
                       the turn was started with (the reads after the message).
 - "garble"         -- a tool call whose name is the provider's failed parse of
@@ -142,6 +143,8 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: bo
     if lowered.startswith("loop"):
         return _say(LOOP * 30)
     if lowered.startswith("invent"):
+        if nudged and not lowered.startswith("invent stubborn"):
+            return _say("I haven't run a search this turn, so I have no results to show yet.")
         return _say(
             "The search completed. The IoT pane shows these things:\n"
             "| Thing Name |\n|------------|\n"

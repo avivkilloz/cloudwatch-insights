@@ -714,6 +714,16 @@ check (see CLAUDE.md). Tests: 5 new turn tests plus 2 updated, all failing
 on the old `app/` (the garbled-name one with the transcript's exact 400);
 backend 227; smoke45 and smoke57 22/22 each.
 
+Then the two items that commit left open, still with no per-service
+tuning. First, an answer whose details nothing this turn returned is now
+taken back and redone once (`TurnGuard`, `grounding`); only a second one
+still like that keeps the warning. Second, `inspect_row` shows one row of
+a pane's last run in full, with a kind's own second look-up (IoT: shadows,
+certificates, jobs), plus a generic prompt rule to treat an error as
+feedback on the input. Tests: agent 25 (the redo test fails on the old
+`app/`), backend 229 (2 new inspect tests), smoke57 24/24 (with the retract
+checked in the browser), smoke45 22/22.
+
 Follow-up in #98, after the user's two questions:
 - The IoT shadow tips added to `panes.py` came back out. The user's rule:
   no per-service tuning of the agent, since plugins will add services

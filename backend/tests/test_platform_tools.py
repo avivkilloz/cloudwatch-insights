@@ -572,6 +572,73 @@ def test_filling_or_running_a_minimised_pane_unfolds_it(mcp):
     assert live_store.untag(_row(session).state["minimized"]) == []
 
 
+def test_inspect_row_shows_a_row_in_full_and_a_things_shadows(mcp, monkeypatch):
+    # A search's sample shows a thing's summary, never its shadows -- so a
+    # model asked about "deviceType in the Search shadow" wrote a filter on a
+    # shape it had never seen, misread the error, and told the user shadow
+    # indexing was off. A row can now be looked at in full, the way the pane
+    # shows it on expanding it.
+    env = _environment("IoT Prod", "999988887777")
+    monkeypatch.setattr(
+        iot_client,
+        "search_things",
+        lambda *_a, **_k: [{"thing_name": "Z3563HMR", "thing_id": "t1", "attributes": {}, "connected": False}],
+    )
+    looked: list[tuple] = []
+
+    def detail(account, region, role, thing_name):
+        looked.append((account, thing_name))
+        return {"thing_name": thing_name, "shadows": [{"name": "Search", "reported": {"deviceType": "0x65"}}]}
+
+    monkeypatch.setattr(iot_client, "get_thing_detail", detail)
+    token = _token()
+    session = call(mcp, token, "create_session", title="IoT", panes=[{"kind": "iot"}])["session_id"]
+    assert "no results yet" in call_error(mcp, token, "inspect_row", session_id=session, pane_id="iot", row=0)
+    call(mcp, token, "run_pane", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [env]})
+
+    out = call(mcp, token, "inspect_row", session_id=session, pane_id="iot", row=0)
+    assert looked == [("999988887777", "Z3563HMR")]
+    assert out["of"] == 1 and out["detail"]["shadows"] == [
+        {"name": "Search", "reported": {"deviceType": "0x65"}, "desired": {}, "version": None, "last_updated": None}
+    ]
+    assert out["detail"]["environment"] == "IoT Prod"
+    assert "no row 3" in call_error(mcp, token, "inspect_row", session_id=session, pane_id="iot", row=3)
+    # get_context says which kinds can be inspected, and how far.
+    kinds = {k["kind"]: k for k in call(mcp, token, "get_context")["pane_kinds"]}
+    assert "shadows" in kinds["iot"]["inspect_row"] and "inspect_row" not in kinds["tool-base64"]
+
+    # In a shared session, a member without that environment can't have its
+    # detail looked up -- a second look-up acts as them, like a run.
+    bob = _group(agent_enabled=True, iot_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "viewer"})
+    error = call_error(mcp, _token(bob), "inspect_row", session_id=session, pane_id="iot", row=0)
+    assert f"environment {env}, which you can't reach" in error and len(looked) == 1
+
+
+def test_inspect_row_gives_a_log_row_uncut(mcp, monkeypatch):
+    long_message = "x" * (panes.MAX_CELL_CHARS + 500)
+    token = _token()
+    session = call(mcp, token, "create_session", title="Logs", panes=[{"kind": "logs-cloudwatch"}])["session_id"]
+    db = SessionLocal()
+    try:
+        live_store.mutate(
+            db,
+            _admin().id,
+            session,
+            lambda s, _r, _m: s.__setitem__(
+                "logs-cloudwatch.results",
+                [{"environment_id": 1, "rows": [[{"field": "@message", "value": long_message}, {"field": "@ptr", "value": "p"}]]}],
+            ),
+            None,
+        )
+    finally:
+        db.close()
+    out = call(mcp, token, "inspect_row", session_id=session, pane_id="logs-cloudwatch", row=0)
+    assert out["detail"] == {"@message": long_message}
+    base64 = call(mcp, token, "add_pane", session_id=session, kind="tool-base64")["pane_id"]
+    assert "no rows to inspect" in call_error(mcp, token, "inspect_row", session_id=session, pane_id=base64, row=0)
+
+
 def test_a_browser_holding_an_old_version_is_refused_after_the_agent_writes(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]
