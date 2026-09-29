@@ -248,24 +248,38 @@ def test_nobody_can_run_a_shared_pane_with_the_owners_access(mcp, monkeypatch):
         iot_client, "search_things", lambda account, *_a, **_k: searched.append(account) or [{"thing_name": "t"}]
     )
     prod = _environment("IoT Prod", "999988887777")
+    test = _environment("IoT Test", "111100001111")
     owner = _token()
     session = call(mcp, owner, "create_session", title="Shared", panes=[{"kind": "iot"}])["session_id"]
     call(mcp, owner, "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
-    bob = _group(agent_enabled=True, iot_enabled=True)
+    groups = client.post(
+        "/api/user-groups",
+        json={"name": "Backend", "role_name": "R", "environment_ids": [test], "agent_enabled": True, "iot_enabled": True},
+    )
+    assert groups.status_code == 201, groups.text
+    bob = client.post("/api/users", json={"username": "bob", "password": "pw-123456", "group_id": groups.json()["id"]})
+    bob = bob.json()["id"]
     client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
 
-    out = call(mcp, _token(bob), "run_pane", session_id=session, pane_id="iot")
+    # Refused before anything reaches AWS, saying which input to change and
+    # to what -- a bare "Environment 2 is not configured" sent a model round
+    # in circles calling IoT Test missing when it was the pane's Prod.
+    error = call_error(mcp, _token(bob), "run_pane", session_id=session, pane_id="iot")
     assert searched == []
-    assert out["total"] == 0 and "not configured" in out["environments"][0]["error"]
+    assert f"environment {prod}, which you can't reach" in error and f"{test} (IoT Test)" in error
     # Nor can they name it themselves.
     error = call_error(mcp, _token(bob), "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
     assert "isn't visible" in error
     # Their own context never lists it, whoever else is in the chat.
-    assert [e["name"] for e in call(mcp, _token(bob), "get_context")["environments"]] == []
+    assert [e["name"] for e in call(mcp, _token(bob), "get_context")["environments"]] == ["IoT Test"]
+    # Pointed at their own, it runs, as them.
+    out = call(mcp, _token(bob), "run_pane", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [test]})
+    assert searched == ["111100001111"] and out["total"] == 1
 
-    # The owner's own run does reach it.
+    # The owner's own run does reach Prod.
+    call(mcp, owner, "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
     out = call(mcp, owner, "run_pane", session_id=session, pane_id="iot")
-    assert searched == ["999988887777"] and out["total"] == 1
+    assert searched == ["111100001111", "999988887777"] and out["total"] == 1
 
 
 def test_a_shared_sessions_pane_is_still_gated_by_the_members_own_group_not_the_owners(mcp):

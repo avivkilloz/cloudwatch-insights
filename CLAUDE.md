@@ -587,16 +587,42 @@ asked first, even after "refresh and check again" -- traced to these, each
 fixed where it happens:
 - **Every turn opens with its own reads** (`agent.py`, `_read`): `get_context`,
   and `get_session` in a session chat, called by the agent service before
-  the model says a word, put into the system prompt (`prompt.context_prompt`)
-  and shown in the chat as steps (`preamble: true`; "Checked who's asking and
+  the model says a word, attached after the latest message
+  (`prompt.turn_reads`, marked `READS_MARK`) -- not in the system prompt,
+  where a long shared chat left them far from the question and a model
+  answered an admin from what an earlier answer told someone without their
+  access -- and shown in the chat as steps (`preamble: true`; "Checked who's asking and
   what they can reach"). A shared chat's turns are each minted for whoever
   sent that message, so this read is always *theirs* -- the prompt says it
   replaces anything earlier in the conversation about access. The model can
   still call both again itself.
 - **History carries each answer's tool steps**, not only its words: the
-  browser sends `steps` (name, args, ok, the kept 300-char summary; preamble
-  steps left out, each turn makes its own) with each assistant message, and
-  `agent.conversation()` rebuilds them as real tool calls and results. With
+  browser sends `steps` (the provider's own call id, name, args, ok, the kept
+  300-char summary; preamble steps left out, each turn makes its own) with
+  each assistant message, and `agent.conversation()` rebuilds them as real
+  tool calls and results -- **only with that provider id**, and only for a
+  tool this turn has under a valid name. Ids invented here (`h25_0`) were
+  copied by a model whose chat template writes a call as its id then its
+  arguments: it sent `h25_0 <|tool_call_argument_begin|>...` back as a tool's
+  name. A step without a usable id goes as words only.
+- **What the model sends back is made safe before anything sees it**
+  (`repair.py`, `TurnGuard`, a `create_agent` middleware). A tool call whose
+  name isn't one of the turn's tools is recovered to the tool it contains
+  (`functions.run_pane:0`, args parsed from the markup) or renamed
+  `unreadable_tool_call`, which is answered "not a valid tool" so the model
+  can retry; unparseable-argument calls become ordinary calls, so each gets
+  its answer. Sent back as it was, Bedrock refused the whole request
+  (names must match `[a-zA-Z0-9_-]+`) and the turn died with a 400. And a
+  step that ends with no tool call and no answer, or on the colon of a step
+  it announced and never took ("Let me search now:"), is asked once per
+  turn to carry on (`NUDGE`); still nothing, and the turn ends with a
+  readable error instead of stopping silently. `dev/fake_llm.py` refuses
+  bad tool names the way Bedrock does, so the tests reproduce the 400.
+- **A run of a pane pointed at an environment the asker can't reach is
+  refused up front** (`server._check_reachable`), naming the input and the
+  asker's own environments. It used to run and fail per environment with a
+  bare "Environment 2 is not configured", which a model in a shared chat
+  read as "IoT Test isn't there" and went round in circles. With
   only words, a made-up answer and a real run looked the same next turn, and
   another person's get_context was indistinguishable from a fact.
 - **Reasoning is kept apart from the answer** (`text.py`). These models put

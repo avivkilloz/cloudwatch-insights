@@ -28,7 +28,15 @@ Scripts (the user's message decides):
                       temperature 0 was seen doing.
 - "invent"         -- a table of results that no tool ever returned.
 - "whoami"         -- answers with the user and environments in the context
-                      the turn was started with (from the system prompt).
+                      the turn was started with (the reads after the message).
+- "garble"         -- a tool call whose name is the provider's failed parse of
+                      the model's markup (`h3_0 <|tool_call_argument_begin|>
+                      {...}`), then says whether it went through.
+- "garble run"     -- the same, but the markup names a real tool
+                      (`functions.run_pane:0...`), so it can be recovered.
+- "announce"       -- ends its step on "Let me search now:" without calling
+                      anything; asked to carry on, it runs the pane.
+- "silent"         -- says nothing at all, however it's asked.
 - "rows"           -- (a session's chat) says how many checked rows came
                       attached to the question, and from which panes.
 - "query <text>"   -- (a session's chat) writes <text> as the query of the
@@ -52,19 +60,32 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 app = FastAPI(title="Fake model")
 
+# How the agent's reads and its one nudge are told apart from the user's own
+# words (app/prompt.py, app/repair.py).
+READS_MARK = "\n\n---\n[Read by the platform for this message"
+NUDGE_MARK = "(From the platform, not the user:"
+
 STEP_DELAY = float(os.environ.get("FAKE_LLM_STEP_DELAY", "0"))
 
 # The last few requests, newest last, for tests to read what the agent sent.
 REQUESTS: list[dict] = []
 
 
-def _turn(messages: list[dict]) -> tuple[str, list[tuple[str, Any]]]:
-    """The user's latest message, and the (tool name, parsed result) of every
-    tool call made since it, in order."""
-    last_user = max(i for i, m in enumerate(messages) if m.get("role") == "user")
-    text = messages[last_user].get("content")
+def _content(message: dict) -> str:
+    text = message.get("content")
     if isinstance(text, list):
         text = "".join(b.get("text", "") for b in text if isinstance(b, dict))
+    return text or ""
+
+
+def _turn(messages: list[dict]) -> tuple[str, list[tuple[str, Any]]]:
+    """The user's latest message (without the reads the agent attached, or
+    its nudge), and the (tool name, parsed result) of every tool call made
+    since it, in order."""
+    last_user = max(
+        i for i, m in enumerate(messages) if m.get("role") == "user" and not _content(m).startswith(NUDGE_MARK)
+    )
+    text = _content(messages[last_user]).split(READS_MARK, 1)[0]
     names: dict[str, str] = {}
     results: list[tuple[str, Any]] = []
     for m in messages[last_user + 1 :]:
@@ -97,12 +118,19 @@ LOOP = (
 )
 
 
-def _system(messages: list[dict]) -> str:
-    first = messages[0] if messages else {}
-    return first.get("content") if first.get("role") == "system" and isinstance(first.get("content"), str) else ""
+def _reads(messages: list[dict]) -> str:
+    """What the agent read for the latest message, attached after it."""
+    for m in reversed(messages):
+        if m.get("role") == "user" and READS_MARK in _content(m):
+            return _content(m).split(READS_MARK, 1)[1]
+    return ""
 
 
-def _next(text: str, results: list[tuple[str, Any]], system: str = "") -> dict:
+def _nudged(messages: list[dict]) -> bool:
+    return bool(messages) and messages[-1].get("role") == "user" and _content(messages[-1]).startswith(NUDGE_MARK)
+
+
+def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: bool = False) -> dict:
     step = len(results)
     lowered = text.lower()
     if lowered.startswith("think"):
@@ -119,8 +147,23 @@ def _next(text: str, results: list[tuple[str, Any]], system: str = "") -> dict:
             "| Thing Name |\n|------------|\n"
             "| `test-device-001` |\n| `test-sensor-temp-01` |\n| `test-actuator-pump-01` |\n| `test-gateway-alpha` |"
         )
+    if lowered.startswith("garble"):
+        if step == 0:
+            name = 'h3_0 <|tool_call_argument_begin|> {"session_id": "s1", "pane_id": "iot"}'
+            if lowered.startswith("garble run"):
+                name = 'functions.run_pane:0<|tool_call_argument_begin|>{"session_id": "s1", "pane_id": "iot"}'
+            return {"tool": name, "args": {}}
+        return _say(f"Tried it: {results[0][1]}")
+    if lowered.startswith("announce"):
+        if step >= 1:
+            return _say(f"Searched: {results[0][1]}")
+        if nudged:
+            return _call("run_pane", session_id="s1", pane_id="iot")
+        return _say("Let me search now:")
+    if lowered.startswith("silent"):
+        return _say("")
     if lowered.startswith("whoami"):
-        found = re.search(r'get_context:\n(\{.*\})', system)
+        found = re.search(r'get_context:\n(\{.*\})', reads)
         if not found:
             return _say("I wasn't given a context this turn.")
         context = json.loads(found.group(1))
@@ -243,9 +286,19 @@ async def completions(request: Request):
     body = await request.json()
     REQUESTS.append(body)
     del REQUESTS[:-20]
+    # As Bedrock does: a tool name outside [a-zA-Z0-9_-]+ anywhere in the
+    # conversation fails the whole request.
+    for m in body.get("messages") or []:
+        for call in m.get("tool_calls") or []:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", call["function"]["name"]):
+                return JSONResponse(
+                    {"error": {"message": "Value at 'toolUse.name' failed to satisfy constraint: [a-zA-Z0-9_-]+"}},
+                    status_code=400,
+                )
     model = body.get("model", "fake")
     text, results = _turn(body.get("messages") or [])
-    step = _next(text, results, _system(body.get("messages") or []))
+    messages = body.get("messages") or []
+    step = _next(text, results, _reads(messages), _nudged(messages))
     if STEP_DELAY:
         await asyncio.sleep(STEP_DELAY)
     call_id = f"call_{uuid.uuid4().hex[:8]}"

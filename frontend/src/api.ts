@@ -479,6 +479,8 @@ export interface AgentStatus {
 /** A tool an earlier answer used, sent back with it so the agent sees what
  * it actually ran rather than only what it said. */
 export interface AgentHistoryStep {
+  /** The provider's own id for the call, replayed as it was. */
+  id: string;
   name: string;
   args: Record<string, unknown>;
   ok: boolean;

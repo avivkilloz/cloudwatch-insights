@@ -11,6 +11,7 @@ alive through a slow step."""
 
 import asyncio
 import json
+import re
 import socket
 import threading
 import time
@@ -217,8 +218,11 @@ def test_a_session_chat_starts_from_the_session_as_it_is_now(settings):
     events = _events(settings, "hello", focus={"session_id": "s1", "title": "Checkout"})
     reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble")]
     assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("get_session", {"session_id": "s1"})]
-    system = fake_llm.REQUESTS[0]["messages"][0]["content"]
-    assert "get_session (this chat's session):" in system and '"pane_id":"iot"' in system
+    # With the message they were read for, not in the system prompt.
+    sent = fake_llm.REQUESTS[0]["messages"]
+    assert sent[-1]["role"] == "user" and sent[-1]["content"].startswith("hello")
+    assert "get_session (this chat's session):" in sent[-1]["content"] and '"pane_id":"iot"' in sent[-1]["content"]
+    assert "get_session (this chat's session):" not in sent[0]["content"]
 
 
 def test_the_context_is_whoever_asked_this_turn_not_what_an_earlier_answer_said(settings, monkeypatch):
@@ -229,7 +233,9 @@ def test_the_context_is_whoever_asked_this_turn_not_what_an_earlier_answer_said(
         {
             "role": "assistant",
             "content": "There is no IoT Prod environment available.",
-            "steps": [{"name": "get_context", "args": {}, "ok": True, "summary": '{"user": "avivil-backend"}'}],
+            "steps": [
+                {"id": "call_1a2b", "name": "get_context", "args": {}, "ok": True, "summary": '{"user": "avivil-backend"}'}
+            ],
         },
     ]
     monkeypatch.setitem(CONTEXT, "user", "avivil")
@@ -243,6 +249,7 @@ def test_the_context_is_whoever_asked_this_turn_not_what_an_earlier_answer_said(
     sent = fake_llm.REQUESTS[0]["messages"]
     calls = [m for m in sent if m.get("tool_calls")]
     assert calls and calls[0]["tool_calls"][0]["function"]["name"] == "get_context"
+    assert calls[0]["tool_calls"][0]["id"] == "call_1a2b"
     tool = next(m for m in sent if m.get("role") == "tool")
     assert "avivil-backend" in tool["content"]
     assert sent[-2] == {"role": "assistant", "content": "There is no IoT Prod environment available."}
@@ -280,3 +287,75 @@ def test_an_answer_with_rows_no_tool_returned_carries_a_notice(settings):
     # One built from what the tools did return carries none.
     events = _events(settings, "encode hi")
     assert not [e for e in events if e["type"] == "notice"]
+
+
+def _names_sent() -> list[str]:
+    return [
+        call["function"]["name"]
+        for request in fake_llm.REQUESTS
+        for m in request["messages"]
+        for call in m.get("tool_calls") or []
+    ]
+
+
+def test_a_tool_call_with_a_garbled_name_never_goes_back_to_the_provider(settings):
+    # The provider's failed parse of the model's markup came back as a tool
+    # "name". Sent back as it was, Bedrock refused the whole request (names
+    # must match [a-zA-Z0-9_-]+) and the turn died. It is answered as a call
+    # to no tool instead, so the model can try again.
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "garble")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["name"] for c in calls] == ["unreadable_tool_call"]
+    result = next(e for e in events if e["type"] == "tool_result" and e["id"] == calls[0]["id"])
+    assert not result["ok"] and "not a valid tool" in result["summary"]
+    assert "not a valid tool" in _answer(events) and events[-1] == {"type": "done"}
+    assert _names_sent() and all(re.fullmatch(r"[A-Za-z0-9_-]+", n) for n in _names_sent())
+
+
+def test_a_garbled_call_that_names_a_real_tool_is_made(settings):
+    events = _events(settings, "garble run")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [(c["name"], c["args"]) for c in calls] == [("run_pane", {"session_id": "s1", "pane_id": "iot"})]
+    assert next(e for e in events if e["type"] == "tool_result" and e["id"] == calls[0]["id"])["ok"]
+
+
+def test_earlier_steps_go_back_only_with_the_providers_own_ids(settings):
+    # Ids made up here ("h25_0") were copied by the model as a tool's name.
+    # A step without the provider's id, or kept with a garbled name, is left
+    # out; the answer's words still go.
+    earlier = [
+        {"role": "user", "content": "run it"},
+        {
+            "role": "assistant",
+            "content": "Ran it.",
+            "steps": [
+                {"name": "get_context", "args": {}, "ok": True, "summary": "{}"},
+                {"id": "call_x1", "name": "run_pane", "args": {"session_id": "s1", "pane_id": "iot"}, "ok": True},
+                {"id": "call_x2", "name": 'h25_0 <|tool_call_argument_begin|> {"session_id"', "args": {}, "ok": False},
+                {"id": "call_x3", "name": "no_such_tool", "args": {}, "ok": True},
+            ],
+        },
+    ]
+    fake_llm.REQUESTS.clear()
+    _events(settings, "hello", earlier=earlier)
+    sent = fake_llm.REQUESTS[0]["messages"]
+    calls = [c for m in sent for c in m.get("tool_calls") or []]
+    assert [(c["id"], c["function"]["name"]) for c in calls] == [("call_x1", "run_pane")]
+    assert {"role": "assistant", "content": "Ran it."} in sent
+
+
+def test_a_step_that_announces_a_run_and_stops_is_asked_to_carry_on(settings):
+    events = _events(settings, "announce")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["name"] for c in calls] == ["run_pane"]
+    assert _answer(events).startswith("Let me search now:") and "Searched:" in _answer(events)
+    assert events[-1] == {"type": "done"}
+
+
+def test_a_turn_that_says_nothing_ends_with_a_readable_error(settings):
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "silent")
+    assert events[-1]["type"] == "error" and "stopped without answering" in events[-1]["message"]
+    # Asked once to carry on, not more.
+    assert len(fake_llm.REQUESTS) == 2

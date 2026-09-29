@@ -701,7 +701,20 @@ the old `frontend/src`), smoke45 updated for the opening read.
 Still for the user to check on their deployment: the real model with a
 recommended temperature (its model card's; often 0.6).
 
-Follow-up in the same PR, after the user's two questions:
+After #98, from a shared-chat transcript (an admin and a member without
+IoT Prod; a reasoning model behind LiteLLM on Bedrock): turns that stopped
+short, answers from the other person's access, and a Bedrock 400 on a tool
+name at the end. Traced to our own invented history ids (the model copied
+`h25_0` as a tool name), reads parked in the system prompt far from the
+question, and a bare "not configured" for a shared pane's environment.
+Fixed in `repair.py` (tool-call repair, one nudge for an empty or
+announce-and-stop step), `conversation()` (provider ids only), reads
+attached after the latest message, and `run_pane`'s up-front environment
+check (see CLAUDE.md). Tests: 5 new turn tests plus 2 updated, all failing
+on the old `app/` (the garbled-name one with the transcript's exact 400);
+backend 227; smoke45 and smoke57 22/22 each.
+
+Follow-up in #98, after the user's two questions:
 - The IoT shadow tips added to `panes.py` came back out. The user's rule:
   no per-service tuning of the agent, since plugins will add services
   without anyone tuning the agent for them. The system prompt no longer

@@ -696,6 +696,46 @@ def _shown_in(row: models.LiveSession, pane_id: str) -> str:
     return f"the {_pane_title(row.state, pane_id)} pane of the session \"{row.title}\""
 
 
+# Input types that name environments, and where in their stored value the ids are.
+_ENVIRONMENT_INPUTS = ("environments", "environment", "log_groups", "opensearch_indices")
+
+
+def _environment_ids(input_kind: str, value: Any) -> list[Any]:
+    if input_kind == "environments":
+        return list(value) if isinstance(value, list) else []
+    if input_kind == "environment":
+        return [] if value is None else [value]
+    return list(value) if isinstance(value, dict) else []  # keyed by environment id
+
+
+def _check_reachable(db: Session, user: models.User, kind: PaneKind, values: dict) -> None:
+    """Refuses a run of a pane still pointed at an environment the caller
+    can't reach -- in a shared session, one its owner or another member
+    picked. The run would have acted as the caller anyway and failed for that
+    environment with a bare "Environment 2 is not configured", which a model
+    read as "IoT Test isn't there" and went round in circles over. This says
+    which input to change, and to what."""
+    reachable = {e.id: e.name for e in _environments(db, user)}
+    for spec in kind.inputs:
+        if spec.kind not in _ENVIRONMENT_INPUTS or spec.key not in values:
+            continue
+        unreachable = []
+        for value in _environment_ids(spec.kind, values[spec.key]):
+            try:
+                if int(value) in reachable:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            unreachable.append(str(value))
+        if unreachable:
+            yours = ", ".join(f"{i} ({name})" for i, name in reachable.items()) or "none"
+            raise InputError(
+                f"This pane's {spec.key} includes environment {', '.join(unreachable)}, which you can't reach "
+                f"(someone else in this session set it). Set {spec.key} to environments you can reach -- yours are: "
+                f"{yours} -- and run it again."
+            )
+
+
 @mcp.tool()
 async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any]] = None) -> dict:
     """Runs a pane -- a read-only search -- with its current inputs, after setting any `inputs` given (same keys as
@@ -712,6 +752,7 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
         )
         if kind.run is None:
             raise InputError(kind.run_help)
+        _check_reachable(db, user, kind, pane_values(row.state, pane_id))
         # No lock is held while it runs: a query can take a minute, and the
         # user's own edits to the session carry on meanwhile.
         result = await kind.run(RunContext(db=db, user=user, timezone=caller.timezone), pane_values(row.state, pane_id))
