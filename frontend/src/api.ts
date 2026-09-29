@@ -139,6 +139,16 @@ export interface SessionMember {
   permission: SessionPermission;
 }
 
+/** A username-prefix match for the invite field's suggestion dropdown --
+ * deliberately just enough to fill it in, never the full `User` (group,
+ * admin, tab flags): `suggestUsers` is open to any authenticated user, not
+ * just admins, since the invite endpoint it feeds already lets any user
+ * invite any other by exact username, in any group. */
+export interface UserSuggestion {
+  id: number;
+  username: string;
+}
+
 /** Which Logs-page backend a saved query/search is written for -- CloudWatch
  * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
  * aren't interchangeable. */
@@ -553,6 +563,7 @@ export const api = {
     req<User>("/auth/profile", { method: "PUT", body: JSON.stringify({ avatar_url }) }),
 
   listUsers: () => req<User[]>("/users"),
+  suggestUsers: (prefix: string) => req<UserSuggestion[]>(`/users/suggest?prefix=${encodeURIComponent(prefix)}`),
   createUser: (payload: { username: string; password: string; group_id: number }) =>
     req<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
   updateUser: (id: number, payload: Partial<{ group_id: number; password: string }>) =>

@@ -497,6 +497,28 @@ clean (no frontend files touched this phase).
 against its own hand-rolled stub MCP server, never the real
 `platform_tools/server.py`, so nothing in this phase reaches it.
 
+**Invite-field username suggestions (done).** A follow-up to phase 2's UI,
+requested afterward: as you type in the invite field, matching usernames
+suggest, narrowing with every character (asked for as "g" suggests two
+users, "ga" still both, "gab" narrows to one). New `GET
+/api/users/suggest?prefix=` -- open to any authenticated user (unlike the
+admin-only `GET /api/users`), capped at 8 minimal `{id, username}` rows,
+excluding the caller, on the reasoning that the invite endpoint it feeds
+was already an open, cross-group, exact-username invite -- this just makes
+that reach discoverable. Frontend debounces 150ms, filters out existing
+members, supports arrow keys/Enter/Escape, and a click (`onMouseDown` +
+`preventDefault`, so the input's own blur-close doesn't beat the click).
+
+Coverage: 3 new tests in `test_users.py` (prefix match, case-insensitive,
+narrows correctly; excludes self and returns `[]` for an empty prefix or
+none at all; reachable by a non-admin, unlike `list_users`). New
+`smoke52.mjs` (8 checks, three real users -- narrows "g" -> "ga" -> "gab"
+exactly as asked for; picking a suggestion fills the field and the normal
+invite still works; an already-invited user drops out of future
+suggestions); fails against the pre-feature code (times out waiting for
+the dropdown), confirming real new behavior. Full backend suite 205/205;
+`tsc --noEmit` clean.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

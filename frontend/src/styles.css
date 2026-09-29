@@ -3038,9 +3038,49 @@ th {
 }
 
 .session-member-invite .session-card-input {
-  flex: 1;
   min-width: 0;
   height: 28px;
+}
+
+/* Wraps just the username input (not the whole invite row), so the
+   suggestion dropdown anchors under the field alone. */
+.session-member-invite-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.username-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.username-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.username-suggestion:hover,
+.username-suggestion.active {
+  background: var(--panel-alt);
 }
 
 .session-member-invite select {
@@ -3155,7 +3195,7 @@ th {
   flex-wrap: wrap;
 }
 
-.session-card.in-rail .session-member-invite .session-card-input {
+.session-card.in-rail .session-member-invite .session-member-invite-field {
   flex-basis: 100%;
 }
 
