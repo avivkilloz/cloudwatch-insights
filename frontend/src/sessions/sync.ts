@@ -69,6 +69,30 @@ function printOf(value: unknown): string {
   return value === undefined ? ABSENT : encode(value);
 }
 
+// Must match agent/AgentContext.tsx's own SESSION_CHAT_KEY -- duplicated
+// rather than imported, since that module sits above this one (it imports
+// from ../sessions/SessionContext, which imports this file; the reverse
+// import would cycle).
+const SESSION_CHAT_KEY = "agentChat";
+
+/** Every other key is "whichever side changed it wins" (see `pick` above),
+ * fine for a value someone edits in place. A chat log is different: it's an
+ * append-only list several people can add to at once, so the ordinary merge
+ * would let one person's own new message silently overwrite another's sent
+ * in the same debounce window, rather than keeping both. This unions by
+ * turn id instead -- remote's own turns, plus whatever this side added that
+ * base didn't already have -- so no message either side sent is lost. */
+function mergeChatTurns(base: unknown, local: unknown, remote: unknown): unknown {
+  const asTurns = (v: unknown): { id: string }[] => (Array.isArray(v) ? (v as { id: string }[]) : []);
+  const baseIds = new Set(asTurns(base).map((t) => t.id));
+  const remoteTurns = asTurns(remote);
+  const remoteIds = new Set(remoteTurns.map((t) => t.id));
+  const addedHere = asTurns(local).filter((t) => !baseIds.has(t.id) && !remoteIds.has(t.id));
+  // Turn ids are "t<base36 time><base36 counter>": lexicographic order
+  // matches send order closely enough for a chat transcript.
+  return [...remoteTurns, ...addedHere].sort((a, b) => a.id.localeCompare(b.id));
+}
+
 /**
  * Folds a change the server has into this browser's copy of a session.
  *
@@ -98,7 +122,10 @@ export function mergeSession(
   const baseState = base?.state ?? {};
   const state: Record<string, unknown> = {};
   for (const key of new Set([...Object.keys(local.state), ...Object.keys(remote.state)])) {
-    const value = pick(baseState[key], local.state[key], remote.state[key]);
+    const value =
+      key === SESSION_CHAT_KEY
+        ? mergeChatTurns(baseState[key], local.state[key], remote.state[key])
+        : pick(baseState[key], local.state[key], remote.state[key]);
     if (value !== undefined) state[key] = value;
   }
   return {

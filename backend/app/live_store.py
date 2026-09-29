@@ -126,10 +126,44 @@ def commit_write(db: Session, row: models.LiveSession, origin: Optional[str]) ->
 
 
 def get(db: Session, user_id: int, client_id: str, lock: bool = False) -> Optional[models.LiveSession]:
+    """Strictly the caller's own row. Deliberately not membership-aware: the
+    platform agent's tools all go through this (directly or via `mutate`),
+    and several of them write owner-only fields straight onto the row
+    (`rename`'s `row.title`, `set_category`'s `row.category_id`) the way
+    `routers/live_sessions.py` writes them for the *owner's own* PUT --
+    which would be wrong for a member, whose own view of those lives on
+    their `SessionMember` row instead (see routers/live_sessions.py's
+    `_reachable`/`_out`). Extending every such tool to that distinction is
+    its own phase; until then, the agent can only act on sessions its
+    caller owns, even ones shared with them."""
     query = db.query(models.LiveSession).filter(
         models.LiveSession.user_id == user_id, models.LiveSession.client_id == client_id
     )
     return (query.with_for_update() if lock else query).one_or_none()
+
+
+def reachable(
+    db: Session, user_id: int, client_id: str, lock: bool = False
+) -> tuple[Optional[models.LiveSession], Optional[models.SessionMember]]:
+    """Like `get`, but also recognizes the caller's own membership -- for a
+    read that should work for an invited member too (today, only the agent
+    chat relay's "which session is this about" check) without granting them
+    anything `get` doesn't: no row-level field of theirs is touched here.
+    `(None, None)` if the caller is neither the owner nor a member."""
+    row = get(db, user_id, client_id, lock)
+    if row is not None:
+        return row, None
+    member_query = (
+        db.query(models.SessionMember)
+        .join(models.LiveSession, models.SessionMember.session_id == models.LiveSession.id)
+        .filter(models.SessionMember.user_id == user_id, models.LiveSession.client_id == client_id)
+    )
+    member = (member_query.with_for_update(of=models.SessionMember) if lock else member_query).first()
+    if member is None:
+        return None, None
+    row_query = db.query(models.LiveSession).filter(models.LiveSession.id == member.session_id)
+    row = (row_query.with_for_update() if lock else row_query).one()
+    return row, member
 
 
 def open_sessions(db: Session, user_id: int) -> list[models.LiveSession]:

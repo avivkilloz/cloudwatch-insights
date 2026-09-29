@@ -41,7 +41,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import auth, models, schemas
+from .. import auth, live_store, models, schemas
 from ..db import get_db
 from ..live_events import listener, notify
 from ..live_store import MAX_STATE_BYTES, commit_write
@@ -80,24 +80,12 @@ def _reachable(
 ) -> tuple[models.LiveSession, Optional[models.SessionMember]]:
     """The session, plus the caller's own `SessionMember` row if it isn't
     theirs -- `None` for the owner. 404 if the caller is neither: unreachable
-    and nonexistent look the same to them, same as `_owned` already did."""
-    query = db.query(models.LiveSession).filter(
-        models.LiveSession.client_id == client_id, models.LiveSession.user_id == user.id
-    )
-    row = (query.with_for_update() if lock else query).one_or_none()
-    if row is not None:
-        return row, None
-
-    member_query = (
-        db.query(models.SessionMember)
-        .join(models.LiveSession, models.SessionMember.session_id == models.LiveSession.id)
-        .filter(models.SessionMember.user_id == user.id, models.LiveSession.client_id == client_id)
-    )
-    member = (member_query.with_for_update(of=models.SessionMember) if lock else member_query).first()
-    if member is None:
+    and nonexistent look the same to them, same as `_owned` already did.
+    `live_store.reachable` does the actual lookup; this just turns "neither"
+    into the 404 every route here already raises for that."""
+    row, member = live_store.reachable(db, user.id, client_id, lock)
+    if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    row_query = db.query(models.LiveSession).filter(models.LiveSession.id == member.session_id)
-    row = (row_query.with_for_update() if lock else row_query).one()
     return row, member
 
 

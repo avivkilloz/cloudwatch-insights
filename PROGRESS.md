@@ -398,11 +398,26 @@ token), this is a multi-PR project agreed up front rather than one PR:
    frontend is gated on role yet (a viewer can still click a control that
    fails server-side) -- that's deliberately left to a later phase, not
    bundled into this one.
-4. **Multi-user chat** (not started): the session-tab `agentChat` state
-   becomes a real conversation between every member and the agent, each
-   message tagged with its author; the agent only replies when a message
-   `@`-mentions it (name TBD), through the same `/api/agent/chat` relay
-   that already gates on `agent_enabled`.
+4. **Multi-user chat (done, PR pending).** Needed almost no new plumbing:
+   `agentChat` is a key in the same `state` phase 3 already made the one
+   shared document, so it was already syncing live to every member the
+   moment a session had any. What this phase adds: `AgentTurn` gains
+   `author`/`agentInvoked`; gating (does a message need `@platform-agent`
+   to get a reply) is client-side and keyed on whether the session is
+   *actually* shared (an unshared session's chat is untouched -- every
+   message still goes to the agent, exactly as before); `routers/agent.py`
+   uses the new `live_store.reachable()` so a member can start a session
+   turn at all; `sync.ts`'s merge treats the chat log as append-only
+   (union by turn id) instead of "one side's whole array wins", so two
+   people's messages in the same debounce window don't clobber each other.
+   **Known gap, confirmed not just anticipated**: the agent's own tools
+   (`get_context`'s `viewing_session`, everything built on
+   `live_store.get`/`mutate`) stay strictly owner-scoped, so a member who
+   mentions the agent can talk to it but can't get it to act on the
+   session -- it says "You aren't looking at a session, so there's nowhere
+   to put it." Fixing that means auditing every `platform_tools` function
+   that writes owner-only row fields directly (the same care phase 3 put
+   into the browser's own routes) -- a further phase, not part of this one.
 
 Coverage for phase 1: `test_session_members.py` (invite, list, change
 permission, remove, owner-only, scoped per session), full backend suite
@@ -436,6 +451,18 @@ session over several autosave cycles, confirming the sync.ts guard.
 `tsc --noEmit` clean; smoke29/33/34/35/44/48/49/50 (164 checks across the
 suites most likely to touch position/category/closed/reorder for an
 *owned* session) all still green, unchanged.
+
+Coverage for phase 4: new `smoke51.mjs` (7 checks, two real logged-in
+users -- a plain message never reaches the agent once shared; it shows
+who sent it; a member sees the owner's message live, labelled and on the
+left; mentioning the agent (and only that message) gets a reply; neither
+side's message is lost); fails against the pre-phase-4 frontend (4 of 7,
+then errors out on the diverged flow) confirming real new behavior.
+`test_agent_chat.py` gained a test that an invited member's session-scope
+chat reaches `focus` instead of 404ing. Full backend suite still green;
+`tsc --noEmit` clean; smoke22/23/45/46/47 (110 checks, the suites that
+touch the agent chat directly) all still green, unchanged -- an unshared
+session's chat behaves exactly as it did before this phase.
 
 ## The platform agent — agreed design and phases
 

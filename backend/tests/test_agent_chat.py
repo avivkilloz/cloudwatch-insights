@@ -14,9 +14,11 @@ import time
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from fastapi.testclient import TestClient
 
 from app import models
 from app.db import SessionLocal
+from app.main import app
 from app.platform_tools import tokens
 from tests.conftest import client
 
@@ -166,6 +168,38 @@ def test_a_session_chat_for_a_session_that_is_gone_is_refused(monkeypatch):
     resp = client.post("/api/agent/chat", json={**ASK, "viewing_session_id": "nope", "scope": "session"})
     assert resp.status_code == 404
     assert _tokens_left() == 0
+
+
+def _login_as(username: str, password: str) -> TestClient:
+    c = TestClient(app)
+    resp = c.post("/api/auth/login", json={"username": username, "password": password})
+    assert resp.status_code == 200, resp.text
+    return c
+
+
+def test_an_invited_member_can_also_talk_about_a_shared_session(monkeypatch):
+    # Talking about it is reachable the same way the session itself is
+    # (routers/live_sessions.py's _reachable) -- the agent's own tools still
+    # can't act on it for anyone but the owner, only this initial gate.
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    resp = client.put("/api/live-sessions/s-shared", json={"type": "aggregator", "title": "Shared", "state": {}})
+    assert resp.status_code == 200
+
+    group = client.post("/api/user-groups", json={"name": "chat-invitees", "role_name": "R", "agent_enabled": True})
+    assert group.status_code == 201, group.text
+    user = client.post(
+        "/api/users", json={"username": "chatbob", "password": "pw-123456", "group_id": group.json()["id"]}
+    )
+    assert user.status_code == 201, user.text
+    invite = client.post("/api/live-sessions/s-shared/members", json={"username": "chatbob", "permission": "viewer"})
+    assert invite.status_code == 201, invite.text
+    bob = _login_as("chatbob", "pw-123456")
+
+    received.clear()
+    ask = {**ASK, "viewing_session_id": "s-shared", "scope": "session"}
+    resp = bob.post("/api/agent/chat", json=ask)
+    assert resp.status_code == 200, resp.text
+    assert received[0]["body"]["focus"] == {"session_id": "s-shared", "title": "Shared"}
 
 
 def test_a_question_can_carry_its_attached_rows(monkeypatch):

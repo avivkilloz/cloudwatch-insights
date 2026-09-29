@@ -314,8 +314,61 @@ pane's controls, "add pane", "run") is gated on role yet -- a viewer can
 still click things that will fail server-side. Graying those out is its
 own future phase, not bundled into this one.
 
-Next: turning the session-tab agent chat into a multi-user conversation,
-gated so the agent only replies when `@`-mentioned (phase 4).
+**Phase 4 (done): the session-tab chat is a real conversation, not just
+one user's Q&A with the agent.** The mechanism needed almost none of its
+own plumbing -- `agentChat` is a key in the same `state` dict phase 3
+already made the one shared document, so once a session has members, every
+turn synced there already reaches everyone live, for free. What phase 4
+actually adds:
+- `AgentTurn` gains `author` (who asked -- absent on an unshared session's
+  turns, and in the Global tab, which is always just you) and
+  `agentInvoked` (false for a plain message between people).
+- **Gated on whether the session is actually shared, not on scope alone**:
+  an unshared session's chat behaves exactly as before (every message goes
+  to the agent) -- `AgentContext.tsx`'s `isShared()` checks the viewer's own
+  `role` (a member already knows) or, for the owner, a one-time
+  `listSessionMembers` fetch per session viewed (an owner has no other way
+  to learn their own session is shared). Once shared, a message that
+  doesn't match `@platform-agent\b` (case-insensitive) is appended straight
+  to state via `writeSessionState` and never reaches `/api/agent/chat` at
+  all -- the gating is entirely client-side, since there's no security
+  reason to enforce it server-side, only a product one (not answering every
+  line of a chat). A mention still gets the full existing flow, with the
+  question prefixed `"<name>: "` for the agent's own benefit once shared
+  (never for an unshared session, so a message like "rows" that already
+  triggers something specific isn't quietly changed into "you: rows").
+- `routers/agent.py`'s own session-scope check uses the new
+  `live_store.reachable()` (owner or member) instead of `live_store.get`
+  (owner only), so an invited member can start a turn about a shared
+  session at all. **The agent's own tools still can't act on it for
+  anyone but the owner** -- `get_context`'s `viewing_session` (and every
+  tool built on `live_store.get`/`mutate`) stays strictly owner-scoped (see
+  `live_store.get`'s own docstring) since several tools write owner-only
+  row fields directly (`rename`, `set_category`) the way phase 3 took care
+  to route through the *right* target for the *browser's* writes; doing
+  the same throughout `platform_tools/server.py` is its own future phase.
+  So today, a member who mentions the agent can talk to it, but a request
+  that needs the agent to touch the session itself gets "You aren't
+  looking at a session, so there's nowhere to put it" -- confirmed, not
+  just anticipated, by asking the fake model directly as an invited member.
+- `sync.ts`'s `mergeSession` treats `agentChat` as an append log, not an
+  ordinary "whichever side changed it wins" value: `mergeChatTurns` unions
+  by turn id (remote's own turns, plus whatever this side added that base
+  didn't have). Without this, two people's messages landing in the same
+  ~1.2s debounce window could see one silently overwrite the other, since
+  every other key's merge picks one whole value rather than combining
+  array elements -- fine for a field someone edits in place, wrong for a
+  chat log where every message is meant to survive.
+- The compose box's placeholder and the empty-chat intro say the
+  `@platform-agent` convention once a session is shared; someone else's
+  message renders on the left (`.agent-question-theirs`) instead of the
+  right, so a shared conversation reads like any other chat UI.
+
+Verified live with two real users (an owner and an invited editor): a
+plain message never reaches the agent once shared, mentioning it does, the
+owner sees the editor's message and its author label live and vice versa,
+and neither side's message is lost when both send within the same
+debounce window.
 
 ## Conventions
 

@@ -2187,6 +2187,19 @@ th {
   white-space: pre-wrap;
 }
 
+/* In a shared session's chat, someone else's message reads like theirs, not
+   yours -- on the left, like every other chat UI does it. */
+.agent-question-theirs {
+  align-self: flex-start;
+}
+
+.agent-turn-author {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 .agent-answer {
   display: flex;
   flex-direction: column;
