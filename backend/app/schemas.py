@@ -764,6 +764,18 @@ class UserSuggestion(BaseModel):
     username: str
 
 
+class SessionParticipant(BaseModel):
+    """Everyone who can currently reach a session -- the owner and every
+    invited member -- for @mentioning them in its chat. Unlike
+    SessionMemberOut's list (the roster /members manages, owner-only),
+    this is reachable by any participant and includes the owner too: knowing
+    who else is here isn't the same capability as inviting or removing them."""
+
+    user_id: int
+    username: str
+    role: SessionRole
+
+
 # ---- Session categories ----
 # Slack-style groups for the side panel's session list. A category holds no
 # state of its own -- LiveSession.category_id is what actually assigns a

@@ -26,6 +26,7 @@ import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions
 import { useAuth } from "../AuthContext";
 import { DOMAIN_LABELS, PaneSelection, PaneSelectionContext } from "../components/paneSelection";
 import { publishSelection } from "../agent/selection";
+import { useAgent } from "../agent/AgentContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
 
 type ServiceId = string;
@@ -1115,6 +1116,7 @@ export default function AggregatorPage() {
   const cardInRail = usePanesInRail();
   const railSlot = useRailSlot();
   const { sessions, activeId, view, rename } = useSessions();
+  const { refreshShared } = useAgent();
   const onScreen = view === "session" && scope !== null && activeId === scope.id;
   const thisSession = scope ? sessions.find((s) => s.id === scope.id) : undefined;
   const [description, setDescription] = useSessionState<string>(SESSION_DESCRIPTION_KEY, "");
@@ -1133,6 +1135,11 @@ export default function AggregatorPage() {
   const [usernameSuggestions, setUsernameSuggestions] = useState<UserSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
+  // Picking a suggestion sets inviteUsername to that exact username, which
+  // would otherwise re-trigger the fetch effect below and reopen the dropdown
+  // with the one match that name now finds -- this skips exactly that one
+  // re-run, so the dropdown only comes back once the user actually types more.
+  const suppressNextSuggestFetch = useRef(false);
 
   useEffect(() => {
     if (!scope) return;
@@ -1152,6 +1159,10 @@ export default function AggregatorPage() {
   // already a member would just 409 on invite) -- one request per pause in
   // typing, not one per keystroke.
   useEffect(() => {
+    if (suppressNextSuggestFetch.current) {
+      suppressNextSuggestFetch.current = false;
+      return;
+    }
     const prefix = inviteUsername.trim();
     if (!prefix) {
       setUsernameSuggestions([]);
@@ -1178,6 +1189,7 @@ export default function AggregatorPage() {
   }, [inviteUsername, members]);
 
   function pickSuggestion(user: UserSuggestion) {
+    suppressNextSuggestFetch.current = true;
     setInviteUsername(user.username);
     setUsernameSuggestions([]);
     setSuggestionsOpen(false);
@@ -1219,6 +1231,10 @@ export default function AggregatorPage() {
       const member = await api.inviteSessionMember(scope.id, username, invitePermission);
       setMembers((m) => [...m, member]);
       setInviteUsername("");
+      // The agent's own chat gating otherwise only learns a session became
+      // shared the next time it's viewed -- this is the difference between
+      // "reload to see it" and the chat mention-gating kicking in right away.
+      refreshShared(scope.id);
     });
   }
 
@@ -1236,6 +1252,7 @@ export default function AggregatorPage() {
     withMemberError(() =>
       api.removeSessionMember(scope.id, userId).then(() => {
         setMembers((m) => m.filter((x) => x.user_id !== userId));
+        refreshShared(scope.id);
       }),
     );
   }

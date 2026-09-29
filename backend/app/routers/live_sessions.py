@@ -478,6 +478,30 @@ def list_session_members(
     return [_member_out(m) for m in members]
 
 
+@router.get("/{client_id}/participants", response_model=list[schemas.SessionParticipant])
+def list_session_participants(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Everyone who can reach this session -- the owner and every invited
+    member -- for @mentioning them in its chat. Deliberately reachable by any
+    participant (`_reachable`), not owner-only like /members above: this is
+    read-only and carries none of that route's management capability, and
+    knowing who else is on a shared session is not the same thing as being
+    able to invite or remove them. Unlike /members, the owner is included
+    too, since a member @mentioning someone needs the owner's name as much
+    as any other participant's."""
+    row, _ = _reachable(db, current_user, client_id)
+    owner = db.get(models.User, row.user_id)
+    out = [schemas.SessionParticipant(user_id=row.user_id, username=owner.username, role="owner")] if owner else []
+    members = db.query(models.SessionMember).filter(models.SessionMember.session_id == row.id).all()
+    out += [
+        schemas.SessionParticipant(user_id=m.user_id, username=m.user.username, role=m.permission) for m in members
+    ]
+    return out
+
+
 @router.post("/{client_id}/members", response_model=schemas.SessionMemberOut, status_code=201)
 def invite_session_member(
     client_id: str,

@@ -2280,6 +2280,13 @@ th {
   box-sizing: border-box;
 }
 
+/* Anchors the @mention dropdown under the compose box -- .agent-compose is a
+   flex column, so this wrapper (stretched full width like the textarea it
+   replaces as the direct flex child) needs nothing but position:relative. */
+.agent-compose-field {
+  position: relative;
+}
+
 .agent-compose-actions {
   display: flex;
   justify-content: flex-end;
@@ -3043,11 +3050,16 @@ th {
 }
 
 /* Wraps just the username input (not the whole invite row), so the
-   suggestion dropdown anchors under the field alone. */
+   suggestion dropdown anchors under the field alone. Capped the same as
+   .session-card-input's own max-width -- without it, the wrapper (and so
+   the dropdown, which spans it edge to edge) stretched to fill the row's
+   leftover space on a wide card while the input inside stayed capped,
+   leaving the dropdown visibly wider than the field it belongs to. */
 .session-member-invite-field {
   position: relative;
   flex: 1;
   min-width: 0;
+  max-width: 560px;
 }
 
 .username-suggestions {

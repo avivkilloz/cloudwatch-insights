@@ -171,6 +171,22 @@ def _membership(db: Session, row: models.LiveSession, user_id: int) -> Optional[
     )
 
 
+def _participants(db: Session, row: models.LiveSession) -> list[dict]:
+    """Everyone who can reach this session -- the owner and every invited
+    member -- so the agent can answer "who's on this session" the same way a
+    person asking it could see for themselves in the session card's own
+    Members section. Mirrors routers/live_sessions.py's own
+    list_session_participants."""
+    owner = db.get(models.User, row.user_id)
+    out = [{"username": owner.username, "role": "owner"}] if owner else []
+    members = db.query(models.SessionMember).filter(models.SessionMember.session_id == row.id).all()
+    for m in members:
+        user = db.get(models.User, m.user_id)
+        if user is not None:
+            out.append({"username": user.username, "role": m.permission})
+    return out
+
+
 def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail: bool = False) -> dict:
     """Every field here is the *caller's own view* -- their own role,
     category and closed state if they're a member, never the owner's or
@@ -201,6 +217,11 @@ def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail
     closed_at = row.closed_at if member is None else member.closed_at
     if closed_at is not None:
         out["closed"] = True
+    # Only when it's actually shared -- otherwise every solo session would
+    # carry a one-entry "just the owner" list nobody asked about.
+    members_out = _participants(db, row)
+    if len(members_out) > 1:
+        out["members"] = members_out
     if detail:
         out["active_pane"] = state.get("activePane")
     return out

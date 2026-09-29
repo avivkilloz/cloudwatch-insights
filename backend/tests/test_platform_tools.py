@@ -403,6 +403,28 @@ def test_get_context_reports_the_viewed_sessions_role(mcp):
     assert ctx["viewing_session"]["role"] == "editor"
 
 
+def test_a_shared_sessions_description_reports_who_else_is_on_it(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[])["session_id"]
+    bob = _group(agent_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+
+    # The owner's own read sees it, through get_session and list_sessions alike.
+    owner_view = call(mcp, _token(), "get_session", session_id=session)
+    assert {(m["username"], m["role"]) for m in owner_view["members"]} == {("admin", "owner"), ("bob", "editor")}
+    listed = call(mcp, _token(), "list_sessions")["sessions"][0]
+    assert {(m["username"], m["role"]) for m in listed["members"]} == {("admin", "owner"), ("bob", "editor")}
+
+    # So does the invited member's own read of the same session.
+    bob_view = call(mcp, _token(bob), "get_session", session_id=session)
+    assert {(m["username"], m["role"]) for m in bob_view["members"]} == {("admin", "owner"), ("bob", "editor")}
+
+
+def test_an_unshared_sessions_description_carries_no_members_field(mcp):
+    session = call(mcp, _token(), "create_session", title="Solo", panes=[])["session_id"]
+    described = call(mcp, _token(), "get_session", session_id=session)
+    assert "members" not in described
+
+
 def test_a_browser_holding_an_old_version_is_refused_after_the_agent_writes(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]

@@ -519,6 +519,44 @@ suggestions); fails against the pre-feature code (times out waiting for
 the dropdown), confirming real new behavior. Full backend suite 205/205;
 `tsc --noEmit` clean.
 
+**Four follow-up fixes/features, reported after using the feature for real
+(done).** (1) The invite dropdown was as wide as the whole row, not the
+input -- its wrapper had no `max-width` cap to match the input's own 560px;
+fixed. (2) Picking a suggestion reopened the dropdown right back up once the
+debounced fetch effect re-ran for that exact (now-matching) name; fixed with
+a ref that suppresses exactly that one re-run. (3) Inviting someone updated
+the agent panel's own "is this shared" gating only on the next view (a
+reload, or switching away and back); `AgentContext` now exposes
+`refreshShared(sessionId)`, called by the session card's invite/remove
+handlers on success, so it's immediate. (4) The session chat's compose box
+now suggests "@" mentions -- every current participant plus the agent's own
+handle, narrowing as you type, fetched fresh per mention (not cached) so an
+invite made moments earlier is never stale. New `GET
+/{client_id}/participants` (owner + members, reachable by any of them,
+read-only -- unlike the owner-only `/members`) backs this and also closes a
+real gap: `_describe_session` (what `get_context`/`get_session`/
+`list_sessions` report to the agent) never listed members at all, so an
+owner asking the agent "are there other members here?" was told no even
+when there were; it now reports a `members` list whenever a session has more
+than just its owner.
+
+Coverage: 3 new backend tests in `test_session_sharing.py` (a member can
+list participants where `/members` still 404s them; the owner sees the same
+list; someone not invited gets 404 from `/participants` too) and 2 new in
+`test_platform_tools.py` (a shared session's `get_session`/`list_sessions`
+report `members` for both the owner and an invited member; an unshared
+session carries no `members` key at all). `smoke52.mjs` gained 2 checks
+(dropdown width matches the input; the dropdown stays closed once the
+suppressed debounced fetch would otherwise have fired) -- both confirmed to
+fail against the pre-fix code by temporarily stashing just the two fixes.
+New `smoke53.mjs` (7 checks, the agent container running against the
+scripted fake model -- inviting updates the chat's gating with no reload;
+"@" alone suggests the invited member and the agent; typing narrows to just
+the agent; picking splices the mention into the compose text); fails
+against the pre-feature code (four of seven fail: the intro never updates,
+"@" suggests nothing at all). Full backend suite green; `tsc --noEmit`
+clean.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

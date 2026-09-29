@@ -194,3 +194,34 @@ def test_a_member_can_leave_and_the_session_and_its_content_survive():
     assert bob.get("/api/live-sessions/s1").status_code == 404
     # Untouched for the owner.
     assert client.get("/api/live-sessions/s1").json()["state"] == {"a": 1}
+
+
+# ---------------------------------------------------------------- participants (read-only, for @mentioning)
+
+
+def test_a_member_can_list_participants_unlike_the_owner_only_roster():
+    bob = _share("s1", "bob", "editor")
+
+    # /members stays owner-only -- a member reaching it 404s, same as before.
+    assert bob.get("/api/live-sessions/s1/members").status_code == 404
+
+    # /participants is reachable by the member too, and includes the owner.
+    resp = bob.get("/api/live-sessions/s1/participants")
+    assert resp.status_code == 200, resp.text
+    by_role = {p["username"]: p["role"] for p in resp.json()}
+    assert by_role == {"admin": "owner", "bob": "editor"}
+
+
+def test_the_owner_sees_the_same_participants_list():
+    _share("s1", "bob", "viewer")
+    resp = client.get("/api/live-sessions/s1/participants")
+    assert resp.status_code == 200
+    by_role = {p["username"]: p["role"] for p in resp.json()}
+    assert by_role == {"admin": "owner", "bob": "viewer"}
+
+
+def test_someone_not_invited_cant_list_participants_either():
+    _put_session("s1")
+    _user("eve", "eve-pass")
+    eve = _login_as("eve", "eve-pass")
+    assert eve.get("/api/live-sessions/s1/participants").status_code == 404
