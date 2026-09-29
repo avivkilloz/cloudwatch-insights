@@ -709,12 +709,6 @@ KINDS: dict[str, PaneKind] = {
                     "queryString",
                     "text",
                     "Things: Fleet Indexing syntax, e.g. thingName:robot-* AND connectivity.connected:true. "
-                    "Shadow values: shadow.reported.<field>:<value> (or shadow.desired.<field>), and "
-                    "shadow.name.<shadowName>.reported.<field>:<value> for a named shadow -- e.g. "
-                    "shadow.reported.deviceType:0x65. Attributes: attributes.<name>:<value>. Wildcards (*) work "
-                    "on the value. Searching shadows needs the account's thing index to include them; if it "
-                    "doesn't, the run fails saying so. A value like 0x65 may be stored as text or as its number "
-                    "(101): if one finds nothing, try the other. "
                     "Certificates: status:ACTIVE, certid:<id>, or part of a certificate id.",
                 ),
                 Input("maxResults", "int", "Most results per environment.", minimum=1, maximum=500),

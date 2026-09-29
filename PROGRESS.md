@@ -699,8 +699,19 @@ turn tests fail on the old `app/`), backend 225, `smoke57` (22, fails on
 the old `frontend/src`), smoke45 updated for the opening read.
 
 Still for the user to check on their deployment: the real model with a
-recommended temperature (its model card's; often 0.6), and whether its
-thing index includes shadows (needed for `shadow.reported.*` searches).
+recommended temperature (its model card's; often 0.6).
+
+Follow-up in the same PR, after the user's two questions:
+- The IoT shadow tips added to `panes.py` came back out. The user's rule:
+  no per-service tuning of the agent, since plugins will add services
+  without anyone tuning the agent for them. The system prompt no longer
+  names services either; they come from `get_context`. (See CLAUDE.md.)
+- A session chat's turn can only change its own session. The server
+  enforces it (`AgentToken.session_scope_id`, `server._mutate`), and
+  `create_session` is refused there too. Filling or running a pane now
+  unfolds it if it was minimised. The tab switch was already in place.
+  Tests: 3 new or extended ones fail on the old `backend/app`. Backend
+  227 passed, `platform-agent/tests` 19 passed.
 
 ## The platform agent — agreed design and phases
 

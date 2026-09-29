@@ -107,6 +107,7 @@ async def agent_chat(
     if payload.messages[-1].role != "user":
         raise HTTPException(status_code=400, detail="The last message has to be yours.")
     focus = None
+    scope_id = None
     if payload.scope == "session":
         # Reachable, not just owned -- an invited member can talk about a
         # session shared with them the same as its owner can, and the
@@ -119,8 +120,15 @@ async def agent_chat(
         if row is None:
             raise HTTPException(status_code=404, detail="That session doesn't exist any more, so there's nothing to talk about.")
         focus = {"session_id": row.client_id, "title": row.title}
+        scope_id = row.id
 
-    token = tokens.mint(db, current_user, timezone=payload.timezone, viewing_session_id=payload.viewing_session_id)
+    token = tokens.mint(
+        db,
+        current_user,
+        timezone=payload.timezone,
+        viewing_session_id=payload.viewing_session_id,
+        session_scope_id=scope_id,
+    )
     # The stream can run for minutes; it needs nothing more from this
     # request's database session (revoking opens its own).
     db.close()

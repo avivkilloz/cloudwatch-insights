@@ -624,9 +624,27 @@ fixed where it happens:
   configured" error, never its data (`test_nobody_can_run_a_shared_pane_
   with_the_owners_access`, which passed before this too -- the leak wasn't
   there; the stale answer was).
+- **A session chat's turn can only change that session**, enforced by the
+  server, not the prompt: its token carries the row's id
+  (`AgentToken.session_scope_id`, set only for `scope: "session"`), and
+  every write tool goes through `server._mutate`, which refuses any other
+  row (checked on the locked row, not the client id, which is only unique
+  per owner); `create_session` is refused there too. Asked the prompt's
+  way, a model still wrote into a session off screen, and the user saw an
+  answer with nothing in their panes. A Global turn is unlimited (Follow
+  opens whatever it writes to). And filling or running a pane unfolds it
+  if it was minimised, as it already made it the active tab.
+- **No per-service tuning of the agent.** Services and tools will be added
+  by plugins, so the agent must never need a new prompt line, script or
+  hint to use one. The prompt names no service (the kinds come from
+  `get_context`); a kind describes its inputs once, in its registry entry
+  in `panes.py`, the way a plugin will ship them -- one line of syntax,
+  not advice for a query that once went wrong; and a bad query is fixed by
+  the model reading the error or the empty result that comes back. (A
+  sentence of IoT shadow tips added after one failed search was taken back
+  out for exactly this reason.)
 - Smaller: `run_pane` says where its results are (`shown_in`, by the names
-  the user sees); the IoT query help gives the shadow syntax
-  (`shadow.reported.<field>:<value>`); a one-column table (`|---|`) renders
+  the user sees); a one-column table (`|---|`) renders
   (the separator regex wanted two); and a Global turn whose Follow opens a
   session no longer flips the panel to the Session tab, which had hidden
   the very turn doing the work.

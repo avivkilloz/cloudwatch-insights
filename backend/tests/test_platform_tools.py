@@ -492,6 +492,72 @@ def test_an_unshared_sessions_description_carries_no_members_field(mcp):
     assert "members" not in described
 
 
+def test_a_session_chats_turn_can_change_only_that_session(mcp):
+    # The prompt asked for this and a model didn't always listen: asked in one
+    # session's chat, it wrote into another, off screen, and the user saw an
+    # answer with nothing in their panes. The token is held to the session.
+    token = _token()
+    here = call(mcp, token, "create_session", title="Here", panes=[{"kind": "tool-base64"}])["session_id"]
+    there = call(mcp, token, "create_session", title="There", panes=[{"kind": "tool-base64"}])["session_id"]
+    before = _row(there).version
+    scoped = _token(session_scope_id=_row(here).id, viewing_session_id=here)
+
+    # Its own session: every kind of change still works.
+    call(mcp, scoped, "add_pane", session_id=here, kind="tool-diff")
+    call(mcp, scoped, "rename", session_id=here, title="Here, renamed")
+    call(mcp, scoped, "set_layout", session_id=here, layout="columns")
+
+    # Any other: refused, and nothing written.
+    for name, args in [
+        ("add_pane", {"kind": "tool-diff"}),
+        ("rename", {"title": "Moved"}),
+        ("set_layout", {"layout": "columns"}),
+        ("set_description", {"description": "x"}),
+        ("set_category", {"category": "Elsewhere"}),
+        ("remove_pane", {"pane_id": "tool-base64"}),
+        ("set_pane_inputs", {"pane_id": "tool-base64", "inputs": {"input": "aGk="}}),
+        ("run_pane", {"pane_id": "tool-base64", "inputs": {"input": "aGk="}}),
+    ]:
+        assert "only change this session" in call_error(mcp, scoped, name, session_id=there, **args), name
+    assert _row(there).version == before
+    assert _row(there).title == "There"
+    # Nor can it make a new one, which would be off screen just the same.
+    assert "only change this session" in call_error(mcp, scoped, "create_session", title="New", panes=[])
+    assert "New" not in [s["title"] for s in call(mcp, token, "list_sessions")["sessions"]]
+    # Reading any session is still fine; so is a Global turn changing it.
+    assert call(mcp, scoped, "get_session", session_id=there)["title"] == "There"
+    call(mcp, token, "rename", session_id=there, title="There, from Global")
+
+
+def test_filling_or_running_a_minimised_pane_unfolds_it(mcp):
+    # Folded to its header, a pane the agent filled showed nothing, which read
+    # as the agent working in the background.
+    token = _token()
+    session = call(
+        mcp,
+        token,
+        "create_session",
+        title="s",
+        panes=[{"kind": "tool-base64"}, {"kind": "tool-diff"}],
+        layout="columns",
+    )["session_id"]
+    db = SessionLocal()
+    try:
+        live_store.mutate(
+            db,
+            _admin().id,
+            session,
+            lambda s, _r, _m: s.__setitem__("minimized", live_store.tag_set(["tool-base64", "tool-diff"])),
+            None,
+        )
+    finally:
+        db.close()
+    call(mcp, token, "set_pane_inputs", session_id=session, pane_id="tool-diff", inputs={"left": "a", "right": "b"})
+    assert live_store.untag(_row(session).state["minimized"]) == ["tool-base64"]
+    call(mcp, token, "run_pane", session_id=session, pane_id="tool-base64", inputs={"input": "aGk="})
+    assert live_store.untag(_row(session).state["minimized"]) == []
+
+
 def test_a_browser_holding_an_old_version_is_refused_after_the_agent_writes(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]

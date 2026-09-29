@@ -264,7 +264,7 @@ async def get_context() -> dict:
 async def list_sessions() -> dict:
     """The user's open sessions, in the order their panel shows them, with each one's panes -- their own, and any
     shared with them."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         return {"sessions": [_describe_session(db, r, user.id) for r in live_store.reachable_sessions(db, user.id)]}
 
 
@@ -272,7 +272,7 @@ async def list_sessions() -> dict:
 async def get_session(session_id: str) -> dict:
     """One session in detail: its layout, and each pane's inputs and what its last run left (as counts). Reachable
     through a session shared with the caller as well as one they own."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         row, _ = live_store.reachable(db, user.id, session_id)
         if row is None:
             raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
@@ -290,7 +290,7 @@ def _flagged(user: models.User, flag: str, label: str) -> None:
 @mcp.tool()
 async def list_log_groups(environment_ids: list[int], name_contains: str = "") -> dict:
     """CloudWatch log group names in the given environments, optionally only those whose name contains some text."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "logs_enabled", "CloudWatch")
         response = await log_groups.get_log_groups(
             payload=schemas.LogGroupsRequest(environment_ids=environment_ids), db=db, current_user=user
@@ -313,7 +313,7 @@ async def list_log_groups(environment_ids: list[int], name_contains: str = "") -
 @mcp.tool()
 async def list_opensearch_domains(environment_ids: list[int]) -> dict:
     """OpenSearch domains, with their endpoints, in the given environments."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "opensearch_enabled", "OpenSearch")
         response = await opensearch.get_domains(
             payload=schemas.OpenSearchDomainsRequest(environment_ids=environment_ids), db=db, current_user=user
@@ -324,7 +324,7 @@ async def list_opensearch_domains(environment_ids: list[int]) -> dict:
 @mcp.tool()
 async def list_opensearch_indices(environment_id: int, domain_endpoint: str) -> dict:
     """The indices of one OpenSearch domain (its endpoint comes from list_opensearch_domains)."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "opensearch_enabled", "OpenSearch")
         response = _call(
             opensearch.get_indices,
@@ -338,7 +338,7 @@ async def list_opensearch_indices(environment_id: int, domain_endpoint: str) -> 
 @mcp.tool()
 async def list_dynamodb_tables(environment_id: int) -> dict:
     """DynamoDB table names in one environment."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "tables_enabled", "DynamoDB")
         return {"tables": list(_call(tables.list_tables, environment_id=environment_id, db=db, current_user=user).tables)}
 
@@ -346,7 +346,7 @@ async def list_dynamodb_tables(environment_id: int) -> dict:
 @mcp.tool()
 async def list_s3_buckets(environment_id: int) -> dict:
     """S3 bucket names in one environment."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "buckets_enabled", "S3")
         listed = _call(buckets.list_buckets, environment_id=environment_id, db=db, current_user=user)
         return {"buckets": [b.name for b in listed.buckets]}
@@ -355,7 +355,7 @@ async def list_s3_buckets(environment_id: int) -> dict:
 @mcp.tool()
 async def list_cognito_user_pools(environment_id: int) -> dict:
     """Cognito user pools (id and name) in one environment."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         _flagged(user, "cognito_enabled", "Cognito")
         pools = _call(cognito.list_user_pools, environment_id=environment_id, db=db, current_user=user)
         return {"user_pools": [p.model_dump() for p in pools.user_pools]}
@@ -389,11 +389,35 @@ def _add_pane(state: dict, kind: PaneKind, title: Optional[str]) -> str:
     return pane_id
 
 
+def _mutate(db: Session, user: models.User, caller: tokens.Caller, session_id: str, change, origin: str):
+    """`live_store.mutate`, held to the session a session chat is about. Every
+    tool that changes a session goes through here, so the limit is the
+    server's, not the prompt's: asked in one session's chat, the model still
+    sometimes wrote into another -- one not on screen, so the user saw an
+    answer and nothing in their panes. Checked on the locked row (its id),
+    not the client id, which is only unique per owner."""
+
+    def scoped(state: dict, row: models.LiveSession, member: Optional[models.SessionMember]):
+        if caller.session_scope_id is not None and row.id != caller.session_scope_id:
+            raise InputError(_OUT_OF_SCOPE)
+        return change(state, row, member)
+
+    return live_store.mutate(db, user.id, session_id, scoped, origin)
+
+
+_OUT_OF_SCOPE = (
+    "This is one session's chat, so you can only change this session. To work in another session or make a new "
+    "one, the user can ask in the Global tab."
+)
+
+
 @mcp.tool()
 async def create_session(title: str, panes: list[PaneSpec], layout: Layout = "tabs") -> dict:
     """A new session in the user's workspace holding the given panes (several of one kind are fine), in the given
     layout. It appears in the user's panel at once. Returns its id and the ids of its panes."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
+        if caller.session_scope_id is not None:
+            raise InputError(_OUT_OF_SCOPE)
         state: dict[str, Any] = {"services": [], "paneTypes": {}, "paneTitles": {}, "layout": layout}
         pane_ids = [_add_pane(state, kind_for(user, p.kind), p.title) for p in panes]
         state["activePane"] = pane_ids[0] if pane_ids else None
@@ -405,11 +429,9 @@ async def create_session(title: str, panes: list[PaneSpec], layout: Layout = "ta
 async def add_pane(session_id: str, kind: str, title: Optional[str] = None) -> dict:
     """Adds an empty pane of a kind to a session and shows it. Returns the new pane's id. Works on a session shared
     with the caller as an editor, the same as one they own; a viewer can't (403)."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         pane_kind = kind_for(user, kind)
-        row, pane_id = live_store.mutate(
-            db, user.id, session_id, lambda s, _r, _m: _add_pane(s, pane_kind, title), ORIGIN
-        )
+        row, pane_id = _mutate(db, user, caller, session_id, lambda s, _r, _m: _add_pane(s, pane_kind, title), ORIGIN)
         return {"session_id": row.client_id, "pane_id": pane_id, "title": _pane_title(row.state, pane_id)}
 
 
@@ -433,8 +455,8 @@ def _remove_pane(state: dict, pane_id: str) -> None:
 @mcp.tool()
 async def remove_pane(session_id: str, pane_id: str) -> dict:
     """Removes a pane from a session, with its inputs and results."""
-    with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, lambda s, _r, _m: _remove_pane(s, pane_id), ORIGIN)
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, lambda s, _r, _m: _remove_pane(s, pane_id), ORIGIN)
         return _describe_session(db, row, user.id)
 
 
@@ -453,8 +475,8 @@ async def rename(session_id: str, title: str, pane_id: Optional[str] = None) -> 
             _pane(state, pane_id)
             state["paneTitles"] = {**(state.get("paneTitles") or {}), pane_id: title[:200]}
 
-    with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id)
 
 
@@ -469,15 +491,15 @@ async def set_description(session_id: str, description: str) -> dict:
         else:
             state.pop("description", None)
 
-    with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id)
 
 
 @mcp.tool()
 async def list_categories() -> dict:
     """The side panel's session categories (Slack-style groups a session can be filed into)."""
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         rows = (
             db.query(models.SessionCategory)
             .filter(models.SessionCategory.user_id == user.id)
@@ -518,7 +540,7 @@ async def set_category(session_id: str, category: Optional[str] = None) -> dict:
     shows the existing ones). Omit category, or pass one that's blank, to take the session out of its category. On a
     session shared with the caller, this is *their own* category -- never the owner's, or another member's."""
 
-    with _acting() as (db, user, _):
+    with _acting() as (db, user, caller):
         category_id = _find_or_create_category(db, user, category.strip()).id if category and category.strip() else None
 
         def change(_state: dict, row: models.LiveSession, member: Optional[models.SessionMember]) -> None:
@@ -527,7 +549,7 @@ async def set_category(session_id: str, category: Optional[str] = None) -> dict:
             else:
                 member.category_id = category_id
 
-        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id)
 
 
@@ -542,8 +564,8 @@ async def set_layout(session_id: str, layout: Layout, active_pane: Optional[str]
             _pane(state, active_pane)
             state["activePane"] = active_pane
 
-    with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id)
 
 
@@ -582,8 +604,8 @@ async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
             "id": live_store.new_client_id(),
         }
 
-    with _acting() as (db, user, _):
-        row, _ = live_store.mutate(db, user.id, session_id, change, ORIGIN)
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id)
 
 
@@ -609,6 +631,12 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
         state[f"{pane_id}.{key}"] = value
     if (state.get("layout") or "tabs") == "tabs":
         state["activePane"] = pane_id
+    # And not folded to its header in the other layouts: a run into a
+    # minimised pane filled it where nobody could see, which read as the
+    # agent working in the background.
+    minimized = untag(state.get("minimized")) or []
+    if pane_id in minimized:
+        state["minimized"] = tag_set(m for m in minimized if m != pane_id)
     return kind
 
 
@@ -621,8 +649,8 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
     """Fills in some of a pane's inputs (the keys get_context lists for its kind); inputs you leave out keep their
     value. The user sees them filled in at once. Doesn't run anything -- run_pane does."""
     with _acting() as (db, user, caller):
-        row, _ = live_store.mutate(
-            db, user.id, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
+        row, _ = _mutate(
+            db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
         return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
 
@@ -674,9 +702,10 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
     set_pane_inputs). The results appear in the pane; you get counts and a sample of the rows to answer from. Queries
     are given about 90 seconds."""
     with _acting() as (db, user, caller):
-        row, kind = live_store.mutate(
+        row, kind = _mutate(
             db,
-            user.id,
+            user,
+            caller,
             session_id,
             lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs or {}),
             ORIGIN,
@@ -689,8 +718,8 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
         if not result.writes:
             return {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         writes = json.loads(json.dumps(result.writes))  # our own copy to trim
-        row, trimmed = live_store.mutate(
-            db, user.id, session_id, lambda s, _r, _m: _write_results(s, pane_id, writes), ORIGIN
+        row, trimmed = _mutate(
+            db, user, caller, session_id, lambda s, _r, _m: _write_results(s, pane_id, writes), ORIGIN
         )
         out = {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         if trimmed:

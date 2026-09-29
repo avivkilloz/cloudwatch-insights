@@ -33,6 +33,7 @@ def mint(
     user: models.User,
     timezone: Optional[str] = None,
     viewing_session_id: Optional[str] = None,
+    session_scope_id: Optional[int] = None,
 ) -> str:
     now = datetime.datetime.utcnow()
     # Expired tokens of turns that never ended cleanly go whenever a new one
@@ -46,6 +47,7 @@ def mint(
             expires_at=now + TOKEN_TTL,
             timezone=timezone[:64] if timezone else None,
             viewing_session_id=viewing_session_id[:64] if viewing_session_id else None,
+            session_scope_id=session_scope_id,
         )
     )
     db.commit()
@@ -59,6 +61,9 @@ class Caller:
     user_id: int
     timezone: Optional[str]
     viewing_session_id: Optional[str]
+    # The row id of the session a session chat's turn is held to; None for a
+    # Global turn, which may work in any session the user can reach.
+    session_scope_id: Optional[int] = None
 
 
 def resolve(db: DbSession, token: str) -> Optional[Caller]:
@@ -72,7 +77,12 @@ def resolve(db: DbSession, token: str) -> Optional[Caller]:
     user = db.get(models.User, row.user_id)
     if user is None or user.group is None or not user.group.agent_enabled:
         return None
-    return Caller(user_id=user.id, timezone=row.timezone, viewing_session_id=row.viewing_session_id)
+    return Caller(
+        user_id=user.id,
+        timezone=row.timezone,
+        viewing_session_id=row.viewing_session_id,
+        session_scope_id=row.session_scope_id,
+    )
 
 
 def revoke(db: DbSession, token: str) -> None:
