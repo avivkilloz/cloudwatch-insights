@@ -337,6 +337,72 @@ def test_the_agent_can_only_reach_its_own_users_sessions(mcp):
     assert _row(mine).title == "admin's"
 
 
+# ---------------------------------------------------------------- sharing, phase 5: the agent on a shared session
+
+
+def test_a_member_reaches_a_shared_session_through_get_session_and_list_sessions(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[{"kind": "tool-diff"}])["session_id"]
+    bob = _group(agent_enabled=True)
+    assert client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "viewer"}).status_code == 201
+    token = _token(bob)
+
+    described = call(mcp, token, "get_session", session_id=session)
+    assert described["role"] == "viewer"
+    listed = call(mcp, token, "list_sessions")["sessions"]
+    assert [s["session_id"] for s in listed] == [session]
+    assert listed[0]["role"] == "viewer"
+
+
+def test_a_viewer_member_cannot_change_a_shared_session_through_the_agent(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[{"kind": "tool-diff"}])["session_id"]
+    bob = _group(agent_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "viewer"})
+    token = _token(bob)
+
+    error = call_error(mcp, token, "add_pane", session_id=session, kind="tool-base64")
+    assert "read-only" in error
+    assert _row(session).state["services"] == ["tool-diff"]
+
+
+def test_an_editor_member_can_change_a_shared_session_and_the_owner_sees_it(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[{"kind": "tool-diff"}])["session_id"]
+    bob = _group(agent_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+    token = _token(bob)
+
+    added = call(mcp, token, "add_pane", session_id=session, kind="tool-base64")
+    assert added["pane_id"] == "tool-base64"
+    # The one shared document: the owner's own read sees the editor's pane too.
+    assert _row(session).state["services"] == ["tool-diff", "tool-base64"]
+    owner_view = call(mcp, _token(), "get_session", session_id=session)
+    assert owner_view["role"] == "owner"
+    assert {p["pane_id"] for p in owner_view["panes"]} == {"tool-diff", "tool-base64"}
+
+
+def test_set_category_on_a_shared_session_is_the_members_own_never_the_owners(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[])["session_id"]
+    bob = _group(agent_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+    token = _token(bob)
+
+    described = call(mcp, token, "set_category", session_id=session, category="Bob's stuff")
+    assert described["category"] == "Bob's stuff"
+    # Bob's own view is categorized; the owner's own row never was.
+    assert _row(session).category_id is None
+    bob_browser = TestClient(app)
+    assert bob_browser.post("/api/auth/login", json={"username": "bob", "password": "pw-123456"}).status_code == 200
+    assert bob_browser.get(f"/api/live-sessions/{session}").json()["category_id"] is not None
+    assert client.get(f"/api/live-sessions/{session}").json()["category_id"] is None
+
+
+def test_get_context_reports_the_viewed_sessions_role(mcp):
+    session = call(mcp, _token(), "create_session", title="Shared", panes=[])["session_id"]
+    bob = _group(agent_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+    ctx = call(mcp, _token(bob, viewing_session_id=session), "get_context")
+    assert ctx["viewing_session"]["role"] == "editor"
+
+
 def test_a_browser_holding_an_old_version_is_refused_after_the_agent_writes(mcp):
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]

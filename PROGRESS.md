@@ -464,6 +464,39 @@ chat reaches `focus` instead of 404ing. Full backend suite still green;
 touch the agent chat directly) all still green, unchanged -- an unshared
 session's chat behaves exactly as it did before this phase.
 
+5. **The agent's own tools, on a shared session (done, PR pending).**
+   Closes the gap phase 4 confirmed: an invited member could chat but
+   couldn't get the agent to act on the session, since every tool went
+   through `live_store.get`/`mutate`, strictly owner-scoped. Backend-only
+   -- no frontend change needed, since the gap was in the platform-agent's
+   own reach, not in what reached it. `live_store.get` stays owner-only on
+   purpose (it's what one caller still wants); every tool now goes through
+   `live_store.reachable()` (or the new `reachable_sessions()` for
+   `list_sessions`, sorted by *the caller's own* position on a shared row)
+   the same as the browser's own routes since phase 3. `mutate()` hands its
+   callback the caller's own `SessionMember` (`None` for the owner),
+   refuses a viewer outright with a sentence naming why, and reopens the
+   *caller's own* closed-state on write. `set_category` is the one tool
+   that needed real branching (writes `member.category_id`, not
+   `row.category_id`, for a non-owner) -- everything else's callback picked
+   up the new parameter unused, since `state`/`title` are the one shared
+   document. `_describe_session` gained a required caller id and now
+   reports that caller's own role/category/closed-state instead of always
+   the owner's.
+
+Coverage for phase 5: 5 new tests in `test_platform_tools.py` -- a member
+reaches `get_session`/`list_sessions` and sees their own role; a viewer's
+`add_pane` is refused ("read-only access") and the state is untouched; an
+editor's `add_pane` succeeds and the owner's own read sees it; `set_category`
+sets the member's own category, never the owner's row; `get_context`'s
+`viewing_session` reports an invited editor's role. All 5 fail against the
+pre-phase-5 `live_store.py`/`platform_tools/server.py`, confirming they
+exercise real new behavior. Full backend suite 202/202. `tsc --noEmit`
+clean (no frontend files touched this phase).
+`platform-agent/tests` needs no changes: it drives the real LangChain agent
+against its own hand-rolled stub MCP server, never the real
+`platform_tools/server.py`, so nothing in this phase reaches it.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

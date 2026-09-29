@@ -370,6 +370,52 @@ owner sees the editor's message and its author label live and vice versa,
 and neither side's message is lost when both send within the same
 debounce window.
 
+**Phase 5 (done): the agent's own tools reach a session shared with the
+caller, not just one they own.** This closes the gap phase 4 confirmed
+rather than just anticipated. `live_store.get` stays strictly owner-only
+(its docstring says so, and one caller still wants exactly that reading);
+everything the agent's tools use instead goes through
+`live_store.reachable()` (owner match first, then the caller's own
+`SessionMember` via the same join `_reachable` in the router uses) or the
+new `live_store.reachable_sessions()` for `list_sessions` (owned rows plus
+every row shared with the caller, sorted by *that caller's own*
+`position` -- a shared row's position lives on their `SessionMember`, not
+the owner's row, same as phase 3 already keeps category and closed-state
+separate per person). `live_store.mutate()` now hands its `change`
+callback the caller's own `SessionMember` (`None` for the owner) alongside
+the state and the row, refuses outright with "You have read-only access
+to this session" for a viewer, and reopens *the caller's own* closed-state
+on a write (`member.closed_at`, never the owner's) -- exactly the split
+phase 3 already drew for the browser's own PUT. Every `platform_tools`
+function built on `mutate`'s callback picked up the new parameter
+(`_member`, unused, in most of them since `state`/`title` are the one
+shared document); only `set_category` needed real branching, writing
+`member.category_id` instead of `row.category_id` when the caller isn't
+the owner -- the same "per participant, never the owner's" rule its
+phase-3 sibling (`position`/`closed_at`) already followed, just not yet
+applied to this one field. `_describe_session` (what every tool's session
+description is built from) gained a required caller `user_id` and now
+reports that caller's own `role` ("owner" or their permission) and their
+own category/closed-state, resolved through a small `_membership()` lookup
+-- a viewer tool call fails with a message naming *why* ("read-only
+access"), not just *that* it failed. `mutate`'s return signature stayed a
+plain `(row, result)` rather than growing a third `member` element, to
+keep the ~10 call sites' unpacking untouched; `_describe_session` instead
+re-resolves membership itself, one extra indexed query traded for far
+fewer call-site edits. Verified against the pre-phase-5 code the same way
+phase 3's tests were: 5 new tests in `test_platform_tools.py` (a viewer
+member reaches `get_session`/`list_sessions` and sees their own role; a
+viewer's `add_pane` is refused and the state is untouched; an editor's
+`add_pane` succeeds and the owner's own read sees it; `set_category` on a
+shared session sets the member's own category, never the owner's row;
+`get_context`'s `viewing_session` reports an invited editor's role) all
+fail against the pre-phase-5 `live_store.py`/`server.py`, confirming they
+exercise real new behavior; full backend suite green afterward.
+`platform-agent/tests` needs no changes -- it drives the real LangChain
+agent against its own hand-rolled stub MCP server (`get_context`,
+`create_session`, `run_pane`), never the real `platform_tools/server.py`,
+so nothing here touches it.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record

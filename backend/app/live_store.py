@@ -126,16 +126,10 @@ def commit_write(db: Session, row: models.LiveSession, origin: Optional[str]) ->
 
 
 def get(db: Session, user_id: int, client_id: str, lock: bool = False) -> Optional[models.LiveSession]:
-    """Strictly the caller's own row. Deliberately not membership-aware: the
-    platform agent's tools all go through this (directly or via `mutate`),
-    and several of them write owner-only fields straight onto the row
-    (`rename`'s `row.title`, `set_category`'s `row.category_id`) the way
-    `routers/live_sessions.py` writes them for the *owner's own* PUT --
-    which would be wrong for a member, whose own view of those lives on
-    their `SessionMember` row instead (see routers/live_sessions.py's
-    `_reachable`/`_out`). Extending every such tool to that distinction is
-    its own phase; until then, the agent can only act on sessions its
-    caller owns, even ones shared with them."""
+    """Strictly the caller's own row. `reachable` is the membership-aware
+    version `mutate` and the platform agent's reads use; this stays
+    owner-only for the one caller that still wants exactly that (a test
+    helper reading a row back by its known owner)."""
     query = db.query(models.LiveSession).filter(
         models.LiveSession.user_id == user_id, models.LiveSession.client_id == client_id
     )
@@ -175,6 +169,26 @@ def open_sessions(db: Session, user_id: int) -> list[models.LiveSession]:
     )
 
 
+def reachable_sessions(db: Session, user_id: int) -> list[models.LiveSession]:
+    """Every open session this user can reach: their own, and every one
+    shared with them that they haven't closed themselves -- in their own
+    panel order (a shared row sorts by *this* user's own position, on their
+    SessionMember, not the owner's `row.position`). Mirrors
+    `routers/live_sessions.py`'s own `_open_pairs`, for `list_sessions`.
+    A caller wanting a shared row's category/closed state for *this* user
+    still goes through `_describe_session`, which resolves that itself."""
+    owned = [(row, row.position) for row in open_sessions(db, user_id)]
+    shared = [
+        (member.session, member.position)
+        for member in db.query(models.SessionMember).filter(
+            models.SessionMember.user_id == user_id, models.SessionMember.closed_at.is_(None)
+        )
+    ]
+    pairs = owned + shared
+    pairs.sort(key=lambda pair: (pair[1], pair[0].id))
+    return [row for row, _ in pairs]
+
+
 def create(db: Session, user_id: int, title: str, state: dict, origin: Optional[str]) -> models.LiveSession:
     """A new open session at the end of the owner's panel, named so it doesn't
     clash with one already open."""
@@ -202,22 +216,35 @@ def mutate(
     db: Session,
     user_id: int,
     client_id: str,
-    change: Callable[[dict, models.LiveSession], T],
+    change: Callable[[dict, models.LiveSession, Optional[models.SessionMember]], T],
     origin: Optional[str],
 ) -> tuple[models.LiveSession, T]:
     """Read-modify-write one session under its row lock, so a browser save
     landing at the same moment is either before this (and this change is made
     on top of it) or after (and is refused as stale, and merged). `change`
-    gets a copy of the state to edit in place, and the row for its title;
-    whatever it returns is handed back. Writing to a closed session reopens
-    it, the same as a browser's PUT does."""
-    row = get(db, user_id, client_id, lock=True)
+    gets a copy of the state to edit in place, the row (for its title, which
+    is shared), and the caller's own `SessionMember` if they're not its
+    owner -- `None` for the owner; whatever `change` returns is handed back.
+
+    Reachable through membership as well as ownership, same as the
+    browser's own PUT (`routers/live_sessions.py`): a viewer's mutate is
+    refused outright (they may still read, through `reachable`/`get_context`/
+    `get_session`/`list_sessions`), and an editor's write reopens *their
+    own* view of a closed session (`member.closed_at`), never the owner's or
+    another member's -- the owner's own mutate still reopens `row.closed_at`
+    exactly as before. `change` itself has to route any *other* row-level
+    field it sets (as `set_category` does for `row.category_id`) the same
+    way, since state is the one thing here that's genuinely shared."""
+    row, member = reachable(db, user_id, client_id, lock=True)
     if row is None:
         db.rollback()
         raise StoreError(f"There is no session with id '{client_id}'. List the sessions to find the right one.")
+    if member is not None and member.permission == "viewer":
+        db.rollback()
+        raise StoreError("You have read-only access to this session.")
     state = copy.deepcopy(row.state or {})
     try:
-        result = change(state, row)
+        result = change(state, row, member)
         _check_size(state)
     except Exception:
         db.rollback()
@@ -225,7 +252,10 @@ def mutate(
     # A new object, not the edited original: SQLAlchemy only notices a JSON
     # column changed when it is assigned.
     row.state = state
-    row.closed_at = None
+    if member is None:
+        row.closed_at = None
+    else:
+        member.closed_at = None
     commit_write(db, row, origin)
     return row, result
 
