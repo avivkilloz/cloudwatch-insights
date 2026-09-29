@@ -637,6 +637,46 @@ calling `get_session` again before answering about a session's current
 state. No test asserts on this (the fake model doesn't read the prompt);
 `tsc --noEmit` and `platform-agent/tests` (6/6) both clean.
 
+**Investigated a report that the agent could be tricked into reaching a
+service/environment/role the user's group doesn't allow (done: one real gap
+found and closed, though not the one reported).** Traced every path that
+can introduce a pane, write pane inputs, or run one, end to end: `kind_for`
+gates every pane-creation and pane-interaction tool (`create_session`,
+`add_pane`, `set_pane_inputs`, `run_pane`, all via the shared
+`_apply_inputs`/`kind_for` chain), environment inputs are validated by
+`_visible_environment` at write time *and independently re-validated* by
+`resolve_environment` in the actual per-service router at execution time,
+and `resolve_role_name` takes no parameter but the token-bound caller --
+nothing in any tool's arguments reaches it. Checked the two combinations
+existing tests didn't cover directly (code inspection said they'd hold,
+but weren't exercised): `add_pane` with a kind the group lacks, and the
+shared-session cross-group case (a member whose own group lacks a flag,
+touching a pane the *owner's* differently-flagged group already added) --
+both now covered in `test_platform_tools.py`, both hold. Did not reproduce
+the reported bypass by static trace; it may be a UI-level confusion, or a
+real behavior not yet pinned to an exact reproduction.
+
+What the investigation did surface, independent of whether the original
+report pans out: **the per-service HTTP routers never re-checked the
+per-page group flags** (`logs_enabled`, `opensearch_enabled`, etc.) --
+only environment visibility and the group's IAM role, which CLAUDE.md's
+own "closing that gap in the routers is worth doing" already flagged as
+outstanding. A raw request to a page a group's UI never offers would still
+go through, given an environment and a role. Closed with
+`resolve.require_flag`, called at the top of every AWS-calling endpoint in
+`queries.py`, `tables.py`, `buckets.py`, `cognito.py`, `opensearch.py`,
+`iot.py`, `log_groups.py` and `tools.py` (both endpoints: the HTTP client
+tool and the MQTT presigned-URL one, both gated by `tools_enabled`), right
+alongside the `resolve_environment`/`resolve_role_name` calls already
+there. New `test_router_flags.py` (7 tests, one representative endpoint
+per flag): a disabled flag is refused before any AWS call is attempted (no
+real credentials in this test run, so the refusal has to come from the
+flag check itself, not an AWS error); an enabled flag reaches the AWS call
+instead (and fails differently, proving the flag check let it through).
+All 7 fail against the pre-fix routers. Full backend suite green
+afterward, including every pre-existing test that exercises these routers
+with a real (enabled) group.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

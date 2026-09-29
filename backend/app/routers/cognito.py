@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, cognito_client, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/cognito", tags=["cognito"])
 
@@ -15,6 +15,7 @@ def list_user_pools(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "cognito_enabled", "Cognito")
         environment = resolve_environment(db, environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
@@ -35,6 +36,7 @@ def search_users(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "cognito_enabled", "Cognito")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:

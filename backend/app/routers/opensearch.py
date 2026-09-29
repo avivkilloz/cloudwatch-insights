@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, opensearch_client, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/opensearch", tags=["opensearch"])
 
@@ -77,6 +77,11 @@ async def get_domains(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "opensearch_enabled", "OpenSearch")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     loop = asyncio.get_event_loop()
     futures = []
     for environment_id in payload.environment_ids:
@@ -138,6 +143,7 @@ def get_indices(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "opensearch_enabled", "OpenSearch")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
@@ -197,6 +203,11 @@ async def search(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    try:
+        require_flag(current_user, "opensearch_enabled", "OpenSearch")
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     loop = asyncio.get_event_loop()
     futures = []
     for target in payload.targets:

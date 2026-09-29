@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, s3_client, schemas
 from ..db import get_db
-from ..resolve import ResolveError, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
@@ -15,6 +15,7 @@ def list_buckets(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "buckets_enabled", "S3")
         environment = resolve_environment(db, environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
@@ -35,6 +36,7 @@ def browse_bucket(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
+        require_flag(current_user, "buckets_enabled", "S3")
         environment = resolve_environment(db, payload.environment_id, current_user)
         role_name = resolve_role_name(current_user)
     except ResolveError as e:
