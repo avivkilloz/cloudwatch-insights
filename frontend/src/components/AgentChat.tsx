@@ -242,13 +242,22 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [turns.length, last?.answer.length, last?.steps.length, scope, sessionId]);
 
+  const sessionTitle = sessionId ? sessions.find((s) => s.id === sessionId)?.title : undefined;
+  const shared = scope === "session" && viewingSessionShared;
+
   const unavailable =
     status === null
       ? null
       : !status.available
         ? "This deployment doesn't run the platform agent."
-        : !status.enabled
-          ? "The platform agent isn't turned on for your group. An admin can turn it on in Settings, under User groups."
+        : !status.enabled && !shared
+          ? // A shared session's chat is people talking to each other, not just
+            // to the agent -- a group without agent access still has that to
+            // use. A mention still reaches ask(), which still sends it to
+            // /api/agent/chat, which still 403s (unchanged) -- shown the same
+            // way any other failed turn is, so there's no separate "no
+            // access" message to keep in sync with the backend's own.
+            "The platform agent isn't turned on for your group. An admin can turn it on in Settings, under User groups."
           : scope === "session" && !sessionId
             ? "Open a session to talk to the agent about it."
             : null;
@@ -258,9 +267,6 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     ask(input, scope, scope === "session" && attach && checked > 0 ? selection : undefined);
     setInput("");
   }
-
-  const sessionTitle = sessionId ? sessions.find((s) => s.id === sessionId)?.title : undefined;
-  const shared = scope === "session" && viewingSessionShared;
 
   return (
     <div className="agent-chat">

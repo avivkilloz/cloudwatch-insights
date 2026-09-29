@@ -601,6 +601,19 @@ model:**
   Verified with 4 panes open at a narrow viewport, where the old fixed width
   reliably overflowed and the fix reliably didn't.
 
+**A shared session's chat no longer needs agent access to use at all
+(done).** The compose box was disabled outright for anyone whose group
+lacks `agent_enabled`, blocking plain people-to-people chat too, not just
+`@mentioning` the agent. Now that only applies to the Global tab and an
+unshared session; a shared session's chat stays usable, and a mention from
+such a user still gets refused (the backend already 403s "not turned on for
+your group", unchanged) rather than silently reaching the agent. New
+`smoke55.mjs` (4 checks): the compose box isn't disabled; a plain message
+still works; an `@mention` still shows the question, with the existing
+403's own message as the reply rather than a real answer. Fails against the
+pre-fix code (the box is disabled, nothing can be typed at all); `tsc
+--noEmit` clean; smoke51/53/54 unaffected.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,

@@ -529,6 +529,20 @@ found while using the feature:**
   replaces already is (`flex: 1; min-width: 0`), so it always fills exactly
   its own tab's share of the row, however wide that turns out to be.
 
+**A shared session's chat no longer requires agent access to use at all.**
+`AgentChat.tsx`'s `unavailable` disabled the whole compose box the moment a
+user's group lacked `agent_enabled` -- right for the Global tab and an
+unshared session (nothing to do there without the agent), wrong for a
+*shared* session, whose chat is people talking to each other and doesn't
+need the agent for that. Now that message (and the disabled box) only
+applies when `!shared`. An `@platform-agent` mention from such a user still
+reaches `ask()` and still gets sent to `/api/agent/chat`, which already
+403s ("The agent isn't turned on for your group...", unchanged,
+`routers/agent.py`'s existing `_allowed` check) -- shown the same way any
+other failed turn already is, so there's no separate "no access" copy to
+keep in sync with the backend's own message, and the agent is never
+actually invoked either way.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record
