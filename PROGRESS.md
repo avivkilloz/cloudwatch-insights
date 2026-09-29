@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-28, a UI round on the platform agent between phases 2 and 3 (after #81)._
+_Last updated: 2026-09-29, grounding the platform agent's turns (after #96)._
 
 ## Where things stand
 
@@ -676,6 +676,31 @@ instead (and fails differently, proving the flag check let it through).
 All 7 fail against the pre-fix routers. Full backend suite green
 afterward, including every pre-existing test that exercises these routers
 with a real (enabled) group.
+
+**Three reports of the agent misbehaving with a real reasoning model (done).**
+(1) A turn wrote the same four sentences of plan until it ran out of
+tokens; (2) a table of thing names no search returned, claimed to be "in
+the iot pane", with the one-column table itself left as literal pipes; (3)
+in a shared chat, an admin told there was no IoT Prod -- an earlier member
+without it had asked first -- even after asking it to refresh, with
+literal `</think>` tags throughout. Causes and fixes (details in CLAUDE.md,
+"The agent's turn is grounded in code"): temperature was pinned to 0
+(greedy decoding loops reasoning models; now unset by default,
+`AGENT_TEMPERATURE`/`AGENT_MAX_TOKENS`, plus a loop guard in `text.py`);
+reasoning in `content` behind a template-supplied `<think>` was passed
+through raw (now split off and folded); the history carried only answers'
+words (now their tool steps too); nothing read the asker's context each
+turn (now `agent.py` does, before the model runs); nothing checked an
+answer against what the tools returned (`grounding.py` notice); the table
+regex wanted two columns. Also: Follow in a Global turn flipped the panel
+to the Session tab and hid the turn. The access boundary itself held --
+pinned by a new test either way. Coverage: `platform-agent/tests` 18 (6
+turn tests fail on the old `app/`), backend 225, `smoke57` (22, fails on
+the old `frontend/src`), smoke45 updated for the opening read.
+
+Still for the user to check on their deployment: the real model with a
+recommended temperature (its model card's; often 0.6), and whether its
+thing index includes shadows (needed for `shadow.reported.*` searches).
 
 ## The platform agent — agreed design and phases
 

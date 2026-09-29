@@ -20,6 +20,15 @@ Scripts (the user's message decides):
                       surrounding prose, no blank line either side -- what a
                       real model sends often enough that the renderer has to
                       cope with it, not just the tidy blank-line-delimited shape.
+- "think"          -- reasons first the way a reasoning model behind a proxy
+                      does (no opening <think>, then "</think>", then the
+                      answer), before a tool call and before its answer.
+- "loop"           -- the same few sentences of plan, over and over, never
+                      calling anything: what a reasoning model at
+                      temperature 0 was seen doing.
+- "invent"         -- a table of results that no tool ever returned.
+- "whoami"         -- answers with the user and environments in the context
+                      the turn was started with (from the system prompt).
 - "rows"           -- (a session's chat) says how many checked rows came
                       attached to the question, and from which panes.
 - "query <text>"   -- (a session's chat) writes <text> as the query of the
@@ -81,9 +90,42 @@ def _say(text: str) -> dict:
     return {"text": text}
 
 
-def _next(text: str, results: list[tuple[str, Any]]) -> dict:
+LOOP = (
+    "I need to search for things with deviceType:0x65 in their shadow. Let me configure the IoT pane to search "
+    "with shadow filters. I need to search for things with a specific shadow attribute. Let me set up the IoT pane "
+    "to filter by shadow values. "
+)
+
+
+def _system(messages: list[dict]) -> str:
+    first = messages[0] if messages else {}
+    return first.get("content") if first.get("role") == "system" and isinstance(first.get("content"), str) else ""
+
+
+def _next(text: str, results: list[tuple[str, Any]], system: str = "") -> dict:
     step = len(results)
     lowered = text.lower()
+    if lowered.startswith("think"):
+        if step == 0:
+            return {"text": "The user wants a session. I should create one first.\n</think>\n\nCreating it now.", **_call(
+                "create_session", title="Thought", panes=[{"kind": "tool-base64"}]
+            )}
+        return _say("They want to know it's done. I'll say so briefly.</think>\n\nDone: the Thought session is open.")
+    if lowered.startswith("loop"):
+        return _say(LOOP * 30)
+    if lowered.startswith("invent"):
+        return _say(
+            "The search completed. The IoT pane shows these things:\n"
+            "| Thing Name |\n|------------|\n"
+            "| `test-device-001` |\n| `test-sensor-temp-01` |\n| `test-actuator-pump-01` |\n| `test-gateway-alpha` |"
+        )
+    if lowered.startswith("whoami"):
+        found = re.search(r'get_context:\n(\{.*\})', system)
+        if not found:
+            return _say("I wasn't given a context this turn.")
+        context = json.loads(found.group(1))
+        names = ", ".join(e["name"] for e in context.get("environments", []))
+        return _say(f"You're {context.get('user')}, and you can reach: {names or 'nothing'}.")
     if lowered.startswith("encode "):
         plain = text[len("encode ") :]
         if step == 0:
@@ -203,7 +245,7 @@ async def completions(request: Request):
     del REQUESTS[:-20]
     model = body.get("model", "fake")
     text, results = _turn(body.get("messages") or [])
-    step = _next(text, results)
+    step = _next(text, results, _system(body.get("messages") or []))
     if STEP_DELAY:
         await asyncio.sleep(STEP_DELAY)
     call_id = f"call_{uuid.uuid4().hex[:8]}"
@@ -212,7 +254,7 @@ async def completions(request: Request):
         if "tool" in step:
             message = {
                 "role": "assistant",
-                "content": None,
+                "content": step.get("text"),
                 "tool_calls": [
                     {"id": call_id, "type": "function", "function": {"name": step["tool"], "arguments": json.dumps(step["args"])}}
                 ],
@@ -233,6 +275,13 @@ async def completions(request: Request):
 
     async def stream():
         yield _chunk(model, {"role": "assistant", "content": ""})
+        if "text" in step:
+            # Uneven pieces, the way a real stream cuts them -- a tag can
+            # arrive split across two chunks.
+            text = step["text"]
+            for i in range(0, len(text), 7):
+                yield _chunk(model, {"content": text[i : i + 7]})
+                await asyncio.sleep(0.005)
         if "tool" in step:
             yield _chunk(
                 model,
@@ -249,10 +298,6 @@ async def completions(request: Request):
             )
             yield _chunk(model, {}, "tool_calls")
         else:
-            words = step["text"].split(" ")
-            for i, word in enumerate(words):
-                yield _chunk(model, {"content": word + (" " if i < len(words) - 1 else "")})
-                await asyncio.sleep(0.02)
             yield _chunk(model, {}, "stop")
         yield "data: [DONE]\n\n"
 

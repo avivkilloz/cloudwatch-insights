@@ -9,11 +9,20 @@ never held past the turn it was minted for.
 What the turn produces is a stream of small events, which the backend relays
 to the browser unchanged:
 
-- `{"type": "text", "delta"}` -- the model's words as they arrive.
-- `{"type": "tool_call", "id", "name", "args"}` -- a tool about to run.
+- `{"type": "text", "delta"}` -- the model's words as they arrive; a new
+  step's words start a new paragraph.
+- `{"type": "thinking", "delta"}` -- the model's reasoning, kept apart from
+  its answer (see text.py).
+- `{"type": "retract", "chars"}` -- take back the last `chars` characters of
+  answer text: they turned out to be reasoning (sent again as thinking), or
+  a step stopped for going round in circles.
+- `{"type": "tool_call", "id", "name", "args", "preamble"?}` -- a tool about
+  to run; `preamble` marks the reads every turn starts with.
 - `{"type": "tool_result", "id", "name", "ok", "summary", "session_id"?}` --
   how it went; `session_id` names the session it touched, which is how the
   browser can follow the agent to it.
+- `{"type": "notice", "message"}` -- a warning to show under the answer
+  (one whose details no tool returned, see grounding.py).
 - `{"type": "error", "message"}` then the stream ends -- a turn that failed.
 - `{"type": "done"}` -- a turn that finished.
 """
@@ -23,18 +32,25 @@ import logging
 from typing import Any, AsyncIterator, Optional
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 
+from . import grounding
 from .config import Settings
-from .prompt import SYSTEM_PROMPT, session_prompt
+from .prompt import SYSTEM_PROMPT, context_prompt, session_prompt
+from .text import StepText, looping
 
 logger = logging.getLogger(__name__)
 
 # What a tool_result event carries of the tool's output: enough for the
 # activity line in the chat, not the rows themselves.
 SUMMARY_CHARS = 400
+# What an earlier turn's steps may carry back into the conversation.
+HISTORY_STEPS = 12
+HISTORY_ARGS_CHARS = 600
+# How often (in characters of a step's output) to look for a loop.
+LOOP_CHECK_CHARS = 200
 
 
 def build_model(settings: Settings) -> ChatOpenAI:
@@ -42,7 +58,8 @@ def build_model(settings: Settings) -> ChatOpenAI:
         model=settings.model,
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
-        temperature=0,
+        temperature=settings.temperature,
+        max_tokens=settings.max_tokens,
         streaming=True,
         timeout=120,
         max_retries=1,
@@ -79,6 +96,63 @@ def _summary(output: str) -> str:
     return output if len(output) <= SUMMARY_CHARS else output[:SUMMARY_CHARS] + "…"
 
 
+def _args(args: Any) -> dict:
+    """An earlier step's arguments, cut down if they were big (a long query,
+    a pasted document) -- what was called matters, not every byte of it."""
+    if not isinstance(args, dict):
+        return {}
+    if len(json.dumps(args)) <= HISTORY_ARGS_CHARS:
+        return args
+    return {k: (v[:200] + "…" if isinstance(v, str) and len(v) > 200 else v) for k, v in args.items()}
+
+
+def conversation(messages: list[dict]) -> list[BaseMessage]:
+    """The conversation as the model reads it. An earlier answer comes with
+    the tool calls that led to it and what each returned (in brief), not just
+    its words: with only the words, the model had no way to tell an answer
+    from a run apart from one it made up, or to see that an answer saying
+    "there's no IoT Prod" was the result of *another* person's get_context."""
+    out: list[BaseMessage] = []
+    for i, m in enumerate(messages):
+        if m["role"] == "user":
+            out.append(HumanMessage(content=m["content"]))
+            continue
+        steps = [s for s in (m.get("steps") or []) if isinstance(s, dict) and s.get("name")][-HISTORY_STEPS:]
+        if steps:
+            ids = [f"h{i}_{j}" for j in range(len(steps))]
+            calls = [
+                {"id": ids[j], "name": s["name"], "args": _args(s.get("args")), "type": "tool_call"}
+                for j, s in enumerate(steps)
+            ]
+            out.append(AIMessage(content="", tool_calls=calls))
+            for j, s in enumerate(steps):
+                ok = bool(s.get("ok"))
+                content = s.get("summary") or ("Done." if ok else "Failed.")
+                out.append(
+                    ToolMessage(content=content, tool_call_id=ids[j], name=s["name"], status="success" if ok else "error")
+                )
+        out.append(AIMessage(content=m["content"] or "(No answer.)"))
+    return out
+
+
+async def _read(tools: dict, name: str, args: dict, id_: str, seen: list[str]) -> AsyncIterator[dict]:
+    """One of the turn's opening reads, reported the way any tool step is.
+    Its output lands in `seen` (the last entry) -- or nothing, if it failed."""
+    tool = tools.get(name)
+    if tool is None:
+        return
+    yield {"type": "tool_call", "id": id_, "name": name, "args": args, "preamble": True}
+    try:
+        result = await tool.ainvoke({"name": name, "args": args, "id": id_, "type": "tool_call"})
+        output = _text(result.content if isinstance(result, ToolMessage) else result)
+        ok = not (isinstance(result, ToolMessage) and result.status == "error")
+    except Exception as e:  # noqa: BLE001 -- the model can still look for itself
+        output, ok = _reason(e), False
+    event = {"type": "tool_result", "id": id_, "name": name, "ok": ok, "summary": _summary(output)}
+    yield event
+    seen.append(output if ok else "")
+
+
 async def run_turn(
     settings: Settings,
     messages: list[dict],
@@ -88,8 +162,8 @@ async def run_turn(
 ) -> AsyncIterator[dict]:
     """Runs one turn and yields its events. `messages` is the conversation so
     far, the user's new message last, as {"role": "user" | "assistant",
-    "content"}. `focus` ({"session_id", "title"}) makes it a session's own
-    chat. `model` stands in for the configured one in tests."""
+    "content", "steps"?}. `focus` ({"session_id", "title"}) makes it a
+    session's own chat. `model` stands in for the configured one in tests."""
     client = MultiServerMCPClient(
         {
             "platform": {
@@ -106,32 +180,97 @@ async def run_turn(
         yield {"type": "error", "message": f"The agent couldn't reach the platform's tools ({_reason(e)})."}
         return
 
+    # Everything the turn has seen, for checking the answer against: the
+    # user's message, and every tool's input and output.
+    seen: list[str] = [messages[-1]["content"]]
+
+    # Read before the model says a word, every turn, rather than left to the
+    # model to remember to: who's asking and what they can reach (it changes
+    # with who wrote the message, in a shared chat), and the session as it
+    # is now. Left to the model, it answered an admin from a get_context it
+    # had made for somebody else a turn earlier, and "refreshed" a session
+    # without calling anything.
+    by_name = {t.name: t for t in tools}
+    async for event in _read(by_name, "get_context", {}, "turn-context", seen):
+        yield event
+    context = seen[-1] if len(seen) > 1 else None
+    session = None
+    if focus:
+        before = len(seen)
+        async for event in _read(by_name, "get_session", {"session_id": focus["session_id"]}, "turn-session", seen):
+            yield event
+        session = seen[-1] if len(seen) > before else None
+
     prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
+    prompt += context_prompt(context or None, session or None)
     agent = create_agent(model or build_model(settings), tools, system_prompt=prompt)
     names: dict[str, str] = {}
+    answer = ""
+    thought = False
+    step: Optional[StepText] = None
+    step_id: Optional[str] = None
+    checked = 0
+
+    def finish_step() -> list[dict]:
+        nonlocal step, step_id, answer, thought, checked
+        checked = 0
+        if step is None:
+            return []
+        events = step.end()
+        answer += step.answer
+        thought = thought or bool(step.thinking)
+        step, step_id = None, None
+        return events
+
+    stream = agent.astream(
+        {"messages": conversation(messages)},
+        config={"recursion_limit": settings.max_steps},
+        stream_mode=["messages", "updates"],
+    )
     try:
-        async for mode, chunk in agent.astream(
-            {"messages": messages},
-            config={"recursion_limit": settings.max_steps},
-            stream_mode=["messages", "updates"],
-        ):
+        async for mode, chunk in stream:
             if mode == "messages":
                 message, meta = chunk
                 # Only the model's own words: tool output also passes through
                 # this stream, as ToolMessages, and is reported below instead.
-                if isinstance(message, AIMessageChunk) and meta.get("langgraph_node") == "model":
-                    delta = _text(message.content)
-                    if delta:
-                        yield {"type": "text", "delta": delta}
+                if not (isinstance(message, AIMessageChunk) and meta.get("langgraph_node") == "model"):
+                    continue
+                if step is not None and message.id and step_id and message.id != step_id:
+                    for event in finish_step():
+                        yield event
+                if step is None:
+                    step = StepText(separate=bool(answer.strip()), thoughts_before=thought)
+                    step_id = message.id
+                delta = _text(message.content)
+                if not delta:
+                    continue
+                for event in step.feed(delta):
+                    yield event
+                if len(step.raw) - checked >= LOOP_CHECK_CHARS:
+                    checked = len(step.raw)
+                    repeated = looping(step.raw)
+                    if repeated:
+                        for event in step.abandon():
+                            yield event
+                        yield {
+                            "type": "error",
+                            "message": f"The agent got stuck repeating itself (“{repeated}…”), so it was stopped. "
+                            "Try asking again, or break the request into smaller steps.",
+                        }
+                        return
                 continue
+            for event in finish_step():
+                yield event
             for node, update in (chunk or {}).items():
                 for message in (update or {}).get("messages", []) if isinstance(update, dict) else []:
                     if isinstance(message, AIMessage):
                         for call in message.tool_calls:
                             names[call["id"]] = call["name"]
+                            seen.append(json.dumps(call["args"], ensure_ascii=False))
                             yield {"type": "tool_call", "id": call["id"], "name": call["name"], "args": call["args"]}
                     elif isinstance(message, ToolMessage):
                         output = _text(message.content)
+                        seen.append(output)
                         event = {
                             "type": "tool_result",
                             "id": message.tool_call_id,
@@ -143,10 +282,17 @@ async def run_turn(
                         if session_id:
                             event["session_id"] = session_id
                         yield event
+        for event in finish_step():
+            yield event
     except Exception as e:  # noqa: BLE001 -- reported to the user, not raised
         logger.warning("Agent turn failed: %s", e)
         yield {"type": "error", "message": _failure(e)}
         return
+    finally:
+        await stream.aclose()
+    missing = grounding.ungrounded(answer, seen)
+    if missing:
+        yield {"type": "notice", "message": grounding.notice(missing)}
     yield {"type": "done"}
 
 

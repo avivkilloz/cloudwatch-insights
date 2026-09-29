@@ -121,6 +121,20 @@ def test_a_turn_is_relayed_with_a_token_that_is_gone_when_it_ends(monkeypatch):
     assert _tokens_left() == 0
 
 
+def test_an_earlier_answers_steps_are_relayed_with_it(monkeypatch):
+    # So the agent sees which tools an answer came from, not only its words.
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    received.clear()
+    step = {"name": "run_pane", "args": {"pane_id": "iot"}, "ok": False, "summary": "Environment 9 is not configured"}
+    messages = [
+        {"role": "user", "content": "search prod"},
+        {"role": "assistant", "content": "That failed.", "steps": [step]},
+        {"role": "user", "content": "again"},
+    ]
+    assert client.post("/api/agent/chat", json={**ASK, "messages": messages}).status_code == 200
+    assert received[0]["body"]["messages"] == messages
+
+
 def test_an_unreachable_agent_is_a_readable_error_and_still_revokes_the_token(monkeypatch):
     monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_free_port()}")
     resp = client.post("/api/agent/chat", json=ASK)

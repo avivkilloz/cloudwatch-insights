@@ -56,9 +56,20 @@ def agent_status(current_user: models.User = Depends(auth.get_current_user)):
 MAX_MESSAGE_CHARS = 60_000
 
 
+class AgentHistoryStep(BaseModel):
+    """A tool an earlier answer used -- relayed so the agent sees what it
+    actually ran, not only what it said it ran."""
+
+    name: str = Field(max_length=100)
+    args: dict = Field(default_factory=dict)
+    ok: bool = True
+    summary: str = Field(default="", max_length=2_000)
+
+
 class AgentMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=MAX_MESSAGE_CHARS)
+    steps: Optional[list[AgentHistoryStep]] = Field(default=None, max_length=40)
 
 
 class AgentChatRequest(BaseModel):
@@ -98,9 +109,8 @@ async def agent_chat(
     focus = None
     if payload.scope == "session":
         # Reachable, not just owned -- an invited member can talk about a
-        # session shared with them the same as its owner can, even though
-        # the agent's own tools (below) still can't act on it for anyone but
-        # the owner (see live_store.get's docstring).
+        # session shared with them the same as its owner can, and the
+        # agent's tools act on it for them within their own permission.
         row, _ = (
             live_store.reachable(db, current_user.id, payload.viewing_session_id)
             if payload.viewing_session_id
@@ -118,7 +128,7 @@ async def agent_chat(
     service_key = os.environ.get("AGENT_SERVICE_KEY")
     if service_key:
         headers["Authorization"] = f"Bearer {service_key}"
-    body: dict = {"messages": [m.model_dump() for m in payload.messages]}
+    body: dict = {"messages": [m.model_dump(exclude_none=True) for m in payload.messages]}
     if focus:
         body["focus"] = focus
 

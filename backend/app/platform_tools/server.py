@@ -662,6 +662,12 @@ def _write_results(state: dict, pane_id: str, writes: dict[str, Any]) -> bool:
         trimmed = True
 
 
+def _shown_in(row: models.LiveSession, pane_id: str) -> str:
+    """Where a run's results are, in the words the user sees them by -- so
+    the answer can point at them by name rather than by an id."""
+    return f"the {_pane_title(row.state, pane_id)} pane of the session \"{row.title}\""
+
+
 @mcp.tool()
 async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any]] = None) -> dict:
     """Runs a pane -- a read-only search -- with its current inputs, after setting any `inputs` given (same keys as
@@ -681,12 +687,12 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
         # user's own edits to the session carry on meanwhile.
         result = await kind.run(RunContext(db=db, user=user, timezone=caller.timezone), pane_values(row.state, pane_id))
         if not result.writes:
-            return {"session_id": session_id, "pane_id": pane_id, **result.summary}
+            return {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         writes = json.loads(json.dumps(result.writes))  # our own copy to trim
         row, trimmed = live_store.mutate(
             db, user.id, session_id, lambda s, _r, _m: _write_results(s, pane_id, writes), ORIGIN
         )
-        out = {"session_id": session_id, "pane_id": pane_id, **result.summary}
+        out = {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         if trimmed:
             out["note"] = "The results were too big for a pane and were cut down; narrow the search to see them all."
         return out

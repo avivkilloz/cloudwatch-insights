@@ -2273,6 +2273,38 @@ th {
   margin: 0;
 }
 
+/* The model's reasoning, folded above its answer (AgentChat's Thoughts). */
+.agent-thoughts {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.agent-thoughts > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.agent-thoughts-text {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* A warning about the answer from the agent service (grounding.py). */
+.agent-notice {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
 .agent-compose {
   display: flex;
   flex-direction: column;

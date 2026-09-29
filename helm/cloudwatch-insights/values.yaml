@@ -180,6 +180,13 @@ agent:
   model: ""
   # A turn's ceiling on model-and-tool steps.
   maxSteps: 40
+  # Sampling temperature; empty leaves it to the model's own default. Don't
+  # set 0 for a reasoning model (one that thinks in <think> tags): greedy
+  # decoding makes those repeat themselves until they run out of tokens --
+  # use what the model's card recommends (often 0.6).
+  temperature: ""
+  # A ceiling on one model step's output, in tokens; empty for the model's own.
+  maxTokens: ""
 
   # Optional: a key shared by the backend and the agent, so nothing else in
   # the cluster can call the agent (and spend the model's budget). An existing

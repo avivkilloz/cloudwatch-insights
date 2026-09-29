@@ -572,26 +572,68 @@ only (LLM behavior, not a code bug with a deterministic fix):**
   (`smoke56.mjs`) mixing both shapes into surrounding prose with no blank
   line either side, specifically to keep exercising this.
 - **The agent sometimes answers from memory of an earlier run instead of
-  actually running the tool again for a new request** (a different
-  environment, most reported), and sometimes answers about a session's
-  current state without re-reading it, both reported as worse once a
-  session has other members and the chat is noisier. This is the
-  underlying model's own instruction-following, not something the
-  orchestration layer (`agent.py`) can force -- there's no code path here
-  that skips a tool call or a `get_context`/`get_session` read on its own account,
-  and `focus`/`viewing_session_id` are already passed on every session-scope
-  turn (checked, not assumed). The one lever that's actually within this
-  codebase's control is `prompt.py`'s own wording, so it's been made more
-  emphatic: `SYSTEM_PROMPT` now says explicitly to run the tool for *this*
-  turn's request even if something similar came up earlier, and never to
-  write out results from an earlier run; `session_prompt` now says to call
-  `get_session` *this* turn before answering about the session's current
-  state even if it looked recently, and to answer the question just asked
-  rather than what it inferred earlier in a chat several people are using.
-  Prompt wording narrows how often this happens; it doesn't guarantee it
-  won't -- there's no way to verify this deterministically the way a code
-  fix can be (nothing in `platform-agent/tests` asserts on prompt content,
-  by design, since the fake model doesn't read it).
+  actually running the tool again**, or about a session's state without
+  re-reading it. First mitigated by prompt wording alone; since then made
+  structural (next section) -- the turn reads the context itself, and the
+  history carries what each answer actually ran.
+
+**The agent's turn is grounded in code, not left to the model's
+instruction-following.** Three reports from real use with a reasoning model
+behind LiteLLM -- a turn that wrote the same four sentences of plan until it
+ran out of tokens; a table of thing names no search had returned ("the
+results are in the iot pane", nothing there); and, in a shared chat, an
+admin told "there is no IoT Prod" because an earlier member without it had
+asked first, even after "refresh and check again" -- traced to these, each
+fixed where it happens:
+- **Every turn opens with its own reads** (`agent.py`, `_read`): `get_context`,
+  and `get_session` in a session chat, called by the agent service before
+  the model says a word, put into the system prompt (`prompt.context_prompt`)
+  and shown in the chat as steps (`preamble: true`; "Checked who's asking and
+  what they can reach"). A shared chat's turns are each minted for whoever
+  sent that message, so this read is always *theirs* -- the prompt says it
+  replaces anything earlier in the conversation about access. The model can
+  still call both again itself.
+- **History carries each answer's tool steps**, not only its words: the
+  browser sends `steps` (name, args, ok, the kept 300-char summary; preamble
+  steps left out, each turn makes its own) with each assistant message, and
+  `agent.conversation()` rebuilds them as real tool calls and results. With
+  only words, a made-up answer and a real run looked the same next turn, and
+  another person's get_context was indistinguishable from a fact.
+- **Reasoning is kept apart from the answer** (`text.py`). These models put
+  it in `content` as `...</think>answer` -- the opening tag is in the chat
+  template -- so until "</think>" arrives there's no telling, and words are
+  streamed as answer and then taken back (`retract`) and resent as
+  `thinking` when it does. The browser folds them into "Thought process";
+  a stored turn from before this is split the same way at render
+  (`splitThinking`). Each step's answer starts a new paragraph (steps used
+  to run on into each other mid-sentence).
+- **A step that loops is stopped** (`text.looping`: its last 160 characters
+  already seen 4 times), its words retracted, with a readable error. And
+  `temperature` is no longer pinned to 0 (`AGENT_TEMPERATURE`, Helm
+  `agent.temperature`, unset by default): greedy decoding is what reasoning
+  models are documented to loop under. `AGENT_MAX_TOKENS` caps a step.
+- **An answer whose details no tool returned carries a warning**
+  (`grounding.py`, a `notice` event): its table cells and `code` spans are
+  looked for in the turn's tool outputs, tool args and the user's own
+  message (attached rows count); when most of 3+ are found nowhere, the
+  browser shows it under the answer. It checks, it doesn't block -- the
+  answer still shows, flagged.
+- **Acting "on behalf of" someone else is refused by the server**, not just
+  the prompt: a run acts as the asker, so a shared pane its owner pointed
+  at an environment the asker can't see gets that environment's "not
+  configured" error, never its data (`test_nobody_can_run_a_shared_pane_
+  with_the_owners_access`, which passed before this too -- the leak wasn't
+  there; the stale answer was).
+- Smaller: `run_pane` says where its results are (`shown_in`, by the names
+  the user sees); the IoT query help gives the shadow syntax
+  (`shadow.reported.<field>:<value>`); a one-column table (`|---|`) renders
+  (the separator regex wanted two); and a Global turn whose Follow opens a
+  session no longer flips the panel to the Session tab, which had hidden
+  the very turn doing the work.
+- Coverage: `platform-agent/tests` (`test_text.py`; five new turn tests
+  against the fake model's `think`/`loop`/`invent`/`whoami` scripts, all
+  failing on the old `app/`), backend `test_platform_tools.py`/
+  `test_agent_chat.py`, and `smoke57` (fails on the old `frontend/src`).
 
 ## Conventions
 

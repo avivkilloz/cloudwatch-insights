@@ -12,7 +12,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import aws_client, live_store, models
+from app import aws_client, iot_client, live_store, models
 from app.db import SessionLocal
 from app.main import app
 from app.platform_tools import panes, tokens
@@ -235,6 +235,37 @@ def test_run_pane_also_refuses_an_environment_outside_the_group(mcp):
         mcp, token, "run_pane", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [hidden]}
     )
     assert "isn't visible" in error
+
+
+def test_nobody_can_run_a_shared_pane_with_the_owners_access(mcp, monkeypatch):
+    # "Search IoT Prod on behalf of @owner": the owner already pointed the
+    # shared pane at an environment only they can see, and an editor without
+    # it asks their own agent to run it. The run is theirs, so Prod is refused
+    # for them before anything reaches AWS -- the pane being set up by someone
+    # who could see it lends them nothing.
+    searched: list[str] = []
+    monkeypatch.setattr(
+        iot_client, "search_things", lambda account, *_a, **_k: searched.append(account) or [{"thing_name": "t"}]
+    )
+    prod = _environment("IoT Prod", "999988887777")
+    owner = _token()
+    session = call(mcp, owner, "create_session", title="Shared", panes=[{"kind": "iot"}])["session_id"]
+    call(mcp, owner, "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
+    bob = _group(agent_enabled=True, iot_enabled=True)
+    client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
+
+    out = call(mcp, _token(bob), "run_pane", session_id=session, pane_id="iot")
+    assert searched == []
+    assert out["total"] == 0 and "not configured" in out["environments"][0]["error"]
+    # Nor can they name it themselves.
+    error = call_error(mcp, _token(bob), "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
+    assert "isn't visible" in error
+    # Their own context never lists it, whoever else is in the chat.
+    assert [e["name"] for e in call(mcp, _token(bob), "get_context")["environments"]] == []
+
+    # The owner's own run does reach it.
+    out = call(mcp, owner, "run_pane", session_id=session, pane_id="iot")
+    assert searched == ["999988887777"] and out["total"] == 1
 
 
 def test_a_shared_sessions_pane_is_still_gated_by_the_members_own_group_not_the_owners(mcp):
@@ -612,6 +643,8 @@ def test_base64_is_worked_out_for_the_agent_too(mcp):
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-base64"}])["session_id"]
     out = call(mcp, token, "run_pane", session_id=session, pane_id="tool-base64", inputs={"input": "hi there"})
     assert out["output"] == "aGkgdGhlcmU="
+    # Where to look, by the names the user sees, for the answer to point at.
+    assert out["shown_in"] == 'the Base64 pane of the session "s"'
     out = call(
         mcp, token, "run_pane", session_id=session, pane_id="tool-base64", inputs={"mode": "decode", "input": "aGk"}
     )

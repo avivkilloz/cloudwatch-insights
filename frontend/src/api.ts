@@ -476,16 +476,29 @@ export interface AgentStatus {
   enabled: boolean;
 }
 
+/** A tool an earlier answer used, sent back with it so the agent sees what
+ * it actually ran rather than only what it said. */
+export interface AgentHistoryStep {
+  name: string;
+  args: Record<string, unknown>;
+  ok: boolean;
+  summary: string;
+}
+
 export interface AgentChatMessage {
   role: "user" | "assistant";
   content: string;
+  steps?: AgentHistoryStep[];
 }
 
 /** One step of an agent turn as it happens (platform-agent/app/agent.py). */
 export type AgentEvent =
   | { type: "text"; delta: string }
-  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
+  | { type: "thinking"; delta: string }
+  | { type: "retract"; chars: number }
+  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown>; preamble?: boolean }
   | { type: "tool_result"; id: string; name: string; ok: boolean; summary: string; session_id?: string }
+  | { type: "notice"; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
 
