@@ -2143,9 +2143,14 @@ th {
 }
 
 .aggregator-tab .aggregator-pane-rename {
-  flex: none;
-  width: 150px;
-  margin: 3px 0 3px 6px;
+  /* Fills the tab's own share of the evenly-divided row, the same as the
+     label it replaces (.aggregator-tab-label is flex:1, min-width:0) --
+     a fixed width here could exceed a narrow tab's own width when several
+     panes are open, overflowing past it and dragging the ✕ beside it out
+     of place along with it. */
+  flex: 1;
+  min-width: 0;
+  margin: 3px 6px 3px 6px;
   font-size: 12.5px;
   font-weight: normal;
 }

@@ -92,6 +92,41 @@ def test_a_viewer_cannot_write():
     assert client.get("/api/live-sessions/s1").json()["state"] == {"a": 1}
 
 
+def test_a_viewer_can_still_write_a_chat_only_change():
+    bob = _share("s1", "bob", "viewer")
+    resp = bob.put(
+        "/api/live-sessions/s1",
+        json={"type": "aggregator", "title": "s1", "state": {"a": 1, "agentChat": [{"id": "t1", "question": "hi"}]},
+              "truncated": False},
+    )
+    assert resp.status_code == 200, resp.text
+    # The one shared document -- the owner sees the viewer's chat message too.
+    assert client.get("/api/live-sessions/s1").json()["state"]["agentChat"] == [{"id": "t1", "question": "hi"}]
+
+
+def test_a_viewer_changing_anything_besides_chat_is_still_refused():
+    bob = _share("s1", "bob", "viewer")
+    # Both a chat addition *and* another key changing -- still 403, and
+    # nothing lands, not even the chat part: a viewer doesn't get to smuggle
+    # a real edit through by bundling a chat message onto it.
+    resp = bob.put(
+        "/api/live-sessions/s1",
+        json={"type": "aggregator", "title": "s1", "state": {"a": 2, "agentChat": [{"id": "t1", "question": "hi"}]},
+              "truncated": False},
+    )
+    assert resp.status_code == 403, resp.text
+    assert client.get("/api/live-sessions/s1").json()["state"] == {"a": 1}
+
+
+def test_a_viewer_renaming_the_session_is_still_refused_even_with_no_state_change():
+    bob = _share("s1", "bob", "viewer")
+    resp = bob.put(
+        "/api/live-sessions/s1",
+        json={"type": "aggregator", "title": "renamed by bob", "state": {"a": 1}, "truncated": False},
+    )
+    assert resp.status_code == 403, resp.text
+
+
 def test_an_editor_can_write_the_shared_state():
     bob = _share("s1", "bob", "editor")
     resp = bob.put(

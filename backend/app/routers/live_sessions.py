@@ -48,6 +48,10 @@ from ..live_store import MAX_STATE_BYTES, commit_write
 
 router = APIRouter(prefix="/api/live-sessions", tags=["live-sessions"])
 
+# Must match agent/AgentContext.tsx's own SESSION_CHAT_KEY -- see
+# upsert_live_session's own use of it below.
+SESSION_CHAT_KEY = "agentChat"
+
 # Nothing here trims itself. Closing a session is how you put it away, not how
 # you get rid of it -- the panel lists closed sessions alongside open ones, and
 # deleting is the only thing that removes one. A cap would mean a session the
@@ -351,7 +355,22 @@ def upsert_live_session(
         db.add(row)
     else:
         if member is not None and member.permission == "viewer":
-            raise HTTPException(status_code=403, detail="You have read-only access to this session.")
+            # Chatting isn't editing the session -- a write that changes
+            # nothing but the chat log still goes through even for a viewer
+            # (the frontend's own mirror of this is sync.ts's
+            # chatOnlyChange); anything else about the session stays
+            # refused. Without this carve-out a viewer's own chat messages,
+            # and the agent's replies to them, never left their browser at
+            # all -- invisible to the owner and every other participant.
+            current_state = row.state or {}
+            incoming_state = payload.state or {}
+            changed_state_keys = {
+                k
+                for k in set(current_state) | set(incoming_state)
+                if current_state.get(k) != incoming_state.get(k)
+            }
+            if changed_state_keys - {SESSION_CHAT_KEY} or payload.title != row.title or payload.type != row.type:
+                raise HTTPException(status_code=403, detail="You have read-only access to this session.")
         if payload.base_version is not None and payload.base_version != row.version:
             raise HTTPException(
                 status_code=409,

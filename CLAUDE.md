@@ -479,6 +479,56 @@ submit flow is otherwise untouched.
    owner, sourced the same way the new route is, so every tool built on it
    (`get_context`, `get_session`, `list_sessions`) answers correctly.
 
+**A viewer's chat messages, and the agent's replies to them, reached no one
+but themselves.** `sync.ts`'s `pushOne` skipped a viewer's PUT unconditionally
+-- correct for the panes/layout a viewer genuinely can't edit, but that same
+guard also covered `agentChat`, which chatting has no business being gated
+by: talking in a shared session's chat isn't editing the session's content.
+So a viewer's own turns (plain messages and agent-invoked questions alike)
+never left their browser -- no PUT, no version bump, no `commit_write`, no
+notification to the owner or anyone else -- while the viewer's own screen
+still showed them (an optimistic local write to session state that simply
+never got pushed). Fixed with a narrow carve-out on both sides: `sync.ts`'s
+new `chatOnlyChange(base, session)` compares `session` against the last
+server copy this browser agreed with (title, type, category and every state
+key except `agentChat` all have to match exactly); `pushOne` now sends a
+viewer's PUT through when that holds, instead of skipping it outright.
+`upsert_live_session` (`routers/live_sessions.py`) independently enforces
+the identical rule server-side (comparing `payload.state` against `row.state`
+key by key, `payload.title`/`payload.type` against the row's) -- never
+trusting the frontend's own gate alone, and refusing (403, same as before)
+the moment anything besides the chat log would change, so a viewer can't
+smuggle a real edit through by bundling a chat message onto it. Confirmed
+live with two real users (an owner and an invited viewer): the viewer's
+plain message, their `@platform-agent` question, and the agent's actual
+reply to it, all now reach the owner -- and a viewer still can't push any
+non-chat change, exactly as before.
+
+**Two further follow-ups, unrelated to sharing's access-control model but
+found while using the feature:**
+- **The agent panel now defaults to the Session tab when you open a
+  session.** It only did this by accident of `AgentContext`'s `tab` state
+  happening to start on `"global"` regardless of what's on screen. Two
+  changes: the initial state now depends on the view at mount (`view ===
+  "session" ? "session" : "global"`), so a session already open when the
+  panel first mounts starts there too; an effect watches `view`'s own
+  transitions and switches to "Session" the moment it moves from something
+  else *into* `"session"` (opening one), but leaves the tab alone when you
+  merely switch between two sessions that are both already open (`view`
+  stays `"session"` the whole time, so the transition never fires) -- so it
+  doesn't fight a deliberate choice to keep Global open while browsing.
+  Neither is persisted, matching `tab`'s existing behavior: a fresh load
+  re-decides rather than reopening wherever the panel was left.
+- **The pane tabs' rename box could overflow its own tab.**
+  `.aggregator-tab .aggregator-pane-rename` had a fixed `width: 150px`, but
+  `.aggregator-tab` itself is `flex: 1 1 0` (evenly divided across however
+  many are open) and can be narrower than that with several panes open --
+  the input then overflowed past its own tab's right edge, visibly dragging
+  the ✕ beside it out of place along with it (not centered, not where the
+  ✕ normally sits). Fixed by sizing the input the same way the label it
+  replaces already is (`flex: 1; min-width: 0`), so it always fills exactly
+  its own tab's share of the row, however wide that turns out to be.
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record

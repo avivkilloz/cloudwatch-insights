@@ -230,7 +230,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // a time.
   const [live, setLive] = useState<{ scope: AgentScope; sessionId: string | null; turn: AgentTurn } | null>(null);
   const [follow, setFollow] = useState(true);
-  const [tab, setTab] = useState<AgentScope>("global");
+  // Defaults to whichever makes sense for what's on screen right now (a
+  // session, or not) -- not persisted, so a fresh load re-decides rather
+  // than reopening wherever the panel happened to be left last time.
+  const [tab, setTab] = useState<AgentScope>(() => (view === "session" ? "session" : "global"));
   const [layout, setLayoutState] = useState<AgentLayout>(() => readStored(LAYOUT_KEY, ["dock", "float"], "dock"));
   const [open, setOpenState] = useState(() => readStored(OPEN_KEY, ["open", "closed"], "closed") === "open");
   const abortRef = useRef<AbortController | null>(null);
@@ -253,6 +256,16 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const viewingSessionId = view === "session" ? activeId : null;
+
+  // Opening a session (not just switching between two already-open ones --
+  // that leaves whatever tab you picked alone) defaults the panel to the
+  // Session tab, the same way the initial state above does for a session
+  // already on screen at load.
+  const prevViewRef = useRef(view);
+  useEffect(() => {
+    if (view === "session" && prevViewRef.current !== "session") setTab("session");
+    prevViewRef.current = view;
+  }, [view]);
 
   // Read through refs by `ask`, so a turn asks about what is on screen and
   // what has been said at that moment without `ask` changing every render.
