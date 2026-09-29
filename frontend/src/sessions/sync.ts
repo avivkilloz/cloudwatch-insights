@@ -75,6 +75,30 @@ function printOf(value: unknown): string {
 // import would cycle).
 const SESSION_CHAT_KEY = "agentChat";
 
+/** Whether `session` differs from `base` (the last server copy this browser
+ * agreed with) only in its chat log, if at all -- title, category and every
+ * other state key besides `agentChat` all have to match exactly. A viewer
+ * can't change any of those (there's no UI path that lets one try), but
+ * chatting isn't editing the session's own content, so a change confined to
+ * just the chat log is the one thing a viewer's browser may still push (see
+ * `pushOne`, and the identical carve-out `upsert_live_session` enforces
+ * server-side, independently of this check). No `base` at all (a session
+ * this browser has never synced) means there's nothing to compare against,
+ * so it isn't treated as chat-only. */
+function chatOnlyChange(base: PersistedSession | undefined, session: PersistedSession): boolean {
+  if (!base) return false;
+  if (base.type !== session.type || base.title !== session.title || base.categoryId !== session.categoryId) {
+    return false;
+  }
+  const baseState = base.state ?? {};
+  const state = session.state ?? {};
+  for (const key of new Set([...Object.keys(baseState), ...Object.keys(state)])) {
+    if (key === SESSION_CHAT_KEY) continue;
+    if (printOf(baseState[key]) !== printOf(state[key])) return false;
+  }
+  return true;
+}
+
 /** Every other key is "whichever side changed it wins" (see `pick` above),
  * fine for a value someone edits in place. A chat log is different: it's an
  * append-only list several people can add to at once, so the ordinary merge
@@ -257,12 +281,16 @@ export class WorkspaceSync {
   /** Sends one session if it changed since the server last accepted it. False
    * when the request failed and the session is still unsynced. */
   private async pushOne(session: PersistedSession, index: number): Promise<boolean> {
-    // A viewer's own edits (if the UI let any happen) have nowhere to go --
-    // the server refuses this session's writes outright (403) -- and without
-    // this, the mere act of *receiving* someone else's live change here would
-    // otherwise queue a save right back, failing on every flush for as long
-    // as the session stays open.
-    if (session.role === "viewer") return true;
+    // A viewer's own edits to the session itself (if the UI let any happen)
+    // have nowhere to go -- the server refuses those outright (403) -- and
+    // without this, the mere act of *receiving* someone else's live change
+    // here would otherwise queue a save right back, failing on every flush
+    // for as long as the session stays open. Chatting is the one exception:
+    // it isn't editing the session's content, so a change confined to just
+    // the chat log still goes out (`chatOnlyChange`) -- without this, a
+    // viewer's own chat messages (and the agent's replies to them) never
+    // left their browser at all, invisible to everyone else on the session.
+    if (session.role === "viewer" && !chatOnlyChange(this.bases.get(session.id), session)) return true;
     const print = fingerprint(session);
     if (this.synced.get(session.id) === print) return true;
     try {

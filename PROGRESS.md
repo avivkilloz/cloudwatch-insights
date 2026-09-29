@@ -557,6 +557,63 @@ against the pre-feature code (four of seven fail: the intro never updates,
 "@" suggests nothing at all). Full backend suite green; `tsc --noEmit`
 clean.
 
+**A real sharing bug, found using it for real (done): a viewer's chat was
+one-way.** The member could see the owner's messages and the agent's
+replies; the owner never saw anything the member (invited as a viewer) sent
+-- not their plain messages, not their `@platform-agent` questions, not the
+agent's answers to them. Root cause: `sync.ts`'s `pushOne` skipped a
+viewer's PUT unconditionally, and `agentChat` is just one more key in the
+same `state` blob that guard was written to protect (the panes/layout a
+viewer genuinely can't edit) -- so a viewer's own chat writes never reached
+the server at all, while their own screen still showed them optimistically.
+Fixed with a chat-only carve-out on both sides: `sync.ts`'s new
+`chatOnlyChange` lets a viewer's PUT through when nothing but `agentChat`
+differs from the last-agreed server copy; `upsert_live_session` enforces
+the identical rule independently, server-side, refusing (403) the instant
+anything else would change too.
+
+Coverage: 3 new tests in `test_session_sharing.py` (a chat-only viewer PUT
+succeeds and the owner sees it; a viewer bundling a chat change with any
+other key is still refused, and nothing lands, not even the chat part; a
+viewer changing just the title is still refused too) -- 1 of 3 fails against
+the pre-fix backend, confirming real new behavior (the other 2 pass either
+way, since they assert existing refusal behavior). New `smoke54.mjs` (7
+checks, an owner and an invited viewer, the agent running against the
+scripted fake model): the owner sees the viewer's plain message and it
+survives a reload; the viewer's `@platform-agent` question and the agent's
+actual reply both reach the owner; a viewer still can't push a non-chat
+change. 3 of 7 fail against the pre-fix code. Full backend suite green
+(`test_session_sharing.py`, `smoke50`/`51`/`52`/`53`/`54` all still green
+together, no regressions); `tsc --noEmit` clean.
+
+**Two smaller fixes alongside it (done), unrelated to sharing's own access
+model:**
+- The agent panel now defaults to the Session tab when a session is opened
+  (previously always started on Global, no matter what was on screen, until
+  manually switched). Verified live: opening a session lands on Session; the
+  Global tab is left alone if you'd deliberately switched to it while
+  browsing between two already-open sessions.
+- A pane tab's rename box (double-click a tab to rename it, in the tabs
+  layout) could overflow its own tab and drag the ✕ beside it out of place,
+  once several panes made each tab narrower than the box's old fixed
+  150px. Fixed by sizing it the same way the label it replaces already is
+  (fills its own tab's share of the row, whatever that turns out to be).
+  Verified with 4 panes open at a narrow viewport, where the old fixed width
+  reliably overflowed and the fix reliably didn't.
+
+**A shared session's chat no longer needs agent access to use at all
+(done).** The compose box was disabled outright for anyone whose group
+lacks `agent_enabled`, blocking plain people-to-people chat too, not just
+`@mentioning` the agent. Now that only applies to the Global tab and an
+unshared session; a shared session's chat stays usable, and a mention from
+such a user still gets refused (the backend already 403s "not turned on for
+your group", unchanged) rather than silently reaching the agent. New
+`smoke55.mjs` (4 checks): the compose box isn't disabled; a plain message
+still works; an `@mention` still shows the question, with the existing
+403's own message as the reply rather than a real answer. Fails against the
+pre-fix code (the box is disabled, nothing can be typed at all); `tsc
+--noEmit` clean; smoke51/53/54 unaffected.
+
 ## The platform agent — agreed design and phases
 
 The user asked for an agent that acts on the platform: it creates sessions,
