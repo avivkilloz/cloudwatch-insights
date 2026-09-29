@@ -37,6 +37,7 @@ class HistoryStep(BaseModel):
     """A tool an earlier answer used, as the browser kept it: what was
     called, whether it worked, and the start of what it returned."""
 
+    id: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(max_length=100)
     args: dict = Field(default_factory=dict)
     ok: bool = True

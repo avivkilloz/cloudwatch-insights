@@ -14,7 +14,8 @@ How to work:
 - The current context -- who is asking, the environments they can reach, the \
 pane kinds they can use with their exact inputs, their local time, and the \
 session they're looking at -- was read for you at the start of this turn and \
-is at the end of these instructions. It is the truth *now*. Anything said \
+is attached to the end of the latest message. It is the truth *now*, for the \
+person who sent that message. Anything said \
 earlier in the conversation about environments, access or a session's panes \
 may be out of date, or may have been about someone else: go by the context.
 - You act as the person who sent the latest message, with their access and \
@@ -42,6 +43,11 @@ list tools instead of guessing them.
 - Fill a pane's inputs and run it; answer from the sample the run returns. \
 Keep answers short and say where the results are (which session and pane, as \
 the run's result names them).
+- An error or an empty result is usually about your input, not a missing \
+feature. Before telling the user something is off or doesn't exist, look at \
+how the data is really shaped (inspect_row on a result the pane already has) \
+and try the input another way; say something is missing only once a second \
+form fails the same way.
 - If a tool fails, say what failed and why in plain words; never claim a run \
 you didn't make or results you didn't see.
 - You can fill in an HTTP request but not send it yet: sending needs the \
@@ -55,7 +61,7 @@ def session_prompt(session_id: str, title: str) -> str:
 This conversation is the chat of one session: "{title}" (session_id \
 {session_id}). Everything asked here is about it. Its current state -- panes, \
 inputs, layout, description, who's on it -- was read at the start of this \
-turn and is below; after you change it, the tool's result shows what changed, \
+turn and is attached to the latest message; after you change it, the tool's result shows what changed, \
 and get_session reads it again. Make changes in it: from this chat the tools \
 can't change any other session or create a new one, so if that's what's \
 wanted, say it can be asked in the Global tab. Several people may \
@@ -67,12 +73,22 @@ into a pane and running it is how to build one for them.
 """
 
 
-def context_prompt(context: Optional[str], session: Optional[str]) -> str:
-    """The context read at the start of the turn, as the model's reference.
-    Passed as the tools returned it (JSON), not paraphrased."""
+# Where the reads start in the latest message -- the fake model splits them
+# off by it, to see the user's own words.
+READS_MARK = "\n\n---\n[Read by the platform for this message"
+
+
+def turn_reads(context: Optional[str], session: Optional[str]) -> str:
+    """The reads made at the start of the turn, to go after the latest
+    message: the last thing the model reads before it answers, and plainly
+    tied to whoever sent that message. Passed as the tools returned them
+    (JSON), not paraphrased."""
     if not context and not session:
         return ""
-    out = "\n\nRead at the start of this turn, just now:\n"
+    out = (
+        f"{READS_MARK}, just now, as the person who sent it. What they can reach and what the session holds is "
+        "this, whatever earlier messages said -- those may have been about someone else.]\n"
+    )
     if context:
         out += f"\nget_context:\n{_compact(context)}\n"
     if session:

@@ -155,10 +155,12 @@ function history(turns: AgentTurn[]): AgentChatMessage[] {
       if (t.agentInvoked === false) return [{ role: "user" as const, content: question }];
       // The steps go back with the answer: with only its words, the model
       // couldn't tell a reported run from a made-up one, or see whose
-      // get_context an earlier "there's no such environment" came from.
+      // get_context an earlier "there's no such environment" came from. Each
+      // goes with the provider's own id for it: one made up by the agent was
+      // copied by a model as a tool's name, and the turn failed.
       const steps = t.steps
         .filter((s) => !s.preamble)
-        .map((s) => ({ name: s.name, args: s.args, ok: s.status === "ok", summary: s.summary ?? "" }));
+        .map((s) => ({ id: s.id, name: s.name, args: s.args, ok: s.status === "ok", summary: s.summary ?? "" }));
       return [
         { role: "user" as const, content: t.attached ? `${question}\n\n(Attached: ${t.attached}.)` : question },
         { role: "assistant" as const, content: splitThinking(t.answer).answer, ...(steps.length ? { steps } : {}) },

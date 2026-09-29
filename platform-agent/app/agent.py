@@ -38,7 +38,8 @@ from langchain_openai import ChatOpenAI
 
 from . import grounding
 from .config import Settings
-from .prompt import SYSTEM_PROMPT, context_prompt, session_prompt
+from .prompt import SYSTEM_PROMPT, session_prompt, turn_reads
+from .repair import VALID_NAME, TurnGuard
 from .text import StepText, looping
 
 logger = logging.getLogger(__name__)
@@ -106,20 +107,42 @@ def _args(args: Any) -> dict:
     return {k: (v[:200] + "…" if isinstance(v, str) and len(v) > 200 else v) for k, v in args.items()}
 
 
-def conversation(messages: list[dict]) -> list[BaseMessage]:
+def _replayable(step: Any, tool_names: Optional[set[str]], used: set[str]) -> bool:
+    """Whether an earlier step can go back to the model as the tool call it
+    was. Only with the provider's own id for it: ids made up here ("h25_0")
+    were copied by a model whose chat template writes a call as its id and
+    then its arguments -- it sent "h25_0" back as a tool's name, and the turn
+    died. And only a tool this turn has, under a name the provider accepts:
+    a garbled name kept in an old turn's steps was refused by Bedrock on
+    every turn after it."""
+    if not isinstance(step, dict):
+        return False
+    name, step_id = step.get("name"), step.get("id")
+    if not isinstance(name, str) or not VALID_NAME.match(name) or (tool_names is not None and name not in tool_names):
+        return False
+    if not isinstance(step_id, str) or not VALID_NAME.match(step_id) or step_id in used:
+        return False
+    used.add(step_id)
+    return True
+
+
+def conversation(messages: list[dict], tool_names: Optional[set[str]] = None) -> list[BaseMessage]:
     """The conversation as the model reads it. An earlier answer comes with
     the tool calls that led to it and what each returned (in brief), not just
     its words: with only the words, the model had no way to tell an answer
     from a run apart from one it made up, or to see that an answer saying
-    "there's no IoT Prod" was the result of *another* person's get_context."""
+    "there's no IoT Prod" was the result of *another* person's get_context.
+    A step that can't go back as a call (see `_replayable`) is left out; its
+    answer's words still go."""
     out: list[BaseMessage] = []
-    for i, m in enumerate(messages):
+    used: set[str] = set()
+    for m in messages:
         if m["role"] == "user":
             out.append(HumanMessage(content=m["content"]))
             continue
-        steps = [s for s in (m.get("steps") or []) if isinstance(s, dict) and s.get("name")][-HISTORY_STEPS:]
+        steps = [s for s in (m.get("steps") or []) if _replayable(s, tool_names, used)][-HISTORY_STEPS:]
         if steps:
-            ids = [f"h{i}_{j}" for j in range(len(steps))]
+            ids = [s["id"] for s in steps]
             calls = [
                 {"id": ids[j], "name": s["name"], "args": _args(s.get("args")), "type": "tool_call"}
                 for j, s in enumerate(steps)
@@ -202,14 +225,22 @@ async def run_turn(
         session = seen[-1] if len(seen) > before else None
 
     prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
-    prompt += context_prompt(context or None, session or None)
-    agent = create_agent(model or build_model(settings), tools, system_prompt=prompt)
+    guard = TurnGuard(set(by_name))
+    agent = create_agent(model or build_model(settings), tools, system_prompt=prompt, middleware=[guard])
+    history = conversation(messages, set(by_name))
+    # The reads go with the message they were made for, as the last thing the
+    # model reads -- not in the system prompt, many turns of conversation
+    # away. There, in a shared chat, a model answered an admin "there's no
+    # IoT Prod" from what an earlier answer had told someone without it,
+    # though the admin's own read said otherwise.
+    history[-1] = HumanMessage(content=_text(history[-1].content) + turn_reads(context or None, session or None))
     names: dict[str, str] = {}
     answer = ""
     thought = False
     step: Optional[StepText] = None
     step_id: Optional[str] = None
     checked = 0
+    acted = False
 
     def finish_step() -> list[dict]:
         nonlocal step, step_id, answer, thought, checked
@@ -223,7 +254,7 @@ async def run_turn(
         return events
 
     stream = agent.astream(
-        {"messages": conversation(messages)},
+        {"messages": history},
         config={"recursion_limit": settings.max_steps},
         stream_mode=["messages", "updates"],
     )
@@ -236,6 +267,13 @@ async def run_turn(
                 if not (isinstance(message, AIMessageChunk) and meta.get("langgraph_node") == "model"):
                     continue
                 if step is not None and message.id and step_id and message.id != step_id:
+                    if step_id in guard.discarded:
+                        # An answer TurnGuard replaced with a corrected one:
+                        # its words come back out of the chat.
+                        for event in [*step.end(), *step.abandon()]:
+                            yield event
+                        thought = thought or bool(step.thinking)
+                        step, step_id, checked = None, None, 0
                     for event in finish_step():
                         yield event
                 if step is None:
@@ -264,6 +302,7 @@ async def run_turn(
             for node, update in (chunk or {}).items():
                 for message in (update or {}).get("messages", []) if isinstance(update, dict) else []:
                     if isinstance(message, AIMessage):
+                        acted = acted or bool(message.tool_calls)
                         for call in message.tool_calls:
                             names[call["id"]] = call["name"]
                             seen.append(json.dumps(call["args"], ensure_ascii=False))
@@ -290,6 +329,15 @@ async def run_turn(
         return
     finally:
         await stream.aclose()
+    if not answer.strip():
+        # Asked once to carry on (repair.TurnGuard) and still nothing: say so,
+        # rather than leave the chat looking as if the turn is still going or
+        # as if it was dropped.
+        if not acted:
+            message = "The agent stopped without answering or doing anything. Try asking again."
+            yield {"type": "error", "message": message}
+            return
+        yield {"type": "notice", "message": "The agent ran the steps above but didn't write an answer."}
     missing = grounding.ungrounded(answer, seen)
     if missing:
         yield {"type": "notice", "message": grounding.notice(missing)}

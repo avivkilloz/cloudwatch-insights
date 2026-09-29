@@ -60,6 +60,9 @@ class AgentHistoryStep(BaseModel):
     """A tool an earlier answer used -- relayed so the agent sees what it
     actually ran, not only what it said it ran."""
 
+    # The provider's own id for the call, replayed as it was (see the agent's
+    # conversation()).
+    id: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(max_length=100)
     args: dict = Field(default_factory=dict)
     ok: bool = True

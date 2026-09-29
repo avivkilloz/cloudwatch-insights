@@ -5,7 +5,9 @@
 //   sentence either side. Now it's a folded "Thought process" above an
 //   answer that holds only the answer.
 // - "invent": a one-column table ("| Thing Name |\n|---|") stayed literal
-//   pipes, and its rows came from no tool at all. Now it's a real <table>,
+//   pipes, and its rows came from no tool at all. Now the made-up answer is
+//   taken back off the screen and the model asked once to run the tool or
+//   say so; one that still invents ("invent stubborn") is a real <table>,
 //   with a warning under it naming a value no tool returned.
 // - "loop": the same four sentences, over and over. Now stopped early with
 //   a readable error, the repeated words taken back off the answer.
@@ -69,8 +71,16 @@ const run = async () => {
     JSON.stringify(steps));
   check(steps.some((s) => s.startsWith("Created session")), "…and the model's own call still ran", JSON.stringify(steps));
 
-  // ---- 2. a one-column table of rows no tool returned
+  // ---- 2. rows no tool returned: taken back and redone...
   await ask(page, "invent");
+  turn = lastTurn(page);
+  text = await turn.innerText();
+  check(text.includes("I haven't run a search this turn"), "Made-up rows are replaced by an honest answer", text);
+  check(!text.includes("test-device-001") && (await turn.locator("table").count()) === 0,
+    "…and taken back off the screen", text);
+
+  // ...and a one-column table of them, when the model does it again
+  await ask(page, "invent stubborn");
   turn = lastTurn(page);
   const tables = turn.locator("table");
   check((await tables.count()) === 1, "A one-column table renders as a real <table>", String(await tables.count()));

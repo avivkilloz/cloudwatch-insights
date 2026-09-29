@@ -188,6 +188,10 @@ class RunResult:
 
 
 Runner = Callable[[RunContext, dict], Awaitable[RunResult]]
+# A pane's last run as rows, in the order its sample listed them.
+RowLister = Callable[[dict], list[dict]]
+# One of those rows in more detail than a search returns (a second look-up).
+Detailer = Callable[[RunContext, dict, dict], Awaitable[dict]]
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,12 @@ class PaneKind:
     # Inputs set together with another: choosing log groups also ticks their
     # environments, as clicking them in the UI does.
     implies: Callable[[dict], dict] = field(default=lambda values: {})
+    # What inspect_row can look at: the last run's rows in full (the run's
+    # sample cuts long values down), and optionally more of one row than the
+    # run fetched. A kind that leaves these out just can't be inspected.
+    rows: Optional[RowLister] = None
+    detail: Optional[Detailer] = None
+    detail_help: str = ""
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -216,6 +226,7 @@ class PaneKind:
             "about": self.about,
             "inputs": [i.describe() for i in self.inputs],
             "run": self.run_help,
+            **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
         }
 
 
@@ -475,6 +486,40 @@ async def run_iot(rc: RunContext, values: dict) -> RunResult:
     )
 
 
+def _query_rows(key: str) -> RowLister:
+    """CloudWatch's and OpenSearch's rows, as their runs sampled them."""
+
+    def rows(values: dict) -> list[dict]:
+        return [row for r in values.get(key) or [] if isinstance(r, dict) for row in _field_rows(r.get("rows") or [])]
+
+    return rows
+
+
+def _iot_rows(values: dict) -> list[dict]:
+    key, listed = ("certResults", "certificates") if values.get("searchMode") == "certificates" else ("thingResults", "things")
+    return [
+        {**row, "environment_id": r.get("environment_id"), "environment": r.get("environment_name")}
+        for r in values.get(key) or []
+        if isinstance(r, dict)
+        for row in r.get(listed) or []
+    ]
+
+
+async def _iot_detail(rc: RunContext, values: dict, row: dict) -> dict:
+    # A search returns a thing's summary; its shadows, certificates and jobs
+    # come only from its own detail -- what the pane shows on expanding a row.
+    if values.get("searchMode") == "certificates" or not row.get("thing_name") or row.get("environment_id") is None:
+        return row
+    detail = await asyncio.to_thread(
+        _call,
+        iot.get_thing_detail,
+        payload=schemas.IotThingDetailRequest(environment_id=int(row["environment_id"]), thing_name=row["thing_name"]),
+        db=rc.db,
+        current_user=rc.user,
+    )
+    return {"environment": row.get("environment"), **detail.model_dump()}
+
+
 def _environment_id(values: dict) -> int:
     environment_id = values.get("environmentId")
     if environment_id in (None, ""):
@@ -675,6 +720,7 @@ KINDS: dict[str, PaneKind] = {
             run=run_cloudwatch,
             run_help="Runs the query and shows the rows in the pane; you get the row counts and a sample.",
             implies=_with_log_group_environments,
+            rows=_query_rows("results"),
         ),
         PaneKind(
             type="logs-opensearch",
@@ -696,6 +742,7 @@ KINDS: dict[str, PaneKind] = {
             run=run_opensearch,
             run_help="Runs the search and shows the hits in the pane; you get the hit counts and a sample.",
             implies=_with_opensearch_environments,
+            rows=_query_rows("osResults"),
         ),
         PaneKind(
             type="iot",
@@ -715,6 +762,10 @@ KINDS: dict[str, PaneKind] = {
             ),
             run=run_iot,
             run_help="Runs the search and lists the things or certificates in the pane.",
+            rows=_iot_rows,
+            detail=_iot_detail,
+            detail_help="Shows one thing of the last run in full, with its shadows (classic and named), certificates "
+            "and jobs.",
         ),
         PaneKind(
             type="tables",

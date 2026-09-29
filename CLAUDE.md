@@ -587,16 +587,42 @@ asked first, even after "refresh and check again" -- traced to these, each
 fixed where it happens:
 - **Every turn opens with its own reads** (`agent.py`, `_read`): `get_context`,
   and `get_session` in a session chat, called by the agent service before
-  the model says a word, put into the system prompt (`prompt.context_prompt`)
-  and shown in the chat as steps (`preamble: true`; "Checked who's asking and
+  the model says a word, attached after the latest message
+  (`prompt.turn_reads`, marked `READS_MARK`) -- not in the system prompt,
+  where a long shared chat left them far from the question and a model
+  answered an admin from what an earlier answer told someone without their
+  access -- and shown in the chat as steps (`preamble: true`; "Checked who's asking and
   what they can reach"). A shared chat's turns are each minted for whoever
   sent that message, so this read is always *theirs* -- the prompt says it
   replaces anything earlier in the conversation about access. The model can
   still call both again itself.
 - **History carries each answer's tool steps**, not only its words: the
-  browser sends `steps` (name, args, ok, the kept 300-char summary; preamble
-  steps left out, each turn makes its own) with each assistant message, and
-  `agent.conversation()` rebuilds them as real tool calls and results. With
+  browser sends `steps` (the provider's own call id, name, args, ok, the kept
+  300-char summary; preamble steps left out, each turn makes its own) with
+  each assistant message, and `agent.conversation()` rebuilds them as real
+  tool calls and results -- **only with that provider id**, and only for a
+  tool this turn has under a valid name. Ids invented here (`h25_0`) were
+  copied by a model whose chat template writes a call as its id then its
+  arguments: it sent `h25_0 <|tool_call_argument_begin|>...` back as a tool's
+  name. A step without a usable id goes as words only.
+- **What the model sends back is made safe before anything sees it**
+  (`repair.py`, `TurnGuard`, a `create_agent` middleware). A tool call whose
+  name isn't one of the turn's tools is recovered to the tool it contains
+  (`functions.run_pane:0`, args parsed from the markup) or renamed
+  `unreadable_tool_call`, which is answered "not a valid tool" so the model
+  can retry; unparseable-argument calls become ordinary calls, so each gets
+  its answer. Sent back as it was, Bedrock refused the whole request
+  (names must match `[a-zA-Z0-9_-]+`) and the turn died with a 400. And a
+  step that ends with no tool call and no answer, or on the colon of a step
+  it announced and never took ("Let me search now:"), is asked once per
+  turn to carry on (`NUDGE`); still nothing, and the turn ends with a
+  readable error instead of stopping silently. `dev/fake_llm.py` refuses
+  bad tool names the way Bedrock does, so the tests reproduce the 400.
+- **A run of a pane pointed at an environment the asker can't reach is
+  refused up front** (`server._check_reachable`), naming the input and the
+  asker's own environments. It used to run and fail per environment with a
+  bare "Environment 2 is not configured", which a model in a shared chat
+  read as "IoT Test isn't there" and went round in circles. With
   only words, a made-up answer and a real run looked the same next turn, and
   another person's get_context was indistinguishable from a fact.
 - **Reasoning is kept apart from the answer** (`text.py`). These models put
@@ -612,12 +638,27 @@ fixed where it happens:
   `temperature` is no longer pinned to 0 (`AGENT_TEMPERATURE`, Helm
   `agent.temperature`, unset by default): greedy decoding is what reasoning
   models are documented to loop under. `AGENT_MAX_TOKENS` caps a step.
-- **An answer whose details no tool returned carries a warning**
-  (`grounding.py`, a `notice` event): its table cells and `code` spans are
-  looked for in the turn's tool outputs, tool args and the user's own
-  message (attached rows count); when most of 3+ are found nowhere, the
-  browser shows it under the answer. It checks, it doesn't block -- the
-  answer still shows, flagged.
+- **An answer whose details no tool returned is taken back and redone**
+  (`grounding.py`, checked in `TurnGuard`): its table cells and `code`
+  spans are looked for in this turn's tool outputs, tool args and the
+  user's own message with its reads (attached rows count); when most of 3+
+  are found nowhere, the answer's id goes in `guard.discarded`, the turn
+  retracts its words, and the model is told once which details nothing
+  returned and to run the tool or say it can't. A member was shown another
+  person's earlier rows as "Found 20 things in IoT Prod", nothing run. A
+  second answer that still does it shows, with the warning (`notice`) under
+  it, as before.
+- **A row can be looked at in full** (`inspect_row`): the run's sample cuts
+  values down, and a search can't show what only a row's own detail holds.
+  A kind opts in from its registry entry (`PaneKind.rows`, the last run as
+  rows in sample order; `detail`, a second look-up, acting as the caller
+  and refused for an environment they can't reach), and `get_context` says
+  which kinds can. IoT's detail is the thing's shadows, certificates and
+  jobs -- a model asked about "deviceType in the Search shadow" had written
+  a filter on a shape it never saw, misread the error, and said shadow
+  indexing was off. The prompt's matching rule is generic: an error or an
+  empty result is about the input first; look at the data and try another
+  form before calling a feature missing.
 - **Acting "on behalf of" someone else is refused by the server**, not just
   the prompt: a run acts as the asker, so a shared pane its owner pointed
   at an environment the asker can't see gets that environment's "not
