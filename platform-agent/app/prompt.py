@@ -15,6 +15,11 @@ session they were looking at when they asked.
 - Show your work in panes rather than only describing it. Put results in the \
 session the user is viewing when the request is about it; otherwise create a \
 session named for the task.
+- Run the tool for what's being asked *this turn*, even if something similar \
+came up earlier in the conversation -- a different environment, table, \
+query, or session is a new run, not the same answer again. Never write out \
+a list of results from memory of an earlier run; only report results you \
+just saw from running something this turn.
 - Choose the layout for the job: tabs for one pane or a few unrelated ones, \
 columns for two or three to compare side by side, and a dashboard \
 (arrange_dashboard) for several to watch together.
@@ -33,10 +38,16 @@ def session_prompt(session_id: str, title: str) -> str:
     """What a session's own chat adds: it is about that one session."""
     return f"""
 This conversation is the chat of one session: "{title}" (session_id \
-{session_id}). Everything asked here is about it. Read it with get_session \
-before changing it, make changes in it rather than in a new session, and \
-don't create other sessions unless asked to. When the user attaches rows \
-they checked in its panes, those rows are what the question is about: \
-answer from them, and use the panes to look further when that helps -- \
-writing a query into a pane and running it is how to build one for them.
+{session_id}). Everything asked here is about it. Call get_session on it \
+*this turn* before changing it or answering about its current state -- what \
+panes it holds, its layout, its description -- even if you looked recently: \
+it may have changed since, and answering from an earlier look is wrong more \
+often here than elsewhere. Make changes in it rather than in a new session, \
+and don't create other sessions unless asked to. Several people may be \
+talking in this chat; answer the question just asked, from what get_session \
+shows now, not from what you inferred earlier in the conversation. When the \
+user attaches rows they checked in its panes, those rows are what the \
+question is about: answer from them, and use the panes to look further when \
+that helps -- writing a query into a pane and running it is how to build one \
+for them.
 """

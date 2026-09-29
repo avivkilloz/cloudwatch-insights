@@ -543,6 +543,43 @@ other failed turn already is, so there's no separate "no access" copy to
 keep in sync with the backend's own message, and the agent is never
 actually invoked either way.
 
+**Two reports about the agent's own answers, one fixed, one mitigated by prompt
+only (LLM behavior, not a code bug with a deterministic fix):**
+- **`MarkdownLite.tsx` required a blank line around a heading or table to
+  recognize it at all** -- `renderBlock` only ever checked `lines[0]`/
+  `lines.length === 1` of a whole blank-line-delimited block, so a real
+  model's "Here's what I found:\n| Name |...\n|---|...\n" (no blank line
+  before the table) or "### Summary\nDetails" (none after the heading) fell
+  through to one literal `<p>`, "|" and "###" shown as plain text. Rewritten
+  to scan a block's lines and recognize a heading, a table start (a row
+  containing "|" immediately followed by a separator row) or a list run
+  wherever it begins, consuming exactly the lines that belong to it and
+  falling back to a paragraph for the rest -- fixed regardless of blank
+  lines either side. `dev/fake_llm.py` gained a `"markdown"` script
+  (`smoke56.mjs`) mixing both shapes into surrounding prose with no blank
+  line either side, specifically to keep exercising this.
+- **The agent sometimes answers from memory of an earlier run instead of
+  actually running the tool again for a new request** (a different
+  environment, most reported), and sometimes answers about a session's
+  current state without re-reading it, both reported as worse once a
+  session has other members and the chat is noisier. This is the
+  underlying model's own instruction-following, not something the
+  orchestration layer (`agent.py`) can force -- there's no code path here
+  that skips a tool call or a `get_context`/`get_session` read on its own account,
+  and `focus`/`viewing_session_id` are already passed on every session-scope
+  turn (checked, not assumed). The one lever that's actually within this
+  codebase's control is `prompt.py`'s own wording, so it's been made more
+  emphatic: `SYSTEM_PROMPT` now says explicitly to run the tool for *this*
+  turn's request even if something similar came up earlier, and never to
+  write out results from an earlier run; `session_prompt` now says to call
+  `get_session` *this* turn before answering about the session's current
+  state even if it looked recently, and to answer the question just asked
+  rather than what it inferred earlier in a chat several people are using.
+  Prompt wording narrows how often this happens; it doesn't guarantee it
+  won't -- there's no way to verify this deterministically the way a code
+  fix can be (nothing in `platform-agent/tests` asserts on prompt content,
+  by design, since the fake model doesn't read it).
+
 ## Conventions
 
 - **Comments explain *why*, not what.** This codebase's comments are the record
