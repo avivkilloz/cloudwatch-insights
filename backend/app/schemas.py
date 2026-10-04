@@ -828,6 +828,9 @@ class HttpToolRequest(BaseModel):
     url: str
     headers: list[ToolHeader] = []
     body: Optional[str] = None
+    # A credential to authenticate with, by id: the backend resolves it and
+    # applies its type's `inject`, so its secret never reaches the browser.
+    credential_id: Optional[int] = None
 
 
 class HttpToolResponse(BaseModel):
@@ -947,6 +950,7 @@ class CredentialOut(BaseModel):
     last_test_ok: Optional[bool] = None
     last_test_message: Optional[str] = None
     last_used_at: Optional[datetime] = None
+    authenticates: bool = False
 
 
 class CredentialSummary(BaseModel):
@@ -958,6 +962,9 @@ class CredentialSummary(BaseModel):
     type_id: str
     type_label: str
     scope: str
+    # Whether its type says how to authenticate an HTTP request (`inject`),
+    # i.e. whether the HTTP client can use it.
+    authenticates: bool = False
 
 
 class CredentialTestOut(BaseModel):

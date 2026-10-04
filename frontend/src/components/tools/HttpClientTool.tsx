@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PaneSelectionShare } from "../paneSelection";
 import { useSessionState } from "../../sessions/SessionContext";
-import { api, HttpMethod, HttpToolResponse, SavedSession, ToolHeader } from "../../api";
+import { api, CredentialSummary, HttpMethod, HttpToolResponse, readableError, SavedSession, ToolHeader } from "../../api";
 import { BODYLESS_METHODS, HTTP_METHODS } from "./httpRequestJson";
 
 const METHODS = HTTP_METHODS;
@@ -19,6 +19,8 @@ interface SavedHttpRequestState {
   url: string;
   headers: ToolHeader[];
   body: string;
+  /** By id only; older saved requests have none. */
+  credentialId?: number | null;
 }
 
 function prettyBody(body: string): string {
@@ -41,6 +43,11 @@ export default function HttpClientTool() {
   const [url, setUrl] = useSessionState("url", "");
   const [headerRows, setHeaderRows] = useSessionState<HeaderRow[]>("headerRows", () => [{ id: nextHeaderId++, key: "", value: "" }]);
   const [body, setBody] = useSessionState("body", "");
+  // Which credential to authenticate with -- its id, never its value: the
+  // backend resolves it and adds the header itself (PLATFORM_PLAN.md §13.8),
+  // so nothing secret is in this pane, the session, or the agent's history.
+  const [credentialId, setCredentialId] = useSessionState<number | null>("credentialId", null);
+  const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useSessionState<HttpToolResponse | null>("response", null);
@@ -55,7 +62,15 @@ export default function HttpClientTool() {
 
   useEffect(() => {
     api.listSavedSessions<SavedHttpRequestState>(SAVED_REQUESTS_PAGE).then(setSavedRequests);
+    // Admins get full rows and everyone else summaries; both say whether a
+    // credential can authenticate a request, which is all this needs.
+    api
+      .listCredentials<CredentialSummary>()
+      .then((rows) => setCredentials(rows.filter((c) => c.authenticates)))
+      .catch(() => setCredentials([]));
   }, []);
+
+  const chosenCredential = credentials.find((c) => c.id === credentialId) ?? null;
 
   async function saveCurrentRequest() {
     const name = prompt("Save request as:");
@@ -64,7 +79,7 @@ export default function HttpClientTool() {
     const saved = await api.createSavedSession<SavedHttpRequestState>({
       page: SAVED_REQUESTS_PAGE,
       name,
-      state: { method, url, headers, body },
+      state: { method, url, headers, body, credentialId },
     });
     setSavedRequests((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
@@ -80,6 +95,7 @@ export default function HttpClientTool() {
         : [{ id: nextHeaderId++, key: "", value: "" }]
     );
     setBody(saved.state.body);
+    setCredentialId(saved.state.credentialId ?? null);
   }
 
   function updateHeader(id: number, field: "key" | "value", value: string) {
@@ -105,14 +121,27 @@ export default function HttpClientTool() {
     try {
       const headers: ToolHeader[] = headerRows.filter((r) => r.key.trim()).map((r) => ({ key: r.key, value: r.value }));
       const sentBody = BODYLESS_METHODS.includes(method) ? undefined : body || undefined;
-      const resp = await api.sendHttpToolRequest({ method, url: url.trim(), headers, body: sentBody });
+      const resp = await api.sendHttpToolRequest({
+        method,
+        url: url.trim(),
+        headers,
+        body: sentBody,
+        credential_id: credentialId,
+      });
       setResponse(resp);
       // The request goes in alongside the response: asking "why is this a
       // 403?" is unanswerable without seeing what was actually sent, and the
       // form may well be edited before the question is asked.
       setExchange([
         {
-          request: { method, url: url.trim(), headers, body: sentBody },
+          request: {
+            method,
+            url: url.trim(),
+            headers,
+            body: sentBody,
+            // Which credential signed it, by name: enough to ask about a 401.
+            ...(chosenCredential ? { auth: `credential "${chosenCredential.name}"` } : {}),
+          },
           response: {
             status_code: resp.status_code,
             status_text: resp.status_text,
@@ -124,8 +153,8 @@ export default function HttpClientTool() {
         },
       ]);
       setExchangeVersion((v) => v + 1);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(readableError(e));
       // A request that never completed has no response to ask about.
       setExchange([]);
       setExchangeVersion((v) => v + 1);
@@ -156,6 +185,33 @@ export default function HttpClientTool() {
           <button onClick={send} disabled={sending}>
             {sending ? "Sending…" : "Send"}
           </button>
+        </div>
+
+        <div className="row http-auth-row" style={{ marginBottom: 10 }}>
+          <label className="field-label" htmlFor="http-auth" style={{ margin: 0 }}>
+            Auth
+          </label>
+          <select
+            id="http-auth"
+            value={credentialId == null ? "" : String(credentialId)}
+            onChange={(e) => setCredentialId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">None</option>
+            {credentials.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.type_label})
+              </option>
+            ))}
+            {credentialId != null && !chosenCredential && (
+              <option value={credentialId}>A credential you can't use</option>
+            )}
+          </select>
+          {chosenCredential && (
+            <span className="muted">Added by the server when sent; never shown here.</span>
+          )}
+          {credentials.length === 0 && (
+            <span className="muted">No credentials your group can use for requests.</span>
+          )}
         </div>
 
         <div className="row">

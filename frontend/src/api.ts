@@ -520,6 +520,8 @@ export interface Credential {
   last_test_ok: boolean | null;
   last_test_message: string | null;
   last_used_at: string | null;
+  /** Whether its type says how to authenticate an HTTP request. */
+  authenticates: boolean;
 }
 
 /** What a non-admin sees of a credential their group can use: enough to pick it. */
@@ -529,6 +531,7 @@ export interface CredentialSummary {
   type_id: string;
   type_label: string;
   scope: "global" | "group";
+  authenticates: boolean;
 }
 
 export interface CredentialsStatus {
@@ -935,7 +938,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  sendHttpToolRequest: (payload: { method: HttpMethod; url: string; headers?: ToolHeader[]; body?: string | null }) =>
+  sendHttpToolRequest: (payload: {
+    method: HttpMethod;
+    url: string;
+    headers?: ToolHeader[];
+    body?: string | null;
+    /** Applied by the backend; the secret never comes to the browser. */
+    credential_id?: number | null;
+  }) =>
     req<HttpToolResponse>("/tools/http-request", { method: "POST", body: JSON.stringify(payload) }),
 
   getMqttPresignedUrl: (environmentId: number) =>

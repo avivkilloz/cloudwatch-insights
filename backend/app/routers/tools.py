@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import auth, iot_mqtt_signer, models, schemas, tools_http_client
+from urllib.parse import urlparse
+
+from .. import auth, credential_store, credential_types, iot_mqtt_signer, masking, models, schemas, tools_http_client
 from ..db import get_db
 from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
 
@@ -10,26 +12,47 @@ router = APIRouter(prefix="/api/tools", tags=["tools"])
 
 @router.post("/http-request", response_model=schemas.HttpToolResponse)
 def send_http_request(
-    payload: schemas.HttpToolRequest, current_user: models.User = Depends(auth.get_current_user)
+    payload: schemas.HttpToolRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
         require_flag(current_user, "tools_enabled", "Tools")
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    url = payload.url
     headers = {h.key: h.value for h in payload.headers}
+    if payload.credential_id is not None:
+        # Resolved and applied here, server-side: the browser only ever named
+        # the credential. resolve() checks the caller's group may use it,
+        # audits the use, and registers its values for masking below.
+        host = urlparse(url).hostname or url
+        try:
+            type_row, values = credential_store.resolve(
+                db, payload.credential_id, actor=current_user, purpose=f"HTTP client: {payload.method} {host}"
+            )
+            url, headers = credential_types.apply_inject(type_row, values, url, headers)
+        except credential_store.CredentialsOff as e:
+            raise HTTPException(status_code=503, detail=str(e)) from None
+        except credential_store.CredentialAccessError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+        except (credential_store.CredentialError, credential_types.CredentialTypeError) as e:
+            raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None
     try:
-        result = tools_http_client.send_request(payload.method, payload.url, headers=headers, body=payload.body)
+        result = tools_http_client.send_request(payload.method, url, headers=headers, body=payload.body)
     except tools_http_client.ToolRequestError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=masking.mask(str(e))) from e
     except Exception as e:  # noqa: BLE001 - surface connection/timeout/etc. errors to the caller
-        raise HTTPException(status_code=502, detail=f"Request failed: {e}") from e
+        raise HTTPException(status_code=502, detail=masking.mask(f"Request failed: {e}")) from e
 
+    # A server that echoes the request (httpbin and friends) would hand the
+    # injected secret straight back; whatever resolve() decrypted is masked.
     return schemas.HttpToolResponse(
         status_code=result["status_code"],
-        status_text=result["status_text"],
-        headers=[schemas.ToolHeader(**h) for h in result["headers"]],
-        body=result["body"],
+        status_text=masking.mask(result["status_text"]),
+        headers=[schemas.ToolHeader(key=h["key"], value=masking.mask(h["value"])) for h in result["headers"]],
+        body=masking.mask(result["body"]),
         body_truncated=result["body_truncated"],
         elapsed_ms=result["elapsed_ms"],
     )

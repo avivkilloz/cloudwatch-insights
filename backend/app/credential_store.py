@@ -449,4 +449,5 @@ def describe(cred: models.Credential) -> dict[str, Any]:
         "last_test_ok": cred.last_test_ok,
         "last_test_message": cred.last_test_message,
         "last_used_at": cred.last_used_at,
+        "authenticates": bool(cred.type and cred.type.inject),
     }

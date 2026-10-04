@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D28 and requirements R1–R6 (§11). Phase 1 is detailed in §13
-and agreed; it is being built._
+_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11). Phase 1 (§13) is
+built; next is Phase 2._
 
 ---
 
@@ -1088,7 +1088,7 @@ Each phase ships something usable on its own. Order chosen so each phase builds 
 foundation the next one needs.
 
 - [x] **Phase 0: this plan.** Discussed and agreed 2026-10-04 (D1–D22, R1–R4).
-- [ ] **Phase 1: Credentials.** Credential types (the generic built-ins),
+- [x] **Phase 1: Credentials.** Built (one PR, D29). Credential types (the generic built-ins),
   encrypted store, write-only API, scopes (global and group), a Settings → Credentials
   UI, a test-on-save hook, an audit log, and the HTTP client's Auth as the first
   consumer. **Detailed in §13.** *Why first:* connections, plugins from private repos,
@@ -1180,6 +1180,7 @@ None open as of 2026-10-04. New ones go here as they come up.
 | D26 | 2026-10-04 | **Non-secret config values wait for their first consumer** (Phase 3 inputs or Phase 4 workflows). | Avoids a screen whose values nothing can use yet, and guessing how they'll be read. |
 | D27 | 2026-10-04 | **The HTTP client's Auth is in Phase 1** as the first real consumer of credentials (§13.8). | Immediate value, and it proves storage, scopes, resolve, masking and audit in production before Phase 2 depends on them. |
 | D28 | 2026-10-04 | **Secret files are capped at 1 MiB** until the blob store (D7, Phase 4). | Keeps encrypted values in Postgres small. |
+| D29 | 2026-10-04 | **Phase 1 ships as one PR**, not the four of §13.9, so it can be tested as a whole. | The store alone has nothing to try in the UI. |
 
 ## 13. Phase 1 in detail: credentials
 

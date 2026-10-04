@@ -224,7 +224,7 @@ def test_groups_see_only_their_own_credentials_and_granted_global_ones():
 
     listed = as_a.get("/api/credentials").json()
     assert [c["name"] for c in listed] == ["alpha-login"]
-    assert set(listed[0]) == {"id", "name", "type_id", "type_label", "scope"}  # names, not contents
+    assert set(listed[0]) == {"id", "name", "type_id", "type_label", "scope", "authenticates"}  # names, not contents
 
     assert client.post(f"/api/credentials/{shared['id']}/grants/{group_a}").status_code == 204
     assert {c["name"] for c in as_a.get("/api/credentials").json()} == {"alpha-login", "shared"}
@@ -467,3 +467,67 @@ def test_what_a_request_decrypted_is_masked_in_its_log_lines(caplog):
     with caplog.at_level(logging.WARNING):
         logging.getLogger("anything").warning("after the request: %s", SECRET)
     assert f"after the request: {SECRET}" in caplog.text
+
+
+# ------------------------------------------------------------------- the HTTP client's Auth (§13.8)
+
+
+def test_the_http_client_authenticates_with_a_credential_server_side(monkeypatch):
+    from app import tools_http_client
+
+    sent = {}
+
+    def echo(method, url, headers=None, body=None, timeout=30):
+        sent.update(url=url, headers=headers)
+        # An echoing server (httpbin and friends) hands the secret back.
+        return {"status_code": 200, "status_text": "OK", "headers": [{"key": "X-Echo", "value": headers.get("Authorization", "")}],
+                "body": json.dumps({"headers": headers}), "body_truncated": False, "elapsed_ms": 3}
+
+    monkeypatch.setattr(tools_http_client, "send_request", echo)
+    cred = _create(name="api", type_id="api_token", values={"token": SECRET})
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/me",
+                                                        "headers": [{"key": "Accept", "value": "application/json"}],
+                                                        "credential_id": cred["id"]})
+    assert resp.status_code == 200, resp.text
+    assert sent["headers"] == {"Accept": "application/json", "Authorization": f"Bearer {SECRET}"}
+    assert SECRET not in resp.text and "Bearer ****" in resp.text
+    use = client.get(f"/api/audit?object=credential:{cred['id']}").json()[0]
+    assert use["action"] == "credential.use" and use["detail"] == {"purpose": "HTTP client: GET api.example.com"}
+
+    # A credential whose type doesn't say how to authenticate is refused, readably.
+    plain = _create(name="plain", type_id="secret_text", values={"value": SECRET})
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/", "credential_id": plain["id"]})
+    assert resp.status_code == 400 and "don't say how to authenticate" in resp.json()["detail"]
+
+
+def test_the_http_client_can_not_use_another_groups_credential(monkeypatch):
+    from app import tools_http_client
+
+    monkeypatch.setattr(tools_http_client, "send_request", lambda *a, **k: pytest.fail("must not be sent"))
+    group_b, _ = _group("beta")
+    theirs = _create(name="beta-api", type_id="api_token", group_id=group_b, values={"token": SECRET})
+    resp = client.post("/api/user-groups", json={"name": "alpha", "role_name": "R", "tools_enabled": True})
+    alpha = resp.json()["id"]
+    client.post("/api/users", json={"username": "ann", "password": "pw-123456", "group_id": alpha})
+    as_ann = _login_as("ann", "pw-123456")
+    resp = as_ann.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/", "credential_id": theirs["id"]})
+    assert resp.status_code == 404 and "isn't available to your group" in resp.json()["detail"]
+    assert as_ann.get("/api/credentials").json() == []
+
+
+def test_the_agent_sees_credential_names_and_sets_one_by_name_never_its_value():
+    from tests.test_platform_tools import _token, call, call_error
+
+    cred = _create(name="jira-bot", type_id="api_token", values={"token": SECRET})
+    with TestClient(app) as mcp:
+        token = _token()
+        context = call(mcp, token, "get_context")
+        assert {"id": cred["id"], "name": "jira-bot", "type": "API token", "authenticates": True} in context["credentials"]
+        assert SECRET not in json.dumps(context)
+        session = call(mcp, token, "create_session", title="Calls", panes=[{"kind": "tool-http"}])["session_id"]
+        out = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="tool-http",
+                   inputs={"url": "https://api.example.com/me", "credentialId": "jira-bot"})
+        assert out["pane"]["inputs"]["credentialId"] == cred["id"] and SECRET not in json.dumps(out)
+        error = call_error(mcp, token, "set_pane_inputs", session_id=session, pane_id="tool-http",
+                           inputs={"credentialId": "nope"})
+        assert "no credential 'nope'" in error and "jira-bot" in error

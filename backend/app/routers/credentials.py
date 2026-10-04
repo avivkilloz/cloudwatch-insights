@@ -241,7 +241,10 @@ def list_credentials(db: Session = Depends(get_db), user: models.User = Depends(
     if _is_admin(user):
         return [schemas.CredentialOut(**credential_store.describe(c)) for c in rows]
     return [
-        schemas.CredentialSummary(id=c.id, name=c.name, type_id=c.type_id, type_label=c.type.label, scope=c.scope)
+        schemas.CredentialSummary(
+            id=c.id, name=c.name, type_id=c.type_id, type_label=c.type.label, scope=c.scope,
+            authenticates=bool(c.type.inject),
+        )
         for c in rows
     ]
 
