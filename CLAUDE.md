@@ -3,7 +3,9 @@
 Durable notes for working in this repo. Current state of the work-in-progress
 lives in `PROGRESS.md`; the user-facing feature tour lives in `README.md` (long,
 read the section you need rather than the whole file), and deployment in
-`DEPLOYMENT.md`.
+`DEPLOYMENT.md`. Where the platform is going -- workflows, plugins, a builder,
+secrets, generic environments -- is planned in `PLATFORM_PLAN.md`: read it before
+designing anything in those areas, and record decisions there as they are made.
 
 ## What this is
 
