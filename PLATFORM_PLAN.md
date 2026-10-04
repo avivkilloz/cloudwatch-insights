@@ -246,8 +246,9 @@ whole output), does something, and produces an output. What differs is *where* t
 | `set_input` | writes a value into one of this pane's own inputs and optionally re-runs | click a field value to filter by it |
 | `toast` | shows a short message | "Copied" |
 
-So "copy S3 URL" is *server: presign → client: copy*, and "copy S3 URI" is just
-*client: copy* with a template. Both are configurable in the builder with no code: pick
+So today's "Copy S3 URI" and "Copy object URL" are both just *client: copy* with a
+template (they're built in the browser; see §4.5). A presigned "Download", which
+doesn't exist yet, would be *server: presign → client: download*. Both are configurable in the builder with no code: pick
 the scope (row, selection or all), optionally a server Action, then an effect and its
 template.
 
@@ -339,6 +340,62 @@ Panes that need more than "run an Action, draw its output":
 
 _Inventory of today's panes (inputs, dynamic lists, outputs, output actions): see
 §4.5._
+
+### 4.5 Inventory of today's panes: the requirements list
+
+What every existing pane does, gathered 2026-10-04. Porting (§4.4) is done when the
+generic renderer and components can do all of it.
+
+| Pane | Inputs (dynamic ones *in italics*) | Run | Output | Output actions |
+|---|---|---|---|---|
+| CloudWatch | environments; *log groups per environment* (`/api/log-groups`); time preset or custom range; limit; sort field (from the result's fields) and direction; query; saved query | async: start, poll every 2 s, **Stop** | log list: tags and summary per row, expand to all fields (client-side), sort, group by environment or log group, per-target errors | select / hide; export CSV, XLSX, JSON (selected or all); attach to agent; run again |
+| OpenSearch | environments; *domains → indices* (two levels, with doc counts); time; limit; sort; timestamp field; Lucene query; saved query | sync search | same log list | same as CloudWatch |
+| IoT | environments; mode (things or certificates); max results; query with examples; saved search | sync search | list with tags; row expansion **fetches detail** (thing: attributes, shadows, certificates and their policies, jobs; certificate: ARN, things, policies) | select / hide / export; **"include detail"** bulk-fetches detail for checked rows (5 at a time) into the export and the agent attachment |
+| DynamoDB | environment (single); *table* (`/tables/list`), then a describe on choosing it (status, keys, item count); `field:value` filter; page size; saved table | scan, then **Load more** (cursor) | list keyed by the table's keys; expand to the item's JSON; loaded/scanned counts | select / hide / export; attach |
+| S3 | environment; *bucket*; prefix by **navigation** (folders, breadcrumbs); recursive name search; saved bucket | browse on every navigation, then Load more | folders (clickable), then files (size, name, modified) | **copy S3 URI**, **copy object URL** (both client-side); select / hide / export (files); attach |
+| Cognito | environment; *user pool*; `attribute:value` query | search, then Load more | list with status tags; expand to dates and attributes | select / hide / export; attach |
+| HTTP client | method; URL; headers (key/value rows); body; saved request | send (backend, SSRF-guarded); the agent can fill it but not send | status, time, truncated flag; headers table; body as JSON or text | last exchange auto-attached to the agent; no copy or export |
+| MQTT | environment; subscribe filter; publish topic and payload; saved topics. All browser-only, none persisted | connect (backend presigns a URL, the browser connects to IoT Core), subscribe, unsubscribe, publish: all in the browser | connection status and diagnostics; incoming message **stream** (newest first, capped at 200) | none |
+| JWT | mode; token and verify secret, or algorithm, secret, header, payload. Not persisted, on purpose | **live** decode and verify in the browser; Generate | header and payload JSON; verify badge; token | copy the generated token |
+| Base64 | mode; URL-safe; input | **live**, in the browser | output text | copy |
+| Diff | original; changed; view mode | **live**, in the browser | unified, split or compact diff with foldable unchanged runs | none |
+
+**What the generic set therefore needs**, beyond §4.3's list:
+
+- **Async Actions with progress and cancel:** CloudWatch's start, poll and Stop. The
+  Action reports progress and partial results while running, and has a cancel
+  handle.
+- **Cursor pagination ("Load more")** as a standard Action shape: the output carries
+  a cursor, and the component offers Load more (DynamoDB, S3, Cognito).
+- **Navigation as input:** S3's folders and breadcrumbs are `set_input` effects on
+  `prefix` that re-run the pane.
+- **Dependent pickers**, several levels deep: environments → domains → indices, with
+  per-level "load" and filter.
+- **Derived options:** CloudWatch's sort field takes its choices from the *output's*
+  fields, not from an Action.
+- **Bulk detail:** IoT's "include detail" is a selection action whose server half
+  runs the detail Action for each checked row and merges the results into the export
+  or agent attachment.
+- **Saved items** are a per-pane-type feature today (saved queries, saved searches,
+  saved tables and so on, in five different stores). Generically, "save these
+  inputs under a name" belongs to the renderer, for every pane, in one store.
+- **Live Actions:** JWT, Base64 and Diff recompute on every keystroke. As server
+  Actions they need `run: live` (re-run on input change, debounced). See open
+  questions.
+- **Sensitive inputs:** JWT's token and secret, and MQTT's state, are deliberately
+  not persisted. Generically, an input marked `sensitive` stays out of session state,
+  the agent's history and run records.
+- **Auto-attach:** HTTP registers its last exchange with the agent without a
+  checkbox. Generically, an output can be marked "always attached".
+
+**Found along the way** (bugs or mismatches in today's code, not part of this plan):
+
+- OpenSearch: the UI allows a limit up to 10000, but the backend schema caps it at
+  1000.
+- Cognito's help text promises group memberships, but nothing fetches them.
+- Copy exists only in S3, JWT and Base64, with no shared component. The tools have no
+  export, and Diff, MQTT, JWT and Base64 can't attach anything to the agent. Porting
+  fixes all of this for free.
 
 ## 5. Workflows
 
@@ -712,7 +769,11 @@ Settled questions move to the Decision log (§11).
 10. **Session state for ported panes** (§4.4): keep each pane's current state keys
     forever (no migration), or move all panes to one shape (`<pane>.in.<key>` /
     `<pane>.out.<key>`) with a one-time migration on load?
-11. **Run history retention:** how long are workflow runs, logs and artifacts kept,
+11. **Live tools** (§4.5): JWT, Base64 and Diff recompute on every keystroke in the
+    browser today. As server Actions with `run: live` (debounced), they cost a round
+    trip per pause in typing. Acceptable, or should a few built-in pure transforms
+    keep a browser implementation (ours only, never a plugin's)?
+12. **Run history retention:** how long are workflow runs, logs and artifacts kept,
     and per workflow or globally?
 
 ## 11. Decision log
