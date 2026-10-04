@@ -11,8 +11,9 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **proposal, partly decided.** D1–D5 are settled (§11); the
-rest is a proposal until it reaches the Decision log._
+_Started 2026-10-04. Status: **proposal, partly decided.** D1–D7 are settled (§11);
+four recommendations await a yes (§10); the rest is a proposal until it reaches the
+Decision log._
 
 ---
 
@@ -247,7 +248,7 @@ whole output), does something, and produces an output. What differs is *where* t
 | `toast` | shows a short message | "Copied" |
 
 So today's "Copy S3 URI" and "Copy object URL" are both just *client: copy* with a
-template (they're built in the browser; see §4.5). A presigned "Download", which
+template (they're built in the browser; see §4.6). A presigned "Download", which
 doesn't exist yet, would be *server: presign → client: download*. Both are configurable in the builder with no code: pick
 the scope (row, selection or all), optionally a server Action, then an effect and its
 template.
@@ -278,6 +279,75 @@ over `postMessage`, and the host decides whether to allow it.
 - **stream:** messages appended live. MQTT uses it; see §4.4.
 - **iframe:** sandboxed, for a plugin's own visuals.
 
+**Visualizations: the inventory is the floor, not the ceiling.** §4.6 lists what
+today's panes already do, and so what porting must not lose. The component set goes
+well beyond it:
+
+- **Charts:**
+  - **time series** (line or area, many series, stacked, two axes)
+  - **bar/column**
+  - **pie/donut**
+  - **scatter**
+  - **histogram**
+  - **heatmap** (also for latency distributions over time)
+- **Numbers:**
+  - **stat / KPI tile:** a value with unit, change against a previous period,
+    sparkline, and threshold colours.
+  - **gauge**.
+  - **metrics grid:** a row of KPI tiles.
+  - **table cells with sparklines or bars**.
+- **Structure:**
+  - **timeline / waterfall:** workflow runs, traces, deployments.
+  - **node graph:** service maps, dependency graphs, IoT thing groups.
+  - **Mermaid diagram**.
+  - **Later:** a **map**.
+- **Over the log list:** a log-volume histogram, as Kibana and Grafana show.
+
+How it stays generic, and authorable in the builder and by the agent:
+
+1. **One data shape for every visualization: a data frame** (Grafana's model).
+   - An Action's output is a set of named fields (columns), each with a type: time,
+     number, string, boolean or JSON.
+   - Any visualization can draw any frame. The builder picks a visualization and maps
+     fields to its roles: x, y, series, value, label, colour.
+   - Tables, charts and KPI tiles therefore all read the same output, and one Action
+     can feed a table and a chart side by side.
+2. **Our own small declarative spec**, not a charting library's options:
+
+   ```yaml
+   - render: timeseries
+     x: "@timestamp"
+     y: [count]
+     series: environment
+     unit: requests
+     thresholds: [{ value: 100, colour: warn }, { value: 500, colour: error }]
+   ```
+
+   - It is short enough for the builder's form and for the agent to write ("chart
+     errors per environment over time").
+   - It doesn't tie manifests to a library: we can change the renderer without
+     touching a single plugin.
+   - Units, decimals, thresholds and per-field overrides follow Grafana's
+     field-options model.
+3. **One charting library behind the spec, loaded only when a chart is on screen**
+   (the way `write-excel-file` is today).
+   - Recommendation: **Apache ECharts**. It covers every chart above, including
+     heatmap, gauge and node graph, renders to canvas so large series stay fast,
+     and is modular.
+   - uPlot is lighter for pure time series, but would need a second library for
+     everything else.
+4. **Interaction through effects:**
+   - Brushing a time range on a chart sets the pane's time inputs and re-runs
+     (`set_input`).
+   - Clicking a bar or a node can drill down (`open_pane`, `set_input`).
+   - KPI tiles can link to the pane that explains them.
+
+   It is the same vocabulary as table actions, so the builder offers one way to wire
+   interactions.
+5. **Dashboards** (saved views, a placeholder page today) are then sessions of panes
+   drawing these components. Nothing dashboard-specific is needed beyond layout,
+   which the session's dashboard layout already has.
+
 **The agent and output actions.** Server halves are Actions, so the agent gets them as
 tools ("presign row 3"). Client effects mean nothing to the agent (it has no
 clipboard), except `export`: the agent can ask for an export as a server-side file and
@@ -291,7 +361,7 @@ generalised).
   getting worse.
 - Most of these components already exist in some form inside individual pages. The
   work is extracting and generalising them, not inventing them (see the inventory in
-  §4.4).
+  §4.6).
 
 ### 4.4 All panes behave the same: porting today's panes
 
@@ -316,9 +386,27 @@ How to get there without breaking anything:
      first: Base64, Diff, JWT, then S3, DynamoDB, Cognito, IoT, and CloudWatch/
      OpenSearch last.
    - A pane is done when its browser suite passes unchanged.
-4. **State compatibility:** a ported pane must read the same session-state keys as
-   before, or migrate them on load (CLAUDE.md: "assume any stored shape you invent
-   will need a migration"). Saved sessions and templates must open unchanged.
+4. **One state shape, reached by a versioned migration** (recommended; see open
+   questions).
+   - **The shape:** every pane stores
+     - `<pane>.in.<input>` for its inputs;
+     - `<pane>.out.<output>` for its outputs;
+     - `<pane>.view.<key>` for view state: sort, expanded rows, column choice.
+   - **What it buys:**
+     - The renderer, the agent (`panes.py`) and templates all work the same way for
+       every pane.
+     - "Templates keep inputs, drop outputs" becomes "drop `.out.`" instead of a
+       per-pane list of output keys.
+     - A new pane can never get it wrong.
+   - **The migration:** each ported manifest lists its old keys (`legacy_keys:
+     {queryString: in.query, …}`), and one migration moves them.
+     - It runs on load in the browser, next to `migrateLogsSplit`/`wrapAsAggregator`,
+       and on the server's read path for the agent.
+     - It is guarded by a `paneStateVersion` marker, so it runs once per session,
+       and it is idempotent.
+     - Saved templates get the same through `__savedStateVersion`.
+   - **Why not keep the old keys forever:** the renderer would need a per-pane key
+     map indefinitely, which is the drift problem CLAUDE.md already warns about.
 
 Panes that need more than "run an Action, draw its output":
 
@@ -331,17 +419,61 @@ Panes that need more than "run an Action, draw its output":
   This moves the live connection to the server. It is more work, but it makes MQTT
   usable by the agent and by workflows, which today it can't be (CLAUDE.md: "MQTT and
   JWT aren't agent-drivable on purpose"). Publishing stays behind the approval step.
-- **Base64, JWT, Diff** compute purely in the browser today. They become tiny server
-  Actions; the latency is negligible and they gain agent and workflow use. A pasted
-  JWT is a secret, so its input is marked `sensitive`: kept out of session state and
-  the agent's history.
+- **Base64, JWT, Diff** compute purely in the browser today. They become browser
+  Actions with Python twins (§4.5): they stay instant as you type, and gain agent and
+  workflow use through the twin. A pasted JWT is a secret, so its input is marked
+  `sensitive`: kept out of session state and the agent's history.
 - **HTTP client:** its request is already a server Action (SSRF-guarded). Sending
   stays behind the approval step.
 
 _Inventory of today's panes (inputs, dynamic lists, outputs, output actions): see
-§4.5._
+§4.6._
 
-### 4.5 Inventory of today's panes: the requirements list
+### 4.5 Panes and Actions that run in the browser
+
+Yes, a builder or plugin pane can run in the browser. Some things only make sense
+there:
+- live-as-you-type tools: JWT, Base64, Diff;
+- heavy interactive views over data already fetched;
+- anything that must use the user's own machine, such as their clipboard, a file they
+  pick, or a local network address only they can reach.
+
+The design:
+
+- **An Action can declare `runtime: browser`**, with its code as a JavaScript or
+  TypeScript bundle in the plugin. Server handlers stay Python (D2). This is
+  presentation and compute code, not a second backend language.
+- **It runs in a sandboxed iframe from a separate origin**, the way VS Code runs
+  extension webviews and Figma runs plugins:
+  - `sandbox="allow-scripts"` without `allow-same-origin`, served from a dedicated
+    plugin origin. So it has no access to our cookies, our storage, our DOM or our
+    API.
+  - A strict Content Security Policy: `connect-src` limited to the hosts the plugin
+    declared, nothing at all by default.
+  - It talks to the host only through a small `postMessage` SDK:
+    - read its inputs;
+    - return outputs;
+    - ask for an effect (copy, download…), which the host may allow or confirm with
+      the user;
+    - call a **server** Action through the host, which applies the same permission
+      checks as any other call.
+- **Secrets never reach browser code.** A browser Action that needs an authenticated
+  call asks the host to run a server Action that holds the credential.
+- **The agent and workflows can't run browser code**: there is no browser on the
+  server. So a browser Action can ship a **Python twin**. JWT, Base64 and Diff would
+  have both: the browser version for live typing, the Python one for the agent and
+  workflows. Without a twin, the pane is marked browser-only, and `get_context` says
+  so, so the agent explains it rather than claiming the pane doesn't exist (the MQTT
+  lesson in CLAUDE.md).
+- **Built-in browser Actions are ours, in our own bundle**, and don't need the iframe.
+  Only plugin and builder code is sandboxed.
+- **Custom visual components** (a plugin's own chart, a 3D view) use the same
+  sandbox: the host hands them a data frame and they draw it.
+
+This replaces the "Live tools" question: JWT, Base64 and Diff stay instant, and still
+work for the agent.
+
+### 4.6 Inventory of today's panes: the requirements list
 
 What every existing pane does, gathered 2026-10-04. Porting (§4.4) is done when the
 generic renderer and components can do all of it.
@@ -379,9 +511,9 @@ generic renderer and components can do all of it.
 - **Saved items** are a per-pane-type feature today (saved queries, saved searches,
   saved tables and so on, in five different stores). Generically, "save these
   inputs under a name" belongs to the renderer, for every pane, in one store.
-- **Live Actions:** JWT, Base64 and Diff recompute on every keystroke. As server
-  Actions they need `run: live` (re-run on input change, debounced). See open
-  questions.
+- **Live Actions:** JWT, Base64 and Diff recompute on every keystroke. They are
+  `run: live` (re-run on input change), in the browser, with a Python twin for the
+  agent (§4.5).
 - **Sensitive inputs:** JWT's token and secret, and MQTT's state, are deliberately
   not persisted. Generically, an input marked `sensitive` stays out of session state,
   the agent's history and run records.
@@ -472,16 +604,38 @@ steps:
     steps per item.
   - This is the one place the list becomes a tree. It is still drawn as an indented
     list, not a graph.
-- **Expressions:** one language for templates and conditions, `{{ … }}` with filters.
-  Recommendation: **Jinja2 in its sandboxed environment**.
-  - It is Python-native and well known (Ansible uses it).
-  - Conditions and data selection fit in it.
-  - Expressions are evaluated server-side with time and size limits, and can't reach
-    secrets: only parameters and outputs.
-  - Credentials are passed by reference (`credential` inputs), never interpolated
-    into a string.
+- **Expressions:** one language for conditions, data selection and templates.
+  Recommendation: **CEL (Common Expression Language) inside `{{ … }}`**, the way
+  GitHub Actions puts its own small expression language inside `${{ … }}`.
+  - **Why CEL rather than Jinja2:** workflow expressions are written by many people
+    (anyone with the builder) and evaluated on our servers. That calls for a
+    language that is safe *by design*, not one made safe by a sandbox.
+    - CEL has no loops, no attribute access to Python objects, no side effects, and
+      cost limits, so every evaluation terminates.
+    - It is what Kubernetes (validation rules), Google Cloud IAM conditions and Envoy
+      use for the same job.
+    - Jinja2's sandbox, by contrast, had two escapes to arbitrary code execution in
+      four months: CVE-2024-56326, fixed in 3.1.5, and CVE-2025-27516, fixed in
+      3.1.6.
+  - **What it looks like:**
+    - `{{ size(steps.list.outputs.objects) > 0 }}`
+    - `{{ steps.list.outputs.objects.filter(o, o.size > 1000000) }}`
+    - `"{{ params.prefix }}logs"` (string interpolation)
 
-  Alternative: CEL, which is safer by design but unfamiliar. See open questions.
+    That is as readable as Jinja2 for this job. Only Jinja2's filter syntax
+    (`| length`) is missing, and CEL's macros (`filter`, `map`, `exists`, `all`)
+    cover it.
+  - **Our functions on top:** `connection(env, 'aws')`, `json()`, `now()`, string
+    helpers. Each is a plain, side-effect-free function we register.
+  - **Library:** Google's official **`cel-expr-python`** (announced March 2026; it
+    wraps the C++ implementation, so semantics match Kubernetes'). Fallbacks if its
+    wheels don't fit our image: `common-expression-language` (wraps the Rust
+    implementation) or the pure-Python `cel-python`.
+  - **Rules either way:**
+    - Expressions see only parameters and outputs, never secrets.
+    - Credentials are passed by reference (`credential` inputs), never interpolated
+      into a string.
+    - Expressions are checked for syntax and references when the workflow is saved.
 - **Outputs and artifacts:** each step's outputs are stored with the run, capped in
   size, with large ones kept as files. The run detail shows them with the same output
   components panes use (§4.3).
@@ -617,7 +771,7 @@ the database instead of a repo:
 | Built-in | us | the backend process | anything the backend can |
 | Declarative | builder / plugin | the backend, through a fixed HTTP executor (SSRF-guarded, as `tools_http_client.py` already is) | only the HTTP calls its manifest declares |
 | Code | builder / plugin | an **isolated runner**: a separate container, no database access, no ambient cloud credentials, egress limited to the declared hosts | only what its resolved inputs and short-lived credentials allow |
-| UI renderer | plugin | a **sandboxed iframe** (`sandbox`, no same-origin), postMessage protocol | draw what it is handed; never the session cookie |
+| Browser Action / UI component | plugin / builder | a **sandboxed iframe** on a separate origin (`sandbox="allow-scripts"`, no same-origin, strict CSP), postMessage SDK (§4.5) | compute and draw what it is handed; ask the host for effects and server Actions; never the session cookie or a secret |
 
 ## 8. Execution and security
 
@@ -690,6 +844,56 @@ choose their own dependencies**, with these rules:
 Built-in Actions keep running in the backend process with its own dependencies. Only
 plugin and builder code goes through the runner's venvs.
 
+### 8.2 File storage
+
+Exports, workflow artifacts, large step outputs, plugin bundles and uploaded secret
+files all need somewhere to live. Postgres is the wrong place for anything large.
+
+**Decided (D7): a blob store with two backends, chosen in the Helm chart.**
+
+```yaml
+storage:
+  type: s3            # s3 | filesystem
+  s3:
+    bucket: my-platform-files
+    region: eu-west-1
+    endpoint: ""      # empty for AWS; set for any S3-compatible server
+    # credentials: IRSA / pod identity on EKS, or a Kubernetes Secret
+  filesystem:
+    path: /data/files
+    persistence:
+      storageClass: ""          # any class; must support ReadWriteMany for >1 replica
+      accessMode: ReadWriteMany
+      size: 50Gi
+```
+
+- **`s3` is the recommended default for real deployments.** Any S3-compatible store
+  works (AWS S3, GCS through its S3 API, Ceph, MinIO and so on).
+  - Every backend replica and every runner can reach it at once.
+  - Downloads can be presigned URLs that don't pass through the backend.
+  - Lifecycle rules can enforce retention.
+  - Encryption at rest is handled by the store (SSE-S3/KMS).
+- **`filesystem` is for single-node, development or air-gapped installs.** The
+  volume can be any storage class, with one trap. The chart runs **2 backend replicas
+  by default** (`values.yaml`), and an EBS volume is ReadWriteOnce: it attaches to
+  one node, so replicas on two nodes can't both mount it. The filesystem backend
+  therefore needs either:
+  - a ReadWriteMany class (EFS on AWS, Filestore on GCP, NFS, CephFS); or
+  - one backend replica.
+
+  The chart should refuse the combination of RWO with more than one replica rather
+  than fail at runtime.
+- **Postgres keeps only metadata:** key, size, sha256, content type, owner and group,
+  what it belongs to (run, export, plugin), created time and expiry. Every download
+  checks permissions against that row first, so the store itself is never browsed
+  directly.
+- **Retention:** per kind (exports expire in days, run artifacts follow the
+  workflow's retention, plugin bundles are kept while installed), enforced by a
+  periodic clean-up and, on S3, lifecycle rules too.
+- **The secrets store is separate**: secret files are encrypted values (§6.2), not
+  blobs, unless they are large. A large one is stored encrypted in the blob store,
+  with its key in the secrets store.
+
 ## 9. Roadmap (proposed order)
 
 Each phase ships something usable on its own. Order chosen so each phase builds the
@@ -714,7 +918,8 @@ foundation the next one needs.
     - No visible change.
   - **3b, the generic renderer and components:**
     - Input cards and dynamic options.
-    - The output components and output actions (§4.3), extracted from today's panes.
+    - The output components and output actions (§4.3), extracted from today's panes,
+      plus the visualizations (data frames, the chart spec, ECharts, KPI tiles).
     - Panes ported in the order of §4.4, each passing its own browser suite
       unchanged. MQTT moves its connection server-side.
   - **3c, permissions and a first new pane:**
@@ -722,6 +927,7 @@ foundation the next one needs.
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
       pane), to prove the model on something that isn't a port.
 - [ ] **Phase 4: Workflows.**
+  - The blob store (§8.2), which runs and artifacts need first.
   - Definitions with parameters and steps, and recorded runs, run on the in-process
     runner.
   - The Workflows page (list, Build with parameters, run history, run detail) and the
@@ -733,7 +939,8 @@ foundation the next one needs.
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
   egress limits, and short-lived credentials per job. One venv per plugin version,
   built with uv from a locked `requirements.txt` at install time (§8.1). The
-  `platform_sdk` package.
+  `platform_sdk` package. The browser runtime for plugin and builder code: the
+  sandboxed plugin origin and its postMessage SDK (§4.5).
 - [ ] **Phase 7: Plugins and the marketplace.** `plugin.yaml`, install from git (tag,
   SHA and checksum pinned; private repos through credentials), a registry repo
   format, the Marketplace page, upgrade and rollback, permission review on install.
@@ -743,7 +950,8 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-Settled questions move to the Decision log (§11).
+Settled questions move to the Decision log (§11). Items marked **(recommended)**
+have a recommendation in this file waiting for a yes.
 
 1. **Where runs execute at first:** in the backend process (simplest; fine for
    built-ins and declarative steps) until the runner exists in Phase 6?
@@ -755,25 +963,18 @@ Settled questions move to the Decision log (§11).
    "operation"; "Builder" vs "Studio"; "effect" for client-side output actions. This
    vocabulary will be in the UI and in plugin manifests, so it is worth settling
    early.
-6. **Expression language for workflows** (§5.1): Jinja2, sandboxed (familiar, as
-   in Ansible), or CEL (safer by design, less familiar)?
-7. **MQTT on the server** (§4.4): the live connection moves from the browser to the
-   backend or runner, making it usable by the agent and workflows. Acceptable? It
-   costs one server-side subscription per open MQTT pane.
-8. **Where files live:** exports, workflow artifacts and large outputs need storage.
-   Postgres (simple, size-capped) or an object store the platform owns (an S3 bucket
-   or MinIO in the Helm chart)?
-9. **Effects from plugin iframes** (§4.3): which effects can a sandboxed plugin
-   component ask for without the user confirming? `copy` and `toast` probably can;
-   `open_link` and `download` perhaps should ask.
-10. **Session state for ported panes** (§4.4): keep each pane's current state keys
-    forever (no migration), or move all panes to one shape (`<pane>.in.<key>` /
-    `<pane>.out.<key>`) with a one-time migration on load?
-11. **Live tools** (§4.5): JWT, Base64 and Diff recompute on every keystroke in the
-    browser today. As server Actions with `run: live` (debounced), they cost a round
-    trip per pause in typing. Acceptable, or should a few built-in pure transforms
-    keep a browser implementation (ours only, never a plugin's)?
-12. **Run history retention:** how long are workflow runs, logs and artifacts kept,
+6. **(recommended) Expression language:** CEL inside `{{ … }}` (§5.1).
+7. **(recommended) Session-state shape:** one shape (`in.`/`out.`/`view.`) for every
+   pane, reached by a versioned migration on load (§4.4).
+8. **(recommended) Browser runtime:** browser Actions and components from plugins
+   and the builder, in sandboxed iframes on a separate origin, with optional Python
+   twins for the agent and workflows (§4.5).
+9. **(recommended) Charting:** our own declarative visualization spec over data
+   frames, drawn with Apache ECharts (§4.3).
+10. **Effects from plugin iframes** (§4.3, §4.5): which effects can a sandboxed
+    plugin ask for without the user confirming? `copy` and `toast` probably can;
+    `open_link` and `download` perhaps should ask.
+11. **Run history retention:** how long are workflow runs, logs and artifacts kept,
     and per workflow or globally?
 
 ## 11. Decision log
@@ -781,10 +982,12 @@ Settled questions move to the Decision log (§11).
 | # | Date | Decision | Why |
 |---|---|---|---|
 | D1 | 2026-10-04 | **An environment is a named group of connections** (§3.1). It stays the unit of group access; today's environments become one AWS connection each, keeping their ids. | "Do this in Prod" keeps meaning one thing for any provider. |
-| D2 | 2026-10-04 | **Handlers are Python only.** Each plugin or builder step can bring its own dependencies, locked and installed into an isolated venv per plugin version (§8.1). | Matches the backend and keeps one runtime to secure. Per-plugin venvs keep dependency conflicts away from the platform and from other plugins. |
+| D2 | 2026-10-04 | **Server-side handlers are Python only.** Each plugin or builder step can bring its own dependencies, locked and installed into an isolated venv per plugin version (§8.1). | Matches the backend and keeps one runtime to secure. Per-plugin venvs keep dependency conflicts away from the platform and from other plugins. |
 | D3 | 2026-10-04 | **Output components are rich and configurable in the builder**, including output actions (copy, export, open link, attach to the agent, drill-down…). Each is an optional server Action plus a client effect from a fixed vocabulary (§4.3). | Today's panes already do this by hand; built panes must be able to do the same. A fixed effect set keeps browser-side code ours. |
 | D4 | 2026-10-04 | **Workflows are a list of steps** with dependencies (by reference), conditions (`if`), loops (`for_each`) and nested groups (§5.1). Not a graph to start. | Easy to author and read; covers dependencies, conditions and loops. Parallelism can come later without a format change. |
 | D5 | 2026-10-04 | **All panes behave the same:** every pane, built-in included, is a manifest drawn by one renderer with one component set. Today's panes are ported (§4.4). | Gives the builder and plugins everything today's panes can do, and lets the agent drive every pane the same way. |
+| D6 | 2026-10-04 | **MQTT's live connection moves to the server** (a subscription Action and a stream output); publishing stays behind the approval step (§4.4). | Makes MQTT usable by the agent and workflows, like every other pane. Costs one server-side subscription per open MQTT pane. |
+| D7 | 2026-10-04 | **File storage is a blob store with an S3-compatible or a filesystem backend, chosen in Helm**; Postgres keeps only metadata (§8.2). | Postgres is wrong for large files. S3 suits multi-replica deployments; filesystem suits single-node or air-gapped installs, given a ReadWriteMany volume or a single replica. |
 
 ## 12. Research sources
 
@@ -804,6 +1007,23 @@ Settled questions move to the Decision log (§11).
 - Windmill per-script Python dependencies (imports parsed, a lockfile per script,
   cached by workers):
   [Windmill: dependencies in Python](https://www.windmill.dev/docs/advanced/dependencies_in_python)
+- Jinja2 sandbox escapes:
+  [CVE-2024-56326](https://advisories.gitlab.com/pypi/jinja2/CVE-2024-56326/),
+  [CVE-2025-27516](https://advisories.gitlab.com/pypi/jinja2/CVE-2025-27516/)
+- CEL in Python:
+  [Google: announcing cel-expr-python](https://opensource.googleblog.com/2026/03/announcing-cel-expr-python-the-common-expression-language-in-python-now-open-source.html),
+  [cel-python](https://pypi.org/project/cel-python),
+  [common-expression-language](https://pypi.org/project/common-expression-language)
+- GitHub Actions expressions (`${{ }}`):
+  [GitHub docs: expressions](https://docs.github.com/en/enterprise-server@3.17/actions/reference/workflows-and-actions/expressions)
+- Grafana data frames and field options:
+  [Grafana: work with data frames](https://grafana.com/developers/plugin-tools/create-a-plugin/develop-a-plugin/work-with-data-frames)
+- VS Code webviews (sandboxed, message passing, CSP), and how a misconfigured one was
+  escaped:
+  [VS Code Webview API](https://vscode-api.js.org/interfaces/vscode.Webview.html),
+  [Trail of Bits: escaping misconfigured VSCode extensions](https://blog.trailofbits.com/2023/02/21/vscode-extension-escape-vulnerability/)
+- EBS is ReadWriteOnce; EFS for ReadWriteMany:
+  [Baeldung: Kubernetes access modes](https://www.baeldung.com/ops/kubernetes-access-modes-persistent-volumes)
 - Backstage plugin architecture (frontend/backend plugins, extension points):
   [Backstage: architecture overview](https://backstage.io/docs/overview/architecture-overview),
   [Backstage: extension points](https://backstage.io/docs/backend-system/architecture/extension-points)
