@@ -4,6 +4,14 @@ Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
 _Last updated: 2026-09-29, grounding the platform agent's turns (after #96)._
 
+## Platform plan
+
+`PLATFORM_PLAN.md` (started 2026-10-04) organises the next stage: workflows, external
+plugins and a marketplace, an internal builder, typed secrets, and environments that
+mean something for any provider. It is a proposal under discussion. Its open
+questions (§10) come first; nothing is built from it until decisions land in its
+Decision log (§11).
+
 ## Where things stand
 
 **Branch:** `claude/multi-account-cloudwatch-insights-shyq4m` (the standing
