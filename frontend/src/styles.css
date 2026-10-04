@@ -3264,3 +3264,153 @@ th {
      are, so it doesn't sit pressed into the card's corner. */
   margin-right: 6px;
 }
+
+/* ---- Settings: Credentials and Credential types (PLATFORM_PLAN.md §13.6) ---- */
+
+/* Label column and value column, like the session card's rows. */
+.credential-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 560px);
+  gap: 8px 12px;
+  align-items: start;
+}
+
+.credential-form > .field-label {
+  margin: 6px 0 0;
+}
+
+.credential-form input[type="text"],
+.credential-form input[type="password"],
+.credential-form input[type="number"],
+.credential-form select,
+.credential-form textarea {
+  width: 100%;
+}
+
+.credential-form .credential-type-help {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+}
+
+.credential-field-help {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* A secret typed into a multi-line box is still hidden as it's typed, the way
+   a password input is, where the browser supports it. */
+.credential-secret-input {
+  -webkit-text-security: disc;
+}
+
+.credential-secret-tag {
+  margin-left: 6px;
+}
+
+.credential-block + .credential-block {
+  margin-top: 14px;
+}
+
+.credentials-table td,
+.credential-types-table td {
+  vertical-align: top;
+}
+
+.credential-details {
+  font-size: 12px;
+}
+
+.credential-test-message {
+  font-size: 12px;
+  max-width: 260px;
+}
+
+.credential-grants {
+  max-width: 280px;
+}
+
+.credential-grant {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px 4px 0;
+}
+
+.credential-grant-remove {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  min-height: 0;
+  height: auto;
+  font-size: 11px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+}
+
+.credential-grant-add {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.credential-static {
+  font-size: 13px;
+  padding-top: 6px;
+}
+
+.credential-actions {
+  white-space: nowrap;
+}
+
+.credential-actions button + button {
+  margin-left: 6px;
+}
+
+.credentials-notice {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.credentials-error {
+  margin: 0 0 12px;
+}
+
+.credential-type-example,
+.credential-type-template {
+  width: 100%;
+  max-width: 740px;
+}
+
+.credential-type-fields input[type="text"] {
+  width: 100%;
+  min-width: 80px;
+}
+
+.credential-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  max-width: 740px;
+  margin-top: 8px;
+  align-items: start;
+}
+
+.credential-preview textarea {
+  width: 100%;
+}
+
+.credential-preview-output {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px;
+  background: var(--panel-alt);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.credential-type-editor h3,
+.credential-editor h3 {
+  margin: 16px 0 6px;
+}

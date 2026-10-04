@@ -451,6 +451,104 @@ const BASE = "/api";
  * Per tab rather than per browser on purpose: two tabs are two writers. */
 export const SYNC_ORIGIN = `tab-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
+
+// ------------------------------------------------------------------ credentials
+// Typed secrets (PLATFORM_PLAN.md §13). Nothing the backend sends ever holds a
+// secret value: a secret field is only reported as set, in secret_fields_set.
+
+export type CredentialFieldKind = "text" | "multiline" | "number" | "bool" | "choice" | "json" | "file";
+
+export interface CredentialField {
+  key: string;
+  label: string;
+  kind: CredentialFieldKind;
+  secret: boolean;
+  required: boolean;
+  help: string;
+  default?: unknown;
+  choices?: string[];
+}
+
+/** How a credential of a type authenticates an HTTP request; the values are CEL over its fields. */
+export interface CredentialInject {
+  kind: "header" | "basic" | "query";
+  name?: string;
+  name_from?: string;
+  value?: string;
+  username?: string;
+  password?: string;
+}
+
+export interface CredentialHttpTest {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface CredentialType {
+  id: string;
+  label: string;
+  description: string | null;
+  version: number;
+  fields: CredentialField[];
+  output_template: string | null;
+  inject: CredentialInject | null;
+  http_test: CredentialHttpTest | null;
+  builtin: boolean;
+  in_use: number;
+  has_test: boolean;
+}
+
+export type CredentialTypeDraft = Pick<CredentialType, "id" | "label" | "description" | "fields" | "output_template" | "inject" | "http_test">;
+
+export interface Credential {
+  id: number;
+  name: string;
+  type_id: string;
+  type_label: string;
+  type_version: number;
+  description: string | null;
+  scope: "global" | "group";
+  group_id: number | null;
+  group_name: string | null;
+  public_fields: Record<string, unknown>;
+  secret_fields_set: string[];
+  grants: number[];
+  created_at: string | null;
+  updated_at: string | null;
+  last_tested_at: string | null;
+  last_test_ok: boolean | null;
+  last_test_message: string | null;
+  last_used_at: string | null;
+}
+
+/** What a non-admin sees of a credential their group can use: enough to pick it. */
+export interface CredentialSummary {
+  id: number;
+  name: string;
+  type_id: string;
+  type_label: string;
+  scope: "global" | "group";
+}
+
+export interface CredentialsStatus {
+  enabled: boolean;
+  reason: string | null;
+  key_id?: string | null;
+}
+
+export interface AuditEvent {
+  id: number;
+  at: string;
+  actor_name: string | null;
+  actor_kind: string;
+  action: string;
+  object_type: string;
+  object_id: string;
+  group_id: number | null;
+  detail: Record<string, unknown>;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -513,6 +611,16 @@ function detailOf(text: string): string {
     // not JSON; the text is the message
   }
   return text;
+}
+
+/** What to show for a failed call: the backend's own sentence, not the
+ * "400 Bad Request: {...}" an ApiError's message starts with. */
+export function readableError(e: unknown): string {
+  if (e instanceof ApiError) {
+    const body = e.message.replace(/^\d{3} [^:]*: /, "");
+    return detailOf(body) || e.message;
+  }
+  return e instanceof Error ? e.message : "Something went wrong.";
 }
 
 /**
@@ -608,6 +716,44 @@ export const api = {
   updateEnvironment: (id: number, payload: Partial<Omit<Environment, "id">>) =>
     req<Environment>(`/environments/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteEnvironment: (id: number) => req<void>(`/environments/${id}`, { method: "DELETE" }),
+
+  credentialsStatus: () => req<CredentialsStatus>("/credentials/status"),
+  listCredentialTypes: () => req<CredentialType[]>("/credential-types"),
+  createCredentialType: (payload: CredentialTypeDraft) =>
+    req<CredentialType>("/credential-types", { method: "POST", body: JSON.stringify(payload) }),
+  updateCredentialType: (id: string, payload: Partial<CredentialTypeDraft> & { confirm_remove?: boolean }) =>
+    req<CredentialType>(`/credential-types/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteCredentialType: (id: string) => req<void>(`/credential-types/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  inferCredentialType: (example: unknown) =>
+    req<{ fields: CredentialField[]; output_template: string | null }>("/credential-types/infer", {
+      method: "POST",
+      body: JSON.stringify({ example }),
+    }),
+  previewCredentialType: (payload: { fields: CredentialField[]; output_template: string | null; values: Record<string, unknown> }) =>
+    req<{ output: unknown }>("/credential-types/preview", { method: "POST", body: JSON.stringify(payload) }),
+  /** Admins get Credential[]; anyone else CredentialSummary[] (what their group can use). */
+  listCredentials: <T extends Credential | CredentialSummary = Credential>() => req<T[]>("/credentials"),
+  createCredential: (payload: {
+    name: string;
+    type_id: string;
+    scope: "global" | "group";
+    group_id: number | null;
+    description: string | null;
+    values: Record<string, unknown>;
+  }) => req<Credential>("/credentials", { method: "POST", body: JSON.stringify(payload) }),
+  updateCredential: (
+    id: number,
+    payload: { name?: string; description?: string | null; values?: Record<string, unknown>; clear?: string[] },
+  ) => req<Credential>(`/credentials/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteCredential: (id: number) => req<void>(`/credentials/${id}`, { method: "DELETE" }),
+  testCredential: (id: number) =>
+    req<{ ok: boolean | null; message: string }>(`/credentials/${id}/test`, { method: "POST" }),
+  grantCredential: (id: number, groupId: number) =>
+    req<void>(`/credentials/${id}/grants/${groupId}`, { method: "POST" }),
+  revokeCredential: (id: number, groupId: number) =>
+    req<void>(`/credentials/${id}/grants/${groupId}`, { method: "DELETE" }),
+  auditFor: (objectType: string, objectId: string | number) =>
+    req<AuditEvent[]>(`/audit?object=${encodeURIComponent(`${objectType}:${objectId}`)}`),
 
   getSettings: () => req<Settings>("/settings"),
   updateSettings: (payload: Partial<Settings>) =>

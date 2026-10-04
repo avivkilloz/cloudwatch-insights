@@ -6,6 +6,7 @@ import Avatar from "../components/Avatar";
 import ThemeGrid from "../components/ThemeGrid";
 import { ThemeId } from "../theme";
 import SavedItemsPage from "./SavedItemsPage";
+import { CredentialsSection, CredentialTypesSection } from "../components/settings/CredentialsSettings";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 
@@ -48,7 +49,16 @@ const MAX_LOGO_BYTES = 300 * 1024;
 // backend's MAX_AVATAR_URL_LENGTH once base64-encoded.
 const MAX_AVATAR_BYTES = 200 * 1024;
 
-type Section = "account" | "theme" | "saved" | "app" | "environments" | "groups" | "users";
+type Section =
+  | "account"
+  | "theme"
+  | "saved"
+  | "app"
+  | "environments"
+  | "groups"
+  | "users"
+  | "credentials"
+  | "credential-types";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
@@ -61,6 +71,8 @@ const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "environments", label: "Environments" },
   { id: "groups", label: "User groups" },
   { id: "users", label: "Users" },
+  { id: "credentials", label: "Credentials" },
+  { id: "credential-types", label: "Credential types" },
 ];
 
 type GroupDraft = {
@@ -409,6 +421,10 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
           </div>
         </div>
       )}
+
+      {/* Each fetches its own data: nothing else on this page needs it. */}
+      {isAdmin && section === "credentials" && <CredentialsSection />}
+      {isAdmin && section === "credential-types" && <CredentialTypesSection />}
 
       {isAdmin && !loading && !error && section === "environments" && (
         <>

@@ -52,6 +52,25 @@ def status() -> dict:
     return {"enabled": True, "reason": None, "key_id": ring.current}
 
 
+def startup_check(db: Session) -> list[str]:
+    """What the startup log says about credentials: off and why, or on with
+    which key -- and, for each master key credentials were written with, a
+    trial decryption of one of them, so a wrong key surfaces at start rather
+    than at the first use."""
+    state = status()
+    if not state["enabled"]:
+        return [str(state["reason"])]
+    ring = keyring()
+    lines = [f"Credentials are on (new secrets use master key '{ring.current}')."]
+    for (kek_id,) in db.query(models.Credential.kek_id).filter(models.Credential.kek_id.isnot(None)).distinct():
+        sample = db.query(models.Credential).filter(models.Credential.kek_id == kek_id).first()
+        try:
+            _open(sample, ring)
+        except CredentialError as e:
+            lines.append(f"PROBLEM: {e}")
+    return lines
+
+
 def _aad(cred: models.Credential) -> bytes:
     return f"credential:{cred.id}:{cred.type_id}:{cred.type_version}".encode()
 

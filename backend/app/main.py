@@ -1,11 +1,12 @@
 import contextlib
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, credential_types, masking, models
+from . import bootstrap, credential_store, credential_types, masking, models
 from .db import Base, SessionLocal, engine, ensure_columns
 from .platform_tools import server as platform_server
 from .routers import (
@@ -57,6 +58,13 @@ finally:
 
 # Whatever a request decrypts is masked in every log line it writes after.
 masking.install()
+
+_bootstrap_db = SessionLocal()
+try:
+    for _line in credential_store.startup_check(_bootstrap_db):
+        logging.getLogger("credentials").warning(_line)
+finally:
+    _bootstrap_db.close()
 
 
 
