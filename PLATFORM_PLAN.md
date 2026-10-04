@@ -11,9 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **proposal, partly decided.** D1–D7 are settled (§11);
-four recommendations await a yes (§10); the rest is a proposal until it reaches the
-Decision log._
+_Started 2026-10-04. Status: **proposal, partly decided.** D1–D11 are settled (§11);
+the rest is a proposal until it reaches the Decision log._
 
 ---
 
@@ -950,8 +949,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-Settled questions move to the Decision log (§11). Items marked **(recommended)**
-have a recommendation in this file waiting for a yes.
+Settled questions move to the Decision log (§11).
 
 1. **Where runs execute at first:** in the backend process (simplest; fine for
    built-ins and declarative steps) until the runner exists in Phase 6?
@@ -963,19 +961,11 @@ have a recommendation in this file waiting for a yes.
    "operation"; "Builder" vs "Studio"; "effect" for client-side output actions. This
    vocabulary will be in the UI and in plugin manifests, so it is worth settling
    early.
-6. **(recommended) Expression language:** CEL inside `{{ … }}` (§5.1).
-7. **(recommended) Session-state shape:** one shape (`in.`/`out.`/`view.`) for every
-   pane, reached by a versioned migration on load (§4.4).
-8. **(recommended) Browser runtime:** browser Actions and components from plugins
-   and the builder, in sandboxed iframes on a separate origin, with optional Python
-   twins for the agent and workflows (§4.5).
-9. **(recommended) Charting:** our own declarative visualization spec over data
-   frames, drawn with Apache ECharts (§4.3).
-10. **Effects from plugin iframes** (§4.3, §4.5): which effects can a sandboxed
-    plugin ask for without the user confirming? `copy` and `toast` probably can;
-    `open_link` and `download` perhaps should ask.
-11. **Run history retention:** how long are workflow runs, logs and artifacts kept,
-    and per workflow or globally?
+6. **Effects from plugin iframes** (§4.3, §4.5): which effects can a sandboxed
+   plugin ask for without the user confirming? `copy` and `toast` probably can;
+   `open_link` and `download` perhaps should ask.
+7. **Run history retention:** how long are workflow runs, logs and artifacts kept,
+   and per workflow or globally?
 
 ## 11. Decision log
 
@@ -988,6 +978,10 @@ have a recommendation in this file waiting for a yes.
 | D5 | 2026-10-04 | **All panes behave the same:** every pane, built-in included, is a manifest drawn by one renderer with one component set. Today's panes are ported (§4.4). | Gives the builder and plugins everything today's panes can do, and lets the agent drive every pane the same way. |
 | D6 | 2026-10-04 | **MQTT's live connection moves to the server** (a subscription Action and a stream output); publishing stays behind the approval step (§4.4). | Makes MQTT usable by the agent and workflows, like every other pane. Costs one server-side subscription per open MQTT pane. |
 | D7 | 2026-10-04 | **File storage is a blob store with an S3-compatible or a filesystem backend, chosen in Helm**; Postgres keeps only metadata (§8.2). | Postgres is wrong for large files. S3 suits multi-replica deployments; filesystem suits single-node or air-gapped installs, given a ReadWriteMany volume or a single replica. |
+| D8 | 2026-10-04 | **Workflow expressions are CEL inside `{{ … }}`** (§5.1), via `cel-expr-python`. | Safe by design (no loops, no object access, bounded cost) for expressions many people write and our servers evaluate; Jinja2's sandbox had two code-execution escapes in four months. |
+| D9 | 2026-10-04 | **One session-state shape for every pane** (`<pane>.in.*`, `.out.*`, `.view.*`), reached by a versioned, idempotent migration on load in the browser and on the server's read path (§4.4). | The renderer, the agent and templates treat every pane alike; no per-pane key maps to keep in sync. |
+| D10 | 2026-10-04 | **Plugins and the builder can ship browser code** (JS/TS) for Actions and visual components, run in a sandboxed iframe on a separate origin behind a postMessage SDK, never seeing a secret; an optional Python twin makes it usable by the agent and workflows (§4.5). Built-in browser code is ours and runs unsandboxed. | Some panes only make sense in the browser (live typing, the user's own machine); the sandbox stops plugin code acting as the logged-in user. |
+| D11 | 2026-10-04 | **Visualizations are our own declarative spec over data frames, drawn with Apache ECharts**, loaded on demand (§4.3). | One data shape for tables, charts and KPIs; a spec short enough for the builder and the agent; the library can change without touching plugins. |
 
 ## 12. Research sources
 
