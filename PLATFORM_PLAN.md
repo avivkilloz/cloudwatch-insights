@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **proposal — nothing here is decided until it is in the
-Decision log.**_
+_Started 2026-10-04. Status: **proposal, partly decided.** D1–D5 are settled (§11); the
+rest is a proposal until it reaches the Decision log._
 
 ---
 
@@ -125,8 +125,8 @@ Kept small. Each is a registry: built-ins ship with the platform, plugins add mo
 
 ### 3.1 Environments, generalised (challenge 3)
 
-**Recommendation: an environment becomes a named group of connections, and stays
-the unit of access.**
+**Decided (D1): an environment becomes a named group of connections, and stays the
+unit of access.**
 
 - "Prod" can hold an AWS connection (account + region + role), a Kubernetes context,
   a Postgres DSN, a GitHub org: whatever lives in "prod".
@@ -215,25 +215,130 @@ outputs:
   a tool ("list the options for bucket"). This generalises what panes do by hand
   today, such as the log-group picker.
 
-### 4.3 Output renderers
+### 4.3 Output components, and the actions on them
 
-A fixed, built-in set to start with: table, text, JSON, code, markdown, chart,
-diagram (Mermaid), file download, and **iframe** (sandboxed, see §8). A plugin can
-add a renderer only as a sandboxed iframe component (§7.4), never as raw code in our
-React tree.
+Today's panes do far more with results than display them. CloudWatch lets you pick
+rows, send them to the agent and export them; S3 copies an object's URI or URL. The
+builder has to offer the same (decision D3). The model:
 
-### 4.4 How today's panes get there
+> an **output component** draws a piece of output, and offers **output actions**
+> on all of it, on the selected rows, or on one row.
 
-Not a rewrite. Today's panes are hand-written React and keep working.
+An output action is an Action too: it takes inputs (the row, the selection, or the
+whole output), does something, and produces an output. What differs is *where* the
+"does something" happens, and that splits actions into two halves that compose:
 
-1. The manifest becomes the single source of truth for **inputs and actions**.
-   `panes.py`'s `KINDS` is generated from the manifests (or replaced by them), so the
-   agent and the UI cannot drift apart.
-2. A generic **ManifestPane** renderer draws any pane from its manifest. New panes
-   (built-in, built in the builder, or from plugins) use it.
-3. Existing panes move over one at a time, when touched for other reasons. A
-   hand-written pane can keep a custom React body and still declare its manifest for
-   the agent.
+1. **Server half (optional):** an ordinary Action, run on the backend with the row's
+   or selection's values as inputs. Example: "presign this S3 object". It needs the
+   connection's credentials, so it can only run server-side.
+2. **Client half:** an **effect** from a fixed, built-in vocabulary, applied in the
+   browser to the server half's result (or straight to the row if there is no server
+   half):
+
+| Effect | Does | Example |
+|---|---|---|
+| `copy` | puts a templated string on the clipboard | `s3://{{ row.bucket }}/{{ row.key }}` |
+| `open_link` | opens a templated URL in a new tab | the AWS console link for a log group |
+| `download` | saves a file the server half produced, or a templated text | a presigned object download |
+| `export` | writes the rows as CSV, JSON or XLSX (`write-excel-file`, per CLAUDE.md) | "export selected" |
+| `attach_to_agent` | sends the rows to the session's agent chat | today's `PaneSelectionShare` |
+| `open_pane` | opens another pane with inputs filled from the row (drill-down) | a thing → its shadows; a log line → search by its request id |
+| `set_input` | writes a value into one of this pane's own inputs and optionally re-runs | click a field value to filter by it |
+| `toast` | shows a short message | "Copied" |
+
+So "copy S3 URL" is *server: presign → client: copy*, and "copy S3 URI" is just
+*client: copy* with a template. Both are configurable in the builder with no code: pick
+the scope (row, selection or all), optionally a server Action, then an effect and its
+template.
+
+**Why a fixed effect vocabulary rather than plugin JavaScript.** Effects are the only
+code that runs in the browser with the user's session, so they are ours, written once,
+and safe by construction. A plugin can still draw anything it likes through a
+sandboxed iframe component (§7.4). That component asks the host to perform an effect
+over `postMessage`, and the host decides whether to allow it.
+
+**The component set.** Built-in and generic, each configured by the manifest:
+
+- **table:**
+  - Columns, each with a field, a label and a format: timestamp, bytes, duration,
+    JSON, link, badge.
+  - Sort, filter, a column picker, and paging or virtual scrolling for large results.
+  - Row selection, and row expansion that fetches more through a detail Action
+    (today's IoT expansion and the agent's `inspect_row`, made one mechanism).
+  - Row, selection and toolbar actions.
+- **log list:** a table variant tuned for log lines: wrapped messages, level colours,
+  per-environment grouping, newest first. This is what CloudWatch and OpenSearch use.
+- **key-value / detail:** one object's fields, with nested sections. Thing detail and
+  Cognito user use it.
+- **JSON tree, text, code, markdown, diff.**
+- **chart, diagram (Mermaid).**
+- **file list / tree:** S3's prefix browsing. Clicking a folder is a `set_input` effect
+  on the prefix input.
+- **stream:** messages appended live. MQTT uses it; see §4.4.
+- **iframe:** sandboxed, for a plugin's own visuals.
+
+**The agent and output actions.** Server halves are Actions, so the agent gets them as
+tools ("presign row 3"). Client effects mean nothing to the agent (it has no
+clipboard), except `export`: the agent can ask for an export as a server-side file and
+link to it. The agent reads outputs through the same component data (`inspect_row`
+generalised).
+
+**Complexity.** Moderate, and mostly front-loaded.
+- The effect vocabulary and the action plumbing are small.
+- The real work is a generic table/log component good enough to replace CloudWatch's
+  hand-built one (selection, expansion, virtual scrolling, export) without the pane
+  getting worse.
+- Most of these components already exist in some form inside individual pages. The
+  work is extracting and generalising them, not inventing them (see the inventory in
+  §4.4).
+
+### 4.4 All panes behave the same: porting today's panes
+
+Decision D5: there are no second-class "hand-written" panes. Every pane, built-in
+included, is a manifest drawn by the one renderer with the one component set. That
+is how the builder and plugins get everything today's panes have, and how the agent
+can drive all of them.
+
+How to get there without breaking anything:
+
+1. **Manifest first, for the agent.**
+   - Write each existing pane's manifest (inputs, actions, outputs), and generate
+     `panes.py`'s `KINDS` from them.
+   - Nothing visible changes. The agent/UI drift CLAUDE.md warns about ends here.
+2. **Components by extraction.**
+   - Build each generic component by lifting it out of the pane that has the best
+     version of it today.
+   - Each extraction is checked against that pane's browser suite, so the pane stays
+     identical.
+3. **Port pane by pane.**
+   - Switch each pane to the generic renderer once its components exist, simplest
+     first: Base64, Diff, JWT, then S3, DynamoDB, Cognito, IoT, and CloudWatch/
+     OpenSearch last.
+   - A pane is done when its browser suite passes unchanged.
+4. **State compatibility:** a ported pane must read the same session-state keys as
+   before, or migrate them on load (CLAUDE.md: "assume any stored shape you invent
+   will need a migration"). Saved sessions and templates must open unchanged.
+
+Panes that need more than "run an Action, draw its output":
+
+- **MQTT** keeps a live browser connection today. As a manifest pane it becomes:
+  - a server-side **subscription Action**, which holds the MQTT client with the
+    connection's credentials;
+  - a **stream** output fed over the existing event-stream plumbing;
+  - a **publish** Action.
+
+  This moves the live connection to the server. It is more work, but it makes MQTT
+  usable by the agent and by workflows, which today it can't be (CLAUDE.md: "MQTT and
+  JWT aren't agent-drivable on purpose"). Publishing stays behind the approval step.
+- **Base64, JWT, Diff** compute purely in the browser today. They become tiny server
+  Actions; the latency is negligible and they gain agent and workflow use. A pasted
+  JWT is a secret, so its input is marked `sensitive`: kept out of session state and
+  the agent's history.
+- **HTTP client:** its request is already a server Action (SSRF-guarded). Sending
+  stays behind the approval step.
+
+_Inventory of today's panes (inputs, dynamic lists, outputs, output actions): see
+§4.5._
 
 ## 5. Workflows
 
@@ -241,10 +346,9 @@ The Jenkins "build with parameters" model, built from the same parts as panes:
 
 - **Definition:** a name, a description, **parameters** (the same input types as
   panes, including dynamic ones and environment/connection/credential pickers), and
-  ordered **steps**. Each step is an Action, with its inputs bound to parameters,
-  constants, or the outputs of earlier steps (`{{ steps.list.outputs.objects }}`).
-  Later: conditions, loops/fan-out over a list, and parallel branches, moving towards
-  a graph as n8n has.
+  an ordered **list of steps** (decision D4). Each step is an Action, with its inputs
+  bound to parameters, constants, or the outputs of earlier steps. Steps can depend
+  on each other, run conditionally, and loop; see §5.1.
 - **Run:** a recorded execution. It stores the parameters used, each step's status,
   logs, outputs and timing, who started it, and artifacts. Runs are kept and can be
   **re-run** (with the same or edited parameters) or **cloned** into a session (open
@@ -263,6 +367,67 @@ The Jenkins "build with parameters" model, built from the same parts as panes:
   - A list of workflows; each workflow's page holds its parameter form ("Build with
     parameters"), run history and run detail (steps, logs, outputs).
   - An editor for definitions: form-based first, visual graph later.
+
+### 5.1 Steps: dependencies, conditions, loops
+
+A list of steps, in the style of GitHub Actions or Ansible: easy to read and to
+author, and each feature below covers a common need without becoming a graph editor.
+
+```yaml
+parameters:
+  - { key: env, type: environment }
+  - { key: prefix, type: string, default: "logs/" }
+steps:
+  - id: list
+    action: aws.s3.list_objects
+    with: { connection: "{{ params.env | connection('aws') }}", prefix: "{{ params.prefix }}" }
+
+  - id: big
+    if: "{{ steps.list.outputs.objects | length > 0 }}"            # condition
+    for_each: "{{ steps.list.outputs.objects | selectattr('size', 'gt', 1000000) }}"  # loop
+    action: aws.s3.head_object
+    with: { key: "{{ item.key }}" }                                # one run per item
+    continue_on_error: true
+
+  - id: report
+    action: core.markdown
+    with: { text: "{{ steps.big.outputs | length }} objects over 1 MB" }
+```
+
+- **Dependencies:**
+  - A step runs after the steps it references (`steps.list…`), and the list order
+    covers everything else.
+  - The platform builds the dependency order from the references and rejects a
+    reference to a later step or a missing one when the workflow is saved.
+  - Later, steps with no dependency on each other can run in parallel (GitHub's
+    `needs`) without changing the format.
+- **Conditions:** `if:` on any step, against parameters and earlier outputs. A skipped
+  step's outputs are empty, and a later step can test `steps.x.skipped`.
+- **Loops:** `for_each:` runs the step once per item (`item`, `index`). Its outputs
+  are the list of each run's outputs. Max-parallel and stop-on-first-failure are
+  settings.
+- **Errors:**
+  - A failure stops the run unless the step has `continue_on_error`.
+  - `retry: { times, delay }` and `timeout` apply per step.
+  - Later: an `on_failure` step, for clean-up or a notification.
+- **Groups:**
+  - A `steps:` block can nest under one `if` or `for_each`, so a loop can run several
+    steps per item.
+  - This is the one place the list becomes a tree. It is still drawn as an indented
+    list, not a graph.
+- **Expressions:** one language for templates and conditions, `{{ … }}` with filters.
+  Recommendation: **Jinja2 in its sandboxed environment**.
+  - It is Python-native and well known (Ansible uses it).
+  - Conditions and data selection fit in it.
+  - Expressions are evaluated server-side with time and size limits, and can't reach
+    secrets: only parameters and outputs.
+  - Credentials are passed by reference (`credential` inputs), never interpolated
+    into a string.
+
+  Alternative: CEL, which is safer by design but unfamiliar. See open questions.
+- **Outputs and artifacts:** each step's outputs are stored with the run, capped in
+  size, with large ones kept as files. The run detail shows them with the same output
+  components panes use (§4.3).
 
 ## 6. Secrets and credentials: research and recommendation
 
@@ -422,6 +587,52 @@ the database instead of a repo:
   - Its tools are generated from the registry, so a new plugin is drivable by the
     agent the moment it is installed.
 
+### 8.1 Python dependencies for plugins and builder steps
+
+Handlers are Python only (decision D2). **Yes, a pane's or workflow step's author can
+choose their own dependencies**, with these rules:
+
+- **Declared, pinned, locked.**
+  - A plugin ships a `requirements.txt` (or a `pyproject.toml`), and the platform
+    turns it into a **lockfile** with exact versions and hashes at install time.
+  - A builder step has a "Dependencies" box that does the same when the step is
+    saved.
+  - The lock is what runs, so the same version of a step always runs with the same
+    packages. Windmill does the same per script.
+- **One isolated environment per (plugin version, lockfile).**
+  - Each plugin version gets its own virtualenv. Two plugins can need conflicting
+    versions of a library, and neither can break the platform's own (FastAPI,
+    SQLAlchemy, boto3…).
+  - The runner builds the venv with **uv** (seconds, not minutes) and caches it by
+    lockfile hash, so identical locks share one venv.
+  - A handler runs as a subprocess of that venv's interpreter. This is also what
+    keeps plugin code out of the backend's process (§7.4, §8).
+- **Installed only at install time, never at run time.**
+  - Resolving and downloading happen when an admin installs or upgrades a plugin, or
+    saves a builder step. The admin approves the dependency list alongside the
+    plugin's permissions.
+  - A run never reaches PyPI. That keeps runs fast and repeatable, and keeps the
+    runner's network egress to the hosts the plugin declared.
+- **Safer installs.**
+  - Wheels only by default: a source distribution runs arbitrary build code at
+    install time.
+  - Hash-checked downloads (`--require-hashes`).
+  - Optionally a private index or mirror, for air-gapped or vetted installs.
+- **The platform provides a small SDK** (`platform_sdk`, our own package) in every
+  venv:
+  - typed access to inputs;
+  - resolved connections and credentials, decrypted only inside the run;
+  - log and progress calls, and helpers to return output components.
+
+  It is versioned, and a plugin declares which SDK range it supports.
+- **Python version:** one, the platform's (3.12 today). A plugin declares the range it
+  supports, and an install that doesn't fit is refused with a reason.
+- **Later:** per-plugin container images, for plugins that need system libraries.
+  Heavier, but the same isolation idea. Not needed to start.
+
+Built-in Actions keep running in the backend process with its own dependencies. Only
+plugin and builder code goes through the runner's venvs.
+
 ## 9. Roadmap (proposed order)
 
 Each phase ships something usable on its own. Order chosen so each phase builds the
@@ -438,13 +649,21 @@ foundation the next one needs.
   connections, and migration of today's environments with ids kept. The AWS routers
   resolve their client from a connection instead of `Environment` + `role_name`.
   *Exit:* everything works exactly as today, through the new model.
-- [ ] **Phase 3: Actions and the pane manifest.**
-  - The manifest format; `KINDS` generated from it.
-  - The generic ManifestPane renderer: input cards, dynamic options, output renderers.
-  - Agent tools generated from manifests.
-  - One existing pane ported as proof (S3 is a good fit), and one new non-AWS pane
-    built only from a manifest (e.g. a generic HTTP/JSON API pane).
-  - Per-type permissions replacing the boolean flags.
+- [ ] **Phase 3: Actions, manifests and output components.** The largest phase,
+  because every pane is ported (D5). In three steps, each shippable:
+  - **3a, manifests for the agent:**
+    - The manifest format, and a manifest for every existing pane.
+    - `KINDS` and the agent's tools generated from the manifests.
+    - No visible change.
+  - **3b, the generic renderer and components:**
+    - Input cards and dynamic options.
+    - The output components and output actions (§4.3), extracted from today's panes.
+    - Panes ported in the order of §4.4, each passing its own browser suite
+      unchanged. MQTT moves its connection server-side.
+  - **3c, permissions and a first new pane:**
+    - Per-type permissions replace the boolean flags.
+    - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
+      pane), to prove the model on something that isn't a port.
 - [ ] **Phase 4: Workflows.**
   - Definitions with parameters and steps, and recorded runs, run on the in-process
     runner.
@@ -455,7 +674,9 @@ foundation the next one needs.
 - [ ] **Phase 5: The builder.** Declarative HTTP steps, composed steps, and the pane
   builder with live preview.
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
-  egress limits, short-lived credentials per job.
+  egress limits, and short-lived credentials per job. One venv per plugin version,
+  built with uv from a locked `requirements.txt` at install time (§8.1). The
+  `platform_sdk` package.
 - [ ] **Phase 7: Plugins and the marketplace.** `plugin.yaml`, install from git (tag,
   SHA and checksum pinned; private repos through credentials), a registry repo
   format, the Marketplace page, upgrade and rollback, permission review on install.
@@ -465,32 +686,44 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-1. **Environment model:** agree with "an environment is a group of connections"
-   (§3.1)? Or should an environment stay provider-specific?
-2. **Handler language for plugins:** Python only (matches the backend), or any
-   language through containers? Python-first is much simpler.
-3. **Frontend extensibility:** is a fixed set of renderers plus sandboxed iframes for
-   anything custom (§4.3, §7.4) enough? Or do plugins need real React components
-   (more power, much harder to make safe; Backstage does it by rebuilding the app)?
-4. **Workflow shape:** start linear (steps in order, with conditions) and add the
-   graph later? Or graph from day one, as n8n has it?
-5. **Where runs execute at first:** in the backend process (simplest; fine for
-   built-ins and declarative steps) until the runner exists?
-6. **Registry:** one public registry repo owned by this project, plus private ones per
+Settled questions move to the Decision log (§11).
+
+1. **Where runs execute at first:** in the backend process (simplest; fine for
+   built-ins and declarative steps) until the runner exists in Phase 6?
+2. **Registry:** one public registry repo owned by this project, plus private ones per
    organisation? Who reviews PRs to the public one?
-7. **Master key:** a Kubernetes Secret to start (Helm value), with KMS later?
-8. **Global credentials:** may non-admin groups use them? Only by explicit grant?
-9. **Naming:** "connection" vs "resource" vs "integration"; "Action" vs "step" vs
-   "operation"; "Builder" vs "Studio". This vocabulary will be in the UI and in plugin
-   manifests, so it is worth settling early.
-10. **Existing panes:** port all of them to manifests (Phase 3+), or keep the
-    hand-written ones indefinitely and use manifests only for new panes?
+3. **Master key:** a Kubernetes Secret to start (Helm value), with KMS later?
+4. **Global credentials:** may non-admin groups use them? Only by explicit grant?
+5. **Naming:** "connection" vs "resource" vs "integration"; "Action" vs "step" vs
+   "operation"; "Builder" vs "Studio"; "effect" for client-side output actions. This
+   vocabulary will be in the UI and in plugin manifests, so it is worth settling
+   early.
+6. **Expression language for workflows** (§5.1): Jinja2, sandboxed (familiar, as
+   in Ansible), or CEL (safer by design, less familiar)?
+7. **MQTT on the server** (§4.4): the live connection moves from the browser to the
+   backend or runner, making it usable by the agent and workflows. Acceptable? It
+   costs one server-side subscription per open MQTT pane.
+8. **Where files live:** exports, workflow artifacts and large outputs need storage.
+   Postgres (simple, size-capped) or an object store the platform owns (an S3 bucket
+   or MinIO in the Helm chart)?
+9. **Effects from plugin iframes** (§4.3): which effects can a sandboxed plugin
+   component ask for without the user confirming? `copy` and `toast` probably can;
+   `open_link` and `download` perhaps should ask.
+10. **Session state for ported panes** (§4.4): keep each pane's current state keys
+    forever (no migration), or move all panes to one shape (`<pane>.in.<key>` /
+    `<pane>.out.<key>`) with a one-time migration on load?
+11. **Run history retention:** how long are workflow runs, logs and artifacts kept,
+    and per workflow or globally?
 
 ## 11. Decision log
 
-| Date | Decision | Why |
-|---|---|---|
-| _none yet_ | | |
+| # | Date | Decision | Why |
+|---|---|---|---|
+| D1 | 2026-10-04 | **An environment is a named group of connections** (§3.1). It stays the unit of group access; today's environments become one AWS connection each, keeping their ids. | "Do this in Prod" keeps meaning one thing for any provider. |
+| D2 | 2026-10-04 | **Handlers are Python only.** Each plugin or builder step can bring its own dependencies, locked and installed into an isolated venv per plugin version (§8.1). | Matches the backend and keeps one runtime to secure. Per-plugin venvs keep dependency conflicts away from the platform and from other plugins. |
+| D3 | 2026-10-04 | **Output components are rich and configurable in the builder**, including output actions (copy, export, open link, attach to the agent, drill-down…). Each is an optional server Action plus a client effect from a fixed vocabulary (§4.3). | Today's panes already do this by hand; built panes must be able to do the same. A fixed effect set keeps browser-side code ours. |
+| D4 | 2026-10-04 | **Workflows are a list of steps** with dependencies (by reference), conditions (`if`), loops (`for_each`) and nested groups (§5.1). Not a graph to start. | Easy to author and read; covers dependencies, conditions and loops. Parallelism can come later without a format change. |
+| D5 | 2026-10-04 | **All panes behave the same:** every pane, built-in included, is a manifest drawn by one renderer with one component set. Today's panes are ported (§4.4). | Gives the builder and plugins everything today's panes can do, and lets the agent drive every pane the same way. |
 
 ## 12. Research sources
 
@@ -507,6 +740,9 @@ foundation the next one needs.
   [Grafana: add authentication for data source plugins](https://grafana.com/developers/plugin-tools/how-to-guides/data-source-plugins/add-authentication-for-data-source-plugins)
 - Airflow connections and chained secrets backends:
   [Airflow: AWS Secrets Manager backend](https://airflow.apache.org/docs/apache-airflow-providers-amazon/9.22.0/secrets-backends/aws-secrets-manager.html)
+- Windmill per-script Python dependencies (imports parsed, a lockfile per script,
+  cached by workers):
+  [Windmill: dependencies in Python](https://www.windmill.dev/docs/advanced/dependencies_in_python)
 - Backstage plugin architecture (frontend/backend plugins, extension points):
   [Backstage: architecture overview](https://backstage.io/docs/overview/architecture-overview),
   [Backstage: extension points](https://backstage.io/docs/backend-system/architecture/extension-points)
