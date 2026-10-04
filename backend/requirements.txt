@@ -9,3 +9,5 @@ httpx==0.27.2
 websockets==17.1
 bcrypt==4.2.0
 mcp==1.30.0
+cryptography==50.0.2
+cel-expr-python==0.1.3

@@ -272,6 +272,52 @@ wrong for rows that already exist, do a one-shot backfill in `main.py` keyed on
 that return value (see `user_groups.opensearch_enabled`), never an unconditional
 UPDATE on every start.
 
+**Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
+rest, never returned by any API -- to admins included: a secret field is
+reported only in `secret_fields_set`, and replacing it is the only way to
+change it (no reveal, D25).
+- **Envelope encryption** (`crypto.py`). Each credential's secret fields are
+  one AES-GCM ciphertext under a data key of its own; the data key is
+  wrapped by a master key from `PLATFORM_MASTER_KEYS` (`id:base64,…`, a
+  keyring) / `PLATFORM_MASTER_KEY_ID` (the one new writes use), read on
+  every call. The ciphertext's associated data is
+  `credential:{id}:{type_id}:{type_version}`, so bytes copied onto another
+  row fail to decrypt instead of handing out the wrong secret. Rotation
+  (`python -m app.keys rotate`) re-wraps data keys only, in committed
+  batches, resumable; `check` proves every credential still decrypts. **No
+  keyring means credentials are off** (503 with a readable reason, the rest
+  of the app unaffected); a malformed keyring, a wrong key under a known id,
+  or a missing id is reported as exactly that, never as "no credentials".
+- **Types are data** (`credential_types.py`, table `credential_types`): a
+  list of fields (kind, secret, required, default, help). Admins define
+  their own -- including from a pasted JSON example (`infer`, which
+  flattens nesting and writes an output template that rebuilds the pasted
+  shape). The built-ins are seeded rows kept in step with `BUILTINS` by
+  `ensure_builtins()` (startup, and conftest), locked, plus the only checks
+  that need code (`CHECKS`: JSON, SSH key, certificate, AWS STS). A type's
+  `output_template`, `inject` and `http_test` are **CEL** (`cel-expr-python`,
+  D8), never Python, so an admin-written template is as safe to evaluate as
+  ours; `http_test` goes through `tools_http_client`'s SSRF guard. A secret
+  field can never be made public again; removing a field that holds values
+  needs `confirm_remove`; a type in use can't be deleted.
+- **`credential_store.resolve()` is the only way a consumer gets a secret**:
+  it checks the actor's group may use it (its own group's, or a global one
+  granted to it -- D15), audits the use, and registers the decrypted values
+  with `masking.py`, which masks them in every log record for the rest of
+  the request (a log-record factory, so handlers added later are covered)
+  and in any text passed through `mask()` (a test's message, an echoed
+  response). It refreshes the type row after its commit -- returned expired,
+  a caller with a closed session couldn't read it.
+- **Admins only manage credentials and types** (D24); anyone else sees the
+  names and types of what their group can use, nothing more
+  (`CredentialSummary`). Group credentials are never granted -- they already
+  belong to their group.
+- **`audit_events`** (`audit.py`) is general: credentials are its first
+  writer. The caller commits, so an audit record and its change land in one
+  transaction. `detail` holds which fields changed, never values.
+- `tests/test_credentials.py` wraps the admin client to keep every response
+  body and asserts the secret appears in none, across a whole lifecycle.
+
 **All AWS calls assume a role** resolved from the caller's group
 (`resolve.resolve_role_name`), through `aws_client.py`. Nothing reads ambient
 credentials per service.

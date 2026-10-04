@@ -16,7 +16,7 @@ os.environ.setdefault("COOKIE_SECURE", "false")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, models
+from app import bootstrap, credential_types, models
 from app.db import Base, SessionLocal, engine
 from app.main import app
 
@@ -45,6 +45,7 @@ def _clean_database():
         admin_group = db.query(models.UserGroup).filter(models.UserGroup.is_admin.is_(True)).first()
         admin_group.role_name = TEST_ROLE_NAME
         db.commit()
+        credential_types.ensure_builtins(db)
     finally:
         db.close()
 

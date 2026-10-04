@@ -8,9 +8,11 @@ _Last updated: 2026-09-29, grounding the platform agent's turns (after #96)._
 
 `PLATFORM_PLAN.md` (started 2026-10-04) organises the next stage: workflows, external
 plugins and a marketplace, an internal builder, typed secrets, and environments that
-mean something for any provider. It was agreed on 2026-10-04 (decisions D1–D22,
-requirements R1–R4 in its §11). Nothing is built from it yet; the next step is to
-detail Phase 1 (credentials) before building it.
+mean something for any provider. It was agreed on 2026-10-04 (decisions D1–D28,
+requirements R1–R6 in its §11). Phase 1 (credentials) is detailed in its §13. Its
+first PR -- the store, user-definable types, API, audit log and key rotation -- is
+built (backend 249 tests, 20 new). Next: the Settings UI, deployment (Helm value,
+docker-compose key, DEPLOYMENT.md), and the HTTP client's Auth.
 
 ## Where things stand
 

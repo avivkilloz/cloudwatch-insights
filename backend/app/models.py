@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Text, DateTime, UniqueConstraint
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, LargeBinary, String, Text, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -303,3 +303,112 @@ class AgentToken(Base):
     timezone = Column(String, nullable=True)
     viewing_session_id = Column(String, nullable=True)
     session_scope_id = Column(Integer, nullable=True)
+
+
+class CredentialType(Base):
+    """The shape of a kind of secret: a list of fields, each public or secret
+    (PLATFORM_PLAN.md §13.3). Data, not code, so an admin can define one for
+    their own pane without a release; the built-ins are seeded rows of the
+    same kind (`builtin`), kept in step with credential_types.BUILTINS and
+    not editable. A plugin will ship its types the same way."""
+
+    __tablename__ = "credential_types"
+
+    id = Column(String(64), primary_key=True)
+    label = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    # Bumped on every change to the fields, so a credential can tell which
+    # shape it was saved against (and its ciphertext is bound to it).
+    version = Column(Integer, nullable=False, default=1)
+    fields = Column(JSON, nullable=False)
+    # A CEL map expression over the fields: the JSON a consumer receives,
+    # when the flat object of fields isn't the shape it wants.
+    output_template = Column(Text, nullable=True)
+    # How a credential of this type authenticates an HTTP request, and an
+    # optional request that checks it works -- both declarative (CEL inside).
+    inject = Column(JSON, nullable=True)
+    http_test = Column(JSON, nullable=True)
+    builtin = Column(Boolean, nullable=False, server_default="false")
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class Credential(Base):
+    """One stored secret of a CredentialType.
+
+    Its secret fields are one AES-GCM ciphertext under a data key of its own,
+    and that key is wrapped by the master key (`kek_id` says which one, so a
+    rotation re-wraps the key without touching the ciphertext). The
+    ciphertext is bound to this row -- its id, type and type version are the
+    associated data -- so moving it to another row fails to decrypt instead
+    of handing one secret to the wrong consumer. Nothing here is ever
+    returned in clear: `secret_fields_set` is all anyone learns about the
+    secret fields (Grafana's secureJsonFields). See crypto.py and
+    credential_store.py."""
+
+    __tablename__ = "credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type_id = Column(String(64), ForeignKey("credential_types.id", ondelete="RESTRICT"), nullable=False, index=True)
+    type_version = Column(Integer, nullable=False)
+    description = Column(Text, nullable=True)
+    # "global" (usable by a group only through a grant) or "group".
+    scope = Column(String(16), nullable=False)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=True, index=True)
+    public_fields = Column(JSON, nullable=False, default=dict)
+    secret_ciphertext = Column(LargeBinary, nullable=True)
+    secret_nonce = Column(LargeBinary, nullable=True)
+    wrapped_dek = Column(LargeBinary, nullable=True)
+    kek_id = Column(String(64), nullable=True)
+    secret_fields_set = Column(JSON, nullable=False, default=list)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_tested_at = Column(DateTime, nullable=True)
+    last_test_ok = Column(Boolean, nullable=True)
+    last_test_message = Column(Text, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+
+    type = relationship("CredentialType")
+    group = relationship("UserGroup")
+    grants = relationship("CredentialGrant", cascade="all, delete-orphan", back_populates="credential")
+
+
+class CredentialGrant(Base):
+    """A global credential made usable by one group. Global credentials are
+    usable by nobody but admins until granted (PLATFORM_PLAN.md D15)."""
+
+    __tablename__ = "credential_grants"
+
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="CASCADE"), primary_key=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), primary_key=True)
+    granted_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    granted_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    credential = relationship("Credential", back_populates="grants")
+    group = relationship("UserGroup")
+
+
+class AuditEvent(Base):
+    """Who did what, to which object, when. General on purpose: credentials
+    are its first writer, and workflows, plugins and connections will write
+    to it too. `detail` never holds a secret -- which fields changed, never
+    their values. The object and group are plain ids, not foreign keys, so a
+    record outlives what it describes."""
+
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_name = Column(String, nullable=True)
+    actor_kind = Column(String(16), nullable=False)
+    action = Column(String(64), nullable=False)
+    object_type = Column(String(32), nullable=False)
+    object_id = Column(String(64), nullable=False)
+    group_id = Column(Integer, nullable=True)
+    detail = Column(JSON, nullable=False, default=dict)
