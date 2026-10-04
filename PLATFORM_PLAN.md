@@ -11,7 +11,7 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D22 and requirements R1–R4 (§11). Phase 1 is detailed in §13,
+_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D22 and requirements R1–R6 (§11). Phase 1 is detailed in §13,
 for review._
 
 ---
