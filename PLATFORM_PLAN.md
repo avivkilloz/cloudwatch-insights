@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **proposal, partly decided.** D1–D15 and requirements
-R1–R4 are settled (§11); the rest is a proposal until it reaches the Decision log._
+_Started 2026-10-04. Status: **proposal, partly decided.** **Agreed 2026-10-04**: D1–D22 and requirements R1–R4 (§11). No open questions. Next:
+detail Phase 1 before building it._
 
 ---
 
@@ -1046,8 +1046,7 @@ storage:
 Each phase ships something usable on its own. Order chosen so each phase builds the
 foundation the next one needs.
 
-- [ ] **Phase 0: this plan.** Discuss, settle the open questions, and record
-  decisions.
+- [x] **Phase 0: this plan.** Discussed and agreed 2026-10-04 (D1–D22, R1–R4).
 - [ ] **Phase 1: Credentials and config.** Credential types (the generic built-ins),
   encrypted store, write-only API, scopes (global and group), a Settings → Credentials
   UI, a test-on-save hook, and an audit log. *Why first:* connections, plugins from
@@ -1101,48 +1100,8 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-Settled questions move to the Decision log (§11). **(recommended)** marks a
-recommendation in this file waiting for a yes.
-
-1. **Naming:** the words that will appear in the UI and in plugin files. Proposed:
-
-   | Thing | Proposed name | What others call it |
-   |---|---|---|
-   | A configured way into one system (an AWS account + region + role; a database; a broker) | **Connection** | n8n "credential", Windmill "resource", Grafana "data source", Airflow "connection" |
-   | The unit a pane or step runs: inputs → code → outputs | **Action** | n8n "node operation", Windmill "script", Backstage "action" |
-   | A secret, typed | **Credential** | Jenkins "credential", n8n "credential" |
-   | The page for building panes and steps | **Builder** | "Studio", "Designer" |
-   | What a result button does in the browser (copy, download…) | **Effect** | (no common name) |
-
-   Keep these, or rename any?
-2. **(recommended) Effects a sandboxed plugin may ask for** (§4.5 tier 3). Plugin
-   code in its sealed frame can ask the platform to do things in the browser for it.
-   Some are harmless; some could be abused: open a phishing link, download a
-   malicious file, or put a harmful command on the clipboard for you to paste.
-   Recommended rules:
-   - `toast`: always allowed.
-   - `copy`: only in response to a click inside the plugin's frame.
-   - `open_link`, `download`: always confirmed, showing the full address or file
-     name.
-   - `attach_to_agent`, `open_pane`, `set_input`: allowed (they stay inside the
-     platform and act as the user's own clicks would).
-3. **(recommended) Run history retention:**
-   - **Settings:** a global default that each workflow may lower or raise, up to an
-     admin-set maximum.
-   - **Default:** keep the last 100 runs or 30 days, whichever keeps more; artifacts
-     14 days.
-   - **Exceptions:** a run can be **pinned** (kept forever). A short audit line
-     (who ran what, when, with which parameters, and the outcome) is kept for a year
-     after the logs and artifacts are gone.
-4. **(recommended) Live panes in three tiers** (§4.5): live expressions first, live
-   server Actions second, sandboxed browser code (Pyodide or JS) last. JWT, Base64
-   and Diff move to tier 1.
-5. **(recommended) Session variables** (§4.6, R2): session-level inputs that panes
-   can bind to, shown in view mode.
-6. **(recommended) Outputs move out of the synced session state** into their own
-   per-pane store (§4.6, R4). Needed before auto-refresh is safe.
-7. **Auto-refresh floor:** what default minimum interval? Proposed: 10 s generally,
-   1 minute for panes that cost per run (CloudWatch Logs Insights).
+None open as of 2026-10-04: every question raised so far is settled in §11. New ones
+go here as they come up, typically while a phase is detailed before it is built.
 
 ## 11. Decision log
 
@@ -1164,6 +1123,13 @@ recommendation in this file waiting for a yes.
 | D14 | 2026-10-04 | **The secrets master key starts as a Kubernetes Secret** (a Helm value), with KMS as a later backend. | No cloud dependency to start; envelope encryption makes a later move to KMS a re-wrap, not a re-encrypt. |
 | D15 | 2026-10-04 | **Global credentials are usable by non-admin groups only by explicit grant.** | Nothing is shared by accident; matches "access control is per group". |
 | R1–R4 | 2026-10-04 | **Requirements:** every pane follows the agent and other writers live (R1); a session or pane can hide its inputs and show only outputs (R2); a session can be a user's home page (R3); panes can auto-refresh while the session is open (R4). See §4.6. | Asked for, so that a session can work like a live Grafana dashboard. |
+| D16 | 2026-10-04 | **Vocabulary:** Connection, Action, Credential, Builder, Effect (as proposed in the naming table that was §10). | Settled early because it appears in the UI and in every plugin manifest. |
+| D17 | 2026-10-04 | **Effects a sandboxed plugin may request:** `toast` always; `copy` only in response to a click inside its frame; `open_link` and `download` always confirmed, showing the full address or file name; `attach_to_agent`, `open_pane` and `set_input` allowed. | Blocks phishing links, malicious downloads and clipboard tricks without getting in the way of normal use. |
+| D18 | 2026-10-04 | **Run retention:** a global default, adjustable per workflow up to an admin maximum. Default: last 100 runs or 30 days, whichever keeps more; artifacts 14 days; pinned runs kept forever; a one-line audit record kept for a year. | Enough history to compare and re-run, without unbounded storage. |
+| D19 | 2026-10-04 | **Live panes come in three tiers** (§4.5): live CEL expressions over inputs (and bound components), then live server Actions, then sandboxed browser code (Pyodide or JS). JWT, Base64 and Diff move to tier 1. | Instant, safe, native-looking and agent-usable for the common case; real code only where it's needed. |
+| D20 | 2026-10-04 | **Sessions have variables**: session-level inputs that panes bind to, shown in view mode (§4.6). | What makes view mode a real dashboard: change the environment or time range once for every pane. |
+| D21 | 2026-10-04 | **Outputs move out of the synced session state** into a per-pane store (small in Postgres, large as blobs), with the session keeping a pointer and version (§4.6). | Required for auto-refresh; also removes the 4 MiB browser cap and the agent's result trimming. |
+| D22 | 2026-10-04 | **Auto-refresh floor:** 10 s by default, 1 minute for pane types that declare `cost: per_run`; admins can raise either. | Protects the APIs and the bill (CloudWatch Logs Insights charges per GB scanned). |
 
 ## 12. Research sources
 

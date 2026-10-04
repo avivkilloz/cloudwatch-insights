@@ -8,9 +8,9 @@ _Last updated: 2026-09-29, grounding the platform agent's turns (after #96)._
 
 `PLATFORM_PLAN.md` (started 2026-10-04) organises the next stage: workflows, external
 plugins and a marketplace, an internal builder, typed secrets, and environments that
-mean something for any provider. It is a proposal under discussion. Its open
-questions (§10) come first; nothing is built from it until decisions land in its
-Decision log (§11).
+mean something for any provider. It was agreed on 2026-10-04 (decisions D1–D22,
+requirements R1–R4 in its §11). Nothing is built from it yet; the next step is to
+detail Phase 1 (credentials) before building it.
 
 ## Where things stand
 
