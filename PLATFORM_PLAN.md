@@ -881,7 +881,8 @@ handlers:
 - **Direct install:** an admin installs from a git URL at a tag. Private repos use a
   credential (§6, a token or SSH key with scope "system"), so the platform's own
   secrets system serves itself.
-- **Marketplace page:** reads one or more **registry repos**. Each registry is a repo
+- **Marketplace page:** reads one or more **registry repos**. The default one is
+  `avivkilloz/cloud-insights-public-registry` (D13). Each registry is a repo
   of small manifests (name, description, repo URL, versions, tags, commit SHAs).
   - External developers add a plugin by opening a PR against the registry, the model
     Homebrew taps and the Terraform registry follow. Review happens there.
@@ -1119,7 +1120,7 @@ go here as they come up, typically while a phase is detailed before it is built.
 | D10 | 2026-10-04 | **Plugins and the builder can ship browser code** (JS/TS) for Actions and visual components, run in a sandboxed iframe on a separate origin behind a postMessage SDK, never seeing a secret; an optional Python twin makes it usable by the agent and workflows (§4.5). Built-in browser code is ours and runs unsandboxed. | Some panes only make sense in the browser (live typing, the user's own machine); the sandbox stops plugin code acting as the logged-in user. |
 | D11 | 2026-10-04 | **Visualizations are our own declarative spec over data frames, drawn with Apache ECharts**, loaded on demand (§4.3). | One data shape for tables, charts and KPIs; a spec short enough for the builder and the agent; the library can change without touching plugins. |
 | D12 | 2026-10-04 | **Runs execute in the backend process until the isolated runner exists** (Phase 6). | Simplest; fine for built-ins and declarative steps, which are all there is before Phase 6. |
-| D13 | 2026-10-04 | **Registries:** a default public registry is configured out of the box; admins can remove it and add any number of public or private registries. The default registry is a repo the project owner creates and, for now, reviews. | Easy start for everyone, full control for organisations that want only their own. |
+| D13 | 2026-10-04 | **Registries:** a default public registry is configured out of the box; admins can remove it and add any number of public or private registries. The default registry is [`avivkilloz/cloud-insights-public-registry`](https://github.com/avivkilloz/cloud-insights-public-registry) (created 2026-10-04; its owner reviews PRs for now). Its format is defined in Phase 7. | Easy start for everyone, full control for organisations that want only their own. |
 | D14 | 2026-10-04 | **The secrets master key starts as a Kubernetes Secret** (a Helm value), with KMS as a later backend. | No cloud dependency to start; envelope encryption makes a later move to KMS a re-wrap, not a re-encrypt. |
 | D15 | 2026-10-04 | **Global credentials are usable by non-admin groups only by explicit grant.** | Nothing is shared by accident; matches "access control is per group". |
 | R1–R4 | 2026-10-04 | **Requirements:** every pane follows the agent and other writers live (R1); a session or pane can hide its inputs and show only outputs (R2); a session can be a user's home page (R3); panes can auto-refresh while the session is open (R4). See §4.6. | Asked for, so that a session can work like a live Grafana dashboard. |
