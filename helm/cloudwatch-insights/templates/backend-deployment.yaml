@@ -96,6 +96,17 @@ spec:
               value: {{ .Values.backend.auth.adminPassword | quote }}
               {{- end }}
             {{- end }}
+            {{- if .Values.backend.masterKey.existingSecret }}
+            - name: PLATFORM_MASTER_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.masterKey.existingSecret }}
+                  key: {{ .Values.backend.masterKey.existingSecretKey }}
+            {{- if .Values.backend.masterKey.keyId }}
+            - name: PLATFORM_MASTER_KEY_ID
+              value: {{ .Values.backend.masterKey.keyId | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

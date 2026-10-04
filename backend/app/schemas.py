@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -828,6 +828,9 @@ class HttpToolRequest(BaseModel):
     url: str
     headers: list[ToolHeader] = []
     body: Optional[str] = None
+    # A credential to authenticate with, by id: the backend resolves it and
+    # applies its type's `inject`, so its secret never reaches the browser.
+    credential_id: Optional[int] = None
 
 
 class HttpToolResponse(BaseModel):
@@ -859,3 +862,130 @@ class MqttPresignedUrlResponse(BaseModel):
     # fastest way to tell a genuine AWS response from an intercepting
     # proxy/firewall's own.
     diagnostic_headers: list[str] = []
+
+
+# ------------------------------------------------------------------- credentials
+# No model here ever carries a secret value out: secret fields are reported
+# only as `secret_fields_set` (PLATFORM_PLAN.md §13.5, D25).
+
+
+class CredentialTypeIn(BaseModel):
+    id: str = Field(max_length=64)
+    label: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    fields: list[dict]
+    output_template: Optional[str] = Field(default=None, max_length=10_000)
+    inject: Optional[dict] = None
+    http_test: Optional[dict] = None
+
+
+class CredentialTypeUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    fields: Optional[list[dict]] = None
+    output_template: Optional[str] = Field(default=None, max_length=10_000)
+    inject: Optional[dict] = None
+    http_test: Optional[dict] = None
+    # Removing a field that holds values in existing credentials discards
+    # them; the first attempt is refused with the list, this confirms it.
+    confirm_remove: bool = False
+
+
+class CredentialTypeOut(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = None
+    version: int
+    fields: list[dict]
+    output_template: Optional[str] = None
+    inject: Optional[dict] = None
+    http_test: Optional[dict] = None
+    builtin: bool
+    in_use: int = 0
+    has_test: bool = False
+
+
+class CredentialTypeInfer(BaseModel):
+    example: Any
+
+
+class CredentialTypePreview(BaseModel):
+    fields: list[dict]
+    output_template: Optional[str] = None
+    values: dict = Field(default_factory=dict)
+
+
+class CredentialIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    type_id: str = Field(max_length=64)
+    scope: Literal["global", "group"]
+    group_id: Optional[int] = None
+    description: Optional[str] = Field(default=None, max_length=1000)
+    values: dict = Field(default_factory=dict)
+
+
+class CredentialUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    values: Optional[dict] = None
+    clear: Optional[list[str]] = None
+
+
+class CredentialOut(BaseModel):
+    id: int
+    name: str
+    type_id: str
+    type_label: str
+    type_version: int
+    description: Optional[str] = None
+    scope: str
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    public_fields: dict
+    secret_fields_set: list[str]
+    grants: list[int]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_tested_at: Optional[datetime] = None
+    last_test_ok: Optional[bool] = None
+    last_test_message: Optional[str] = None
+    last_used_at: Optional[datetime] = None
+    authenticates: bool = False
+
+
+class CredentialSummary(BaseModel):
+    """What a non-admin sees of a credential their group can use: enough to
+    pick it, nothing about its contents."""
+
+    id: int
+    name: str
+    type_id: str
+    type_label: str
+    scope: str
+    # Whether its type says how to authenticate an HTTP request (`inject`),
+    # i.e. whether the HTTP client can use it.
+    authenticates: bool = False
+
+
+class CredentialTestOut(BaseModel):
+    ok: Optional[bool] = None
+    message: str
+
+
+class CredentialsStatus(BaseModel):
+    enabled: bool
+    reason: Optional[str] = None
+    key_id: Optional[str] = None
+
+
+class AuditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    at: datetime
+    actor_name: Optional[str] = None
+    actor_kind: str
+    action: str
+    object_type: str
+    object_id: str
+    group_id: Optional[int] = None
+    detail: dict

@@ -378,6 +378,60 @@ branch — pair this with pinning image tags to the CI-built git-sha tags
 (or an image-updater/CD pipeline that bumps the tag in git) rather than
 riding `latest`, so a deploy is always traceable back to a commit.
 
+## Credentials: the master key
+
+Stored credentials (Settings → **Credentials**) are encrypted with a master key
+that lives outside the database, in a Kubernetes Secret. Without one, the
+platform works as before and the Credentials screen says it's off.
+
+**Create it once, and back it up.** Losing the key loses every stored
+credential: nothing can decrypt them without it, by design.
+
+```bash
+kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-master-key \
+  --from-literal=PLATFORM_MASTER_KEYS="k1:$(openssl rand -base64 32)"
+# Keep a copy somewhere safe (a password manager, your secrets vault):
+kubectl -n cloudwatch-insights get secret cloudwatch-insights-master-key \
+  -o jsonpath='{.data.PLATFORM_MASTER_KEYS}' | base64 -d
+```
+
+Then point the chart at it:
+
+```bash
+--set backend.masterKey.existingSecret=cloudwatch-insights-master-key \
+--set backend.masterKey.keyId=k1
+```
+
+**Don't let the chart, or anything rendered by Argo CD, generate it.** Argo CD
+renders the chart without access to the cluster, so a generated value (e.g.
+through `lookup`) would come out different on every sync, and every stored
+credential would become unreadable. Create the Secret yourself, as above, or
+through whatever already manages your secrets (External Secrets, Sealed
+Secrets, SOPS).
+
+**Rotating it.** `PLATFORM_MASTER_KEYS` is a keyring of `id:key` pairs, and
+`PLATFORM_MASTER_KEY_ID` (`backend.masterKey.keyId`) names the one new secrets
+are written with. To rotate:
+
+1. Add a new key to the Secret, keeping the old one:
+   `PLATFORM_MASTER_KEYS="k2:<new key>,k1:<old key>"`. Set
+   `backend.masterKey.keyId=k2`, and roll the backend.
+2. Re-wrap every credential under the new key. It's safe to run again if it's
+   interrupted, and it only touches each credential's small data key, not the
+   secrets themselves:
+   `kubectl exec deploy/<release>-backend -- python -m app.keys rotate`
+3. Check that every credential decrypts without the old key, then remove `k1`
+   from the Secret and roll the backend again:
+   `kubectl exec deploy/<release>-backend -- python -m app.keys check`
+
+`python -m app.keys generate` prints a new random key, if `openssl` isn't to
+hand. The startup log and the Credentials screen say plainly when the keyring
+is malformed, or doesn't hold the key a credential was written with. Neither is
+ever taken to mean "no credentials".
+
+Local development (`docker-compose.yml`) uses a fixed key that is in the
+repository: fine for trying things out, never for anything real.
+
 ## After deploying
 
 Sign in as `admin` (the password is whatever you set via `backend.auth` in

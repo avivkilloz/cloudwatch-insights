@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D22 and requirements R1–R4 (§11). No open questions. Next:
-detail Phase 1 before building it._
+_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11). Phase 1 (§13) is
+built; next is Phase 2._
 
 ---
 
@@ -676,6 +676,46 @@ generic renderer and components can do all of it.
   export, and Diff, MQTT, JWT and Base64 can't attach anything to the agent. Porting
   fixes all of this for free.
 
+### 4.8 Categories: the catalogue is organised by people, not by code
+
+Today every pane type is hard-wired as a "Service" or a "Tool"
+(`sessions/paneTypes.tsx`, `SessionGroup`), and the Add-pane menu and Home are built
+from that. Requirement R6: categories are the organiser's choice.
+
+- **Categories are data:** a name, an icon and an order. Admins create, rename,
+  reorder and delete them in **Settings → Catalogue**.
+- **A pane type arrives with a suggested category:**
+  - from its manifest (`category: "Observability"`);
+  - from its plugin's author;
+  - from whoever made it in the builder.
+
+  A suggested category that doesn't exist yet is created, marked as coming from that
+  plugin, so admins can merge or rename it.
+- **Admins can move any pane type to any category**, by drag and drop in the
+  catalogue. The placement is stored as an override, so **a plugin upgrade never
+  undoes it**. The manifest's suggestion only applies until someone has placed the
+  pane.
+- **People get a personal layer:** **favourites** pinned at the top of the Add-pane
+  menu, and hiding pane types they never use. Personal categories can come later if
+  they're wanted.
+- **One catalogue for everything you pick from a list:** pane types, workflow steps
+  (Actions) in the builder and the workflow editor, and workflows themselves. Each
+  shows its category and can be searched by name, category and tags.
+- **Categories are only for finding things; access is a separate setting.** Today the
+  "Tools" category doubles as a permission (`tools_enabled` lets a group use every
+  tool). Moving a pane between categories must never change who can use it. So:
+  - access moves to **per pane type** (Phase 3d's per-type permissions, rows of
+    group × pane type);
+  - categories become display-only;
+  - the migration turns `tools_enabled` into a grant of each tool pane type, so
+    nobody gains or loses anything.
+- **Not session categories.** The rail's `SessionCategory` organises a user's
+  *sessions*. This organises the *catalogue*. They are separate things with separate
+  names in the UI: "Folders" for sessions in the rail if renaming is wanted, and
+  "Categories" for the catalogue.
+- **The agent:** `get_context` lists each kind's category. The prompt still names
+  none (CLAUDE.md, "no per-service tuning").
+
 ## 5. Workflows
 
 The Jenkins "build with parameters" model, built from the same parts as panes:
@@ -1048,10 +1088,11 @@ Each phase ships something usable on its own. Order chosen so each phase builds 
 foundation the next one needs.
 
 - [x] **Phase 0: this plan.** Discussed and agreed 2026-10-04 (D1–D22, R1–R4).
-- [ ] **Phase 1: Credentials and config.** Credential types (the generic built-ins),
+- [x] **Phase 1: Credentials.** Built (one PR, D29). Credential types (the generic built-ins),
   encrypted store, write-only API, scopes (global and group), a Settings → Credentials
-  UI, a test-on-save hook, and an audit log. *Why first:* connections, plugins from
-  private repos, declarative steps and workflows all reference credentials.
+  UI, a test-on-save hook, an audit log, and the HTTP client's Auth as the first
+  consumer. **Detailed in §13.** *Why first:* connections, plugins from private repos,
+  declarative steps and workflows all reference credentials.
 - [ ] **Phase 2: Connections and generalised environments.** Connection types (`aws`
   first, built-in), connections referencing credentials, environments as groups of
   connections, and migration of today's environments with ids kept. The AWS routers
@@ -1073,8 +1114,9 @@ foundation the next one needs.
   - **3c, sessions as live dashboards:** view mode, session variables,
     auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
     throughout, and each step's browser suites check it.
-  - **3d, permissions and a first new pane:**
+  - **3d, permissions, categories and a first new pane:**
     - Per-type permissions replace the boolean flags.
+    - The catalogue with categories (§4.8, R6).
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
       pane), to prove the model on something that isn't a port.
 - [ ] **Phase 4: Workflows.**
@@ -1101,8 +1143,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-None open as of 2026-10-04: every question raised so far is settled in §11. New ones
-go here as they come up, typically while a phase is detailed before it is built.
+None open as of 2026-10-04. New ones go here as they come up.
 
 ## 11. Decision log
 
@@ -1124,6 +1165,8 @@ go here as they come up, typically while a phase is detailed before it is built.
 | D14 | 2026-10-04 | **The secrets master key starts as a Kubernetes Secret** (a Helm value), with KMS as a later backend. | No cloud dependency to start; envelope encryption makes a later move to KMS a re-wrap, not a re-encrypt. |
 | D15 | 2026-10-04 | **Global credentials are usable by non-admin groups only by explicit grant.** | Nothing is shared by accident; matches "access control is per group". |
 | R1–R4 | 2026-10-04 | **Requirements:** every pane follows the agent and other writers live (R1); a session or pane can hide its inputs and show only outputs (R2); a session can be a user's home page (R3); panes can auto-refresh while the session is open (R4). See §4.6. | Asked for, so that a session can work like a live Grafana dashboard. |
+| R5 | 2026-10-04 | **Users can create their own credential types without code**, e.g. from a JSON example, for their own panes and workflows (§13.3). | New custom panes and steps need new kinds of secret; waiting for code or a plugin would block them. |
+| R6 | 2026-10-04 | **Pane categories are organised by people:** admins arrange the catalogue, plugin and builder authors suggest a category, panes can move between categories (§4.8). | "Services" and "Tools" were a starting point, not a structure that fits every installation. |
 | D16 | 2026-10-04 | **Vocabulary:** Connection, Action, Credential, Builder, Effect (as proposed in the naming table that was §10). | Settled early because it appears in the UI and in every plugin manifest. |
 | D17 | 2026-10-04 | **Effects a sandboxed plugin may request:** `toast` always; `copy` only in response to a click inside its frame; `open_link` and `download` always confirmed, showing the full address or file name; `attach_to_agent`, `open_pane` and `set_input` allowed. | Blocks phishing links, malicious downloads and clipboard tricks without getting in the way of normal use. |
 | D18 | 2026-10-04 | **Run retention:** a global default, adjustable per workflow up to an admin maximum. Default: last 100 runs or 30 days, whichever keeps more; artifacts 14 days; pinned runs kept forever; a one-line audit record kept for a year. | Enough history to compare and re-run, without unbounded storage. |
@@ -1131,6 +1174,352 @@ go here as they come up, typically while a phase is detailed before it is built.
 | D20 | 2026-10-04 | **Sessions have variables**: session-level inputs that panes bind to, shown in view mode (§4.6). | What makes view mode a real dashboard: change the environment or time range once for every pane. |
 | D21 | 2026-10-04 | **Outputs move out of the synced session state** into a per-pane store (small in Postgres, large as blobs), with the session keeping a pointer and version (§4.6). | Required for auto-refresh; also removes the 4 MiB browser cap and the agent's result trimming. |
 | D22 | 2026-10-04 | **Auto-refresh floor:** 10 s by default, 1 minute for pane types that declare `cost: per_run`; admins can raise either. | Protects the APIs and the bill (CloudWatch Logs Insights charges per GB scanned). |
+| D23 | 2026-10-04 | **Categories as in §4.8:** an admin-arranged, display-only catalogue that manifests only suggest into (admin placement survives upgrades), with per-user favourites and hiding, shared by panes, steps and workflows; access moves to per-pane-type grants. | Organising and access are different jobs; moving a pane must never change who can use it. |
+| D24 | 2026-10-04 | **Phase 1: only admins manage credentials and credential types**; delegating a group's own credentials to its members is a later flag. | Smallest safe start. |
+| D25 | 2026-10-04 | **Secrets are never revealed**, to admins included: replace only. | Grafana's model; nothing can leak what can't be read back. |
+| D26 | 2026-10-04 | **Non-secret config values wait for their first consumer** (Phase 3 inputs or Phase 4 workflows). | Avoids a screen whose values nothing can use yet, and guessing how they'll be read. |
+| D27 | 2026-10-04 | **The HTTP client's Auth is in Phase 1** as the first real consumer of credentials (§13.8). | Immediate value, and it proves storage, scopes, resolve, masking and audit in production before Phase 2 depends on them. |
+| D28 | 2026-10-04 | **Secret files are capped at 1 MiB** until the blob store (D7, Phase 4). | Keeps encrypted values in Postgres small. |
+| D29 | 2026-10-04 | **Phase 1 ships as one PR**, not the four of §13.9, so it can be tested as a whole. | The store alone has nothing to try in the UI. |
+
+## 13. Phase 1 in detail: credentials
+
+_Drafted 2026-10-04 for review. Nothing is built until this section is agreed; its
+own open questions are in §13.10._
+
+### 13.1 Scope
+
+**In:**
+- **Credential types as data, not code** (R5): admins create their own in the UI,
+  and the built-ins are just pre-installed, locked entries of the same kind (§13.3).
+- **The encrypted store**, with envelope encryption under a master key from a
+  Kubernetes Secret (D14).
+- **Scopes and grants:** global credentials (usable by a group only by explicit
+  grant, D15) and group credentials.
+- **A write-only API.**
+- **Test-on-save** for the types that can be tested.
+- **A general audit log**, which the platform doesn't have yet. Credentials are its
+  first user; workflows, plugins and connections will use it after.
+- **Settings → Credentials.**
+- **Recommended: one early consumer** to prove the whole path in production: the
+  HTTP client's Auth option (§13.8).
+
+**Out**, each for the phase that first needs it:
+- **Connections:** Phase 2. Credentials have no AWS consumer until then, and each
+  group's IAM `role_name` keeps working exactly as today.
+- **Picking a credential as a pane input:** Phase 3.
+- **Config values:** non-secret settings, deferred to the first phase that consumes
+  them (see §13.10).
+- **Personal credentials and external secret backends:** later (§9).
+
+### 13.2 Data model
+
+Five new tables. `create_all` makes new tables, so no `ensure_columns` work is
+needed.
+
+```
+credential_types           -- built-ins are seeded rows (builtin = true, read-only); admins add their own
+  id                 text pk -- "username_password", "acme_api_key"
+  label, description
+  version            int    -- bumped on every change to fields
+  fields             jsonb  -- [{key, label, kind, secret, required, default, help, choices}]
+  output_template    text   -- optional CEL map expression: the JSON shape consumers receive (§13.3)
+  inject             jsonb  -- optional: how it authenticates an HTTP request (§13.3)
+  http_test          jsonb  -- optional declarative test: a request, success = 2xx (§13.3)
+  builtin            bool   -- true for ours: not editable, and may have a code test
+  created_by / created_at / updated_by / updated_at
+
+credentials
+  id                 pk
+  name               text, unique per scope (global, or within its group)
+  type_id            fk credential_types (ON DELETE RESTRICT: a type in use can't be deleted)
+  type_version       int    -- the type's schema version when last saved
+  description        text
+  scope              text   -- "global" | "group"
+  group_id           fk user_groups, null for global   (ON DELETE CASCADE)
+  public_fields      jsonb  -- the type's non-secret fields, e.g. username, certificate
+  secret_ciphertext  bytea  -- AES-256-GCM over a JSON object of the secret fields
+  secret_nonce       bytea  -- 12 bytes, fresh on every write
+  wrapped_dek        bytea  -- this credential's data key, encrypted by the master key
+  kek_id             text   -- which master key wrapped it (for rotation)
+  secret_fields_set  jsonb  -- ["password"]: which secret fields hold a value (Grafana's secureJsonFields)
+  created_by / created_at / updated_by / updated_at
+  last_tested_at, last_test_ok, last_test_message
+  last_used_at       -- set by resolve() (§13.4)
+
+credential_grants          -- a global credential made usable by a group (D15)
+  credential_id fk, group_id fk, granted_by, granted_at      pk (credential_id, group_id)
+
+audit_events               -- general; credentials are the first writer
+  id, at, actor_user_id (null for system), actor_kind ("user" | "agent" | "system"),
+  action ("credential.create" | ".update" | ".delete" | ".test" | ".grant" | ".revoke" | ".use"),
+  object_type, object_id, group_id, detail jsonb       -- detail never holds a secret
+```
+
+- **A data key per credential:**
+  - Each credential gets its own random 256-bit data key (DEK), wrapped by the
+    master key (KEK).
+  - Rotating the master key re-wraps every DEK (a few bytes each). The secrets
+    themselves are never re-encrypted.
+  - A database dump on its own reveals nothing.
+- **All of a credential's secret fields go in one ciphertext.** It is simpler than one
+  per field, and fields are always decrypted together anyway.
+- **Associated data binds each ciphertext to its row:**
+  `credential:{id}:{type_id}:{type_version}`. Copying one credential's ciphertext
+  into another row, or onto another type, fails to decrypt instead of silently
+  handing the wrong secret to the wrong place.
+
+### 13.3 Credential types: data anyone can define
+
+**There is one kind of credential type: a schema.** It is a list of fields, each
+public or secret. Admins create new types in Settings → Credential types, with no
+code (R5). The built-in types are the same thing, pre-installed and locked. A plugin
+will ship its types the same way (as data in its manifest).
+
+**Defining one.** A type has fields, each with a key, a label, a kind (text,
+multiline, number, bool, choice, json, file), and flags for secret, required,
+default and help. There are two ways to make one:
+
+- **Add fields one by one** in the form.
+- **Paste an example**, the shortcut for exactly your idea. Paste
+  `{"username": "", "password": "", "region": "eu-west-1"}`, and the editor proposes
+  one field per key (with `region`'s value as its default), then you tick which are
+  secret.
+
+A credential of that type is then filled in through a form drawn from those fields.
+
+**What a consumer receives.** By default, a JSON object of the fields:
+`{"username": "…", "password": "…"}`.
+
+- When something needs a different shape, the type's optional **output template**
+  builds it.
+- It is written in CEL (D8), the same language as workflow expressions, over the
+  fields. That keeps it safe to evaluate: no code can run.
+
+```
+{"auth": {"user": username, "pass": password}, "endpoint": "https://" + host + "/api"}
+```
+
+- A custom pane or workflow step asks for **"a credential of type `acme_api_key`"**,
+  and reads `cred.token` or `cred.auth.user` in its expressions (D8) or its Python
+  handler.
+
+**Optional extras a custom type can declare, still without code:**
+
+- **`inject`, for HTTP:** how this credential authenticates a request. Any HTTP-based
+  pane or step can then use any such credential, custom types included.
+
+  ```
+  inject:  header "Authorization" = "Bearer " + token
+  inject:  basic(username, password)
+  inject:  query "api_key" = key
+  ```
+
+  This is n8n's `authenticate`, made declarative.
+- **`http_test`:** a request to send on save (method, URL and headers, templated from
+  the fields, typically using `inject`). It passes on 2xx. It goes through the same
+  SSRF guard as the HTTP client.
+
+**Built-in types** (seeded, locked) cover the common shapes and keep the few checks
+that need code:
+
+| Type | Fields (secret ones in **bold**) | Check on save |
+|---|---|---|
+| `secret_text` | **value** | — |
+| `secret_json` | **value** (must parse as JSON) | parses |
+| `secret_file` | filename; **content** (upload, max 1 MiB) | — |
+| `username_password` | username; **password** | — (`inject`: basic) |
+| `api_token` | **token**; header (default `Authorization`); scheme (default `Bearer`) | — (`inject`: header) |
+| `ssh_key` | username; **private_key**; **passphrase** | the key loads with its passphrase; shows the key type and fingerprint |
+| `certificate` | certificate (PEM, public); **private_key**; **passphrase**; CA chain | parses, key matches certificate, shows subject and expiry; warns when it expires within 30 days |
+| `aws_access_keys` | access_key_id; **secret_access_key**; **session_token** | `sts:GetCallerIdentity`, shows the account and ARN |
+
+An admin who finds a built-in doesn't fit makes a custom type instead, or copies a
+built-in as the starting point for one.
+
+**Rules that keep custom types safe and stored values readable:**
+
+- **A field can be made secret later, but never made public again.**
+  - Public to secret re-encrypts the existing values, as it should.
+  - Secret to public would expose values that were promised to stay hidden.
+- **Editing a type in use bumps its version.**
+  - Adding a field is always allowed: existing credentials show it empty, and a
+    required one asks to be filled on the next edit.
+  - Renaming or removing a field that holds values asks for confirmation, and
+    lists the credentials affected.
+- **A type with credentials can't be deleted** (`ON DELETE RESTRICT`); delete or
+  move its credentials first.
+
+**The same engine will define connection types in Phase 2.** Your AWS example,
+`{account, region}`, is a *connection* type: mostly public fields, plus a reference
+to a credential. It is defined in the same editor, with the same field kinds, paste
+shortcut and output template. Credentials hold what is secret; connections hold where
+and how to reach a system. So "a new custom pane for my in-house API" is:
+- a credential type (the API key);
+- a connection type (base URL, tenant, plus the credential);
+- the pane.
+
+All three can be made in the UI.
+
+### 13.4 Encryption and keys
+
+- **Library:** `cryptography` (AESGCM), a new pinned dependency. It's the standard
+  choice, and also what loads SSH keys and certificates for the tests above.
+- **The master key comes from the environment:**
+  - `PLATFORM_MASTER_KEYS="k2:<base64 32 bytes>,k1:<base64 32 bytes>"`, a keyring;
+  - `PLATFORM_MASTER_KEY_ID=k2`, the one used for new writes.
+
+  Older keys stay in the ring only to unwrap DEKs until rotation finishes.
+- **Helm:**
+  - `backend.masterKey.existingSecret` and `existingSecretKey`, required whenever
+    credentials are enabled.
+  - **The chart does not generate the key.** `helm lookup`, the usual way to keep a
+    generated value across upgrades, returns nothing under ArgoCD, which renders
+    charts without cluster access. A generated key would be replaced on every sync,
+    and every stored secret would become unreadable.
+  - `DEPLOYMENT.md` gets the one-line `kubectl create secret … $(openssl rand
+    -base64 32)` and a warning: **back the key up; losing it loses every
+    credential.**
+- **No key configured:**
+  - The app still starts and everything else works.
+  - The credential routes answer 503 with "Credentials are off: no master key is
+    configured. See DEPLOYMENT.md", and Settings shows the same.
+  - A key that is present but can't unwrap existing DEKs (the wrong key) stops
+    credential use loudly, and is not mistaken for "no credentials".
+- **Rotation:** `python -m app.keys rotate --to k3` re-wraps every DEK under the new
+  key in batches, and is safe to re-run. Then drop the old key from the ring.
+- **`resolve(credential_id, *, actor, purpose)` is the only function that decrypts.**
+  - It checks the actor can use the credential: their group, or a grant.
+  - It writes a `credential.use` audit event, updates `last_used_at`, and returns the
+    values for that call only.
+  - It registers the plaintext values with a **log-masking filter** for the rest of
+    the request, so a value that reaches a log line or an error message comes out
+    as `****`.
+  - Phase 1's only callers are the test and the HTTP client (§13.8). Phase 2+
+    connections and runs call it the same way.
+
+### 13.5 API
+
+All under `/api/credentials`, auth-gated like every route. **No response ever
+contains a secret value**, to admins included: there is no reveal, only replace
+(Grafana's model).
+
+| Route | Who | Does |
+|---|---|---|
+| `GET /api/credential-types` | any user | the types and their field schemas, for the form |
+| `POST` / `PATCH` / `DELETE /api/credential-types/{id}` | admin | create and edit custom types (built-ins are refused); the rules in §13.3 are enforced here |
+| `POST /api/credential-types/infer` | admin | the "paste an example" shortcut: JSON in, proposed fields out |
+| `GET /api/credentials` | admins: all. Others: their group's, plus global ones granted to their group | name, type, scope, public fields, `secret_fields_set`, test status, last used. Non-admins see names and types only (for picking one later) |
+| `POST /api/credentials` | admin | create; secret fields are encrypted before the row is written |
+| `PATCH /api/credentials/{id}` | admin | a secret field left out keeps its value; `clear: ["field"]` empties it; public fields replace |
+| `DELETE /api/credentials/{id}` | admin | refused while anything references it (connections, from Phase 2), naming what does |
+| `POST /api/credentials/{id}/test` | admin | runs the type's test |
+| `POST` / `DELETE /api/credentials/{id}/grants/{group_id}` | admin | global credentials only |
+| `GET /api/audit?object=credential:{id}` | admin | that credential's history |
+
+- Errors are readable sentences (CLAUDE.md conventions), e.g. "A credential named
+  'deploy-key' already exists in this group."
+- **Admins only manage credentials in Phase 1**: create, edit, delete, test, grant.
+  Delegating a group's own credentials to its members is a later flag (see
+  §13.10).
+
+### 13.6 Settings → Credentials
+
+Two new admin sections next to Environments, User groups and Users:
+**Credentials**, and **Credential types**. The types section is a list (built-ins
+marked and locked) and an editor:
+- fields as rows;
+- the paste-an-example shortcut;
+- the output template, with a live preview against sample values;
+- `inject` and `http_test`.
+
+The rest of this section describes the Credentials list.
+
+- **List:**
+  - Grouped as *Global* and then one block per group.
+  - Columns: name, type, public fields (e.g. username), test status (✓, ✕ with its
+    message, or "expires in 12 days"), grants (global only), last used.
+- **Create/edit:**
+  - Pick a type, and the form is drawn from that type's fields.
+  - A secret field that is set shows "•••• set" and a **Replace** button, never the
+    value. A file field shows its filename and size, with Replace.
+  - **Test** next to Save. Save runs the test first when the type has one, and saves
+    anyway, with a warning, if the test fails, since a key may be valid somewhere the
+    platform can't reach.
+- **Grants:** for a global credential, a multi-select of groups.
+- **History:** the credential's audit events (who, what, when, test results, uses).
+- **Delete:** a confirmation. It is refused with the referencing items listed once
+  connections exist.
+- Non-admins see nothing new in Phase 1. Their read-only list arrives with the first
+  place they can pick a credential, except the HTTP client in §13.8.
+
+### 13.7 Audit log
+
+- **Recorded for credentials:** create, update (*which* fields changed, never
+  values), delete, test (with result), grant, revoke, use (by what: "HTTP client in
+  session 'Checkout'").
+- **Also recorded:** the actor (user, agent or system) and the group.
+- **Retention:** one year, matching D18's audit line.
+- **Read** by admins, per credential in Phase 1. A global audit page can come later.
+
+### 13.8 First consumer: the HTTP client's Auth (recommended)
+
+- The HTTP client pane gets an **Auth** select: none, or any credential the user's
+  group can use whose type declares `inject`. That includes `username_password`,
+  `api_token`, and every custom type that says how it authenticates.
+- On Send, the backend resolves the credential and applies its `inject`
+  server-side. The value never reaches the browser, the session state or the agent.
+  The session stores the credential's **id**, and the response shown to the user has
+  that header masked.
+- It proves the whole path in production (store, scopes, resolve, masking, audit) a
+  phase before connections depend on it. The SSRF guard (`tools_http_client.py`) is
+  untouched.
+- The agent can pick the credential by name when filling the pane, but still can't
+  Send (no approval step yet), as today.
+
+### 13.9 Delivery, tests and done
+
+Four PRs, each usable on its own:
+
+1. **Store and API:** the models, crypto, types, `resolve`, audit, routes, the
+   rotation command and the 503-without-key behaviour. Tests:
+   - encrypt/decrypt round trip;
+   - a ciphertext moved to another row fails;
+   - the wrong master key is refused loudly;
+   - rotation re-wraps and the secrets still decrypt;
+   - **no route returns a plaintext secret** (every response of the suite is scanned
+     for the known test values);
+   - scope visibility (group A can't see group B's credentials; a global one is
+     visible only with a grant);
+   - audit events are written for every action;
+   - each built-in's check (an SSH key, a certificate, STS mocked at the boto3
+     boundary as existing tests do);
+   - custom types:
+     - create from a pasted example;
+     - the output template shapes `resolve()`'s result;
+     - `inject` adds the right header;
+     - `http_test` goes through the SSRF guard;
+     - a secret field can't be made public;
+     - a type in use can't be deleted;
+     - a new version keeps old credentials readable.
+2. **Settings UI:** a browser suite that defines a custom type from a pasted
+   example, then creates, replaces a secret, tests, grants, reads the history and
+   deletes. It also **intercepts every network response and
+   fails if a secret value appears in any**, and fails against the old
+   `frontend/src`, per CLAUDE.md.
+3. **Deployment:** the Helm value, the docker-compose dev key, and `DEPLOYMENT.md`
+   (creating the key, backing it up, rotating it).
+4. **HTTP client Auth** (§13.8), with backend and browser tests showing the header
+   is sent and never shown.
+
+**Done when:** an admin can define a custom credential type from a pasted example,
+store credentials of it and of each built-in type, test, grant and audit them; the HTTP client can authenticate with one; and no API response, log line,
+session state or agent message has ever contained a secret value. The suites above
+check each of these.
+
+### 13.10 Open questions for Phase 1
+
+All five settled 2026-10-04 as D24–D28 (§11).
 
 ## 12. Research sources
 

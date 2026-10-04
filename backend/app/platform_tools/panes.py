@@ -85,6 +85,7 @@ _TYPE_NAMES = {
     "log_groups": "object: environment id -> list of log group names",
     "opensearch_indices": "list of {environment_id, domain_name, domain_endpoint, indices: [index names]}",
     "headers": "object: header name -> value",
+    "credential": "credential name or id (get_context lists the ones the user can use)",
 }
 
 MAX_TEXT = 100_000
@@ -99,6 +100,24 @@ def _visible_environment(rc: RunContext, value: Any) -> int:
     if environment is None or not user_can_access_environment(rc.db, rc.user, environment):
         raise InputError(f"Environment {environment_id} doesn't exist or isn't visible to you.")
     return environment_id
+
+
+def _usable_credential(rc: RunContext, value: Any) -> Optional[int]:
+    """A credential the user's group may use, named or by id, as the id the
+    pane stores. Only ever the id: the value stays on the server."""
+    from .. import credential_store
+
+    if value in (None, "", 0):
+        return None
+    query = credential_store.visible(rc.db, rc.user)
+    try:
+        found = query.filter(models.Credential.id == int(value)).first()
+    except (TypeError, ValueError):
+        found = query.filter(models.Credential.name == str(value)).first()
+    if found is None:
+        names = ", ".join(c.name for c in query.order_by(models.Credential.name).limit(20)) or "none"
+        raise InputError(f"There's no credential '{value}' this user can use. Theirs: {names}.")
+    return found.id
 
 
 def convert(spec: Input, value: Any, rc: RunContext) -> Any:
@@ -165,6 +184,8 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
                 raise InputError(f"{spec.key}: pick at least one index for domain {domain}.")
             out.setdefault(env, {})[domain] = {"domain_endpoint": endpoint, "indices": tag_set(dict.fromkeys(indices))}
         return out
+    if kind == "credential":
+        return _usable_credential(rc, value)
     if kind == "headers":
         if not isinstance(value, dict):
             raise InputError(f"{spec.key} must be an object of header name -> value.")
@@ -823,6 +844,12 @@ KINDS: dict[str, PaneKind] = {
                 Input("url", "text", "The full URL."),
                 Input("headerRows", "headers", "Request headers."),
                 Input("body", "text", "The request body (ignored for GET and HEAD)."),
+                Input(
+                    "credentialId",
+                    "credential",
+                    "A credential to authenticate with; the server adds it when the request is sent, so its value is "
+                    "never in the pane. Only credentials whose type authenticates requests work here.",
+                ),
             ),
             run_help="You can fill the request in, but not send it: sending reaches outside the platform, and "
             "needs the user's approval, which isn't available yet. Tell the user to press Send.",

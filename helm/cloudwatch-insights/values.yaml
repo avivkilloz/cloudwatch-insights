@@ -126,6 +126,27 @@ backend:
     # session cookie's `Secure` flag, which browsers require HTTPS for.
     cookieSecure: true
 
+  # The master key that encrypts stored credentials (Settings -> Credentials).
+  # Without it, credentials are off and the rest of the platform works as
+  # before. It always comes from an existing Secret -- there is deliberately
+  # no inline option and the chart never generates one: under Argo CD the
+  # chart is rendered without cluster access, so a generated key would be
+  # replaced on every sync and every stored credential would become
+  # unreadable. See DEPLOYMENT.md, "Credentials: the master key" (creating,
+  # backing up and rotating it).
+  #
+  #   kubectl create secret generic cloudwatch-insights-master-key \
+  #     --from-literal=PLATFORM_MASTER_KEYS="k1:$(openssl rand -base64 32)"
+  #   masterKey:
+  #     existingSecret: cloudwatch-insights-master-key
+  #     keyId: k1
+  masterKey:
+    existingSecret: ""
+    existingSecretKey: PLATFORM_MASTER_KEYS
+    # The key in the keyring that new secrets are written with. Empty uses
+    # the first one; set it when the keyring holds more than one (rotation).
+    keyId: ""
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []

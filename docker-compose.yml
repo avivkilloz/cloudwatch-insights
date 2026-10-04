@@ -34,6 +34,13 @@ services:
       # (browsers won't store it) -- keep this false here; deployments should
       # leave it at the backend's default (true) once served over HTTPS.
       COOKIE_SECURE: "false"
+      # Encrypts stored credentials. This default is for local development
+      # ONLY -- it's in the repository, so anything encrypted with it is
+      # readable by anyone with the code. Set your own for anything real
+      # (`python -m app.keys generate`) and keep it: losing it loses every
+      # credential. See DEPLOYMENT.md, "Credentials: the master key".
+      PLATFORM_MASTER_KEYS: ${PLATFORM_MASTER_KEYS:-dev:ZGV2ZWxvcG1lbnQtb25seS1kby1ub3QtdXNlLWl0ISE=}
+      PLATFORM_MASTER_KEY_ID: ${PLATFORM_MASTER_KEY_ID:-}
       # The platform agent (the service below). Unset, the Agent page says
       # this deployment doesn't run one.
       AGENT_URL: http://platform-agent:8100

@@ -1,11 +1,12 @@
 import contextlib
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, models
+from . import bootstrap, credential_store, credential_types, masking, models
 from .db import Base, SessionLocal, engine, ensure_columns
 from .platform_tools import server as platform_server
 from .routers import (
@@ -13,6 +14,7 @@ from .routers import (
     auth,
     buckets,
     cognito,
+    credentials,
     environments,
     iot,
     live_sessions,
@@ -50,6 +52,17 @@ if "user_groups.agent_enabled" in _added_columns:
 _bootstrap_db = SessionLocal()
 try:
     bootstrap.ensure_admin_exists(_bootstrap_db)
+    credential_types.ensure_builtins(_bootstrap_db)
+finally:
+    _bootstrap_db.close()
+
+# Whatever a request decrypts is masked in every log line it writes after.
+masking.install()
+
+_bootstrap_db = SessionLocal()
+try:
+    for _line in credential_store.startup_check(_bootstrap_db):
+        logging.getLogger("credentials").warning(_line)
 finally:
     _bootstrap_db.close()
 
@@ -76,6 +89,9 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(user_groups.router)
 app.include_router(environments.router)
+app.include_router(credentials.types_router)
+app.include_router(credentials.router)
+app.include_router(credentials.audit_router)
 app.include_router(settings.router)
 app.include_router(log_groups.router)
 app.include_router(queries.router)

@@ -38,7 +38,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import live_store, models, schemas
+from .. import credential_store, live_store, models, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..routers import environments as environments_router
@@ -255,6 +255,12 @@ async def get_context() -> dict:
                 for e in _environments(db, user)
             ],
             "pane_kinds": [k.describe() for k in available_kinds(user)],
+            # Names and types only, never a value: what a pane's credential
+            # input can be set to.
+            "credentials": [
+                {"id": c.id, "name": c.name, "type": c.type.label, "authenticates": bool(c.type.inject)}
+                for c in credential_store.visible(db, user).order_by(models.Credential.name).all()
+            ],
             "layouts": list(LAYOUTS),
             "viewing_session": viewing,
         }

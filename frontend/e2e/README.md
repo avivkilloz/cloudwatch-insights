@@ -46,6 +46,10 @@ LITELLM_BASE_URL=http://127.0.0.1:4010 LITELLM_API_KEY=x AGENT_MODEL=fake \
 Without them, those five fail and every other suite is unaffected (22 and 23
 only check that a question asked in the agent panel's Global tab reaches it).
 
+`smoke58` and `smoke59` (credentials) need the backend started with a master key,
+e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
+credentials are off and both fail on their first check, saying so.
+
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs
 these. Install it where you run them (`npm i -D playwright`), or point
