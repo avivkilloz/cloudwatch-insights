@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **proposal, partly decided.** D1–D11 are settled (§11);
-the rest is a proposal until it reaches the Decision log._
+_Started 2026-10-04. Status: **proposal, partly decided.** D1–D15 and requirements
+R1–R4 are settled (§11); the rest is a proposal until it reaches the Decision log._
 
 ---
 
@@ -247,7 +247,7 @@ whole output), does something, and produces an output. What differs is *where* t
 | `toast` | shows a short message | "Copied" |
 
 So today's "Copy S3 URI" and "Copy object URL" are both just *client: copy* with a
-template (they're built in the browser; see §4.6). A presigned "Download", which
+template (they're built in the browser; see §4.7). A presigned "Download", which
 doesn't exist yet, would be *server: presign → client: download*. Both are configurable in the builder with no code: pick
 the scope (row, selection or all), optionally a server Action, then an effect and its
 template.
@@ -278,7 +278,7 @@ over `postMessage`, and the host decides whether to allow it.
 - **stream:** messages appended live. MQTT uses it; see §4.4.
 - **iframe:** sandboxed, for a plugin's own visuals.
 
-**Visualizations: the inventory is the floor, not the ceiling.** §4.6 lists what
+**Visualizations: the inventory is the floor, not the ceiling.** §4.7 lists what
 today's panes already do, and so what porting must not lose. The component set goes
 well beyond it:
 
@@ -360,7 +360,7 @@ generalised).
   getting worse.
 - Most of these components already exist in some form inside individual pages. The
   work is extracting and generalising them, not inventing them (see the inventory in
-  §4.6).
+  §4.7).
 
 ### 4.4 All panes behave the same: porting today's panes
 
@@ -415,64 +415,213 @@ Panes that need more than "run an Action, draw its output":
   - a **stream** output fed over the existing event-stream plumbing;
   - a **publish** Action.
 
-  This moves the live connection to the server. It is more work, but it makes MQTT
-  usable by the agent and by workflows, which today it can't be (CLAUDE.md: "MQTT and
-  JWT aren't agent-drivable on purpose"). Publishing stays behind the approval step.
-- **Base64, JWT, Diff** compute purely in the browser today. They become browser
-  Actions with Python twins (§4.5): they stay instant as you type, and gain agent and
-  workflow use through the twin. A pasted JWT is a secret, so its input is marked
-  `sensitive`: kept out of session state and the agent's history.
+  This moves the live connection to the server (D6). The reasons, weighed against
+  keeping it in the browser:
+  - **Any broker, not just AWS IoT.** A browser can only speak MQTT over WebSockets,
+    so it can't reach a broker that listens only on TCP 1883/8883, which is most
+    non-AWS brokers. A server can reach both.
+  - **Secrets stay on the server.** A generic broker needs a username and password or
+    a client certificate. In the browser, that secret would have to be handed to the
+    page. Today's AWS case avoids this only because a presigned URL is a short-lived
+    credential.
+  - **Shared sessions see the same stream.** A browser connection belongs to one tab.
+    A server subscription streams to every member viewing the session, and can keep a
+    short history.
+  - **The agent and workflows can use it**, which today they can't (CLAUDE.md: "MQTT
+    and JWT aren't agent-drivable on purpose").
+
+  What the browser did better, and what the server must match:
+  - It costs nothing when nobody is looking. The server closes a subscription a
+    couple of minutes after the last viewer leaves, and caps subscriptions per user.
+  - Latency is a little higher: one extra hop through our event stream, tens of
+    milliseconds, invisible for a tester.
+
+  Publishing stays behind the approval step.
+- **Base64, JWT, Diff** compute purely in the browser today. They become tier 1 live
+  panes (§4.5): CEL expressions over the inputs and a bound diff component. They stay
+  instant as you type, and gain agent and workflow use. A pasted JWT is a secret, so
+  its input is marked `sensitive`: kept out of session state and the agent's history.
 - **HTTP client:** its request is already a server Action (SSRF-guarded). Sending
   stays behind the approval step.
 
 _Inventory of today's panes (inputs, dynamic lists, outputs, output actions): see
-§4.6._
+§4.7._
 
-### 4.5 Panes and Actions that run in the browser
+### 4.5 Live panes: three tiers, cheapest first
 
-Yes, a builder or plugin pane can run in the browser. Some things only make sense
-there:
-- live-as-you-type tools: JWT, Base64, Diff;
-- heavy interactive views over data already fetched;
-- anything that must use the user's own machine, such as their clipboard, a file they
-  pick, or a local network address only they can reach.
+The goal is **live tools**: panes whose output updates as you type, like JWT,
+Base64 and Diff today. Sandboxed browser code (tier 3) can do it, but it is the
+hardest tier to build in, the slowest to start, and the hardest to make look native.
+Most live tools need nothing that heavy, so there are three tiers, and the builder
+offers them in this order:
 
-The design:
+**Tier 1: live expressions and bound components.** No code, instant, native.
 
-- **An Action can declare `runtime: browser`**, with its code as a JavaScript or
-  TypeScript bundle in the plugin. Server handlers stay Python (D2). This is
-  presentation and compute code, not a second backend language.
-- **It runs in a sandboxed iframe from a separate origin**, the way VS Code runs
-  extension webviews and Figma runs plugins:
-  - `sandbox="allow-scripts"` without `allow-same-origin`, served from a dedicated
-    plugin origin. So it has no access to our cookies, our storage, our DOM or our
-    API.
-  - A strict Content Security Policy: `connect-src` limited to the hosts the plugin
-    declared, nothing at all by default.
-  - It talks to the host only through a small `postMessage` SDK:
-    - read its inputs;
-    - return outputs;
-    - ask for an effect (copy, download…), which the host may allow or confirm with
-      the user;
-    - call a **server** Action through the host, which applies the same permission
-      checks as any other call.
-- **Secrets never reach browser code.** A browser Action that needs an authenticated
-  call asks the host to run a server Action that holds the credential.
-- **The agent and workflows can't run browser code**: there is no browser on the
-  server. So a browser Action can ship a **Python twin**. JWT, Base64 and Diff would
-  have both: the browser version for live typing, the Python one for the agent and
-  workflows. Without a twin, the pane is marked browser-only, and `get_context` says
-  so, so the agent explains it rather than claiming the pane doesn't exist (the MQTT
-  lesson in CLAUDE.md).
-- **Built-in browser Actions are ours, in our own bundle**, and don't need the iframe.
-  Only plugin and builder code is sandboxed.
-- **Custom visual components** (a plugin's own chart, a 3D view) use the same
-  sandbox: the host hands them a data frame and they draw it.
+- An output can be a **CEL expression over the inputs** (the same language as
+  workflows, D8), e.g. `base64.decode(in.text)` or `jwt.decode(in.token).payload`.
+- The browser evaluates it on every keystroke, in our own page. CEL is safe to run
+  there without a sandbox: no loops, no side effects, no access to anything but the
+  inputs it is given.
+- The server evaluates the **same** expression for the agent and for workflows, so
+  there is no twin to write.
+- A **function library** sits on top of CEL: base64, URL, hex, hashes, HMAC, JWT
+  decode/sign/verify, JSON parse/format, timestamps, regex. We implement and own it
+  twice, in TypeScript and in Python, and one shared test corpus runs through both so
+  the results always match.
+  - Browser engine: `@marcbachmann/cel-js` (zero dependencies, TypeScript).
+  - Server engine: `cel-expr-python`.
+- Some live tools are just a **component bound straight to inputs**. Diff is the diff
+  component with its left and right bound to two inputs; nothing runs at all.
+- **It looks and runs exactly like a built-in pane, because it is one:** same
+  renderer, same components, same styles, instant.
 
-This replaces the "Live tools" question: JWT, Base64 and Diff stay instant, and still
-work for the agent.
+**Tier 2: live server Actions.** Python, works everywhere.
 
-### 4.6 Inventory of today's panes: the requirements list
+- `run: live` re-runs the Python Action when inputs change, debounced (around 150
+  ms after typing stops).
+- For anything that needs a library, data, or a connection: "look up this order id as
+  I type", "validate this config against the schema in our repo".
+- Costs one round trip per pause in typing, roughly a quarter of a second. Fine for
+  lookups; noticeably less snappy than tier 1 for pure text transforms.
+- Same renderer, same look.
+
+**Tier 3: sandboxed browser code.** For plugin developers.
+
+- Code shipped by a plugin or the builder runs in a **sandboxed iframe on a separate
+  origin**, the way VS Code runs extension webviews and Figma runs plugins:
+  - `sandbox="allow-scripts"` without `allow-same-origin`, so it has no access to our
+    cookies, our storage, our DOM or our API;
+  - no top-level navigation, popups or forms;
+  - a strict Content Security Policy, with `connect-src` limited to the hosts the
+    plugin declared and nothing by default.
+- It talks to the host only through a small `postMessage` SDK:
+  - read inputs;
+  - return outputs;
+  - ask for an effect (§4.3), which the host may perform or confirm;
+  - call a **server** Action through the host, with the usual permission checks.
+- **Secrets never reach it.** A call needing a credential goes through a server
+  Action.
+- **The language can be Python:** with **Pyodide** (CPython compiled to WebAssembly)
+  in a Web Worker inside the sandbox, the same Python handler runs on the server for
+  the agent and workflows and in the browser for live use. No twin. The cost is a
+  first-load download of several MB and a few seconds to start (cached afterwards),
+  and pure-Python packages only. JavaScript is the other option for plugin
+  developers who want it; then a Python twin is needed for agent and workflow use,
+  or the pane is marked browser-only and `get_context` says so.
+- Also the home of **custom visual components** (a plugin's own chart or 3D view):
+  the host hands them a data frame and they draw it.
+- **How it looks:** the host passes our theme tokens (colours, fonts, spacing) into
+  the frame and the SDK ships matching base styles. A careful plugin looks native; a
+  careless one won't. That's acceptable for an escape hatch, not for the default path.
+- **How secure:** it can't act as the user, can't read anything but what it is given,
+  and can't reach the network beyond what an admin approved at install. The
+  remaining risks:
+  - It sees the data it is handed, so installing a plugin means trusting its author
+    with that data (which is why installs are admin-approved).
+  - Browser leaks such as DNS prefetching have been used to smuggle data out past
+    strict CSPs (the Trail of Bits VS Code write-up).
+  - It can draw a convincing fake form inside its own frame. The frame is always
+    visibly framed and labelled with the plugin's name.
+
+**Answers, in short:**
+
+| | Tier 1 | Tier 2 | Tier 3 |
+|---|---|---|---|
+| Live as you type | instant | ~¼ s per pause | instant after the first load |
+| Secure | yes, by construction | yes, as any server Action | sandboxed; trusts the plugin author with its data |
+| Easy in the builder | yes: pick functions, write a one-line expression | yes: like any Python Action | no: real code, for developers |
+| Looks native | identical | identical | close, if the author uses the SDK's styles |
+| Agent and workflows | same expression on the server | it is a server Action | Pyodide: same code; JS: needs a twin |
+
+**Today's live tools move to tier 1:**
+- **Base64:** expressions with `base64` functions.
+- **JWT:** `jwt.decode`, `jwt.sign` and `jwt.verify` functions. The token and secret
+  inputs stay `sensitive` and the expression runs in the browser, so a pasted secret
+  never leaves it, as today.
+- **Diff:** the diff component bound to its two inputs.
+
+All three stay instant and look the same, and gain agent and workflow use.
+
+### 4.6 Sessions as live dashboards
+
+Four requirements (R1–R4, 2026-10-04) that together make a session work like a
+Grafana dashboard, built on what sessions already are.
+
+**R1: every pane follows the agent and other writers live.** Today, whatever the
+agent writes to a session appears in open browsers at once. That has to hold for
+every pane type, built-in, builder or plugin. It falls out of the design rather than
+needing per-pane work:
+- every pane's state is in the one shape (D9);
+- every write goes through `live_store` (CLAUDE.md), announced over the event stream;
+- the renderer, being the same for every pane, subscribes once.
+
+Exceptions by design: `sensitive` inputs, and a tier 1/3 live output (§4.5), which
+each browser recomputes from the synced inputs rather than syncing the result.
+
+**R2: view mode (inputs hidden, outputs only).**
+- **Two levels:**
+  - A **session setting** `inputs: shown | hidden` turns the whole session into a
+    dashboard: each pane shows only its title, its outputs, when it last refreshed,
+    and a refresh button.
+  - A **per-pane override** shows or hides one pane's inputs regardless of the
+    session setting.
+- **Editing stays one click away.** A pane's "edit" button reveals its inputs; a
+  session's "edit layout" reveals all of them. A viewer member (shared sessions) only
+  ever sees view mode.
+- **Session variables**, recommended, and the piece that makes view mode useful.
+  - Grafana dashboards put a few shared controls at the top (environment, time range)
+    that drive every panel.
+  - Here, a session can declare **variables** (any input type, D9's `in.` shape, at
+    the session level), shown in a bar under the session card even in view mode.
+  - A pane input can be bound to one (`{{ session.env }}`, the CEL of D8) instead of
+    holding its own value.
+  - Change the time range once and every pane re-runs. The agent sets variables the
+    same way it sets inputs.
+
+**R3: a session as the home page.**
+- A per-user setting, Home → "this session" (from its ⋮ menu: "Set as my home page").
+- It can be any session the user can reach, shared ones included.
+- If that session is deleted, or the user leaves it, Home falls back to the default
+  page, with a note saying why.
+- Later, an admin could set a group default.
+
+**R4: auto-refresh.**
+- **Per pane:** `refresh: off | on open | every 30 s / 1 m / 5 m / …`. A session-level
+  default applies to panes that don't set their own, as Grafana's refresh picker
+  does.
+- **It runs while the session is open in a browser, and only then.**
+  - It pauses while the session isn't on screen or the browser tab is hidden (the
+    Page Visibility API).
+  - On return, it refreshes at once if it is overdue.
+  - Relative time ranges ("last 15 minutes") are re-evaluated on every run.
+  - Refreshing with nobody looking is a scheduled workflow (a later trigger), not
+    this.
+- **One run per interval, however many people are watching.**
+  - A shared session open in five browsers must not run five queries.
+  - The server coalesces: a refresh request for a (session, pane) whose last run
+    started less than one interval ago gets that run's result instead of a new one.
+  - The result reaches every viewer through R1.
+- **Guard rails:**
+  - An admin-set **minimum interval**, globally, with a stricter one per pane type
+    if wanted.
+  - A warning on panes whose runs cost money. CloudWatch Logs Insights charges per GB
+    scanned ($0.005/GB at list price), and `limit` doesn't reduce what is scanned.
+    A pane type's manifest can declare `cost: per_run` to get the warning and a
+    higher floor.
+  - A pane whose refresh keeps failing backs off and shows why, rather than hammering
+    a broken query.
+- **Outputs out of the synced state** (recommended, and needed before R4 is safe).
+  - Today a run's results live in the session's synced state. Every refresh would
+    rewrite that state, bump its version, and make every open tab fetch the whole
+    session again, up to the 4 MiB cap.
+  - With D9's `.out.` keys separated anyway, outputs move to their own store, one
+    record per (session, pane), small ones in Postgres and large ones as blobs (D7).
+  - The session state keeps only a pointer and a version. The event says "pane X has
+    results v17", and each tab fetches just that pane's output.
+  - The same change removes the browser's 4 MiB problem and the agent's
+    `_write_results` trimming (CLAUDE.md), and lets large results exist at all.
+
+### 4.7 Inventory of today's panes: the requirements list
 
 What every existing pane does, gathered 2026-10-04. Porting (§4.4) is done when the
 generic renderer and components can do all of it.
@@ -510,9 +659,8 @@ generic renderer and components can do all of it.
 - **Saved items** are a per-pane-type feature today (saved queries, saved searches,
   saved tables and so on, in five different stores). Generically, "save these
   inputs under a name" belongs to the renderer, for every pane, in one store.
-- **Live Actions:** JWT, Base64 and Diff recompute on every keystroke. They are
-  `run: live` (re-run on input change), in the browser, with a Python twin for the
-  agent (§4.5).
+- **Live outputs:** JWT, Base64 and Diff recompute on every keystroke. They become
+  tier 1 live expressions and a bound component (§4.5).
 - **Sensitive inputs:** JWT's token and secret, and MQTT's state, are deliberately
   not persisted. Generically, an input marked `sensitive` stays out of session state,
   the agent's history and run records.
@@ -914,6 +1062,7 @@ foundation the next one needs.
   - **3a, manifests for the agent:**
     - The manifest format, and a manifest for every existing pane.
     - `KINDS` and the agent's tools generated from the manifests.
+    - The one state shape (D9), and outputs in their own store (§4.6).
     - No visible change.
   - **3b, the generic renderer and components:**
     - Input cards and dynamic options.
@@ -921,7 +1070,10 @@ foundation the next one needs.
       plus the visualizations (data frames, the chart spec, ECharts, KPI tiles).
     - Panes ported in the order of §4.4, each passing its own browser suite
       unchanged. MQTT moves its connection server-side.
-  - **3c, permissions and a first new pane:**
+  - **3c, sessions as live dashboards:** view mode, session variables,
+    auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
+    throughout, and each step's browser suites check it.
+  - **3d, permissions and a first new pane:**
     - Per-type permissions replace the boolean flags.
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
       pane), to prove the model on something that isn't a port.
@@ -949,23 +1101,48 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-Settled questions move to the Decision log (§11).
+Settled questions move to the Decision log (§11). **(recommended)** marks a
+recommendation in this file waiting for a yes.
 
-1. **Where runs execute at first:** in the backend process (simplest; fine for
-   built-ins and declarative steps) until the runner exists in Phase 6?
-2. **Registry:** one public registry repo owned by this project, plus private ones per
-   organisation? Who reviews PRs to the public one?
-3. **Master key:** a Kubernetes Secret to start (Helm value), with KMS later?
-4. **Global credentials:** may non-admin groups use them? Only by explicit grant?
-5. **Naming:** "connection" vs "resource" vs "integration"; "Action" vs "step" vs
-   "operation"; "Builder" vs "Studio"; "effect" for client-side output actions. This
-   vocabulary will be in the UI and in plugin manifests, so it is worth settling
-   early.
-6. **Effects from plugin iframes** (§4.3, §4.5): which effects can a sandboxed
-   plugin ask for without the user confirming? `copy` and `toast` probably can;
-   `open_link` and `download` perhaps should ask.
-7. **Run history retention:** how long are workflow runs, logs and artifacts kept,
-   and per workflow or globally?
+1. **Naming:** the words that will appear in the UI and in plugin files. Proposed:
+
+   | Thing | Proposed name | What others call it |
+   |---|---|---|
+   | A configured way into one system (an AWS account + region + role; a database; a broker) | **Connection** | n8n "credential", Windmill "resource", Grafana "data source", Airflow "connection" |
+   | The unit a pane or step runs: inputs → code → outputs | **Action** | n8n "node operation", Windmill "script", Backstage "action" |
+   | A secret, typed | **Credential** | Jenkins "credential", n8n "credential" |
+   | The page for building panes and steps | **Builder** | "Studio", "Designer" |
+   | What a result button does in the browser (copy, download…) | **Effect** | (no common name) |
+
+   Keep these, or rename any?
+2. **(recommended) Effects a sandboxed plugin may ask for** (§4.5 tier 3). Plugin
+   code in its sealed frame can ask the platform to do things in the browser for it.
+   Some are harmless; some could be abused: open a phishing link, download a
+   malicious file, or put a harmful command on the clipboard for you to paste.
+   Recommended rules:
+   - `toast`: always allowed.
+   - `copy`: only in response to a click inside the plugin's frame.
+   - `open_link`, `download`: always confirmed, showing the full address or file
+     name.
+   - `attach_to_agent`, `open_pane`, `set_input`: allowed (they stay inside the
+     platform and act as the user's own clicks would).
+3. **(recommended) Run history retention:**
+   - **Settings:** a global default that each workflow may lower or raise, up to an
+     admin-set maximum.
+   - **Default:** keep the last 100 runs or 30 days, whichever keeps more; artifacts
+     14 days.
+   - **Exceptions:** a run can be **pinned** (kept forever). A short audit line
+     (who ran what, when, with which parameters, and the outcome) is kept for a year
+     after the logs and artifacts are gone.
+4. **(recommended) Live panes in three tiers** (§4.5): live expressions first, live
+   server Actions second, sandboxed browser code (Pyodide or JS) last. JWT, Base64
+   and Diff move to tier 1.
+5. **(recommended) Session variables** (§4.6, R2): session-level inputs that panes
+   can bind to, shown in view mode.
+6. **(recommended) Outputs move out of the synced session state** into their own
+   per-pane store (§4.6, R4). Needed before auto-refresh is safe.
+7. **Auto-refresh floor:** what default minimum interval? Proposed: 10 s generally,
+   1 minute for panes that cost per run (CloudWatch Logs Insights).
 
 ## 11. Decision log
 
@@ -982,6 +1159,11 @@ Settled questions move to the Decision log (§11).
 | D9 | 2026-10-04 | **One session-state shape for every pane** (`<pane>.in.*`, `.out.*`, `.view.*`), reached by a versioned, idempotent migration on load in the browser and on the server's read path (§4.4). | The renderer, the agent and templates treat every pane alike; no per-pane key maps to keep in sync. |
 | D10 | 2026-10-04 | **Plugins and the builder can ship browser code** (JS/TS) for Actions and visual components, run in a sandboxed iframe on a separate origin behind a postMessage SDK, never seeing a secret; an optional Python twin makes it usable by the agent and workflows (§4.5). Built-in browser code is ours and runs unsandboxed. | Some panes only make sense in the browser (live typing, the user's own machine); the sandbox stops plugin code acting as the logged-in user. |
 | D11 | 2026-10-04 | **Visualizations are our own declarative spec over data frames, drawn with Apache ECharts**, loaded on demand (§4.3). | One data shape for tables, charts and KPIs; a spec short enough for the builder and the agent; the library can change without touching plugins. |
+| D12 | 2026-10-04 | **Runs execute in the backend process until the isolated runner exists** (Phase 6). | Simplest; fine for built-ins and declarative steps, which are all there is before Phase 6. |
+| D13 | 2026-10-04 | **Registries:** a default public registry is configured out of the box; admins can remove it and add any number of public or private registries. The default registry is a repo the project owner creates and, for now, reviews. | Easy start for everyone, full control for organisations that want only their own. |
+| D14 | 2026-10-04 | **The secrets master key starts as a Kubernetes Secret** (a Helm value), with KMS as a later backend. | No cloud dependency to start; envelope encryption makes a later move to KMS a re-wrap, not a re-encrypt. |
+| D15 | 2026-10-04 | **Global credentials are usable by non-admin groups only by explicit grant.** | Nothing is shared by accident; matches "access control is per group". |
+| R1–R4 | 2026-10-04 | **Requirements:** every pane follows the agent and other writers live (R1); a session or pane can hide its inputs and show only outputs (R2); a session can be a user's home page (R3); panes can auto-refresh while the session is open (R4). See §4.6. | Asked for, so that a session can work like a live Grafana dashboard. |
 
 ## 12. Research sources
 
@@ -1018,6 +1200,18 @@ Settled questions move to the Decision log (§11).
   [Trail of Bits: escaping misconfigured VSCode extensions](https://blog.trailofbits.com/2023/02/21/vscode-extension-escape-vulnerability/)
 - EBS is ReadWriteOnce; EFS for ReadWriteMany:
   [Baeldung: Kubernetes access modes](https://www.baeldung.com/ops/kubernetes-access-modes-persistent-volumes)
+- Pyodide (CPython in WebAssembly; first-load size and start-up, Web Workers):
+  [Pyodide: downloading and deploying](https://pyodide.readthedocs.io/en/stable/usage/downloading-and-deploying.html),
+  [Pyodide roadmap](https://pyodide.org/en/314.0.5/_sources/project/roadmap.md)
+- CEL in JavaScript:
+  [@marcbachmann/cel-js](https://socket.dev/npm/package/@marcbachmann/cel-js/overview/8.0.0),
+  [cel-js](https://www.npmjs.com/package/cel-js)
+- Browsers reach MQTT only over WebSockets:
+  [HiveMQ: MQTT over WebSockets](https://www.hivemq.com/blog/mqtt-essentials-special-mqtt-over-websockets/)
+- Grafana dashboards (refresh picker, kiosk mode, variables):
+  [Grafana: use dashboards](https://grafana.com/docs/grafana/latest/dashboards/use-dashboards/)
+- CloudWatch Logs Insights pricing (per GB scanned):
+  [AWS CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/)
 - Backstage plugin architecture (frontend/backend plugins, extension points):
   [Backstage: architecture overview](https://backstage.io/docs/overview/architecture-overview),
   [Backstage: extension points](https://backstage.io/docs/backend-system/architecture/extension-points)
