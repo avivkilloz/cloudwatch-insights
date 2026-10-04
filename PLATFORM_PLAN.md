@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D22 and requirements R1–R6 (§11). Phase 1 is detailed in §13,
-for review._
+_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D28 and requirements R1–R6 (§11). Phase 1 is detailed in §13
+and agreed; it is being built._
 
 ---
 
@@ -1143,14 +1143,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-1. **(recommended) Categories** as in §4.8:
-   - admin-arranged and display-only;
-   - suggested by manifests, with admin placement winning over plugin upgrades;
-   - favourites and hiding per user;
-   - one catalogue for panes, steps and workflows;
-   - access moving to per-pane-type grants.
-
-Phase 1's own questions are in §13.10.
+None open as of 2026-10-04. New ones go here as they come up.
 
 ## 11. Decision log
 
@@ -1181,6 +1174,12 @@ Phase 1's own questions are in §13.10.
 | D20 | 2026-10-04 | **Sessions have variables**: session-level inputs that panes bind to, shown in view mode (§4.6). | What makes view mode a real dashboard: change the environment or time range once for every pane. |
 | D21 | 2026-10-04 | **Outputs move out of the synced session state** into a per-pane store (small in Postgres, large as blobs), with the session keeping a pointer and version (§4.6). | Required for auto-refresh; also removes the 4 MiB browser cap and the agent's result trimming. |
 | D22 | 2026-10-04 | **Auto-refresh floor:** 10 s by default, 1 minute for pane types that declare `cost: per_run`; admins can raise either. | Protects the APIs and the bill (CloudWatch Logs Insights charges per GB scanned). |
+| D23 | 2026-10-04 | **Categories as in §4.8:** an admin-arranged, display-only catalogue that manifests only suggest into (admin placement survives upgrades), with per-user favourites and hiding, shared by panes, steps and workflows; access moves to per-pane-type grants. | Organising and access are different jobs; moving a pane must never change who can use it. |
+| D24 | 2026-10-04 | **Phase 1: only admins manage credentials and credential types**; delegating a group's own credentials to its members is a later flag. | Smallest safe start. |
+| D25 | 2026-10-04 | **Secrets are never revealed**, to admins included: replace only. | Grafana's model; nothing can leak what can't be read back. |
+| D26 | 2026-10-04 | **Non-secret config values wait for their first consumer** (Phase 3 inputs or Phase 4 workflows). | Avoids a screen whose values nothing can use yet, and guessing how they'll be read. |
+| D27 | 2026-10-04 | **The HTTP client's Auth is in Phase 1** as the first real consumer of credentials (§13.8). | Immediate value, and it proves storage, scopes, resolve, masking and audit in production before Phase 2 depends on them. |
+| D28 | 2026-10-04 | **Secret files are capped at 1 MiB** until the blob store (D7, Phase 4). | Keeps encrypted values in Postgres small. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -1519,16 +1518,7 @@ check each of these.
 
 ### 13.10 Open questions for Phase 1
 
-1. **(recommended) Admins only manage credentials in Phase 1**, with a later
-   per-group flag ("members may manage this group's credentials")?
-2. **(recommended) No reveal, ever:** secrets are replace-only, for admins too?
-3. **(recommended) Config values (non-secret, scoped) wait** for their first consumer
-   (Phase 3 inputs or Phase 4 workflows) rather than being built now with nothing
-   using them?
-4. **(recommended) The HTTP client's Auth (§13.8) is in Phase 1**, as the first real
-   consumer?
-5. **(recommended) Secret files are capped at 1 MiB** until the blob store (D7,
-   Phase 4) can hold larger ones encrypted?
+All five settled 2026-10-04 as D24–D28 (§11).
 
 ## 12. Research sources
 
