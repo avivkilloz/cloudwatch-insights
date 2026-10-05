@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 from cel_expr_python import cel
 from sqlalchemy.orm import Session
 
-from . import models
+from . import masking, models
 
 FIELD_KINDS = ("text", "multiline", "number", "bool", "choice", "json", "file")
 MAX_FIELDS = 50
@@ -294,17 +294,24 @@ def apply_inject(
     if inject["kind"] == "basic":
         user = str(evaluate(keys, inject["username"], full))
         password = str(evaluate(keys, inject["password"], full))
-        headers["Authorization"] = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+        encoded = base64.b64encode(f"{user}:{password}".encode()).decode()
+        masking.register_derived(encoded)
+        headers["Authorization"] = "Basic " + encoded
         return url, headers
     name = inject.get("name") or str(full.get(inject.get("name_from"), "") or "")
     if not name:
         raise CredentialTypeError("The field naming the header or parameter is empty.")
     value = str(evaluate(keys, inject["value"], full))
+    # A template can compute the value (a prefix, base64, a hash), so the
+    # header or parameter as sent may hold no raw secret mask() would find.
+    masking.register_derived(value)
     if inject["kind"] == "header":
         headers[name] = value
         return url, headers
     parsed = urlparse(url)
-    query = parsed.query + ("&" if parsed.query else "") + urlencode({name: value})
+    encoded = urlencode({name: value})
+    masking.register_derived(encoded.split("=", 1)[1])
+    query = parsed.query + ("&" if parsed.query else "") + encoded
     return urlunparse(parsed._replace(query=query)), headers
 
 

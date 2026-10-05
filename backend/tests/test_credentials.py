@@ -500,6 +500,35 @@ def test_the_http_client_authenticates_with_a_credential_server_side(monkeypatch
     assert resp.status_code == 400 and "don't say how to authenticate" in resp.json()["detail"]
 
 
+def test_an_echoed_value_computed_from_a_secret_is_masked_too(monkeypatch):
+    # A Basic header is base64 of user:password and a query parameter is sent
+    # URL-encoded: neither holds the raw value resolve() registered, so an
+    # echoing server (httpbin's /get) used to hand the password back readable.
+    from app import tools_http_client
+
+    def echo(method, url, headers=None, body=None, timeout=30):
+        return {"status_code": 200, "status_text": "OK", "headers": [], "elapsed_ms": 3, "body_truncated": False,
+                "body": json.dumps({"url": url, "headers": headers})}
+
+    monkeypatch.setattr(tools_http_client, "send_request", echo)
+    login = _create(name="login", type_id="username_password", values={"username": "demo-user", "password": SECRET})
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/get",
+                                                        "credential_id": login["id"]})
+    assert resp.status_code == 200, resp.text
+    encoded = base64.b64encode(f"demo-user:{SECRET}".encode()).decode()
+    assert encoded not in resp.text and "Basic ****" in resp.text
+
+    client.post("/api/credential-types", json={"id": "query_key", "label": "Query key",
+                                               "fields": [{"key": "key", "secret": True, "required": True}],
+                                               "inject": {"kind": "query", "name": "api_key", "value": "key"}})
+    key = "a key/with+specials=" + SECRET
+    cred = _create(name="query", type_id="query_key", values={"key": key})
+    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/get",
+                                                        "credential_id": cred["id"]})
+    assert resp.status_code == 200, resp.text
+    assert SECRET not in resp.text and "api_key=****" in resp.text
+
+
 def test_the_http_client_can_not_use_another_groups_credential(monkeypatch):
     from app import tools_http_client
 

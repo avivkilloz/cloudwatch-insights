@@ -307,7 +307,10 @@ change it (no reveal, D25).
   the request (a log-record factory, so handlers added later are covered)
   and in any text passed through `mask()` (a test's message, an echoed
   response). It refreshes the type row after its commit -- returned expired,
-  a caller with a closed session couldn't read it.
+  a caller with a closed session couldn't read it. `apply_inject` registers
+  what it *computes* from them too (`register_derived`: a Basic header's
+  base64, a URL-encoded parameter, a templated value) -- none holds a raw
+  secret, so httpbin's `/get` echoed a Basic password back readable.
 - **Admins only manage credentials and types** (D24); anyone else sees the
   names and types of what their group can use, nothing more
   (`CredentialSummary`). Group credentials are never granted -- they already
