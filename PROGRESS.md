@@ -21,7 +21,10 @@ Credentials tab with a Credentials | Types switch, rows that open into the
 session card's sections, and the HTTP parts of a type folded under Advanced
 (D30: how a credential is used belongs to what uses it); and the grant picker
 no longer vanishes once every group has it. Next: Phase 2 (connections and
-generalised environments).
+generalised environments), detailed in PLATFORM_PLAN.md §14 (2026-10-07, plan PR
+for review): a connection says where, a group's identity says who (the IAM role
+becomes an *AWS role* credential, D31); several named connections per environment
+(D32); an `http_api` connection type for the HTTP client (D33); ids kept (D34).
 
 ## Where things stand
 
