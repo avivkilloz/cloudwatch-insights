@@ -12,7 +12,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
-(2026-10-07). Phase 1 (§13) is built; next is Phase 2._
+(2026-10-07). Phase 1 (§13) is built. Phase 2 is detailed in §14 (D31–D36, drafted
+2026-10-07 for review)._
 
 ---
 
@@ -113,7 +114,7 @@ Kept small. Each is a registry: built-ins ship with the platform, plugins add mo
 |---|---|---|
 | **Provider** | A family of systems: AWS, GCP, Kubernetes, GitHub, Postgres, "HTTP API"… | Implicitly AWS everywhere |
 | **Connection type** | What it takes to reach one instance of a provider: a schema of fields, some secret; how to test it; how to get a client from it. | `Environment(account_id, region)` + group `role_name` |
-| **Connection** | One configured instance of a connection type (e.g. AWS account 1234 in eu-west-1 via role X). | An `Environment` row |
+| **Connection** | One configured instance of a connection type (e.g. AWS account 1234 in eu-west-1). *Who* it is used as comes from the caller's group (D31). | An `Environment` row |
 | **Environment** | A named place users talk about ("Prod", "IoT Test"), holding **one or more connections**. The unit of group access. | `Environment` row (one AWS target) |
 | **Credential type** | A schema for a secret (username+password, AWS keys, SSH key, bearer token, text, file, JSON…), with which fields are secret. | none |
 | **Credential** | One stored secret of a credential type, scoped globally or to a group. | none (only `role_name`) |
@@ -139,9 +140,10 @@ unit of access.**
 - The agent's existing phrase "do this in environment X" keeps working unchanged, and
   works for any provider.
 - **Migration:** each existing `Environment(account_id, region)` becomes an
-  environment of the same name holding one `aws` connection. The group's `role_name`
-  becomes that connection's role. Ids are kept, so saved sessions and group access
-  survive untouched.
+  environment of the same name holding one `aws` connection. Ids are kept, so saved
+  sessions and group access survive untouched. *Corrected 2026-10-07:* the group's
+  `role_name` does **not** become the connection's role, since groups use different
+  roles in the same account. It becomes the group's identity (D31, §14.3).
 - The MQTT case shows why: "pick an environment → find its broker" becomes "the MQTT
   pane asks for a connection that can supply a broker". The AWS connection type
   supplies one through IoT; a plain MQTT connection type (host, port, credentials)
@@ -1094,9 +1096,11 @@ foundation the next one needs.
   consumer. **Detailed in §13.** *Why first:* connections, plugins from private repos,
   declarative steps and workflows all reference credentials.
 - [ ] **Phase 2: Connections and generalised environments.** Connection types (`aws`
-  first, built-in), connections referencing credentials, environments as groups of
-  connections, and migration of today's environments with ids kept. The AWS routers
-  resolve their client from a connection instead of `Environment` + `role_name`.
+  and `http_api`, built-in), environments as groups of named connections (several per
+  type allowed, D32), group identities replacing the group's `role_name` (D31), and
+  migration of today's environments and roles with ids kept (D34). The AWS routers
+  resolve their client from a connection and the caller's group identity. The HTTP
+  client can target an HTTP API connection (D33). **Detailed in §14.**
   *Exit:* everything works exactly as today, through the new model.
 - [ ] **Phase 3: Actions, manifests and output components.** The largest phase,
   because every pane is ported (D5). In three steps, each shippable:
@@ -1143,7 +1147,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-None open as of 2026-10-04. New ones go here as they come up.
+None open as of 2026-10-07. New ones go here as they come up.
 
 ## 11. Decision log
 
@@ -1182,6 +1186,12 @@ None open as of 2026-10-04. New ones go here as they come up.
 | D28 | 2026-10-04 | **Secret files are capped at 1 MiB** until the blob store (D7, Phase 4). | Keeps encrypted values in Postgres small. |
 | D29 | 2026-10-04 | **Phase 1 ships as one PR**, not the four of §13.9, so it can be tested as a whole. | The store alone has nothing to try in the UI. |
 | D30 | 2026-10-07 | **How a credential is used belongs to what uses it, not to its type.** A credential type is a shape: its fields and which are secret. From Phase 2, a connection type (or a plugin's step) declares which credential types it accepts and how it applies each one. A type's own `inject` and `http_test` stay as the default for plain HTTP requests (the HTTP client, a declarative HTTP step), folded under *Advanced* in the type editor. | Asked while testing Phase 1: HTTP is the commonest way a secret is used, but an SSH key, a database password or a certificate is used some other way, and a type form led by HTTP options made every type look like an API login. n8n puts `authenticate` on the credential type; that suits a tool where nearly everything is HTTP, which this platform deliberately isn't. |
+| D31 | 2026-10-07 | **Who a group is belongs to the group, as credentials; where a system is belongs to the connection.** A group has an identity per connection type (default) and per connection (override); a request uses the override, then the default, then the connection's own credential. The IAM role becomes an *AWS role* credential, the group's default AWS identity; `user_groups.role_name` stops being read (§14.3). | Groups in one account need different roles (read-only Backend, full Admin), so a role can't live on the connection. And the role was only "hardcoded" on the group because the platform started AWS-only: in a generic platform it is one more credential assigned to a group. |
+| D32 | 2026-10-07 | **An environment can hold several connections of one type, each named** ("Prod · iot", "Prod · eks"). Pickers show an environment with one connection by its name alone. Access stays per environment (§14.4). | In practice one "prod" spans accounts and regions (IoT in one, EKS in another). Splitting it into "IoT Prod" and "EKS Prod" would put AWS's structure back into every conversation and break "do this in Prod". |
+| D33 | 2026-10-07 | **Phase 2 ships a built-in `http_api` connection type** (base URL + identity), with the HTTP client as its consumer; admin-defined connection types wait for Phase 3. | Proves the model isn't AWS-only with something testable in the UI, as D27 did for credentials. A custom connection type would have no consumer before manifests. |
+| D34 | 2026-10-07 | **Migrated connections keep their environment's id, and Phase 2 keeps the `environment_id(s)` keys in payloads and pane state**, now holding connection ids. They are renamed in Phase 3 with the one state shape (D9). | Saved sessions, templates and saved items keep working with no data migration, and pane state is migrated once (Phase 3) rather than twice. |
+| D35 | 2026-10-07 | **A credential with no secret value set can be stored and resolved without a master key.** | An *AWS role* without an external ID is only a name. Without this, a deployment with no `PLATFORM_MASTER_KEYS` would lose AWS access on upgrade. |
+| D36 | 2026-10-07 | **An identity's use is audited at most once an hour per (credential, user, connection)**; `last_used_at` still moves on every use. | A pane makes many AWS calls a minute; one audit row per call would bury everything else in the log. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -1529,6 +1539,324 @@ check each of these.
 ### 13.10 Open questions for Phase 1
 
 All five settled 2026-10-04 as D24–D28 (§11).
+
+## 14. Phase 2 in detail: connections, environments and group identities
+
+_Drafted 2026-10-07 for review. Nothing is built until this section is agreed; its
+own open questions are in §14.10._
+
+### 14.1 Scope
+
+The idea in one line: **a connection says *where* something is, and a group says
+*who* it is there.**
+
+- *Where*: an account and region, or a base URL.
+- *Who*: an IAM role, or an API token.
+
+Today both are fused, AWS-only: an `Environment` row is an account and a region,
+and the group carries one `role_name` used in every account.
+
+**In:**
+- **Connection types:** built-ins in code, stored as seeded rows like credential
+  types. Two to start:
+  - `aws` (account, region);
+  - `http_api` (base URL), D33.
+- **Connections:** one configured target of a connection type, inside an
+  environment. An environment can hold several, each named (D32).
+- **Environments as named groups of connections** (D1). They stay the unit of group
+  access.
+- **Group identities** (D31): which credential a group uses for a connection type,
+  with optional per-connection overrides. The IAM role stops being a column on the
+  group.
+- **The *AWS role* credential type** (built-in): role name, plus an optional external
+  ID (secret).
+- **Migration of every existing environment and group role**, with ids kept, so saved
+  sessions, templates and group access survive untouched (D34).
+- **The AWS routers** resolve their client from a connection and the caller's group
+  identity, instead of `Environment` plus `role_name`.
+- **The HTTP client** can target an environment's HTTP API connection, the first
+  non-AWS consumer (D33).
+- **Settings:**
+  - Environments are redone in the Credentials layout, opening into Details,
+    Connections and Access.
+  - User groups are redone the same way, with a new **Identities** section.
+- **The agent** sees environments with their connections, and uses them by name.
+
+**Out**, each for the phase that first needs it:
+- **Connection types defined by admins** (in the credential-type editor): Phase 3,
+  when a manifest-built pane can consume one. Before that, nothing could.
+- **Tagging a connection with the services it is for**, so a pane picks it without
+  asking: Phase 3, with manifests.
+- **Renaming `environment_id(s)` in API payloads and pane state:** Phase 3, with the
+  one state shape (D9). Phase 2 keeps the keys and changes what the values mean
+  (D34).
+- **Non-AWS connection types beyond `http_api`** (Kubernetes, Postgres, GitHub…):
+  first-party plugins, later.
+- **Chaining credentials**, e.g. access keys that then assume a role: later, if
+  anyone needs it.
+
+### 14.2 Data model
+
+Three new tables, plus two columns that stop being read.
+
+```
+connection_types           -- seeded built-ins in Phase 2; admin-defined from Phase 3
+  id                 text pk   -- "aws", "http_api"
+  label, description
+  fields             jsonb     -- the same field schema as credential types (§13.3): public settings
+  identity_types     jsonb     -- credential type ids a group may use as its identity here
+  builtin            bool
+
+connections
+  id                 int pk    -- migrated ones take their environment's id (D34)
+  environment_id     fk environments (ON DELETE CASCADE)
+  type_id            fk connection_types (ON DELETE RESTRICT)
+  name               text      -- unique within its environment: "iot", "eks"
+  config             jsonb     -- the type's fields: {account_id, region} | {base_url}
+  credential_id      fk credentials, null   -- the connection's own identity, used only
+                                            -- when the group has none (§14.3)
+  position           int       -- order within its environment
+  created_by / created_at / updated_by / updated_at
+
+group_identities           -- who a group is, per connection type (D31)
+  id                 pk
+  group_id           fk user_groups (ON DELETE CASCADE)
+  connection_type_id fk connection_types
+  connection_id      fk connections, null   -- null: the group's default for the type
+  credential_id      fk credentials (ON DELETE RESTRICT: an identity in use can't be deleted)
+  unique (group_id, connection_type_id, connection_id)
+```
+
+- **The connection id sequence starts above the highest environment id.** Migrated
+  rows are inserted with explicit ids, then `setval`, so a new connection can never
+  take an id that a saved session already uses.
+- **`environments.account_id` and `.region` become nullable and stop being read.**
+  The same goes for `user_groups.role_name`. All three are dropped one release later,
+  once the migration has run everywhere (§14.7).
+- **Group access is unchanged:** `group_environment_access` still decides which
+  environments a group sees. A group that sees an environment can use all of its
+  connections, each with the group's own identity.
+
+### 14.3 Who the request runs as: group identities
+
+A request on a connection runs as **the first of these that exists**:
+
+1. the caller's group's identity **for this connection** (the override);
+2. the caller's group's identity **for this connection type** (the default);
+3. **the connection's own credential**, e.g. a shared token on an HTTP API connection;
+4. otherwise, an error naming what is missing: *"Your group (Backend) has no AWS
+   identity for Prod · iot; ask an admin to set one in Settings → User groups."*
+
+Rules:
+- **The identity must be a credential the group can use** (its own group's, or a
+  global one granted to it, D15), and of a type the connection type accepts
+  (`identity_types`). Both are checked when it is set *and* when it is resolved,
+  since a grant can be revoked in between.
+- **The admin group follows the same rules.** Admins always *see* every environment,
+  but they still need an identity to *act* in it, exactly as they need a `role_name`
+  today.
+- **Identities resolve through `credential_store.resolve()`**, so they are audited
+  and masked like any other credential. One thing changes for them: a pane can make
+  dozens of AWS calls a minute, so an identity's **use is recorded at most once an
+  hour per (credential, user, connection)**. `last_used_at` is still updated on every
+  use (D36).
+- **A credential with no secret value set needs no master key** (D35). An *AWS role*
+  with no external ID is just a name. Without this, a deployment with no
+  `PLATFORM_MASTER_KEYS` would lose AWS access entirely on upgrade, since its migrated
+  roles couldn't be stored.
+
+The `aws` connection type accepts two identity types:
+
+| Identity type | What the request does |
+|---|---|
+| `aws_role` (new built-in: **role name**; **external ID**, optional, secret) | Assumes `arn:aws:iam::{account_id}:role/{role_name}` from the platform's own AWS identity, exactly as today. The external ID is passed when set. |
+| `aws_access_keys` (Phase 1 built-in) | Uses the keys directly, for an account the platform's own identity can't reach. |
+
+The `http_api` connection type accepts any credential type that declares `inject`
+(§13.3, D30).
+
+The platform's own AWS identity (IRSA, an instance role) stays the only ambient
+credential, and it is used only to assume roles. The assumed-credentials cache key
+becomes (connection, credential id, credential version), so replacing a role or a
+key takes effect at once.
+
+### 14.4 Several connections per environment
+
+Decided in D32. An environment can hold several connections of one type, each named:
+Prod holds *iot* (account A, eu-west-1) and *eks* (account B, us-east-1).
+
+- **Panes pick connections.** The picker lists every connection the user can see,
+  grouped by environment:
+  - an environment with **one** connection of the pane's type shows as just its name
+    (**"Prod"**);
+  - an environment with several shows each connection (**"Prod · iot"**,
+    **"Prod · eks"**).
+  - Picking several still queries each and labels results by that name, as picking
+    several environments does today.
+- **After migration every environment holds exactly one AWS connection.** So every
+  picker, every result label and every saved session looks exactly as it does now,
+  which is Phase 2's exit test.
+- **The agent** gets each environment's connections from `get_context`: name, type,
+  and the public config (region, base URL), never the identity. "The IoT things in
+  Prod" then resolves to Prod · iot. A pane input can be given an environment where
+  a connection is expected:
+  - with one connection of the right type, it is used;
+  - with several, the input is refused, listing them, so the model picks one rather
+    than guessing.
+- **Splitting access stays an environment decision.** If Backend may see Prod's IoT
+  but not its EKS, those belong in two environments. That is a choice about group
+  access, not about how AWS is organised.
+
+### 14.5 Migration
+
+Run once at startup, keyed on `connections` being created (the `main.py` one-shot
+pattern), in one transaction:
+
+1. **Each `Environment(id, name, account_id, region)`** becomes:
+   - that environment, unchanged (same id, same name, same group access);
+   - one `aws` connection with **the same id**, named `aws`, with config
+     `{account_id, region}`.
+2. **Each group with a `role_name`** gets:
+   - an *AWS role* credential, scope = that group, named "*Group* AWS role", with
+     `role_name` as its value;
+   - a `group_identities` row making it the group's default for `aws`.
+
+   The Admin group is included: it has a `role_name` today, and the legacy
+   default-role setting was moved onto it by `bootstrap.py`.
+3. **Audit:** one `system` audit event per created credential and identity.
+4. **Pane state, templates, saved items and agent tokens need no change.** Every
+   stored environment id is now also the id of that environment's only connection
+   (D34).
+5. **Proof the migration kept behaviour:**
+   - Every existing backend test and browser suite passes unchanged.
+   - A migration test builds the old schema with rows, migrates, then checks that
+     every resolved (account, region, role) triple equals what `resolve.py` returned
+     before.
+
+Rolling back after the migration has run means restoring the database backup taken
+before the upgrade; `DEPLOYMENT.md` says so. The old columns are kept for one release
+for exactly this reason.
+
+### 14.6 What changes in the code
+
+- **`resolve.py`:**
+  - `resolve_target(db, user, connection_id, type_id) -> Target`: a visible
+    connection of the right type, plus its resolved identity.
+  - It replaces `resolve_environment` + `resolve_role_name` at each call site in
+    `queries.py`, `tables.py`, `buckets.py`, `cognito.py`, `opensearch.py`, `iot.py`,
+    `log_groups.py` and `tools.py`.
+  - `require_flag` stays as it is; per-type permissions are Phase 3d.
+  - The not-visible error stays "… is not configured", never revealing which.
+- **`aws_client.py`** takes a `Target` instead of `(account_id, region, role_name)`:
+  `get_client(service, target)`, `get_credentials(target)`. Inside, assume-role
+  versus direct keys is decided by the identity's type. Every `*_client.py` follows
+  mechanically.
+- **API payloads keep `environment_id` / `environment_ids`; the values are connection
+  ids** (D34). Responses keep `environment_name`, which becomes the display name:
+  "Prod", or "Prod · iot".
+- **`platform_tools/panes.py`:**
+  - The `environment(s)` input kinds validate connection ids, and accept an
+    environment when it has exactly one connection of the type.
+  - `_check_reachable` and `inspect_row`'s detail go through `resolve_target`.
+  - `get_context` lists environments → connections.
+- **The frontend:** the environment pickers (`LogGroupSelector`, the IoT, DynamoDB,
+  S3 and Cognito pages, the OpenSearch index selector) take a list of *targets*
+  from a new `GET /api/targets?type=aws`: `{id, label, environment, connection}`.
+  Today they take environments. Nothing they store changes shape.
+- **The HTTP client** (D33): a *Target* select listing `http_api` connections. With
+  one picked:
+  - the URL field takes a path, joined to the base URL;
+  - Auth defaults to "the connection's identity", with an explicit credential still
+    allowed to override it;
+  - the joined URL goes through the same SSRF guard.
+
+### 14.7 API
+
+| Route | Who | |
+|---|---|---|
+| `GET /api/connection-types` | admin | the built-ins, with their fields and accepted identity types |
+| `GET/POST /api/environments`, `GET/PATCH/DELETE /api/environments/{id}` | admin (GET list: everyone, filtered to what their group sees, as today) | an environment now returns its connections |
+| `POST /api/environments/{id}/connections`, `PATCH/DELETE /api/connections/{id}` | admin | refuses a second connection with the same name; deleting one that saved sessions use warns, it doesn't block |
+| `POST /api/connections/{id}/test` | admin | resolves as a chosen group and makes one cheap call (`sts:GetCallerIdentity` for `aws`; a GET of the base URL for `http_api`), so "does Backend reach Prod · iot?" is one click |
+| `GET /api/targets?type=` | everyone | the connections the caller can use, with display labels: what pickers and the agent read |
+| `GET/PUT /api/user-groups/{id}/identities` | admin | the group's default per connection type, and its overrides |
+
+Every write is audited (`environment.*`, `connection.*`, `identity.*`). No response
+carries a credential value; identities are reported by credential id and name only.
+
+### 14.8 Settings
+
+Both pages are redone in the Credentials layout: a list whose rows open into
+`CardSection`s.
+
+- **Environments.** Each row shows the name, its connections ("aws: 1234 eu-west-1",
+  or "iot, eks") and the groups that see it. Opened, it has:
+  - **Details:** name, description.
+  - **Connections:** each with its type, name, config fields and optional own
+    credential. Add, rename, reorder, remove, and **Test as…** a group.
+  - **Access:** the groups that see it, as tags plus a picker. This is the same
+    data as the group editor's environment list, editable from either side.
+- **User groups.** Each row shows the name, its environments, members and identity
+  ("AWS: Backend AWS role"). Opened, it has:
+  - **Details:** name.
+  - **Pages:** today's per-page switches.
+  - **Environments:** what it sees.
+  - **Identities**, new: per connection type, the default credential (a picker of
+    credentials of an accepted type that this group can use), then overrides, one
+    per connection, added from a picker of the connections it can see.
+  - The *IAM role name* field is gone. It is the default AWS identity now, and the
+    migration created it.
+
+### 14.9 Delivery, tests and done
+
+**One PR** after this plan's PR (as Phase 1, D29), since none of it is testable in
+the UI in pieces. Tests:
+
+- **Migration:**
+  - ids kept;
+  - one `aws` connection per environment, named `aws`;
+  - each group's role is now a group credential and the group's default identity;
+  - the (account, region, role) triples are unchanged;
+  - running the migration twice changes nothing;
+  - a deployment with no master key migrates and still reaches AWS (D35).
+- **Resolution order:**
+  - override, then default, then the connection's own credential, then a readable
+    error;
+  - a revoked grant stops an identity at resolve time;
+  - an identity of a type the connection type doesn't accept is refused.
+- **Several connections per environment:**
+  - labels ("Prod · iot");
+  - a pane querying two connections in one environment;
+  - an environment given where a connection is expected: used with one connection,
+    refused (listing them) with several.
+- **Access:** a group sees an environment's connections only with access to it, and
+  even then acts only with its own identity. The cross-group and shared-session cases
+  in `test_platform_tools.py` all still hold.
+- **Audit:**
+  - identity uses are coalesced hourly, while `last_used_at` moves on every use;
+  - no response carries a credential value (the Phase 1 recorder, extended to these
+    routes).
+- **HTTP client:**
+  - target plus path;
+  - the connection's identity is applied;
+  - a base URL pointing inward is refused by the SSRF guard.
+- **Browser:**
+  - every existing suite passes unchanged (the exit test);
+  - new suites for Settings → Environments (add a second connection, test as a
+    group) and Settings → User groups → Identities, each failing against the old
+    frontend.
+
+**Done when:**
+- everything works exactly as today through the new model;
+- an admin can put two AWS accounts in one environment and give a group a different
+  role in each;
+- the HTTP client can call an environment's API through its connection;
+- no role name is read from `user_groups` any more.
+
+### 14.10 Open questions for Phase 2
+
+None open as of 2026-10-07: D31–D36 settle what came up while drafting. New ones go
+here.
 
 ## 12. Research sources
 
