@@ -14,7 +14,14 @@ PR at the user's request (D29): the store, user-definable types, API, audit log
 and key rotation; the Settings screens; the master key in Helm, docker-compose
 and DEPLOYMENT.md; and the HTTP client's Auth. Backend 252 tests (23 new);
 browser suites smoke58 (screens) and smoke59 (Auth), both failing against the
-old frontend. Next: Phase 2 (connections and generalised environments).
+old frontend. After testing it (#101 merged), a follow-up PR (#102): values
+computed from a secret (a Basic header's base64, a URL-encoded parameter) are
+masked in echoed responses too; the Settings screens were redone as one
+Credentials tab with a Credentials | Types switch, rows that open into the
+session card's sections, and the HTTP parts of a type folded under Advanced
+(D30: how a credential is used belongs to what uses it); and the grant picker
+no longer vanishes once every group has it. Next: Phase 2 (connections and
+generalised environments).
 
 ## Where things stand
 

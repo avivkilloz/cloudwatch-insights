@@ -3265,50 +3265,24 @@ th {
   margin-right: 6px;
 }
 
-/* ---- Settings: Credentials and Credential types (PLATFORM_PLAN.md §13.6) ---- */
+/* ---- Settings: Credentials (PLATFORM_PLAN.md §13.6) ---- */
 
-/* Label column and value column, like the session card's rows. */
-.credential-form {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 560px);
-  gap: 8px 12px;
-  align-items: start;
+/* A list's head: the Credentials | Types switch, one line saying what this
+   is, and the one action -- in place of a heading, a paragraph and a button. */
+.credential-list-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.credential-form > .field-label {
-  margin: 6px 0 0;
+.credential-list-head > .muted {
+  flex: 1;
+  min-width: 0;
 }
 
-.credential-form input[type="text"],
-.credential-form input[type="password"],
-.credential-form input[type="number"],
-.credential-form select,
-.credential-form textarea {
-  width: 100%;
-}
-
-.credential-form .credential-type-help {
-  grid-column: 1 / -1;
-  margin: 4px 0 0;
-}
-
-.credential-field-help {
-  font-size: 12px;
-  margin-top: 2px;
-}
-
-/* A secret typed into a multi-line box is still hidden as it's typed, the way
-   a password input is, where the browser supports it. */
-.credential-secret-input {
-  -webkit-text-security: disc;
-}
-
-.credential-secret-tag {
-  margin-left: 6px;
-}
-
-.credential-block + .credential-block {
-  margin-top: 14px;
+.credential-empty {
+  margin: 0;
 }
 
 .credentials-table td,
@@ -3316,55 +3290,88 @@ th {
   vertical-align: top;
 }
 
-.credential-details {
-  font-size: 12px;
-}
-
-.credential-test-message {
-  font-size: 12px;
-  max-width: 260px;
-}
-
-.credential-grants {
-  max-width: 280px;
-}
-
-.credential-grant {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0 4px 4px 0;
-}
-
-.credential-grant-remove {
-  border: none;
-  background: none;
-  padding: 0 2px;
-  min-height: 0;
-  height: auto;
-  font-size: 11px;
-  line-height: 1;
-  color: inherit;
+/* A row opens its item; nothing else is clickable in it. */
+.credential-row {
   cursor: pointer;
 }
 
-.credential-grant-add {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
+.credential-row:hover td,
+.credential-row:focus-visible td {
+  background: var(--panel-alt);
 }
 
-.credential-static {
-  font-size: 13px;
-  padding-top: 6px;
+.credential-row:focus-visible {
+  outline: none;
 }
 
-.credential-actions {
+.credential-name {
+  font-weight: 600;
+}
+
+.credential-count {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.credential-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
 }
 
-.credential-actions button + button {
-  margin-left: 6px;
+.credential-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.credential-status.ok .credential-status-dot {
+  background: var(--ok);
+}
+
+.credential-status.error {
+  color: var(--error);
+}
+
+.credential-status.error .credential-status-dot {
+  background: var(--error);
+}
+
+.credential-status.none {
+  color: var(--text-dim);
+}
+
+.credential-field-names {
+  color: var(--text-dim);
+}
+
+.credential-lock {
+  font-size: 10px;
+}
+
+/* The fold for the built-in types, a row of the same table so the columns
+   don't jump when it opens. */
+.credential-builtins-toggle td {
+  padding-top: 10px;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
 }
 
 .credentials-notice {
@@ -3376,28 +3383,231 @@ th {
   margin: 0 0 12px;
 }
 
-.credential-type-example,
-.credential-type-template {
-  width: 100%;
-  max-width: 740px;
+/* ---- an opened credential or type: the session card's sections */
+
+.credential-view-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.credential-type-fields input[type="text"] {
+.credential-view-head h2 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credential-view-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.credential-view .session-card-section + .session-card-section,
+.credential-fieldset > .session-card-section + .session-card-section,
+.credential-fieldset + .session-card-section {
+  margin-top: 10px;
+}
+
+/* Wider labels than the session card's: a field's label can be a few words. */
+.credential-view .session-card-row {
+  grid-template-columns: 140px minmax(0, 600px);
+}
+
+.credential-view .session-card-values > input[type="text"],
+.credential-view .session-card-values > input[type="password"],
+.credential-view .session-card-values > input[type="number"],
+.credential-view .session-card-values > select,
+.credential-view .session-card-values > textarea {
   width: 100%;
-  min-width: 80px;
+}
+
+.credential-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.credential-section-head h3 {
+  margin: 0;
+}
+
+/* A value with a line of help under it: the input, then the help. */
+.credential-value {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.credential-value input[type="text"],
+.credential-value input[type="password"],
+.credential-value input[type="number"],
+.credential-value select,
+.credential-value textarea {
+  width: 100%;
+}
+
+.credential-static {
+  font-size: 13px;
+  line-height: 28px;
+}
+
+.credential-secret-mark {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* A secret typed into a multi-line box is still hidden as it's typed, the way
+   a password input is, where the browser supports it. */
+.credential-secret-input {
+  -webkit-text-security: disc;
+}
+
+.credential-grants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.credential-grant {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 10px;
+  color: var(--text);
+}
+
+.credential-grant-remove {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.credential-access-note {
+  width: 100%;
+}
+
+.credential-history {
+  width: auto;
+}
+
+.credential-history td {
+  border-bottom: none;
+  padding: 3px 10px 3px 0;
+}
+
+.credential-locked {
+  margin: -4px 0 12px;
+}
+
+/* The fieldset only disables a built-in type's inputs; it draws nothing.
+   Its disabled inputs lose their fill, so they read as values, not boxes
+   waiting to be typed in. */
+.credential-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.credential-fieldset:disabled input[type="text"],
+.credential-fieldset:disabled select,
+.credential-fieldset:disabled textarea {
+  background: transparent;
+  opacity: 1;
+}
+
+.credential-example {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.credential-type-fields th,
+.credential-type-fields td {
+  padding: 4px 6px;
+  border-bottom: none;
+}
+
+.credential-type-fields th:first-child,
+.credential-type-fields td:first-child {
+  padding-left: 0;
+}
+
+.credential-type-fields input[type="text"],
+.credential-type-fields select {
+  width: 100%;
+  min-width: 70px;
+}
+
+.credential-check {
+  text-align: center;
+}
+
+/* The Advanced fold's header, a button the width of its section. It sits
+   outside the fieldset that locks a built-in type (a disabled fieldset
+   disables its buttons too), so a built-in's Advanced part still opens. */
+.credential-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.credential-advanced-toggle h3 {
+  margin: 0;
+}
+
+.credential-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Method and URL on one line, the URL taking the rest. */
+.credential-test-request {
+  display: flex;
+  gap: 8px;
+}
+
+.credential-test-request input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.credential-value .credential-test-request select {
+  flex: none;
+  width: auto;
 }
 
 .credential-preview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  max-width: 740px;
-  margin-top: 8px;
-  align-items: start;
-}
-
-.credential-preview textarea {
   width: 100%;
+  align-items: start;
 }
 
 .credential-preview-output {
@@ -3410,7 +3620,6 @@ th {
   white-space: pre-wrap;
 }
 
-.credential-type-editor h3,
-.credential-editor h3 {
-  margin: 16px 0 6px;
+.credential-view-foot {
+  margin-top: 14px;
 }

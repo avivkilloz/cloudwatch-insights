@@ -307,7 +307,10 @@ change it (no reveal, D25).
   the request (a log-record factory, so handlers added later are covered)
   and in any text passed through `mask()` (a test's message, an echoed
   response). It refreshes the type row after its commit -- returned expired,
-  a caller with a closed session couldn't read it.
+  a caller with a closed session couldn't read it. `apply_inject` registers
+  what it *computes* from them too (`register_derived`: a Basic header's
+  base64, a URL-encoded parameter, a templated value) -- none holds a raw
+  secret, so httpbin's `/get` echoed a Basic password back readable.
 - **Admins only manage credentials and types** (D24); anyone else sees the
   names and types of what their group can use, nothing more
   (`CredentialSummary`). Group credentials are never granted -- they already
@@ -317,14 +320,24 @@ change it (no reveal, D25).
   transaction. `detail` holds which fields changed, never values.
 - `tests/test_credentials.py` wraps the admin client to keep every response
   body and asserts the secret appears in none, across a whole lifecycle.
-- **Settings → Credentials / Credential types**
-  (`components/settings/CredentialsSettings.tsx`, each section fetching its
-  own data). A stored secret shows "•••• set" with Replace, never a value;
-  an empty secret input on save means "keep it" (the API's own rule), so an
-  edit to a username can't wipe a password. A type with a check is saved
-  first and tested second -- a credential can be right and still fail a
-  test the platform can't complete. Grants are tags plus one "Grant to…"
-  picker: a checkbox per group made every row as tall as the group list.
+- **Settings → Credentials** (`components/settings/CredentialsSettings.tsx`)
+  is one tab with a *Credentials | Types* switch (a ninth tab wrapped), each
+  view fetching its own data. Lists are plain tables whose rows open the
+  item; everything done to one is in the opened view, in the session card's
+  `CardSection`/`CardRow` sections -- four buttons per row and paragraphs
+  of help were what made the first version read as cluttered. A stored
+  secret shows "•••• set" with Replace, never a value; an empty secret
+  input on save means "keep it" (the API's own rule), so an edit to a
+  username can't wipe a password. A type with a check is saved first and
+  tested second -- a credential can be right and still fail a test the
+  platform can't complete. Access (grants) is part of the draft and saved
+  by Save; its picker never offers admin groups (they can use everything)
+  and stays, disabled, once every group has it -- when it vanished, two
+  groups granted read as a limit of two. A built-in type opens read-only
+  inside a disabled `fieldset`, with its Advanced toggle outside it (a
+  disabled fieldset disables its buttons too). The type editor folds
+  output template, HTTP `inject` and `http_test` under Advanced: how a
+  credential is used belongs to what uses it (PLATFORM_PLAN.md D30).
   `readableError()` (`api.ts`) shows the backend's `detail`, not
   "400 Bad Request: {…}".
 - **The HTTP client's Auth** (`credentialId` in the pane's state, an id

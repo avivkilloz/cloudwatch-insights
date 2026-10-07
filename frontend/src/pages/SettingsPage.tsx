@@ -6,7 +6,7 @@ import Avatar from "../components/Avatar";
 import ThemeGrid from "../components/ThemeGrid";
 import { ThemeId } from "../theme";
 import SavedItemsPage from "./SavedItemsPage";
-import { CredentialsSection, CredentialTypesSection } from "../components/settings/CredentialsSettings";
+import CredentialsSettings from "../components/settings/CredentialsSettings";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 
@@ -57,8 +57,7 @@ type Section =
   | "environments"
   | "groups"
   | "users"
-  | "credentials"
-  | "credential-types";
+  | "credentials";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
@@ -71,8 +70,9 @@ const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "environments", label: "Environments" },
   { id: "groups", label: "User groups" },
   { id: "users", label: "Users" },
+  // Credentials and their types are one tab, switched inside it: a ninth tab
+  // wrapped "Credential types" onto two lines.
   { id: "credentials", label: "Credentials" },
-  { id: "credential-types", label: "Credential types" },
 ];
 
 type GroupDraft = {
@@ -423,8 +423,7 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       )}
 
       {/* Each fetches its own data: nothing else on this page needs it. */}
-      {isAdmin && section === "credentials" && <CredentialsSection />}
-      {isAdmin && section === "credential-types" && <CredentialTypesSection />}
+      {isAdmin && section === "credentials" && <CredentialsSettings />}
 
       {isAdmin && !loading && !error && section === "environments" && (
         <>

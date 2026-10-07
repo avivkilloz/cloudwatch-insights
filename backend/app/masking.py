@@ -38,6 +38,17 @@ def register(values: Any) -> None:
         _registered.set(_registered.get() | found)
 
 
+def register_derived(value: str) -> None:
+    """Marks a value computed from registered secrets -- a Basic header's
+    base64, a URL-encoded parameter -- as a secret too: an echoing server
+    hands it back, and none of the raw values it was made from appear in it
+    to be masked. One that still shows a raw secret ("Bearer <token>") is
+    left as it is, since mask() already hides that part and keeps the rest
+    ("Bearer ****") readable."""
+    if mask(value) == value:
+        register(value)
+
+
 def mask(text: str) -> str:
     secrets = _registered.get()
     if not secrets or not text:
