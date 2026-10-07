@@ -25,6 +25,14 @@ generalised environments), detailed in PLATFORM_PLAN.md §14 (2026-10-07, plan P
 for review): a connection says where, a group's identity says who (the IAM role
 becomes an *AWS role* credential, D31); several named connections per environment
 (D32); an `http_api` connection type for the HTTP client (D33); ids kept (D34).
+Phase 2 is built (one PR): connections and group identities in the backend
+(`connections.py`, `resolve_target`/`resolve_identity`, the once-only
+migration), the old API fields kept on top, Settings → Environments and User
+groups in the Credentials layout, and the HTTP client's Target. Backend 269
+tests (16 new in `test_connections.py`, failing on the old code); browser
+suites smoke60 (environments) and smoke61 (identities, HTTP target), both
+failing against the old frontend. Next: Phase 3 (actions, manifests, output
+components).
 
 ## Where things stand
 

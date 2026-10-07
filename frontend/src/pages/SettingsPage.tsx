@@ -1,45 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, Environment, Settings, User, UserGroup } from "../api";
-import { AWS_REGIONS } from "../regions";
+import { api, ApiError, Settings, User, UserGroup } from "../api";
 import { useAuth } from "../AuthContext";
 import Avatar from "../components/Avatar";
 import ThemeGrid from "../components/ThemeGrid";
 import { ThemeId } from "../theme";
 import SavedItemsPage from "./SavedItemsPage";
 import CredentialsSettings from "../components/settings/CredentialsSettings";
+import EnvironmentsSettings from "../components/settings/EnvironmentsSettings";
+import UserGroupsSettings from "../components/settings/UserGroupsSettings";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
-
-const TAB_TOGGLES: {
-  key:
-    | "logs_enabled"
-    | "opensearch_enabled"
-    | "iot_enabled"
-    | "tables_enabled"
-    | "buckets_enabled"
-    | "cognito_enabled"
-    | "aggregator_enabled"
-    | "tools_enabled"
-    | "agent_enabled";
-  label: string;
-}[] = [
-  // Two pages, two sets of credentials: a group can be given one without the
-  // other, which one flag covering both could not say.
-  { key: "logs_enabled", label: "CloudWatch" },
-  { key: "opensearch_enabled", label: "OpenSearch" },
-  { key: "iot_enabled", label: "IoT" },
-  { key: "tables_enabled", label: "DynamoDB" },
-  { key: "buckets_enabled", label: "S3" },
-  { key: "cognito_enabled", label: "Cognito" },
-  // No Aggregator row: every session is one now, so a toggle for it would
-  // mean "this group gets no sessions at all". The column is still on the
-  // group -- nothing reads it, and removing it is a database change for no
-  // gain -- but there is nothing here for it to control.
-  { key: "tools_enabled", label: "Tools" },
-  // Not a page but the same kind of yes/no: the agent acts with everything
-  // else this group has, so it is its own switch, and off for a new group.
-  { key: "agent_enabled", label: "Platform agent" },
-];
 
 // Logos are stored inline as a data: URL in the settings table, which is
 // fetched on every page load -- keep uploads small so that stays cheap.
@@ -75,45 +45,6 @@ const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "credentials", label: "Credentials" },
 ];
 
-type GroupDraft = {
-  name: string;
-  role_name: string;
-  environment_ids: number[];
-} & Record<(typeof TAB_TOGGLES)[number]["key"], boolean>;
-
-function emptyGroupDraft(): GroupDraft {
-  return {
-    name: "",
-    role_name: "",
-    environment_ids: [],
-    logs_enabled: true,
-    opensearch_enabled: true,
-    iot_enabled: true,
-    tables_enabled: true,
-    buckets_enabled: true,
-    cognito_enabled: true,
-    aggregator_enabled: true,
-    tools_enabled: true,
-    agent_enabled: false,
-  };
-}
-
-function groupToDraft(g: UserGroup): GroupDraft {
-  return {
-    name: g.name,
-    role_name: g.role_name ?? "",
-    environment_ids: g.environment_ids,
-    logs_enabled: g.logs_enabled,
-    opensearch_enabled: g.opensearch_enabled,
-    iot_enabled: g.iot_enabled,
-    tables_enabled: g.tables_enabled,
-    buckets_enabled: g.buckets_enabled,
-    cognito_enabled: g.cognito_enabled,
-    aggregator_enabled: g.aggregator_enabled,
-    tools_enabled: g.tools_enabled,
-    agent_enabled: g.agent_enabled,
-  };
-}
 
 interface Props {
   theme: ThemeId;
@@ -129,7 +60,6 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
   const sections = isAdmin ? [...BASE_SECTIONS, ...ADMIN_SECTIONS] : BASE_SECTIONS;
   const [section, setSection] = useState<Section>("account");
 
-  const [environments, setEnvironments] = useState<Environment[]>([]);
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettingsState] = useState<Settings>(EMPTY_SETTINGS);
@@ -143,12 +73,7 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
   const [logoError, setLogoError] = useState<string | null>(null);
   const logoFileInputRef = useRef<HTMLInputElement>(null);
 
-  const [newName, setNewName] = useState("");
-  const [newAccountId, setNewAccountId] = useState("");
-  const [newRegion, setNewRegion] = useState(AWS_REGIONS[0]);
 
-  const [groupDraft, setGroupDraft] = useState<GroupDraft>(emptyGroupDraft());
-  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
 
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
@@ -161,13 +86,11 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
     setLoading(true);
     setError(null);
     try {
-      const [envs, s, g, u] = await Promise.all([
-        api.listEnvironments(),
+      const [s, g, u] = await Promise.all([
         api.getSettings(),
         api.listUserGroups(),
         api.listUsers(),
       ]);
-      setEnvironments(envs);
       applySettings(s);
       setAppTitleDraft(s.app_title ?? "");
       setLogoDraft(s.app_logo_url ?? "");
@@ -233,71 +156,6 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
     setLogoFileName(null);
     setLogoError(null);
     await withActionError(async () => applySettings(await api.updateSettings({ app_logo_url: null })));
-  }
-
-  async function addEnvironment() {
-    if (!newName.trim() || !newAccountId.trim()) return;
-    await withActionError(async () => {
-      await api.createEnvironment({ name: newName.trim(), account_id: newAccountId.trim(), region: newRegion });
-      setNewName("");
-      setNewAccountId("");
-      setNewRegion(AWS_REGIONS[0]);
-      await refresh();
-    });
-  }
-
-  async function removeEnvironment(id: number) {
-    if (!confirm("Remove this environment from the list?")) return;
-    await withActionError(async () => {
-      await api.deleteEnvironment(id);
-      await refresh();
-    });
-  }
-
-  function toggleGroupTab(key: (typeof TAB_TOGGLES)[number]["key"], value: boolean) {
-    setGroupDraft((d) => ({ ...d, [key]: value }));
-  }
-
-  function toggleGroupEnvironment(id: number, checked: boolean) {
-    setGroupDraft((d) => ({
-      ...d,
-      environment_ids: checked ? [...d.environment_ids, id] : d.environment_ids.filter((e) => e !== id),
-    }));
-  }
-
-  function startEditGroup(g: UserGroup) {
-    setEditingGroupId(g.id);
-    setGroupDraft(groupToDraft(g));
-    setActionError(null);
-  }
-
-  function cancelGroupEdit() {
-    setEditingGroupId(null);
-    setGroupDraft(emptyGroupDraft());
-    setActionError(null);
-  }
-
-  async function saveGroup() {
-    if (!groupDraft.name.trim()) return;
-    const payload = { ...groupDraft, name: groupDraft.name.trim(), role_name: groupDraft.role_name.trim() || null };
-    await withActionError(async () => {
-      if (editingGroupId != null) {
-        await api.updateUserGroup(editingGroupId, payload);
-      } else {
-        await api.createUserGroup(payload);
-      }
-      cancelGroupEdit();
-      await refresh();
-    });
-  }
-
-  async function deleteGroup(id: number) {
-    if (!confirm("Delete this user group?")) return;
-    await withActionError(async () => {
-      await api.deleteUserGroup(id);
-      if (editingGroupId === id) cancelGroupEdit();
-      await refresh();
-    });
   }
 
   async function addUser() {
@@ -425,197 +283,9 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       {/* Each fetches its own data: nothing else on this page needs it. */}
       {isAdmin && section === "credentials" && <CredentialsSettings />}
 
-      {isAdmin && !loading && !error && section === "environments" && (
-        <>
-          <div className="panel">
-            <h2>Add environment</h2>
-            <p className="muted">
-              An environment is one AWS account paired with one region — the unit you'll pick from on the Logs page. The
-              IAM role assumed in it comes from the user's group (see User groups).
-            </p>
-            <div className="row" style={{ marginBottom: 10 }}>
-              <div>
-                <span className="field-label">Name</span>
-                <input
-                  type="text"
-                  placeholder="Production us-east-1"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  style={{ width: 200 }}
-                />
-              </div>
-              <div>
-                <span className="field-label">AWS Account ID</span>
-                <input
-                  type="text"
-                  placeholder="111122223333"
-                  value={newAccountId}
-                  onChange={(e) => setNewAccountId(e.target.value)}
-                  style={{ width: 160 }}
-                />
-              </div>
-              <div>
-                <span className="field-label">Region</span>
-                <select value={newRegion} onChange={(e) => setNewRegion(e.target.value)}>
-                  {AWS_REGIONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <button onClick={addEnvironment} disabled={!newName.trim() || !newAccountId.trim()}>
-              Add environment
-            </button>
-          </div>
+      {isAdmin && section === "environments" && <EnvironmentsSettings />}
 
-          <div className="panel">
-            <h2>Configured environments</h2>
-            {environments.length === 0 && <p className="muted">No environments configured yet.</p>}
-            {environments.length > 0 && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Account ID</th>
-                    <th>Region</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {environments.map((e) => (
-                    <tr key={e.id}>
-                      <td>{e.name}</td>
-                      <td>{e.account_id}</td>
-                      <td>{e.region}</td>
-                      <td>
-                        <button className="danger" onClick={() => removeEnvironment(e.id)}>
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
-      )}
-
-      {isAdmin && !loading && !error && section === "groups" && (
-        <>
-          <div className="panel">
-            <h2>{editingGroupId != null ? "Edit user group" : "Create user group"}</h2>
-            <div className="row" style={{ marginBottom: 12, alignItems: "flex-start" }}>
-              <div>
-                <span className="field-label">Name</span>
-                <input
-                  type="text"
-                  value={groupDraft.name}
-                  onChange={(e) => setGroupDraft((d) => ({ ...d, name: e.target.value }))}
-                  style={{ width: 200 }}
-                />
-              </div>
-              <div>
-                <span className="field-label">IAM role name</span>
-                <input
-                  type="text"
-                  placeholder="e.g. CloudWatchInsightsReadOnlyRole"
-                  value={groupDraft.role_name}
-                  onChange={(e) => setGroupDraft((d) => ({ ...d, role_name: e.target.value }))}
-                  style={{ width: 280 }}
-                />
-              </div>
-            </div>
-            <p className="muted" style={{ marginTop: -6, marginBottom: 12 }}>
-              The role this group's members assume in every environment they can see (via{" "}
-              <code>arn:aws:iam::&lt;account_id&gt;:role/&lt;role_name&gt;</code>).
-            </p>
-
-            <span className="field-label">Visible tabs</span>
-            <div className="row" style={{ marginBottom: 12 }}>
-              {TAB_TOGGLES.map((t) => (
-                <label className="checkbox-item" key={t.key}>
-                  <input
-                    type="checkbox"
-                    checked={groupDraft[t.key]}
-                    onChange={(e) => toggleGroupTab(t.key, e.target.checked)}
-                  />
-                  {t.label}
-                </label>
-              ))}
-            </div>
-
-            <span className="field-label">Visible environments</span>
-            {environments.length === 0 && <p className="muted">No environments configured yet.</p>}
-            {environments.length > 0 && (
-              <div className="checkbox-list" style={{ marginBottom: 12 }}>
-                {environments.map((e) => (
-                  <label className="checkbox-item" key={e.id}>
-                    <input
-                      type="checkbox"
-                      checked={groupDraft.environment_ids.includes(e.id)}
-                      onChange={(ev) => toggleGroupEnvironment(e.id, ev.target.checked)}
-                    />
-                    {e.name} ({e.account_id} / {e.region})
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <div className="row">
-              <button onClick={saveGroup} disabled={!groupDraft.name.trim()}>
-                {editingGroupId != null ? "Save changes" : "Create group"}
-              </button>
-              {editingGroupId != null && (
-                <button className="secondary" onClick={cancelGroupEdit}>
-                  Cancel
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <h2>User groups</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Environments</th>
-                  <th>Users</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => (
-                  <tr key={g.id}>
-                    <td>
-                      {g.name} {g.is_admin && <span className="tag ok">Admin</span>}
-                    </td>
-                    <td>{g.role_name || <span className="muted">(none configured)</span>}</td>
-                    <td>{g.is_admin ? <span className="muted">all</span> : g.environment_ids.length}</td>
-                    <td>{g.user_count}</td>
-                    <td>
-                      <div className="row">
-                        <button className="secondary" onClick={() => startEditGroup(g)}>
-                          Edit
-                        </button>
-                        {!g.is_admin && (
-                          <button className="danger" onClick={() => deleteGroup(g.id)}>
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      {isAdmin && section === "groups" && <UserGroupsSettings />}
 
       {isAdmin && !loading && !error && section === "users" && (
         <>

@@ -207,7 +207,7 @@ def test_an_identity_must_be_usable_by_the_group_and_of_an_accepted_type(master_
         f"/api/user-groups/{group_id}/identities",
         json={"identities": [{"connection_type_id": "aws", "credential_id": token["id"]}]},
     )
-    assert resp.status_code == 400 and "can't be an identity on AWS account connections" in resp.json()["detail"]
+    assert resp.status_code == 400 and "can't be an identity on AWS connections" in resp.json()["detail"]
 
 
 def test_a_revoked_grant_stops_an_identity_when_it_is_used(seen):
@@ -312,7 +312,7 @@ def test_an_identitys_use_is_audited_hourly_but_last_used_moves_every_time(seen)
     db = SessionLocal()
     try:
         uses = db.query(models.AuditEvent).filter(models.AuditEvent.action == "credential.use").all()
-        assert len(uses) - before == 1 and uses[-1].detail == {"purpose": "AWS account: Prod"}
+        assert len(uses) - before == 1 and uses[-1].detail == {"purpose": "AWS: Prod"}
         admin_group = db.query(models.UserGroup).filter(models.UserGroup.is_admin.is_(True)).first()
         cred = connections.group_identity(db, admin_group, db.get(models.Connection, env["id"])).credential
         assert cred.last_used_at is not None

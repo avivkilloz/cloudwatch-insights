@@ -12,8 +12,7 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
-(2026-10-07). Phase 1 (§13) is built. Phase 2 is detailed in §14 (D31–D36, drafted
-2026-10-07 for review)._
+(2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built; next is Phase 3._
 
 ---
 
@@ -1095,7 +1094,7 @@ foundation the next one needs.
   UI, a test-on-save hook, an audit log, and the HTTP client's Auth as the first
   consumer. **Detailed in §13.** *Why first:* connections, plugins from private repos,
   declarative steps and workflows all reference credentials.
-- [ ] **Phase 2: Connections and generalised environments.** Connection types (`aws`
+- [x] **Phase 2: Connections and generalised environments.** Built 2026-10-07 (one PR). Connection types (`aws`
   and `http_api`, built-in), environments as groups of named connections (several per
   type allowed, D32), group identities replacing the group's `role_name` (D31), and
   migration of today's environments and roles with ids kept (D34). The AWS routers
@@ -1542,8 +1541,8 @@ All five settled 2026-10-04 as D24–D28 (§11).
 
 ## 14. Phase 2 in detail: connections, environments and group identities
 
-_Drafted 2026-10-07 for review. Nothing is built until this section is agreed; its
-own open questions are in §14.10._
+_Drafted 2026-10-07, agreed (#103) and built the same day, as one PR. Where the
+build differs from the text below, it says so in §14.11._
 
 ### 14.1 Scope
 
@@ -1857,6 +1856,41 @@ the UI in pieces. Tests:
 
 None open as of 2026-10-07: D31–D36 settle what came up while drafting. New ones go
 here.
+
+### 14.11 As built (2026-10-07)
+
+What the build changed or settled that the text above didn't:
+
+- **Connection ids share the environments' id sequence.** This holds for every
+  connection, not only migrated ones, and an environment's first connection takes
+  the environment's id. So an environment made the old way (with an account and a
+  region) still answers to its own id everywhere, and two connections never
+  collide with a stored id.
+- **The old fields stay in the API, on top of the new model.**
+  - `POST /api/environments` with `account_id`/`region` creates that first AWS
+    connection.
+  - `role_name` on user groups reads and sets the group's default AWS identity
+    (`connections.set_group_role`).
+  - Old clients and every existing test keep working. Three test assertions
+    changed: a group's role now shows in its credential list, and one test
+    compared the role to a plain string.
+- **The account ID is checked as digits, not exactly 12.** The old form took any
+  account ID, and rejecting one that worked would have broken the "exactly as
+  today" exit.
+- **The migration runs once, recorded by a marker in `settings`**, not "for every
+  environment without a connection". Otherwise a connection an admin deleted
+  would come back on the next restart.
+- **Hourly coalescing of identity uses is in memory**, so it is per replica.
+- **The `aws` connection type's label is "AWS"**, so identities read "AWS
+  (default)" and "AWS · Prod · eks".
+- **Settings → User groups → Identities** offers "A new AWS role…", which creates
+  the group's own *AWS role* credential on Save. Without it, a new group would
+  need a trip to Credentials first.
+- **Seven browser suites changed only their setup steps**: 13, 16, 17, 20, 22, 23
+  and 36. They created an environment, or a group, through the one-step forms
+  this phase replaced. What they then check is unchanged and passes, including
+  the pane label "Demo Env (111122223333 · us-east-1)", since an environment
+  with one connection is called just its name.
 
 ## 12. Research sources
 

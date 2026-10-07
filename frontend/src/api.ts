@@ -1,8 +1,71 @@
+/** What a pane picks as an "environment": an AWS connection the user can
+ * reach (PLATFORM_PLAN.md §14). `name` is "Prod", or "Prod · iot" where an
+ * environment holds several. Its id is the connection's -- the same number
+ * the environment itself had before connections existed (D34), so every
+ * stored id still names the same place. */
 export interface Environment {
   id: number;
   name: string;
   account_id: string;
   region: string;
+}
+
+/** A connection the user can use, as /api/targets lists it. */
+export interface Target {
+  id: number;
+  label: string;
+  type_id: string;
+  environment_id: number;
+  environment: string;
+  connection: string;
+  config: Record<string, string>;
+}
+
+/** One configured target inside an environment: where something is. */
+export interface Connection {
+  id: number;
+  environment_id: number;
+  type_id: string;
+  type_label: string;
+  name: string;
+  label: string;
+  config: Record<string, string>;
+  /** Its own identity, used only by a group that has none for it. */
+  credential_id: number | null;
+  credential_name: string | null;
+  position: number;
+}
+
+/** An environment as Settings manages it: a named group of connections. */
+export interface EnvironmentRecord {
+  id: number;
+  name: string;
+  description: string | null;
+  account_id: string;
+  region: string;
+  connections: Connection[];
+  /** The groups that see it (admins see every environment anyway). */
+  group_ids: number[];
+}
+
+export interface ConnectionType {
+  id: string;
+  label: string;
+  description: string | null;
+  fields: CredentialField[];
+  /** Credential type ids a group may use as its identity; "@inject" means any that can sign an HTTP request. */
+  identity_types: string[];
+  builtin: boolean;
+}
+
+/** Who a group is on a kind of connection (D31): its default for a type (no connection_id) or an override. */
+export interface GroupIdentity {
+  connection_type_id: string;
+  connection_id: number | null;
+  credential_id: number;
+  connection_label?: string | null;
+  credential_name?: string;
+  credential_type?: string;
 }
 
 export interface Settings {
@@ -713,12 +776,50 @@ export const api = {
     req<UserGroup>(`/user-groups/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteUserGroup: (id: number) => req<void>(`/user-groups/${id}`, { method: "DELETE" }),
 
-  listEnvironments: () => req<Environment[]>("/environments"),
-  createEnvironment: (payload: Omit<Environment, "id">) =>
-    req<Environment>("/environments", { method: "POST", body: JSON.stringify(payload) }),
-  updateEnvironment: (id: number, payload: Partial<Omit<Environment, "id">>) =>
-    req<Environment>(`/environments/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  /** What a pane's environment picker offers: every AWS connection the user can reach, shaped as an Environment. */
+  listEnvironments: async (): Promise<Environment[]> =>
+    (await req<Target[]>("/targets?type=aws")).map((t) => ({
+      id: t.id,
+      name: t.label,
+      account_id: t.config.account_id ?? "",
+      region: t.config.region ?? "",
+    })),
+  listTargets: (type?: string) => req<Target[]>(`/targets${type ? `?type=${encodeURIComponent(type)}` : ""}`),
+  listEnvironmentRecords: () => req<EnvironmentRecord[]>("/environments"),
+  createEnvironment: (payload: { name: string; description?: string | null; account_id?: string; region?: string }) =>
+    req<EnvironmentRecord>("/environments", { method: "POST", body: JSON.stringify(payload) }),
+  updateEnvironment: (id: number, payload: { name?: string; description?: string | null }) =>
+    req<EnvironmentRecord>(`/environments/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  setEnvironmentGroups: (id: number, groupIds: number[]) =>
+    req<EnvironmentRecord>(`/environments/${id}/groups`, { method: "PUT", body: JSON.stringify({ group_ids: groupIds }) }),
   deleteEnvironment: (id: number) => req<void>(`/environments/${id}`, { method: "DELETE" }),
+  listConnectionTypes: () => req<ConnectionType[]>("/connection-types"),
+  addConnection: (
+    environmentId: number,
+    payload: { type_id: string; name: string; config: Record<string, string>; credential_id?: number | null },
+  ) => req<Connection>(`/environments/${environmentId}/connections`, { method: "POST", body: JSON.stringify(payload) }),
+  updateConnection: (
+    id: number,
+    payload: { name?: string; config?: Record<string, string>; credential_id?: number | null; clear_credential?: boolean },
+  ) => req<Connection>(`/connections/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteConnection: (id: number) => req<void>(`/connections/${id}`, { method: "DELETE" }),
+  testConnection: (id: number, groupId: number) =>
+    req<{ ok: boolean; message: string }>(`/connections/${id}/test`, {
+      method: "POST",
+      body: JSON.stringify({ group_id: groupId }),
+    }),
+  listGroupIdentities: (groupId: number) => req<GroupIdentity[]>(`/user-groups/${groupId}/identities`),
+  setGroupIdentities: (groupId: number, identities: GroupIdentity[]) =>
+    req<GroupIdentity[]>(`/user-groups/${groupId}/identities`, {
+      method: "PUT",
+      body: JSON.stringify({
+        identities: identities.map(({ connection_type_id, connection_id, credential_id }) => ({
+          connection_type_id,
+          connection_id,
+          credential_id,
+        })),
+      }),
+    }),
 
   credentialsStatus: () => req<CredentialsStatus>("/credentials/status"),
   listCredentialTypes: () => req<CredentialType[]>("/credential-types"),
@@ -945,6 +1046,8 @@ export const api = {
     body?: string | null;
     /** Applied by the backend; the secret never comes to the browser. */
     credential_id?: number | null;
+    /** An HTTP API connection: `url` is then a path after its base URL, signed with the group's identity there. */
+    target_id?: number | null;
   }) =>
     req<HttpToolResponse>("/tools/http-request", { method: "POST", body: JSON.stringify(payload) }),
 

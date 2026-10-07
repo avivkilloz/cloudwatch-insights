@@ -54,7 +54,8 @@ backend/app/
   models.py          SQLAlchemy models        schemas.py  Pydantic in/out models
   auth.py            session cookie, get_current_user/require_admin, user_out()
   bootstrap.py       creates the Admin group + admin user on startup (idempotent)
-  resolve.py         which IAM role a request assumes (group.role_name)
+  connections.py     connection types, labels, group identities, the one-time migration (Phase 2)
+  resolve.py         which connection a request targets and who it runs as there (resolve_target/_identity)
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
@@ -242,7 +243,8 @@ in `sessions/templates.tsx`. Assume any stored shape you invent will need a
 migration later.
 
 **Access control is per group, never per user.** A user belongs to one
-`UserGroup`, which carries the IAM role name, the visible environments and one
+`UserGroup`, which carries its identities (who it is on each kind of
+connection -- its AWS role, D31), the visible environments and one
 boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
 `/api/auth/me` returns those booleans so the frontend can decide what to offer.
 The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
@@ -355,9 +357,60 @@ change it (no reveal, D25).
   one credential per master key, so a wrong key shows at start, not at
   first use. `smoke58`/`smoke59` need a key (`frontend/e2e/README.md`).
 
-**All AWS calls assume a role** resolved from the caller's group
-(`resolve.resolve_role_name`), through `aws_client.py`. Nothing reads ambient
+**All AWS calls run as the caller's group's identity** on the connection
+(`resolve.resolve_identity`), through `aws_client.py`: a role assumed from the
+platform's own AWS identity, or access keys. Nothing reads ambient
 credentials per service.
+
+**Connections, environments and group identities (PLATFORM_PLAN.md §14,
+Phase 2).** A connection says *where* (an AWS account and region, a base
+URL); a group's identity says *who* (D31).
+- **An environment is a named group of connections** (`models.Connection`,
+  `connections.py`), several of one type allowed (D32): Prod can hold *iot*
+  and *eks*. `connections.label()` names one "Prod" while it is its
+  environment's only connection of its type and "Prod · iot" otherwise, so
+  nothing anyone saw changed on the migration. Group access stays on
+  environments.
+- **Connection ids come from the environments' own sequence**
+  (`server_default nextval('environments_id_seq')`), and an environment's
+  first connection takes the environment's id. That is the whole migration
+  of stored state (D34): every `environment_id` in pane state, templates,
+  saved items and agent inputs is now a connection id that names the same
+  place. Payloads and pane state keep the `environment_id(s)` keys until
+  Phase 3 renames them with the one state shape. Panes don't know any of
+  this: `api.listEnvironments()` returns `/api/targets?type=aws` shaped as
+  `Environment`.
+- **Who a request runs as** (`resolve.resolve_identity_values`): the group's
+  override for that connection, else its default for the connection type,
+  else the connection's own credential, else an error naming what's missing.
+  Through `credential_store.resolve()` like any credential, so checked,
+  audited (at most hourly per credential/user/purpose, D36 -- an AWS pane
+  makes many calls a minute) and masked. `aws_client.Identity` keeps its
+  secrets out of `repr`.
+- **The IAM role is an "AWS role" credential** (built-in `aws_role`), the
+  group's default AWS identity. `connections.migrate_legacy()` made one per
+  group from `user_groups.role_name` and one AWS connection per environment,
+  once (a `Settings` marker, not "has no connection yet", so a deleted
+  connection doesn't come back on restart); conftest runs it the same way.
+  `role_name` and `environments.account_id/region` are no longer read; the
+  user-group and environment APIs still take and return them, on top of the
+  new model (`set_group_role`, `environment_summary`).
+- **A credential with no secret value needs no master key** (D35): an AWS
+  role without an external ID is a name. `_seal`/`_open` ask for the keyring
+  only when there is something to encrypt or decrypt; without that, a
+  deployment with no `PLATFORM_MASTER_KEYS` lost AWS on the upgrade.
+- **The HTTP client's Target** (`http_api` connections, D33): `url` is then a
+  path joined to the base URL server-side, signed with the group's identity
+  there (or the connection's own), through the same SSRF guard.
+- The agent sees each AWS connection in `get_context`'s `environments`
+  (`name` is the label) and a pane input may name a connection by id or
+  label, or an environment when it has exactly one AWS connection --
+  several, and it is told to choose (`panes._visible_environment`).
+- **Settings → Environments / User groups** use the Credentials layout
+  (`settingsLayout.tsx`): connections are saved one by one (each is its own
+  record panes point at), with "Test as…" a group; the group's Identities
+  replace the IAM role field ("A new AWS role…" creates the group's own
+  `aws_role` credential on Save).
 
 **Sharing a session with other users is being built in phases** (`models.SessionMember`,
 `routers/live_sessions.py`'s `/members` routes and its own `_reachable`,

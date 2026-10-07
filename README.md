@@ -357,9 +357,10 @@ The app requires logging in — there's no anonymous/shared access. Every user
 belongs to exactly **one group**, and the group is the sole unit of access
 control:
 
-- **Which IAM role** the user's requests assume in every environment they
-  can see (the group's **IAM role name**; there's no per-environment
-  override).
+- **Who the user's requests run as** where they connect: the group's
+  **identities**. For AWS, that is the IAM role the group assumes in every
+  AWS connection it can see (its default AWS identity), optionally a
+  different role for one connection (an override), or stored access keys.
 - **Which environments** are visible to the user (an explicit allow-list per
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
@@ -618,14 +619,16 @@ The app needs two things:
    way the rest of this policy does.)
 
 In the app's **Settings** (from your picture's menu, at the end of the strip — Admin-group
-members only see the sections below), add an environment for each
-account/region combination you want to query — a
-name, the 12-digit account ID, and a region — under the **Environments**
-section. Then, under **User groups**, set each group's **IAM role name**
-(e.g. `CloudWatchInsightsReadRole`) — this is the role that group's members
-assume in every environment they can see. There's no per-environment role
-override anymore: the role to assume is entirely a property of the logged-in
-user's group.
+members only see the sections below), add an environment under **Environments** — a name ("Prod") — and give it
+a connection for each AWS account/region in it (the 12-digit account ID
+and a region). One environment can hold several, e.g. *iot* and *eks* in
+two accounts; panes then offer them as "Prod · iot" and "Prod · eks".
+Then, under **User groups**, give each group its AWS identity in
+**Identities** — "A new AWS role…" with the role name (e.g.
+`CloudWatchInsightsReadRole`) — the role that group's members assume in
+every AWS connection it can see, unless an override names another for one
+connection. **Test as…** on a connection checks that a group really
+reaches it.
 
 ### IoT tab prerequisite: Fleet Indexing
 

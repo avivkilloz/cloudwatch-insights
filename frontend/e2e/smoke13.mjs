@@ -205,10 +205,17 @@ async function openSession(page, label) {
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
   await page.click('.content .tabs button:has-text("Environments")');
-  await page.waitForSelector("text=Add environment");
-  await page.fill('input[placeholder="Production us-east-1"]', "Demo Env");
-  await page.fill('input[placeholder="111122223333"]', "111122223333");
-  await page.click('button:has-text("Add environment")');
+  // An environment is a name now, holding connections (PLATFORM_PLAN.md §14):
+  // create it, then its one AWS connection -- named just "Demo Env" in panes.
+  await page.click('button:text-is("New environment")');
+  await page.fill("#env-name", "Demo Env");
+  await page.click('.environment-editor button:text-is("Create")');
+  await page.waitForSelector("#conn-name");
+  await page.fill("#conn-name", "aws");
+  await page.fill("#conn-field-account_id", "111122223333");
+  await page.fill("#conn-field-region", "us-east-1");
+  await page.click('.connection-editor button:text-is("Add connection")');
+  await page.waitForSelector('.environment-editor [data-connection="aws"]');
   await page.waitForSelector("text=Demo Env");
 
   // ---------- Tables ----------

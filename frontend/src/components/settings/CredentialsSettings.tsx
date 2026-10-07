@@ -1,4 +1,4 @@
-import { ChangeEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import {
   api,
   ApiError,
@@ -14,6 +14,7 @@ import {
   UserGroup,
 } from "../../api";
 import { CardRow, CardSection } from "../SessionCard";
+import { rowProps, Section, ViewHead } from "./settingsLayout";
 
 /*
  * Settings → Credentials (PLATFORM_PLAN.md §13.6): one tab, switching between
@@ -76,44 +77,6 @@ function ViewSwitch({ view, onChange }: { view: View; onChange: (v: View) => voi
       ))}
     </div>
   );
-}
-
-/** A section of an opened credential or type: the session card's bordered card, with a title. */
-function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <CardSection>
-      <div className="credential-section-head">
-        <h3>{title}</h3>
-        {aside}
-      </div>
-      {children}
-    </CardSection>
-  );
-}
-
-/** An opened item's header: back to the list, its name, and what can be done to it. */
-function ViewHead({ back, title, children }: { back: () => void; title: string; children?: ReactNode }) {
-  return (
-    <div className="credential-view-head">
-      <button className="secondary" onClick={back}>
-        ← Back
-      </button>
-      <h2>{title}</h2>
-      <div className="credential-view-actions">{children}</div>
-    </div>
-  );
-}
-
-/** A table row that opens its item, by click or by Enter. */
-function rowProps(open: () => void) {
-  return {
-    className: "credential-row",
-    tabIndex: 0,
-    onClick: open,
-    onKeyDown: (e: KeyboardEvent) => {
-      if (e.key === "Enter") open();
-    },
-  };
 }
 
 export default function CredentialsSettings() {

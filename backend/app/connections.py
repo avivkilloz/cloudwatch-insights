@@ -29,7 +29,7 @@ ANY_INJECT = "@inject"
 BUILTINS: list[dict] = [
     {
         "id": AWS,
-        "label": "AWS account",
+        "label": "AWS",
         "description": "An AWS account and region. Requests run as the group's AWS role in that account.",
         "fields": [
             {"key": "account_id", "label": "Account ID", "kind": "text", "secret": False, "required": True,

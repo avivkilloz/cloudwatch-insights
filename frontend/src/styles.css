@@ -3623,3 +3623,89 @@ th {
 .credential-view-foot {
   margin-top: 14px;
 }
+
+/* ---- Settings: Environments and User groups (PLATFORM_PLAN.md §14.8), in the Credentials layout */
+
+.credential-list-head h2 {
+  margin: 0;
+}
+
+/* One connection in an opened environment: its name and settings on one
+   line, with a Test-as-a-group check under it. */
+.connection-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.connection-row:first-of-type {
+  border-top: none;
+}
+
+.connection-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.connection-row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.connection-test {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connection-test-result {
+  white-space: normal;
+  font-size: 12px;
+}
+
+.connection-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.connection-editor-foot {
+  margin-top: 4px;
+}
+
+.group-flags {
+  gap: 4px 14px;
+}
+
+.group-identities-help {
+  margin: 0 0 4px;
+}
+
+.group-identity,
+.group-identity-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.group-identity select {
+  flex: 1;
+  min-width: 0;
+  max-width: 520px;
+}
+
+.connection-test select {
+  width: auto;
+  min-width: 160px;
+}
