@@ -11,8 +11,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 `PROGRESS.md` holds where the current work stands; this file holds where we are going
 and why.
 
-_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11). Phase 1 (§13) is
-built; next is Phase 2._
+_Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
+(2026-10-07). Phase 1 (§13) is built; next is Phase 2._
 
 ---
 
@@ -1181,6 +1181,7 @@ None open as of 2026-10-04. New ones go here as they come up.
 | D27 | 2026-10-04 | **The HTTP client's Auth is in Phase 1** as the first real consumer of credentials (§13.8). | Immediate value, and it proves storage, scopes, resolve, masking and audit in production before Phase 2 depends on them. |
 | D28 | 2026-10-04 | **Secret files are capped at 1 MiB** until the blob store (D7, Phase 4). | Keeps encrypted values in Postgres small. |
 | D29 | 2026-10-04 | **Phase 1 ships as one PR**, not the four of §13.9, so it can be tested as a whole. | The store alone has nothing to try in the UI. |
+| D30 | 2026-10-07 | **How a credential is used belongs to what uses it, not to its type.** A credential type is a shape: its fields and which are secret. From Phase 2, a connection type (or a plugin's step) declares which credential types it accepts and how it applies each one. A type's own `inject` and `http_test` stay as the default for plain HTTP requests (the HTTP client, a declarative HTTP step), folded under *Advanced* in the type editor. | Asked while testing Phase 1: HTTP is the commonest way a secret is used, but an SSH key, a database password or a certificate is used some other way, and a type form led by HTTP options made every type look like an API login. n8n puts `authenticate` on the credential type; that suits a tool where nearly everything is HTTP, which this platform deliberately isn't. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -1425,20 +1426,25 @@ contains a secret value**, to admins included: there is no reveal, only replace
 
 ### 13.6 Settings → Credentials
 
-Two new admin sections next to Environments, User groups and Users:
-**Credentials**, and **Credential types**. The types section is a list (built-ins
-marked and locked) and an editor:
-- fields as rows;
-- the paste-an-example shortcut;
-- the output template, with a live preview against sample values;
-- `inject` and `http_test`.
+One admin tab next to Environments, User groups and Users, **Credentials**, with a
+*Credentials | Types* switch inside it (two tabs wrapped the Settings row). Each is a
+list whose rows open the item; what can be done to one is in the opened view, laid
+out in the session card's sections (built 2026-10-07, after the first version's
+four buttons per row and paragraphs of help read as cluttered).
 
-The rest of this section describes the Credentials list.
+The types list shows your own types first and the built-ins folded under one row. An
+opened type has *Details*, *Fields* (with "Fill from an example…") and a folded
+*Advanced* section: the output template with a live preview, and `inject` and
+`http_test` (D30). A built-in opens read-only, with Copy.
+
+The rest of this section describes credentials.
 
 - **List:**
-  - Grouped as *Global* and then one block per group.
-  - Columns: name, type, public fields (e.g. username), test status (✓, ✕ with its
-    message, or "expires in 12 days"), grants (global only), last used.
+  - Columns: name (with its description), type, access ("All groups", the
+    granted groups, "Admins only", or "*Group* only"), test status (a dot: passed,
+    failed with its message, or not tested), last used.
+- **Opened credential:** sections *Details*, *Values*, *Access* (global only) and
+  *History*; Test and Delete in its header.
 - **Create/edit:**
   - Pick a type, and the form is drawn from that type's fields.
   - A secret field that is set shows "•••• set" and a **Replace** button, never the
@@ -1446,7 +1452,10 @@ The rest of this section describes the Credentials list.
   - **Test** next to Save. Save runs the test first when the type has one, and saves
     anyway, with a warning, if the test fails, since a key may be valid somewhere the
     platform can't reach.
-- **Grants:** for a global credential, a multi-select of groups.
+- **Grants:** for a global credential, its groups as tags plus an "Add a group…"
+  picker, saved with Save. Admin groups are never offered (they can use every
+  credential), and the picker stays once every group has it, saying so: when it
+  vanished, two groups granted read as a limit of two.
 - **History:** the credential's audit events (who, what, when, test results, uses).
 - **Delete:** a confirmation. It is refused with the referencing items listed once
   connections exist.

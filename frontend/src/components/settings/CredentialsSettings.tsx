@@ -1,4 +1,4 @@
-import { ChangeEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import {
   api,
   ApiError,
@@ -13,10 +13,17 @@ import {
   readableError,
   UserGroup,
 } from "../../api";
+import { CardRow, CardSection } from "../SessionCard";
 
 /*
- * Settings → Credentials and Settings → Credential types (PLATFORM_PLAN.md
- * §13.6). Admin-only, like the sections beside them.
+ * Settings → Credentials (PLATFORM_PLAN.md §13.6): one tab, switching between
+ * the credentials and their types. Admin-only, like the tabs beside it.
+ *
+ * Each list is a plain table whose rows open the item; everything you can do
+ * to one (edit, test, grant, read its history, delete) is in the opened view,
+ * laid out in the session card's sections -- a row of four buttons per line
+ * made the lists ragged and noisy, and "Credential types" was a ninth Settings
+ * tab that wrapped onto two lines.
  *
  * Nothing on these screens ever holds a secret the user didn't just type: the
  * backend never sends one back (D25), so a secret field that is set shows
@@ -46,6 +53,79 @@ function OffNotice({ status }: { status: CredentialsStatus | null }) {
   );
 }
 
+type View = "credentials" | "types";
+
+/** Credentials | Types, at the head of either list. */
+function ViewSwitch({ view, onChange }: { view: View; onChange: (v: View) => void }) {
+  return (
+    <div className="segmented" role="group" aria-label="Show">
+      {(
+        [
+          ["credentials", "Credentials"],
+          ["types", "Types"],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={value}
+          className={view === value ? "" : "secondary"}
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A section of an opened credential or type: the session card's bordered card, with a title. */
+function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <CardSection>
+      <div className="credential-section-head">
+        <h3>{title}</h3>
+        {aside}
+      </div>
+      {children}
+    </CardSection>
+  );
+}
+
+/** An opened item's header: back to the list, its name, and what can be done to it. */
+function ViewHead({ back, title, children }: { back: () => void; title: string; children?: ReactNode }) {
+  return (
+    <div className="credential-view-head">
+      <button className="secondary" onClick={back}>
+        ← Back
+      </button>
+      <h2>{title}</h2>
+      <div className="credential-view-actions">{children}</div>
+    </div>
+  );
+}
+
+/** A table row that opens its item, by click or by Enter. */
+function rowProps(open: () => void) {
+  return {
+    className: "credential-row",
+    tabIndex: 0,
+    onClick: open,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === "Enter") open();
+    },
+  };
+}
+
+export default function CredentialsSettings() {
+  const [view, setView] = useState<View>("credentials");
+  return (
+    <div className="credentials-settings">
+      {view === "credentials" ? <CredentialsView switcher={<ViewSwitch view={view} onChange={setView} />} /> : null}
+      {view === "types" ? <TypesView switcher={<ViewSwitch view={view} onChange={setView} />} /> : null}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ one field's input
 
 function FieldInput({
@@ -67,7 +147,7 @@ function FieldInput({
   if (field.secret && isSet && !replacing) {
     return (
       <div className="row credential-secret-set">
-        <span className="tag ok">•••• set</span>
+        <span className="credential-secret-mark">•••• set</span>
         <button type="button" className="secondary" onClick={() => setReplacing(true)}>
           Replace
         </button>
@@ -152,17 +232,49 @@ type Draft = {
   scope: "global" | "group";
   group_id: number | null;
   values: Record<string, unknown>;
+  /** Part of the draft like everything else, so Access is saved by Save, not on the spot. */
+  grants: number[];
 };
 
-export function CredentialsSection() {
+/** Who can use a credential, in a few words. Admin groups always can, so they're never listed. */
+function accessSummary(c: Credential, grantable: UserGroup[]): string {
+  if (c.scope === "group") return `${c.group_name ?? "Its group"} only`;
+  const granted = grantable.filter((g) => c.grants.includes(g.id));
+  if (granted.length === 0) return "Admins only";
+  if (granted.length === grantable.length) return "All groups";
+  return granted.map((g) => g.name).join(", ");
+}
+
+function TestStatus({ c, hasTest }: { c: Credential; hasTest: boolean }) {
+  if (!hasTest) return <span className="muted">—</span>;
+  const [state, word] = c.last_test_ok === true ? ["ok", "Passed"] : c.last_test_ok === false ? ["error", "Failed"] : ["none", "Not tested"];
+  return (
+    <span className={`credential-status ${state}`} title={c.last_test_message ?? undefined}>
+      <span className="credential-status-dot" />
+      {word}
+    </span>
+  );
+}
+
+function describeDetail(detail: Record<string, unknown>): string {
+  if (Array.isArray(detail.changed)) return detail.changed.length ? `changed ${detail.changed.join(", ")}` : "no change";
+  if (typeof detail.purpose === "string") return detail.purpose;
+  if ("ok" in detail) return `${detail.ok === false ? "failed" : "passed"}: ${String(detail.message ?? "")}`;
+  if (typeof detail.group === "string") return detail.group;
+  return Object.entries(detail)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .join(", ");
+}
+
+function CredentialsView({ switcher }: { switcher: ReactNode }) {
   const [status, setStatus] = useState<CredentialsStatus | null>(null);
   const [types, setTypes] = useState<CredentialType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [historyFor, setHistoryFor] = useState<Credential | null>(null);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -178,6 +290,7 @@ export function CredentialsSection() {
       setTypes(t);
       setCredentials(c);
       setGroups(g);
+      setLoaded(true);
     } catch (e) {
       setError(readableError(e));
     }
@@ -190,18 +303,27 @@ export function CredentialsSection() {
   const typeById = useMemo(() => Object.fromEntries(types.map((t) => [t.id, t])), [types]);
   const editing = draft?.id != null ? credentials.find((c) => c.id === draft.id) ?? null : null;
   const draftType = draft ? typeById[draft.type_id] : undefined;
-  const nonAdminGroups = groups.filter((g) => !g.is_admin);
+  // Admin groups can use every credential already; granting to one would mean nothing.
+  const grantable = groups.filter((g) => !g.is_admin);
+  const enabled = !!status?.enabled;
+
+  function close() {
+    setDraft(null);
+    setError(null);
+  }
 
   function startNew() {
     const first = types[0];
     setNotice(null);
     setError(null);
-    setDraft({ id: null, name: "", description: "", type_id: first?.id ?? "", scope: "global", group_id: null, values: {} });
+    setHistory([]);
+    setDraft({ id: null, name: "", description: "", type_id: first?.id ?? "", scope: "global", group_id: null, values: {}, grants: [] });
   }
 
-  function startEdit(c: Credential) {
+  async function open(c: Credential) {
     setNotice(null);
     setError(null);
+    setHistory([]);
     setDraft({
       id: c.id,
       name: c.name,
@@ -210,7 +332,13 @@ export function CredentialsSection() {
       scope: c.scope,
       group_id: c.group_id,
       values: { ...c.public_fields },
+      grants: c.grants.filter((id) => grantable.some((g) => g.id === id)),
     });
+    try {
+      setHistory(await api.auditFor("credential", c.id));
+    } catch (e) {
+      setError(readableError(e));
+    }
   }
 
   function cleanedValues(type: CredentialType, values: Record<string, unknown>): Record<string, unknown> {
@@ -243,15 +371,23 @@ export function CredentialsSection() {
               values,
             })
           : await api.updateCredential(draft.id, { name: draft.name, description: draft.description || null, values });
+      if (draft.scope === "global") {
+        const before = editing?.grants ?? [];
+        for (const id of draft.grants.filter((g) => !before.includes(g))) await api.grantCredential(saved.id, id);
+        for (const id of before.filter((g) => !draft.grants.includes(g) && grantable.some((x) => x.id === g)))
+          await api.revokeCredential(saved.id, id);
+      }
       // Saved first, tested second: a credential can be right and still fail
       // a test the platform can't complete (a network it can't reach).
       if (draftType.has_test) {
         const result = await api.testCredential(saved.id);
         setNotice(
-          result.ok === false ? `Saved, but the test failed: ${result.message}` : `Saved. Test passed: ${result.message}`,
+          result.ok === false
+            ? `Saved ${saved.name}, but the test failed: ${result.message}`
+            : `Saved ${saved.name}. Test passed: ${result.message}`,
         );
       } else {
-        setNotice("Saved.");
+        setNotice(`Saved ${saved.name}.`);
       }
       setDraft(null);
       await refresh();
@@ -262,334 +398,294 @@ export function CredentialsSection() {
     }
   }
 
-  async function test(c: Credential) {
+  async function test() {
+    if (!editing) return;
     setError(null);
+    setNotice(null);
     try {
-      const result = await api.testCredential(c.id);
-      setNotice(result.ok === false ? `${c.name}: test failed: ${result.message}` : `${c.name}: ${result.message}`);
+      const result = await api.testCredential(editing.id);
+      setNotice(result.ok === false ? `Test failed: ${result.message}` : `Test passed: ${result.message}`);
+      await refresh();
+      setHistory(await api.auditFor("credential", editing.id));
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  async function remove() {
+    if (!editing) return;
+    if (!confirm(`Delete the credential "${editing.name}"? Anything using it will stop working.`)) return;
+    try {
+      await api.deleteCredential(editing.id);
+      setNotice(`Deleted ${editing.name}.`);
+      setDraft(null);
       await refresh();
     } catch (e) {
       setError(readableError(e));
     }
   }
 
-  async function remove(c: Credential) {
-    if (!confirm(`Delete the credential "${c.name}"? Anything using it will stop working.`)) return;
-    try {
-      await api.deleteCredential(c.id);
-      if (draft?.id === c.id) setDraft(null);
-      await refresh();
-    } catch (e) {
-      setError(readableError(e));
-    }
-  }
-
-  async function toggleGrant(c: Credential, groupId: number, on: boolean) {
-    try {
-      await (on ? api.grantCredential(c.id, groupId) : api.revokeCredential(c.id, groupId));
-      await refresh();
-    } catch (e) {
-      setError(readableError(e));
-    }
-  }
-
-  async function showHistory(c: Credential) {
-    setHistoryFor(c);
-    try {
-      setHistory(await api.auditFor("credential", c.id));
-    } catch (e) {
-      setError(readableError(e));
-    }
-  }
-
-  const blocks: { title: string; rows: Credential[] }[] = [
-    { title: "Global", rows: credentials.filter((c) => c.scope === "global") },
-    ...groups
-      .map((g) => ({ title: g.name, rows: credentials.filter((c) => c.scope === "group" && c.group_id === g.id) }))
-      .filter((b) => b.rows.length > 0),
-  ];
-
-  return (
-    <div className="credentials-settings">
-      <OffNotice status={status} />
+  const messages = (
+    <>
       {error && <p className="error-text credentials-error">{error}</p>}
       {notice && <p className="credentials-notice">{notice}</p>}
+    </>
+  );
 
-      {draft && draftType !== undefined && (
-        <div className="panel credential-editor">
-          <h2>{draft.id == null ? "New credential" : `Edit ${editing?.name ?? "credential"}`}</h2>
-          <div className="credential-form">
-            <label className="field-label" htmlFor="cred-name">
-              Name
-            </label>
+  if (draft && draftType !== undefined) {
+    const ungranted = grantable.filter((g) => !draft.grants.includes(g.id));
+    return (
+      <div className="panel credential-view credential-editor">
+        <ViewHead back={close} title={draft.id == null ? "New credential" : editing?.name ?? "Credential"}>
+          {editing && draftType.has_test && (
+            <button className="secondary" onClick={test} disabled={!enabled}>
+              Test
+            </button>
+          )}
+          {editing && (
+            <button className="danger" onClick={remove}>
+              Delete
+            </button>
+          )}
+        </ViewHead>
+        {messages}
+
+        <Section title="Details">
+          <CardRow label="Name">
             <input id="cred-name" type="text" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-
-            <label className="field-label" htmlFor="cred-type">
-              Type
-            </label>
-            {draft.id == null ? (
-              <select id="cred-type" value={draft.type_id} onChange={(e) => setDraft({ ...draft, type_id: e.target.value, values: {} })}>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                    {t.builtin ? "" : " (custom)"}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="credential-static">{draftType.label}</span>
-            )}
-
-            <label className="field-label" htmlFor="cred-scope">
-              Belongs to
-            </label>
-            {draft.id == null ? (
-              <div className="row">
-                <select
-                  id="cred-scope"
-                  value={draft.scope === "global" ? "global" : String(draft.group_id ?? "")}
-                  onChange={(e) =>
-                    setDraft(
-                      e.target.value === "global"
-                        ? { ...draft, scope: "global", group_id: null }
-                        : { ...draft, scope: "group", group_id: Number(e.target.value) },
-                    )
-                  }
-                >
-                  <option value="global">Global (granted to groups explicitly)</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      Group: {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <span className="credential-static">
-                {draft.scope === "global" ? "Global" : `Group: ${editing?.group_name ?? ""}`}
-              </span>
-            )}
-
-            <label className="field-label" htmlFor="cred-description">
-              Description
-            </label>
+          </CardRow>
+          <CardRow label="Description">
             <input
               id="cred-description"
               type="text"
               value={draft.description}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
             />
+          </CardRow>
+          <CardRow label="Type">
+            {draft.id == null ? (
+              <select id="cred-type" value={draft.type_id} onChange={(e) => setDraft({ ...draft, type_id: e.target.value, values: {} })}>
+                {types.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="credential-static">{draftType.label}</span>
+            )}
+          </CardRow>
+          <CardRow label="Belongs to">
+            {draft.id == null ? (
+              <select
+                id="cred-scope"
+                value={draft.scope === "global" ? "global" : String(draft.group_id ?? "")}
+                onChange={(e) =>
+                  setDraft(
+                    e.target.value === "global"
+                      ? { ...draft, scope: "global", group_id: null }
+                      : { ...draft, scope: "group", group_id: Number(e.target.value), grants: [] },
+                  )
+                }
+              >
+                <option value="global">Everyone it's granted to</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    Only {g.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="credential-static">
+                {draft.scope === "global" ? "Everyone it's granted to" : `Only ${editing?.group_name ?? "its group"}`}
+              </span>
+            )}
+          </CardRow>
+        </Section>
 
-            {draftType.description && <p className="muted credential-type-help">{draftType.description}</p>}
-            {draftType.fields.map((f) => (
-              <Fragment key={f.key}>
-                <label className="field-label" htmlFor={`cred-field-${f.key}`}>
-                  {f.label}
-                  {f.required ? " *" : ""}
-                  {f.secret ? <span className="tag credential-secret-tag">secret</span> : null}
-                </label>
-                <div>
-                  <FieldInput
-                    key={`${draft.type_id}-${f.key}-${draft.id ?? "new"}`}
-                    field={f}
-                    value={draft.values[f.key]}
-                    isSet={f.secret && !!editing?.secret_fields_set.includes(f.key)}
-                    onChange={(v) => setDraft({ ...draft, values: { ...draft.values, [f.key]: v } })}
-                  />
-                  {f.help && <div className="muted credential-field-help">{f.help}</div>}
-                </div>
-              </Fragment>
-            ))}
-          </div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <button onClick={save} disabled={busy || !draft.name.trim() || (draft.scope === "group" && draft.group_id == null)}>
-              {draftType.has_test ? "Save and test" : "Save"}
-            </button>
-            <button className="secondary" onClick={() => setDraft(null)}>
-              Cancel
-            </button>
-          </div>
+        <Section title="Values">
+          {draftType.fields.map((f) => (
+            <CardRow key={f.key} label={`${f.label}${f.required ? " *" : ""}`}>
+              <div className="credential-value">
+                <FieldInput
+                  key={`${draft.type_id}-${f.key}-${draft.id ?? "new"}`}
+                  field={f}
+                  value={draft.values[f.key]}
+                  isSet={f.secret && !!editing?.secret_fields_set.includes(f.key)}
+                  onChange={(v) => setDraft({ ...draft, values: { ...draft.values, [f.key]: v } })}
+                />
+                {f.help && <div className="muted">{f.help}</div>}
+              </div>
+            </CardRow>
+          ))}
+        </Section>
+
+        {draft.scope === "global" && (
+          <Section title="Access">
+            <CardRow label="Groups">
+              <div className="credential-grants">
+                {grantable
+                  .filter((g) => draft.grants.includes(g.id))
+                  .map((g) => (
+                    <span key={g.id} className="tag credential-grant" data-group={g.name}>
+                      {g.name}
+                      <button
+                        type="button"
+                        className="credential-grant-remove"
+                        aria-label={`Remove ${g.name}`}
+                        onClick={() => setDraft({ ...draft, grants: draft.grants.filter((id) => id !== g.id) })}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                {/* Always shown, even with nothing left to add: a picker that
+                    vanished once every group had it read as a limit of two. */}
+                <select
+                  aria-label="Grant to a group"
+                  className="credential-grant-add"
+                  value=""
+                  disabled={ungranted.length === 0}
+                  onChange={(e) => e.target.value && setDraft({ ...draft, grants: [...draft.grants, Number(e.target.value)] })}
+                >
+                  <option value="">{ungranted.length === 0 ? "Every group has it" : "Add a group…"}</option>
+                  {ungranted.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="muted credential-access-note">Admins can always use it.</div>
+            </CardRow>
+          </Section>
+        )}
+
+        {editing && (
+          <Section title="History">
+            {history.length === 0 ? (
+              <p className="muted">Nothing recorded yet.</p>
+            ) : (
+              <table className="credential-history">
+                <tbody>
+                  {history.map((h) => (
+                    <tr key={h.id}>
+                      <td className="muted">{when(h.at)}</td>
+                      <td>{h.actor_name ?? h.actor_kind}</td>
+                      <td>{h.action.replace(/^credential\./, "")}</td>
+                      <td className="muted">{describeDetail(h.detail)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+        )}
+
+        <div className="row credential-view-foot">
+          <button onClick={save} disabled={busy || !enabled || !draft.name.trim() || (draft.scope === "group" && draft.group_id == null)}>
+            {draftType.has_test ? "Save and test" : "Save"}
+          </button>
+          <button className="secondary" onClick={close}>
+            Cancel
+          </button>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      <div className="panel">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Credentials</h2>
-          <button onClick={startNew} disabled={!status?.enabled || types.length === 0}>
+  return (
+    <>
+      <OffNotice status={status} />
+      <div className="panel credential-list">
+        <div className="credential-list-head">
+          {switcher}
+          <span className="muted">Encrypted, and never shown again once saved.</span>
+          <button onClick={startNew} disabled={!enabled || types.length === 0}>
             New credential
           </button>
         </div>
-        <p className="muted">
-          Secrets are encrypted at rest and never shown again, to admins included: replace one to change it. A global
-          credential is usable by a group only once granted to it.
-        </p>
-        {credentials.length === 0 && <p className="muted">No credentials yet.</p>}
-        {blocks.map(
-          (b) =>
-            b.rows.length > 0 && (
-              <div key={b.title} className="credential-block">
-                <h3>{b.title}</h3>
-                <table className="credentials-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Details</th>
-                      <th>Test</th>
-                      {b.title === "Global" && <th>Granted to</th>}
-                      <th>Last used</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {b.rows.map((c) => (
-                      <tr key={c.id} data-credential={c.name}>
-                        <td>
-                          <strong>{c.name}</strong>
-                          {c.description && <div className="muted">{c.description}</div>}
-                        </td>
-                        <td>{c.type_label}</td>
-                        <td className="credential-details">
-                          {Object.entries(c.public_fields).map(([k, v]) => (
-                            <div key={k}>
-                              <span className="muted">{k}:</span> {typeof v === "string" ? v : JSON.stringify(v)}
-                            </div>
-                          ))}
-                          {c.secret_fields_set.length > 0 && (
-                            <div className="muted">{c.secret_fields_set.join(", ")} set</div>
-                          )}
-                        </td>
-                        <td>
-                          {c.last_test_ok === true && <span className="tag ok" title={c.last_test_message ?? ""}>✓</span>}
-                          {c.last_test_ok === false && <span className="tag error" title={c.last_test_message ?? ""}>✕</span>}
-                          {c.last_test_message && <div className="muted credential-test-message">{c.last_test_message}</div>}
-                        </td>
-                        {b.title === "Global" && (
-                          <td className="credential-grants">
-                            {/* Granted groups as tags, the rest behind one picker:
-                                a checkbox per group made every row as tall as the
-                                group list. */}
-                            {c.grants.length === 0 && <span className="muted">Nobody yet</span>}
-                            {nonAdminGroups
-                              .filter((g) => c.grants.includes(g.id))
-                              .map((g) => (
-                                <span key={g.id} className="tag credential-grant" data-group={g.name}>
-                                  {g.name}
-                                  <button
-                                    type="button"
-                                    className="credential-grant-remove"
-                                    aria-label={`Revoke from ${g.name}`}
-                                    onClick={() => toggleGrant(c, g.id, false)}
-                                  >
-                                    ✕
-                                  </button>
-                                </span>
-                              ))}
-                            {nonAdminGroups.some((g) => !c.grants.includes(g.id)) && (
-                              <select
-                                aria-label="Grant to a group"
-                                className="credential-grant-add"
-                                value=""
-                                onChange={(e) => e.target.value && toggleGrant(c, Number(e.target.value), true)}
-                              >
-                                <option value="">Grant to…</option>
-                                {nonAdminGroups
-                                  .filter((g) => !c.grants.includes(g.id))
-                                  .map((g) => (
-                                    <option key={g.id} value={g.id}>
-                                      {g.name}
-                                    </option>
-                                  ))}
-                              </select>
-                            )}
-                          </td>
-                        )}
-                        <td>{when(c.last_used_at)}</td>
-                        <td className="credential-actions">
-                          <button className="secondary" onClick={() => startEdit(c)} disabled={!status?.enabled}>
-                            Edit
-                          </button>
-                          {typeById[c.type_id]?.has_test && (
-                            <button className="secondary" onClick={() => test(c)} disabled={!status?.enabled}>
-                              Test
-                            </button>
-                          )}
-                          <button className="secondary" onClick={() => showHistory(c)}>
-                            History
-                          </button>
-                          <button className="danger" onClick={() => remove(c)}>
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ),
+        {messages}
+        {loaded && credentials.length === 0 && <p className="muted credential-empty">No credentials yet.</p>}
+        {credentials.length > 0 && (
+          <table className="credentials-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Access</th>
+                <th>Test</th>
+                <th>Last used</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentials.map((c) => (
+                <tr key={c.id} data-credential={c.name} {...rowProps(() => open(c))}>
+                  <td>
+                    <span className="credential-name">{c.name}</span>
+                    {c.description && <div className="muted">{c.description}</div>}
+                  </td>
+                  <td>{c.type_label}</td>
+                  <td className="credential-access">{accessSummary(c, grantable)}</td>
+                  <td>
+                    <TestStatus c={c} hasTest={!!typeById[c.type_id]?.has_test} />
+                  </td>
+                  <td className="muted">{when(c.last_used_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-
-      {historyFor && (
-        <div className="panel credential-history">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2>History of {historyFor.name}</h2>
-            <button className="secondary" onClick={() => setHistoryFor(null)}>
-              Close
-            </button>
-          </div>
-          {history.length === 0 && <p className="muted">Nothing recorded yet.</p>}
-          {history.length > 0 && (
-            <table>
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Who</th>
-                  <th>What</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((h) => (
-                  <tr key={h.id}>
-                    <td>{when(h.at)}</td>
-                    <td>{h.actor_name ?? h.actor_kind}</td>
-                    <td>{h.action.replace(/^credential\./, "")}</td>
-                    <td className="muted">{describeDetail(h.detail)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-    </div>
+    </>
   );
-}
-
-function describeDetail(detail: Record<string, unknown>): string {
-  if (Array.isArray(detail.changed)) return detail.changed.length ? `changed ${detail.changed.join(", ")}` : "no change";
-  if (typeof detail.purpose === "string") return detail.purpose;
-  if ("ok" in detail) return `${detail.ok === false ? "failed" : "passed"}: ${String(detail.message ?? "")}`;
-  if (typeof detail.group === "string") return detail.group;
-  return Object.entries(detail)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(", ");
 }
 
 // ------------------------------------------------------------------ types
 
-type TypeDraft = CredentialTypeDraft & { isNew: boolean };
+type TypeDraft = CredentialTypeDraft & { isNew: boolean; builtin: boolean; in_use: number };
 
 function emptyField(): CredentialField {
   return { key: "", label: "", kind: "text", secret: false, required: false, help: "" };
 }
 
-export function CredentialTypesSection() {
+/** What a type's Advanced section holds, for its folded header. */
+function advancedSummary(d: CredentialTypeDraft): string {
+  const parts: string[] = [];
+  if (d.output_template) parts.push("output template");
+  if (d.inject) parts.push(`HTTP: ${d.inject.kind === "basic" ? "Basic" : d.inject.kind === "header" ? "header" : "query parameter"}`);
+  if (d.http_test) parts.push("test request");
+  return parts.length ? parts.join(" · ") : "nothing set";
+}
+
+function FieldNames({ fields }: { fields: CredentialField[] }) {
+  return (
+    <span className="credential-field-names">
+      {fields.map((f, i) => (
+        <span key={f.key}>
+          {i > 0 && ", "}
+          {f.key}
+          {f.secret && (
+            <span className="credential-lock" title="secret" aria-label="secret">
+              {" "}
+              🔒
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function TypesView({ switcher }: { switcher: ReactNode }) {
   const [types, setTypes] = useState<CredentialType[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<TypeDraft | null>(null);
+  const [showBuiltins, setShowBuiltins] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [exampleOpen, setExampleOpen] = useState(false);
   const [example, setExample] = useState("");
   const [sample, setSample] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -598,6 +694,7 @@ export function CredentialTypesSection() {
   async function refresh() {
     try {
       setTypes(await api.listCredentialTypes());
+      setLoaded(true);
     } catch (e) {
       setError(readableError(e));
     }
@@ -613,10 +710,14 @@ export function CredentialTypesSection() {
     setPreview(null);
     setExample("");
     setSample("");
+    setExampleOpen(!from);
+    setAdvancedOpen(false);
     setDraft(
       from
         ? {
             isNew: copy,
+            builtin: from.builtin && !copy,
+            in_use: copy ? 0 : from.in_use,
             id: copy ? `${from.id}_copy` : from.id,
             label: copy ? `${from.label} (copy)` : from.label,
             description: from.description,
@@ -625,8 +726,24 @@ export function CredentialTypesSection() {
             inject: from.inject,
             http_test: from.http_test,
           }
-        : { isNew: true, id: "", label: "", description: "", fields: [emptyField()], output_template: null, inject: null, http_test: null },
+        : {
+            isNew: true,
+            builtin: false,
+            in_use: 0,
+            id: "",
+            label: "",
+            description: "",
+            fields: [emptyField()],
+            output_template: null,
+            inject: null,
+            http_test: null,
+          },
     );
+  }
+
+  function close() {
+    setDraft(null);
+    setError(null);
   }
 
   function setField(i: number, patch: Partial<CredentialField>) {
@@ -648,6 +765,7 @@ export function CredentialTypesSection() {
     try {
       const out = await api.inferCredentialType(parsed);
       setDraft({ ...draft, fields: out.fields, output_template: out.output_template });
+      setExampleOpen(false);
       setNotice(
         `Proposed ${out.fields.length} field${out.fields.length === 1 ? "" : "s"}. Check which are secret before saving.`,
       );
@@ -693,7 +811,7 @@ export function CredentialTypesSection() {
     try {
       if (draft.isNew) await api.createCredentialType(body);
       else await api.updateCredentialType(draft.id, { ...body, confirm_remove: confirmRemove });
-      setNotice("Saved.");
+      setNotice(`Saved ${draft.label}.`);
       setDraft(null);
       await refresh();
     } catch (e) {
@@ -708,316 +826,369 @@ export function CredentialTypesSection() {
     }
   }
 
-  async function remove(t: CredentialType) {
-    if (!confirm(`Delete the credential type "${t.label}"?`)) return;
+  async function remove() {
+    if (!draft) return;
+    if (!confirm(`Delete the credential type "${draft.label}"?`)) return;
     try {
-      await api.deleteCredentialType(t.id);
+      await api.deleteCredentialType(draft.id);
+      setNotice(`Deleted ${draft.label}.`);
+      setDraft(null);
       await refresh();
     } catch (e) {
       setError(readableError(e));
     }
   }
 
-  const keys = draft?.fields.map((f) => f.key).filter(Boolean) ?? [];
-  const inject = draft?.inject ?? null;
-  const setInject = (patch: Partial<CredentialInject> | null) =>
-    draft && setDraft({ ...draft, inject: patch === null ? null : ({ ...(inject ?? { kind: "header" }), ...patch } as CredentialInject) });
-
-  return (
-    <div className="credential-types-settings">
+  const messages = (
+    <>
       {error && <p className="error-text credentials-error">{error}</p>}
       {notice && <p className="credentials-notice">{notice}</p>}
+    </>
+  );
 
-      {draft && (
-        <div className="panel credential-type-editor">
-          <h2>{draft.isNew ? "New credential type" : `Edit ${draft.label}`}</h2>
-          <div className="credential-form">
-            <label className="field-label" htmlFor="type-id">
-              Id
-            </label>
-            {draft.isNew ? (
-              <input id="type-id" type="text" value={draft.id} placeholder="acme_api" onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
-            ) : (
-              <code className="credential-static">{draft.id}</code>
-            )}
-            <label className="field-label" htmlFor="type-label">
-              Label
-            </label>
-            <input id="type-label" type="text" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
-            <label className="field-label" htmlFor="type-description">
-              Description
-            </label>
-            <input
-              id="type-description"
-              type="text"
-              value={draft.description ?? ""}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </div>
-
-          <h3>Paste an example</h3>
-          <p className="muted">
-            Paste the JSON you want a credential of this type to look like. Each value becomes a field, nested objects
-            included, and the pasted shape is kept.
-          </p>
-          <textarea
-            className="credential-type-example"
-            rows={4}
-            value={example}
-            placeholder='{"username": "", "password": "", "region": "eu-west-1"}'
-            onChange={(e) => setExample(e.target.value)}
-            spellCheck={false}
-          />
-          <div className="row" style={{ marginTop: 6 }}>
-            <button className="secondary" onClick={infer} disabled={!example.trim()}>
-              Fill fields from example
+  if (draft) {
+    const locked = draft.builtin;
+    const keys = draft.fields.map((f) => f.key).filter(Boolean);
+    const inject = draft.inject;
+    const setInject = (patch: Partial<CredentialInject> | null) =>
+      setDraft({ ...draft, inject: patch === null ? null : ({ ...(inject ?? { kind: "header" }), ...patch } as CredentialInject) });
+    const source = types.find((t) => t.id === draft.id);
+    return (
+      <div className="panel credential-view credential-type-editor">
+        <ViewHead back={close} title={draft.isNew ? "New credential type" : draft.label}>
+          {!draft.isNew && source && (
+            <button className="secondary" onClick={() => start(source, true)}>
+              Copy
             </button>
-          </div>
+          )}
+          {!draft.isNew && !locked && (
+            <button className="danger" onClick={remove} disabled={draft.in_use > 0} title={draft.in_use > 0 ? "In use" : undefined}>
+              Delete
+            </button>
+          )}
+        </ViewHead>
+        {locked && <p className="muted credential-locked">Built-in types can't be changed. Copy it to make your own.</p>}
+        {messages}
 
-          <h3>Fields</h3>
-          <table className="credential-type-fields">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Label</th>
-                <th>Kind</th>
-                <th>Secret</th>
-                <th>Required</th>
-                <th>Default</th>
-                <th>Help</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.fields.map((f, i) => (
-                <tr key={i}>
-                  <td>
-                    <input aria-label="Key" type="text" value={f.key} onChange={(e) => setField(i, { key: e.target.value })} />
-                  </td>
-                  <td>
-                    <input aria-label="Label" type="text" value={f.label} onChange={(e) => setField(i, { label: e.target.value })} />
-                  </td>
-                  <td>
-                    <select aria-label="Kind" value={f.kind} onChange={(e) => setField(i, { kind: e.target.value as CredentialFieldKind })}>
-                      {KINDS.map((k) => (
-                        <option key={k} value={k}>
-                          {k}
-                        </option>
+        {/* A disabled fieldset is how a built-in type is shown read-only: every input inside goes with it. */}
+        <fieldset className="credential-fieldset" disabled={locked}>
+          <Section title="Details">
+            <CardRow label="Id">
+              {draft.isNew ? (
+                <input id="type-id" type="text" value={draft.id} placeholder="acme_api" onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
+              ) : (
+                <code className="credential-static">{draft.id}</code>
+              )}
+            </CardRow>
+            <CardRow label="Label">
+              <input id="type-label" type="text" value={draft.label} placeholder="Acme API" onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+            </CardRow>
+            <CardRow label="Description">
+              <input
+                id="type-description"
+                type="text"
+                value={draft.description ?? ""}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              />
+            </CardRow>
+          </Section>
+
+          <Section
+            title="Fields"
+            aside={
+              !locked && (
+                <button className="secondary" onClick={() => setExampleOpen(!exampleOpen)} aria-expanded={exampleOpen}>
+                  Fill from an example…
+                </button>
+              )
+            }
+          >
+            {exampleOpen && !locked && (
+              <div className="credential-example">
+                <textarea
+                  className="credential-type-example"
+                  rows={3}
+                  value={example}
+                  placeholder='Paste JSON shaped like the credential, e.g. {"username": "", "password": "", "region": "eu-west-1"}'
+                  onChange={(e) => setExample(e.target.value)}
+                  spellCheck={false}
+                />
+                <button onClick={infer} disabled={!example.trim()}>
+                  Fill fields
+                </button>
+              </div>
+            )}
+            <table className="credential-type-fields">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>Label</th>
+                  <th>Kind</th>
+                  <th>Secret</th>
+                  <th>Required</th>
+                  <th>Default</th>
+                  <th>Help</th>
+                  {!locked && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {draft.fields.map((f, i) => (
+                  <tr key={i}>
+                    <td>
+                      <input aria-label="Key" type="text" value={f.key} onChange={(e) => setField(i, { key: e.target.value })} />
+                    </td>
+                    <td>
+                      <input aria-label="Label" type="text" value={f.label} onChange={(e) => setField(i, { label: e.target.value })} />
+                    </td>
+                    <td>
+                      <select aria-label="Kind" value={f.kind} onChange={(e) => setField(i, { kind: e.target.value as CredentialFieldKind })}>
+                        {KINDS.map((k) => (
+                          <option key={k} value={k}>
+                            {k}
+                          </option>
+                        ))}
+                      </select>
+                      {f.kind === "choice" && (
+                        <input
+                          aria-label="Choices"
+                          type="text"
+                          placeholder="a, b, c"
+                          value={(f.choices ?? []).join(", ")}
+                          onChange={(e) => setField(i, { choices: e.target.value.split(",").map((c) => c.trim()).filter(Boolean) })}
+                        />
+                      )}
+                    </td>
+                    <td className="credential-check">
+                      <input aria-label="Secret" type="checkbox" checked={f.secret} onChange={(e) => setField(i, { secret: e.target.checked })} />
+                    </td>
+                    <td className="credential-check">
+                      <input aria-label="Required" type="checkbox" checked={f.required} onChange={(e) => setField(i, { required: e.target.checked })} />
+                    </td>
+                    <td>
+                      <input
+                        aria-label="Default"
+                        type="text"
+                        disabled={f.secret}
+                        value={f.secret || f.default == null ? "" : String(f.default)}
+                        onChange={(e) => setField(i, { default: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input aria-label="Help" type="text" value={f.help} onChange={(e) => setField(i, { help: e.target.value })} />
+                    </td>
+                    {!locked && (
+                      <td>
+                        <button
+                          className="secondary"
+                          aria-label="Remove field"
+                          onClick={() => setDraft({ ...draft, fields: draft.fields.filter((_, j) => j !== i) })}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!locked && (
+              <div>
+                <button className="secondary" onClick={() => setDraft({ ...draft, fields: [...draft.fields, emptyField()] })}>
+                  Add field
+                </button>
+              </div>
+            )}
+          </Section>
+        </fieldset>
+
+        {/* Folded: most types never need any of it. What credentials of a
+            type are used for belongs to whatever uses them (PLATFORM_PLAN.md
+            D30); authenticating an HTTP request is only the commonest case,
+            so it is an option here rather than the shape of the form. */}
+        <CardSection>
+          <button
+            type="button"
+            className="credential-advanced-toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            <span className={`chevron${advancedOpen ? " open" : ""}`}>▶</span>
+            <h3>Advanced</h3>
+            <span className="muted">{advancedSummary(draft)}</span>
+          </button>
+          {advancedOpen && (
+            <fieldset className="credential-fieldset credential-advanced-body" disabled={locked}>
+              <CardRow label="Output">
+                <div className="credential-value">
+                  <textarea
+                    className="credential-type-template"
+                    rows={3}
+                    value={draft.output_template ?? ""}
+                    placeholder='Empty: an object of the fields. Or CEL, e.g. {"auth": {"user": username, "pass": password}}'
+                    onChange={(e) => setDraft({ ...draft, output_template: e.target.value })}
+                    spellCheck={false}
+                  />
+                  <div className="muted">What a pane or workflow receives from a credential of this type.</div>
+                </div>
+              </CardRow>
+              <CardRow label="Preview">
+                <div className="credential-preview">
+                  <textarea
+                    rows={2}
+                    value={sample}
+                    placeholder={`Sample values, e.g. ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, "…"])))}`}
+                    onChange={(e) => setSample(e.target.value)}
+                    spellCheck={false}
+                  />
+                  <button className="secondary" onClick={runPreview}>
+                    Preview
+                  </button>
+                  {preview !== null && <pre className="credential-preview-output">{preview}</pre>}
+                </div>
+              </CardRow>
+              <CardRow label="HTTP requests">
+                <select
+                  id="inject-kind"
+                  value={inject?.kind ?? ""}
+                  onChange={(e) => setInject(e.target.value === "" ? null : { kind: e.target.value as CredentialInject["kind"] })}
+                >
+                  <option value="">Not used to sign requests</option>
+                  <option value="header">Sends a header</option>
+                  <option value="basic">Basic authentication</option>
+                  <option value="query">Adds a query parameter</option>
+                </select>
+              </CardRow>
+              {inject && inject.kind !== "basic" && (
+                <>
+                  <CardRow label={inject.kind === "header" ? "Header" : "Parameter"}>
+                    <input
+                      id="inject-name"
+                      type="text"
+                      value={inject.name ?? ""}
+                      placeholder={inject.name_from ? `from the field ${inject.name_from}` : inject.kind === "header" ? "Authorization" : "api_key"}
+                      onChange={(e) => setInject({ name: e.target.value })}
+                    />
+                  </CardRow>
+                  <CardRow label="Value">
+                    <input id="inject-value" type="text" value={inject.value ?? ""} placeholder={'"Bearer " + token'} onChange={(e) => setInject({ value: e.target.value })} />
+                  </CardRow>
+                </>
+              )}
+              {inject?.kind === "basic" && (
+                <>
+                  <CardRow label="Username">
+                    <input id="inject-username" type="text" value={inject.username ?? ""} placeholder="username" onChange={(e) => setInject({ username: e.target.value })} />
+                  </CardRow>
+                  <CardRow label="Password">
+                    <input id="inject-password" type="text" value={inject.password ?? ""} placeholder="password" onChange={(e) => setInject({ password: e.target.value })} />
+                  </CardRow>
+                </>
+              )}
+              <CardRow label="Test request">
+                <div className="credential-value">
+                  <div className="credential-test-request">
+                    <select
+                      aria-label="Test method"
+                      value={draft.http_test?.method ?? "GET"}
+                      onChange={(e) =>
+                        setDraft({ ...draft, http_test: draft.http_test ? { ...draft.http_test, method: e.target.value } : null })
+                      }
+                      disabled={!draft.http_test}
+                    >
+                      {["GET", "POST", "HEAD"].map((m) => (
+                        <option key={m}>{m}</option>
                       ))}
                     </select>
-                    {f.kind === "choice" && (
-                      <input
-                        aria-label="Choices"
-                        type="text"
-                        placeholder="a, b, c"
-                        value={(f.choices ?? []).join(", ")}
-                        onChange={(e) => setField(i, { choices: e.target.value.split(",").map((c) => c.trim()).filter(Boolean) })}
-                      />
-                    )}
-                  </td>
-                  <td>
-                    <input aria-label="Secret" type="checkbox" checked={f.secret} onChange={(e) => setField(i, { secret: e.target.checked })} />
-                  </td>
-                  <td>
-                    <input aria-label="Required" type="checkbox" checked={f.required} onChange={(e) => setField(i, { required: e.target.checked })} />
-                  </td>
-                  <td>
                     <input
-                      aria-label="Default"
+                      id="test-url"
                       type="text"
-                      disabled={f.secret}
-                      value={f.secret || f.default == null ? "" : String(f.default)}
-                      onChange={(e) => setField(i, { default: e.target.value })}
+                      value={draft.http_test?.url ?? ""}
+                      placeholder={'"https://" + host + "/me"'}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          http_test: e.target.value
+                            ? { method: draft.http_test?.method ?? "GET", url: e.target.value, headers: draft.http_test?.headers ?? {} }
+                            : null,
+                        })
+                      }
                     />
-                  </td>
-                  <td>
-                    <input aria-label="Help" type="text" value={f.help} onChange={(e) => setField(i, { help: e.target.value })} />
-                  </td>
-                  <td>
-                    <button
-                      className="secondary"
-                      aria-label="Remove field"
-                      onClick={() => setDraft({ ...draft, fields: draft.fields.filter((_, j) => j !== i) })}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button className="secondary" onClick={() => setDraft({ ...draft, fields: [...draft.fields, emptyField()] })}>
-            Add field
-          </button>
+                  </div>
+                  <div className="muted">
+                    Sent on save; any 2xx passes. Empty: no test. The values above are CEL over the fields: text goes in
+                    double quotes.
+                  </div>
+                </div>
+              </CardRow>
+            </fieldset>
+          )}
+        </CardSection>
 
-          <h3>Output (optional)</h3>
-          <p className="muted">
-            What a pane or workflow receives. Empty: an object of the fields. Otherwise a CEL expression over the fields,
-            e.g. <code>{'{"auth": {"user": username, "pass": password}}'}</code>.
-          </p>
-          <textarea
-            className="credential-type-template"
-            rows={3}
-            value={draft.output_template ?? ""}
-            onChange={(e) => setDraft({ ...draft, output_template: e.target.value })}
-            spellCheck={false}
-          />
-          <div className="credential-preview">
-            <textarea
-              rows={3}
-              value={sample}
-              placeholder={`Sample values, e.g. ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, "…"])))}`}
-              onChange={(e) => setSample(e.target.value)}
-              spellCheck={false}
-            />
-            <button className="secondary" onClick={runPreview}>
-              Preview
-            </button>
-            {preview !== null && <pre className="credential-preview-output">{preview}</pre>}
-          </div>
-
-          <h3>Authenticating HTTP requests (optional)</h3>
-          <div className="credential-form">
-            <label className="field-label" htmlFor="inject-kind">
-              How
-            </label>
-            <select
-              id="inject-kind"
-              value={inject?.kind ?? ""}
-              onChange={(e) =>
-                setInject(e.target.value === "" ? null : { kind: e.target.value as CredentialInject["kind"] })
-              }
-            >
-              <option value="">Doesn't authenticate requests</option>
-              <option value="header">A header</option>
-              <option value="basic">Basic authentication</option>
-              <option value="query">A query parameter</option>
-            </select>
-            {inject && inject.kind !== "basic" && (
-              <>
-                <label className="field-label" htmlFor="inject-name">
-                  {inject.kind === "header" ? "Header name" : "Parameter name"}
-                </label>
-                <input id="inject-name" type="text" value={inject.name ?? ""} placeholder={inject.kind === "header" ? "Authorization" : "api_key"} onChange={(e) => setInject({ name: e.target.value })} />
-                <label className="field-label" htmlFor="inject-value">
-                  Value (CEL)
-                </label>
-                <input id="inject-value" type="text" value={inject.value ?? ""} placeholder={'"Bearer " + token'} onChange={(e) => setInject({ value: e.target.value })} />
-              </>
-            )}
-            {inject?.kind === "basic" && (
-              <>
-                <label className="field-label" htmlFor="inject-username">
-                  Username (CEL)
-                </label>
-                <input id="inject-username" type="text" value={inject.username ?? ""} placeholder="username" onChange={(e) => setInject({ username: e.target.value })} />
-                <label className="field-label" htmlFor="inject-password">
-                  Password (CEL)
-                </label>
-                <input id="inject-password" type="text" value={inject.password ?? ""} placeholder="password" onChange={(e) => setInject({ password: e.target.value })} />
-              </>
-            )}
-            <label className="field-label" htmlFor="test-url">
-              Test request URL (CEL)
-            </label>
-            <div className="row">
-              <select
-                aria-label="Test method"
-                value={draft.http_test?.method ?? "GET"}
-                onChange={(e) =>
-                  setDraft({ ...draft, http_test: draft.http_test ? { ...draft.http_test, method: e.target.value } : null })
-                }
-                disabled={!draft.http_test}
-              >
-                {["GET", "POST", "HEAD"].map((m) => (
-                  <option key={m}>{m}</option>
-                ))}
-              </select>
-              <input
-                id="test-url"
-                type="text"
-                value={draft.http_test?.url ?? ""}
-                placeholder={'"https://" + host + "/me"   (empty: no test)'}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    http_test: e.target.value
-                      ? { method: draft.http_test?.method ?? "GET", url: e.target.value, headers: draft.http_test?.headers ?? {} }
-                      : null,
-                  })
-                }
-              />
-            </div>
-          </div>
-
-          <div className="row" style={{ marginTop: 12 }}>
+        <div className="row credential-view-foot">
+          {!locked && (
             <button onClick={() => save()} disabled={busy || !draft.id.trim() || !draft.label.trim()}>
               Save type
             </button>
-            <button className="secondary" onClick={() => setDraft(null)}>
-              Cancel
-            </button>
-          </div>
+          )}
+          <button className="secondary" onClick={close}>
+            {locked ? "Close" : "Cancel"}
+          </button>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      <div className="panel">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Credential types</h2>
-          <button onClick={() => start()}>New type</button>
-        </div>
-        <p className="muted">
-          A type is the shape of a kind of secret: its fields, which are secret, and optionally how it authenticates a
-          request. Built-in types are locked; copy one to make your own.
-        </p>
+  const own = types.filter((t) => !t.builtin);
+  const builtins = types.filter((t) => t.builtin);
+  const row = (t: CredentialType) => (
+    <tr key={t.id} data-credential-type={t.id} {...rowProps(() => start(t))}>
+      <td>
+        <span className="credential-name">{t.label}</span>
+        {t.description && <div className="muted">{t.description}</div>}
+      </td>
+      <td>
+        <FieldNames fields={t.fields} />
+      </td>
+      <td className="credential-count">{t.in_use}</td>
+    </tr>
+  );
+  return (
+    <div className="panel credential-list">
+      <div className="credential-list-head">
+        {switcher}
+        <span className="muted">The fields a kind of credential has, and which are secret.</span>
+        <button onClick={() => start()}>New type</button>
+      </div>
+      {messages}
+      {loaded && (
         <table className="credential-types-table">
           <thead>
             <tr>
               <th>Type</th>
               <th>Fields</th>
-              <th>Used by</th>
-              <th></th>
+              <th className="credential-count">Credentials</th>
             </tr>
           </thead>
           <tbody>
-            {types.map((t) => (
-              <tr key={t.id} data-credential-type={t.id}>
-                <td>
-                  <strong>{t.label}</strong> {t.builtin && <span className="tag">built-in</span>}
-                  <div className="muted">
-                    <code>{t.id}</code>
-                    {t.description ? ` — ${t.description}` : ""}
-                  </div>
-                </td>
-                <td>
-                  {t.fields.map((f) => (
-                    <span key={f.key} className={`tag${f.secret ? " pending" : ""}`} title={f.secret ? "secret" : undefined}>
-                      {f.secret ? "🔒 " : ""}
-                      {f.key}
-                    </span>
-                  ))}
-                </td>
-                <td>{t.in_use}</td>
-                <td className="credential-actions">
-                  {!t.builtin && (
-                    <button className="secondary" onClick={() => start(t)}>
-                      Edit
-                    </button>
-                  )}
-                  <button className="secondary" onClick={() => start(t, true)}>
-                    Copy
-                  </button>
-                  {!t.builtin && (
-                    <button className="danger" onClick={() => remove(t)}>
-                      Delete
-                    </button>
-                  )}
+            {own.map(row)}
+            {own.length === 0 && (
+              <tr>
+                <td colSpan={3} className="muted">
+                  None of your own yet: start one with New type, or open a built-in one and copy it.
                 </td>
               </tr>
-            ))}
+            )}
+            <tr className="credential-builtins-toggle">
+              <td colSpan={3}>
+                <button className="link-button" onClick={() => setShowBuiltins(!showBuiltins)} aria-expanded={showBuiltins}>
+                  <span className={`chevron${showBuiltins ? " open" : ""}`}>▶</span> Built-in types ({builtins.length})
+                </button>
+              </td>
+            </tr>
+            {showBuiltins && builtins.map(row)}
           </tbody>
         </table>
-      </div>
+      )}
     </div>
   );
 }
