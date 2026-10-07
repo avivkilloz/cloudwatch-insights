@@ -298,7 +298,12 @@ def update_credential(
 def delete_credential(
     credential_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
 ):
-    credential_store.delete(db, admin, _get(db, credential_id))
+    try:
+        # Refused, naming the use, while a group's identity or a connection uses it.
+        credential_store.delete(db, admin, _get(db, credential_id))
+    except _EXPECTED as e:
+        db.rollback()
+        raise _fail(e) from None
     return None
 
 

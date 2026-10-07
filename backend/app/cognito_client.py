@@ -7,8 +7,8 @@ from .query_parse import parse_field_filters
 # only list_user_pools / list_users.
 
 
-def list_user_pools(account_id: str, region: str, role_name: str) -> list[dict]:
-    client = aws_client.get_client("cognito-idp", account_id, region, role_name)
+def list_user_pools(account_id: str, region: str, identity: aws_client.Identity) -> list[dict]:
+    client = aws_client.get_client("cognito-idp", account_id, region, identity)
     pools = []
     paginator = client.get_paginator("list_user_pools")
     for page in paginator.paginate(MaxResults=60):
@@ -41,7 +41,7 @@ def _user_summary(user: dict) -> dict:
 def search_users(
     account_id: str,
     region: str,
-    role_name: str,
+    identity: aws_client.Identity,
     user_pool_id: str,
     query_string: str = "",
     limit: int = 30,
@@ -51,7 +51,7 @@ def search_users(
     (starts-with) expression -- unlike the IoT/DynamoDB search boxes, there's
     no ANDing multiple fields here. `field:value` tokens beyond the first in
     query_string are ignored; only one is meaningful to the API."""
-    client = aws_client.get_client("cognito-idp", account_id, region, role_name)
+    client = aws_client.get_client("cognito-idp", account_id, region, identity)
     filters = parse_field_filters(query_string)
 
     kwargs: dict = {"UserPoolId": user_pool_id, "Limit": limit}

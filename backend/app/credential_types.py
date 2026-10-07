@@ -565,6 +565,19 @@ BUILTINS: list[dict] = [
             _f("session_token", "Session token", "multiline", secret=True),
         ],
     },
+    {
+        # A group's identity on AWS connections (PLATFORM_PLAN.md D31): the
+        # role it assumes, by name, in whichever account the connection is.
+        # Without an external ID nothing here is secret, so it needs no
+        # master key (D35).
+        "id": "aws_role",
+        "label": "AWS role",
+        "description": "An IAM role, assumed by name in each connection's account.",
+        "fields": [
+            _f("role_name", "Role name", required=True, help="The role's name, not its ARN: the account comes from the connection."),
+            _f("external_id", "External ID", secret=True, help="Only if the role's trust policy asks for one."),
+        ],
+    },
 ]
 BUILTIN_IDS = {b["id"] for b in BUILTINS}
 

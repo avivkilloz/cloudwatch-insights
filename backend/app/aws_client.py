@@ -1,5 +1,6 @@
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Optional
 
 import boto3
@@ -11,7 +12,7 @@ BOTO_CONFIG = Config(retries={"max_attempts": 5, "mode": "adaptive"})
 SESSION_NAME = "cloudwatch-insights-webapp"
 CREDENTIAL_EXPIRY_BUFFER_SECONDS = 60
 
-_credential_cache: dict[tuple[str, str], dict] = {}
+_credential_cache: dict[tuple, dict] = {}
 _cache_lock = threading.Lock()
 
 
@@ -19,20 +20,54 @@ class AssumeRoleError(Exception):
     pass
 
 
-def _assume_role(account_id: str, role_name: str) -> dict:
-    """Assume `role_name` in `account_id` using the server's ambient AWS identity.
-    Returns a dict of temporary credentials, cached until shortly before expiry.
-    """
-    cache_key = (account_id, role_name)
+@dataclass(frozen=True)
+class Identity:
+    """Who an AWS call runs as: the caller's group's identity on the
+    connection (PLATFORM_PLAN.md D31), resolved from a credential by
+    `resolve.resolve_identity`. Either a role assumed by name in the
+    connection's account from the platform's own AWS identity -- what every
+    group did before identities existed -- or access keys used directly.
+
+    Secrets are kept out of its repr, so an Identity in a log line or a
+    traceback says which role, never which key."""
+
+    role_name: Optional[str] = None
+    external_id: Optional[str] = field(default=None, repr=False)
+    access_key_id: Optional[str] = None
+    secret_access_key: Optional[str] = field(default=None, repr=False)
+    session_token: Optional[str] = field(default=None, repr=False)
+
+
+def _identity(identity: "Identity | str") -> Identity:
+    # A bare string is a role name: what every caller passed before identities.
+    return Identity(role_name=identity) if isinstance(identity, str) else identity
+
+
+def _assume_role(account_id: str, identity: "Identity | str") -> dict:
+    """Temporary credentials for `identity` in `account_id`: access keys as
+    they are, or the role assumed with the server's ambient AWS identity,
+    cached until shortly before expiry."""
+    identity = _identity(identity)
+    if identity.access_key_id:
+        return {
+            "access_key": identity.access_key_id,
+            "secret_key": identity.secret_access_key,
+            "session_token": identity.session_token,
+            "expiration": float("inf"),
+        }
+    cache_key = (account_id, identity.role_name, identity.external_id)
     with _cache_lock:
         cached = _credential_cache.get(cache_key)
         if cached and cached["expiration"] - time.time() > CREDENTIAL_EXPIRY_BUFFER_SECONDS:
             return cached
 
     sts = boto3.client("sts", config=BOTO_CONFIG)
-    role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
+    role_arn = f"arn:aws:iam::{account_id}:role/{identity.role_name}"
+    kwargs = {"RoleArn": role_arn, "RoleSessionName": SESSION_NAME, "DurationSeconds": 3600}
+    if identity.external_id:
+        kwargs["ExternalId"] = identity.external_id
     try:
-        resp = sts.assume_role(RoleArn=role_arn, RoleSessionName=SESSION_NAME, DurationSeconds=3600)
+        resp = sts.assume_role(**kwargs)
     except (ClientError, BotoCoreError) as e:
         raise AssumeRoleError(f"Failed to assume role {role_arn}: {e}") from e
 
@@ -48,15 +83,15 @@ def _assume_role(account_id: str, role_name: str) -> dict:
     return entry
 
 
-def get_credentials(account_id: str, role_name: str) -> dict:
+def get_credentials(account_id: str, identity: Identity) -> dict:
     """Raw temporary credentials (access_key/secret_key/session_token) for
     the assumed role -- needed to SigV4-sign requests made outside of boto3
     itself, e.g. direct HTTP calls to an OpenSearch domain endpoint."""
-    return _assume_role(account_id, role_name)
+    return _assume_role(account_id, identity)
 
 
-def get_client(service: str, account_id: str, region: str, role_name: str):
-    creds = _assume_role(account_id, role_name)
+def get_client(service: str, account_id: str, region: str, identity: Identity):
+    creds = _assume_role(account_id, identity)
     return boto3.client(
         service,
         region_name=region,
@@ -67,10 +102,10 @@ def get_client(service: str, account_id: str, region: str, role_name: str):
     )
 
 
-def get_client_with_endpoint(service: str, account_id: str, region: str, role_name: str, endpoint_url: str):
+def get_client_with_endpoint(service: str, account_id: str, region: str, identity: Identity, endpoint_url: str):
     """Like get_client, but against an explicit endpoint -- needed for
     account-specific endpoints such as the IoT data plane (iot-data)."""
-    creds = _assume_role(account_id, role_name)
+    creds = _assume_role(account_id, identity)
     return boto3.client(
         service,
         region_name=region,
@@ -82,8 +117,8 @@ def get_client_with_endpoint(service: str, account_id: str, region: str, role_na
     )
 
 
-def list_log_groups(account_id: str, region: str, role_name: str) -> list[dict]:
-    client = get_client("logs", account_id, region, role_name)
+def list_log_groups(account_id: str, region: str, identity: Identity) -> list[dict]:
+    client = get_client("logs", account_id, region, identity)
     log_groups = []
     paginator = client.get_paginator("describe_log_groups")
     for page in paginator.paginate():
@@ -101,14 +136,14 @@ def list_log_groups(account_id: str, region: str, role_name: str) -> list[dict]:
 def start_query(
     account_id: str,
     region: str,
-    role_name: str,
+    identity: Identity,
     log_group_names: list[str],
     query_string: str,
     start_time: int,
     end_time: int,
     limit: Optional[int] = 1000,
 ) -> str:
-    client = get_client("logs", account_id, region, role_name)
+    client = get_client("logs", account_id, region, identity)
     kwargs = dict(
         startTime=start_time,
         endTime=end_time,
@@ -123,8 +158,8 @@ def start_query(
     return resp["queryId"]
 
 
-def get_query_results(account_id: str, region: str, role_name: str, query_id: str) -> dict:
-    client = get_client("logs", account_id, region, role_name)
+def get_query_results(account_id: str, region: str, identity: Identity, query_id: str) -> dict:
+    client = get_client("logs", account_id, region, identity)
     resp = client.get_query_results(queryId=query_id)
     return {
         "status": resp.get("status"),
@@ -133,8 +168,8 @@ def get_query_results(account_id: str, region: str, role_name: str, query_id: st
     }
 
 
-def stop_query(account_id: str, region: str, role_name: str, query_id: str) -> None:
-    client = get_client("logs", account_id, region, role_name)
+def stop_query(account_id: str, region: str, identity: Identity, query_id: str) -> None:
+    client = get_client("logs", account_id, region, identity)
     try:
         client.stop_query(queryId=query_id)
     except ClientError as e:

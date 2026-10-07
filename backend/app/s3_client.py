@@ -16,13 +16,13 @@ _bucket_region_cache: dict[tuple[str, str], str] = {}
 _bucket_region_lock = threading.Lock()
 
 
-def _get_bucket_region(account_id: str, region: str, role_name: str, bucket: str) -> str:
+def _get_bucket_region(account_id: str, region: str, identity: aws_client.Identity, bucket: str) -> str:
     cache_key = (account_id, bucket)
     with _bucket_region_lock:
         cached = _bucket_region_cache.get(cache_key)
         if cached:
             return cached
-    client = aws_client.get_client("s3", account_id, region, role_name)
+    client = aws_client.get_client("s3", account_id, region, identity)
     resp = client.get_bucket_location(Bucket=bucket)
     location = resp.get("LocationConstraint") or "us-east-1"
     if location == "EU":  # historical quirk for some old eu-west-1 buckets
@@ -32,8 +32,8 @@ def _get_bucket_region(account_id: str, region: str, role_name: str, bucket: str
     return location
 
 
-def list_buckets(account_id: str, region: str, role_name: str) -> list[dict]:
-    client = aws_client.get_client("s3", account_id, region, role_name)
+def list_buckets(account_id: str, region: str, identity: aws_client.Identity) -> list[dict]:
+    client = aws_client.get_client("s3", account_id, region, identity)
     resp = client.list_buckets()
     buckets = []
     for b in resp.get("Buckets", []):
@@ -57,7 +57,7 @@ def _file_info(obj: dict) -> dict:
 def browse_bucket(
     account_id: str,
     region: str,
-    role_name: str,
+    identity: aws_client.Identity,
     bucket: str,
     prefix: str = "",
     search: str = "",
@@ -74,8 +74,8 @@ def browse_bucket(
       per request so a search over a huge bucket can't run away; page
       further with the returned continuation_token for more matches.
     """
-    bucket_region = _get_bucket_region(account_id, region, role_name, bucket)
-    client = aws_client.get_client("s3", account_id, bucket_region, role_name)
+    bucket_region = _get_bucket_region(account_id, region, identity, bucket)
+    client = aws_client.get_client("s3", account_id, bucket_region, identity)
 
     folders: list[dict] = []
     files: list[dict] = []

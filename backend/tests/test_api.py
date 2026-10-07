@@ -333,8 +333,8 @@ def test_opensearch_indices_resolves_the_role_for_a_real_environment(monkeypatch
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["indices"][0]["index"] == "logs-2024.01"
-    # The role came from the caller's group, not from the environment row.
-    assert seen["role_name"] == TEST_ROLE_NAME
+    # The role came from the caller's group (its AWS identity), not from the environment row.
+    assert seen["role_name"].role_name == TEST_ROLE_NAME
     assert seen["account_id"] == "111122223333"
     assert seen["endpoint"] == "search-x.us-east-1.es.amazonaws.com"
 

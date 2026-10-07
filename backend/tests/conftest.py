@@ -16,15 +16,15 @@ os.environ.setdefault("COOKIE_SECURE", "false")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, credential_types, models
+from app import bootstrap, connections, credential_types, models
 from app.db import Base, SessionLocal, engine
 from app.main import app
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
-# Most AWS-calling endpoints need *some* role name to resolve via the
+# Most AWS-calling endpoints need *some* AWS identity to resolve via the
 # caller's group -- set on the Admin group here so individual tests don't
-# each have to configure one just to get past resolve_role_name().
+# each have to configure one just to get past resolve_identity().
 TEST_ROLE_NAME = "TestRole"
 
 # A single TestClient, shared by every test file (`from tests.conftest
@@ -46,6 +46,9 @@ def _clean_database():
         admin_group.role_name = TEST_ROLE_NAME
         db.commit()
         credential_types.ensure_builtins(db)
+        # The role becomes the Admin group's default AWS identity, the way
+        # the startup migration does it for a real database (§14.5).
+        connections.migrate_legacy(db)
     finally:
         db.close()
 

@@ -44,9 +44,9 @@ class OpenSearchRequestError(Exception):
 
 
 def _request(
-    account_id: str, region: str, role_name: str, method: str, url: str, body: Optional[dict] = None
+    account_id: str, region: str, identity: aws_client.Identity, method: str, url: str, body: Optional[dict] = None
 ) -> dict:
-    creds = aws_client.get_credentials(account_id, role_name)
+    creds = aws_client.get_credentials(account_id, identity)
     credentials = Credentials(creds["access_key"], creds["secret_key"], creds["session_token"])
 
     # The exact same serialized payload must be used for both the signature
@@ -67,8 +67,8 @@ def _request(
     return resp.json()
 
 
-def list_domains(account_id: str, region: str, role_name: str) -> list[dict]:
-    client = aws_client.get_client("opensearch", account_id, region, role_name)
+def list_domains(account_id: str, region: str, identity: aws_client.Identity) -> list[dict]:
+    client = aws_client.get_client("opensearch", account_id, region, identity)
     names_resp = client.list_domain_names()
     domain_names = [d["DomainName"] for d in names_resp.get("DomainNames", [])]
     if not domain_names:
@@ -93,7 +93,7 @@ def list_domains(account_id: str, region: str, role_name: str) -> list[dict]:
     return domains
 
 
-def list_indices(account_id: str, region: str, role_name: str, domain_endpoint: str) -> list[dict]:
+def list_indices(account_id: str, region: str, identity: aws_client.Identity, domain_endpoint: str) -> list[dict]:
     # SigV4Auth signs a query string it reads verbatim off the URL -- unlike
     # the request path, it does NOT re-percent-encode it, so reserved
     # characters (the commas in `h=`) must already be escaped here. Otherwise
@@ -102,7 +102,7 @@ def list_indices(account_id: str, region: str, role_name: str, domain_endpoint: 
     # form, and the two signatures never match ("SignatureDoesNotMatch").
     query = urlencode({"format": "json", "h": "index,docs.count,store.size"}, quote_via=quote)
     url = f"https://{domain_endpoint}/_cat/indices?{query}"
-    data = _request(account_id, region, role_name, "GET", url)
+    data = _request(account_id, region, identity, "GET", url)
     indices = []
     for entry in data:
         name = entry.get("index", "")
@@ -122,7 +122,7 @@ def list_indices(account_id: str, region: str, role_name: str, domain_endpoint: 
 def search(
     account_id: str,
     region: str,
-    role_name: str,
+    identity: aws_client.Identity,
     domain_endpoint: str,
     indices: list[str],
     query_string: str,
@@ -153,7 +153,7 @@ def search(
         "sort": [{timestamp_field: {"order": "desc", "unmapped_type": "date"}}],
         "size": limit,
     }
-    data = _request(account_id, region, role_name, "POST", url, body)
+    data = _request(account_id, region, identity, "POST", url, body)
 
     total = data.get("hits", {}).get("total")
     total_count = total.get("value") if isinstance(total, dict) else total

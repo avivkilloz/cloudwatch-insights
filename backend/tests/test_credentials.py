@@ -222,12 +222,14 @@ def test_groups_see_only_their_own_credentials_and_granted_global_ones():
     theirs = _create(name="beta-login", group_id=group_b)
     shared = _create(name="shared", scope="global", group_id=None)
 
-    listed = as_a.get("/api/credentials").json()
+    # The group's own AWS role (its identity, D31) is one of its credentials
+    # too; this test is about the ones made here.
+    listed = [c for c in as_a.get("/api/credentials").json() if c["type_id"] != "aws_role"]
     assert [c["name"] for c in listed] == ["alpha-login"]
     assert set(listed[0]) == {"id", "name", "type_id", "type_label", "scope", "authenticates"}  # names, not contents
 
     assert client.post(f"/api/credentials/{shared['id']}/grants/{group_a}").status_code == 204
-    assert {c["name"] for c in as_a.get("/api/credentials").json()} == {"alpha-login", "shared"}
+    assert {c["name"] for c in as_a.get("/api/credentials").json() if c["type_id"] != "aws_role"} == {"alpha-login", "shared"}
     assert _resolve(shared["id"], "user-alpha")[1]["password"] == SECRET
     assert _resolve(mine["id"], "user-alpha")[1]["username"] == "deployer"
     with pytest.raises(credential_store.CredentialAccessError):
@@ -541,7 +543,7 @@ def test_the_http_client_can_not_use_another_groups_credential(monkeypatch):
     as_ann = _login_as("ann", "pw-123456")
     resp = as_ann.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/", "credential_id": theirs["id"]})
     assert resp.status_code == 404 and "isn't available to your group" in resp.json()["detail"]
-    assert as_ann.get("/api/credentials").json() == []
+    assert [c for c in as_ann.get("/api/credentials").json() if c["type_id"] != "aws_role"] == []
 
 
 def test_the_agent_sees_credential_names_and_sets_one_by_name_never_its_value():

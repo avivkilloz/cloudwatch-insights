@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import aws_client, auth, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/log-groups", tags=["log-groups"])
 
@@ -14,10 +14,10 @@ _executor = ThreadPoolExecutor(max_workers=16)
 
 
 def _fetch_one(
-    environment_id: int, environment_name: str, account_id: str, region: str, role_name: str
+    environment_id: int, environment_name: str, account_id: str, region: str, identity: str
 ) -> schemas.LogGroupsResultItem:
     try:
-        raw = aws_client.list_log_groups(account_id, region, role_name)
+        raw = aws_client.list_log_groups(account_id, region, identity)
         return schemas.LogGroupsResultItem(
             environment_id=environment_id,
             environment_name=environment_name,
@@ -51,12 +51,12 @@ async def get_log_groups(
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id, current_user)
+            environment = resolve_target(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_error(environment_id, environment.name, environment.account_id, environment.region, str(e))
@@ -70,7 +70,7 @@ async def get_log_groups(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
             )
         )
 

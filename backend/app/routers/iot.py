@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, iot_client, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/iot", tags=["iot"])
 
@@ -18,12 +18,12 @@ def _search_one(
     environment_name: str,
     account_id: str,
     region: str,
-    role_name: str,
+    identity: str,
     query_string: str,
     max_results: int,
 ) -> schemas.IotSearchResultItem:
     try:
-        raw = iot_client.search_things(account_id, region, role_name, query_string, max_results)
+        raw = iot_client.search_things(account_id, region, identity, query_string, max_results)
         return schemas.IotSearchResultItem(
             environment_id=environment_id,
             environment_name=environment_name,
@@ -57,12 +57,12 @@ async def search_things(
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id, current_user)
+            environment = resolve_target(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_error(environment_id, environment.name, environment.account_id, environment.region, str(e))
@@ -76,7 +76,7 @@ async def search_things(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
                 payload.query_string,
                 payload.max_results or 50,
             )
@@ -105,13 +105,13 @@ def get_thing_detail(
 ):
     try:
         require_flag(current_user, "iot_enabled", "IoT")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        detail = iot_client.get_thing_detail(environment.account_id, environment.region, role_name, payload.thing_name)
+        detail = iot_client.get_thing_detail(environment.account_id, environment.region, identity, payload.thing_name)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to load thing '{payload.thing_name}': {e}") from e
 
@@ -179,12 +179,12 @@ def _search_certs_one(
     environment_name: str,
     account_id: str,
     region: str,
-    role_name: str,
+    identity: str,
     query_string: str,
     max_results: int,
 ) -> schemas.IotCertificateSearchResultItem:
     try:
-        raw = iot_client.search_certificates(account_id, region, role_name, query_string, max_results)
+        raw = iot_client.search_certificates(account_id, region, identity, query_string, max_results)
         return schemas.IotCertificateSearchResultItem(
             environment_id=environment_id,
             environment_name=environment_name,
@@ -218,12 +218,12 @@ async def search_certificates(
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id, current_user)
+            environment = resolve_target(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(_immediate_cert_error(environment_id, str(environment_id), "", "", str(e)))
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             futures.append(
                 _immediate_cert_error(
@@ -239,7 +239,7 @@ async def search_certificates(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
                 payload.query_string,
                 payload.max_results or 50,
             )
@@ -268,14 +268,14 @@ def get_certificate_detail(
 ):
     try:
         require_flag(current_user, "iot_enabled", "IoT")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
         detail = iot_client.get_certificate_detail(
-            environment.account_id, environment.region, role_name, payload.certificate_id
+            environment.account_id, environment.region, identity, payload.certificate_id
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(

@@ -38,10 +38,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import credential_store, live_store, models, schemas
+from .. import connections, credential_store, live_store, models, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
-from ..routers import environments as environments_router
 from ..routers import buckets, cognito, log_groups, opensearch, tables
 from . import tokens
 from .panes import KINDS, InputError, PaneKind, RunContext, available_kinds, convert, kind_for, pane_values, _call
@@ -64,7 +63,8 @@ holds sessions; a session holds panes (a CloudWatch query, an S3 browser, a \
 Base64 tool...) arranged as tabs, columns, stacked, or a free dashboard. The \
 user sees every change you make in their open panes as you make it.
 
-Start with get_context: it lists the environments (AWS account + region) and \
+Start with get_context: it lists the environments (each an AWS account + \
+region, called "Prod", or "Prod · iot" where one environment holds several) and \
 the pane kinds you may use, with each kind's inputs. Put results where the \
 user can see them: create a session (or add panes to the one they are \
 viewing), set a pane's inputs, and run it. A run's rows go into the pane; you \
@@ -107,8 +107,12 @@ def _acting():
 # ---------------------------------------------------------------- reading
 
 
-def _environments(db, user) -> list[models.Environment]:
-    return environments_router.list_environments(db=db, current_user=user)
+def _environments(db, user) -> list[dict]:
+    """The AWS connections the user can reach, as pane inputs name them:
+    `id` is the connection's (an environment's first AWS connection kept
+    the environment's own id, D34), `name` is "Prod", or "Prod · iot" where
+    an environment holds several (D32)."""
+    return connections.targets(db, user, connections.AWS)
 
 
 def _pane_ids(state: dict) -> list[str]:
@@ -251,8 +255,15 @@ async def get_context() -> dict:
             "timezone": zone_name,
             "local_time": local.strftime("%Y-%m-%dT%H:%M"),
             "environments": [
-                {"id": e.id, "name": e.name, "account_id": e.account_id, "region": e.region}
-                for e in _environments(db, user)
+                {
+                    "id": t["id"],
+                    "name": t["label"],
+                    "environment": t["environment"],
+                    "connection": t["connection"],
+                    "account_id": t["config"].get("account_id"),
+                    "region": t["config"].get("region"),
+                }
+                for t in _environments(db, user)
             ],
             "pane_kinds": [k.describe() for k in available_kinds(user)],
             # Names and types only, never a value: what a pane's credential
@@ -324,7 +335,7 @@ async def inspect_row(session_id: str, pane_id: str, row: int) -> dict:
             # A second look-up acts as the caller, like a run: in a shared
             # session the row may be from an environment only its owner has.
             environment_id = picked.get("environment_id")
-            if environment_id is not None and environment_id not in {e.id for e in _environments(db, user)}:
+            if environment_id is not None and environment_id not in {t["id"] for t in _environments(db, user)}:
                 raise InputError(
                     f"That row is from environment {environment_id}, which you can't reach, so it can't be looked "
                     "up for you."
@@ -769,7 +780,7 @@ def _check_reachable(db: Session, user: models.User, kind: PaneKind, values: dic
     environment with a bare "Environment 2 is not configured", which a model
     read as "IoT Test isn't there" and went round in circles over. This says
     which input to change, and to what."""
-    reachable = {e.id: e.name for e in _environments(db, user)}
+    reachable = {t["id"]: t["label"] for t in _environments(db, user)}
     for spec in kind.inputs:
         if spec.kind not in _ENVIRONMENT_INPUTS or spec.key not in values:
             continue

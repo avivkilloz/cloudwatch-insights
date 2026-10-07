@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, opensearch_client, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/opensearch", tags=["opensearch"])
 
@@ -50,9 +50,9 @@ def _hits_to_rows(hits: list[dict], domain_name: str) -> list[list[schemas.Resul
     return rows
 
 
-def _domains_one(environment_id, environment_name, account_id, region, role_name) -> schemas.OpenSearchDomainsResultItem:
+def _domains_one(environment_id, environment_name, account_id, region, identity) -> schemas.OpenSearchDomainsResultItem:
     try:
-        raw = opensearch_client.list_domains(account_id, region, role_name)
+        raw = opensearch_client.list_domains(account_id, region, identity)
         return schemas.OpenSearchDomainsResultItem(
             environment_id=environment_id,
             environment_name=environment_name,
@@ -86,7 +86,7 @@ async def get_domains(
     futures = []
     for environment_id in payload.environment_ids:
         try:
-            environment = resolve_environment(db, environment_id, current_user)
+            environment = resolve_target(db, environment_id, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -102,7 +102,7 @@ async def get_domains(
             )
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -125,7 +125,7 @@ async def get_domains(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
             )
         )
     results = await asyncio.gather(*futures)
@@ -144,14 +144,14 @@ def get_indices(
 ):
     try:
         require_flag(current_user, "opensearch_enabled", "OpenSearch")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
         raw = opensearch_client.list_indices(
-            environment.account_id, environment.region, role_name, payload.domain_endpoint
+            environment.account_id, environment.region, identity, payload.domain_endpoint
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to list indices: {e}") from e
@@ -159,12 +159,12 @@ def get_indices(
     return schemas.OpenSearchIndicesResponse(indices=[schemas.OpenSearchIndexInfo(**i) for i in raw])
 
 
-def _search_one(environment_id, environment_name, account_id, region, role_name, target, payload) -> schemas.OpenSearchResultItem:
+def _search_one(environment_id, environment_name, account_id, region, identity, target, payload) -> schemas.OpenSearchResultItem:
     try:
         data = opensearch_client.search(
             account_id,
             region,
-            role_name,
+            identity,
             target.domain_endpoint,
             target.indices,
             payload.query_string,
@@ -212,7 +212,7 @@ async def search(
     futures = []
     for target in payload.targets:
         try:
-            environment = resolve_environment(db, target.environment_id, current_user)
+            environment = resolve_target(db, target.environment_id, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -230,7 +230,7 @@ async def search(
             )
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             futures.append(
                 _wrap(
@@ -255,7 +255,7 @@ async def search(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
                 target,
                 payload,
             )

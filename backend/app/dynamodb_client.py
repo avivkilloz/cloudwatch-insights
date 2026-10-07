@@ -61,8 +61,8 @@ def _decode_key(token: Optional[str]) -> Optional[dict]:
     return json.loads(base64.urlsafe_b64decode(token.encode()).decode())
 
 
-def list_tables(account_id: str, region: str, role_name: str) -> list[str]:
-    client = aws_client.get_client("dynamodb", account_id, region, role_name)
+def list_tables(account_id: str, region: str, identity: aws_client.Identity) -> list[str]:
+    client = aws_client.get_client("dynamodb", account_id, region, identity)
     names = []
     paginator = client.get_paginator("list_tables")
     for page in paginator.paginate():
@@ -70,8 +70,8 @@ def list_tables(account_id: str, region: str, role_name: str) -> list[str]:
     return names
 
 
-def describe_table(account_id: str, region: str, role_name: str, table_name: str) -> dict:
-    client = aws_client.get_client("dynamodb", account_id, region, role_name)
+def describe_table(account_id: str, region: str, identity: aws_client.Identity, table_name: str) -> dict:
+    client = aws_client.get_client("dynamodb", account_id, region, identity)
     resp = client.describe_table(TableName=table_name)
     table = resp["Table"]
     key_schema = table.get("KeySchema", [])
@@ -90,7 +90,7 @@ def describe_table(account_id: str, region: str, role_name: str, table_name: str
 def scan_items(
     account_id: str,
     region: str,
-    role_name: str,
+    identity: aws_client.Identity,
     table_name: str,
     query_string: str = "",
     limit: int = 25,
@@ -102,7 +102,7 @@ def scan_items(
     applied *after* the page is read, so a filtered scan can legitimately
     return fewer than `limit` items (or zero) while still having more pages;
     the caller should keep paging via last_evaluated_key when it wants more."""
-    client = aws_client.get_client("dynamodb", account_id, region, role_name)
+    client = aws_client.get_client("dynamodb", account_id, region, identity)
     filters = parse_field_filters(query_string)
 
     kwargs: dict = {"TableName": table_name, "Limit": limit}

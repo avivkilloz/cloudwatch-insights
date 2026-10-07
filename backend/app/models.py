@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, LargeBinary, String, Text, DateTime, UniqueConstraint
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, DateTime, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -16,9 +16,11 @@ class UserGroup(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
-    # The IAM role name this group's members assume in every environment
-    # they can see (replaces the old app-wide "default role name" and the
-    # per-environment role override -- role is now purely a group property).
+    # The IAM role name this group's members used to assume in every
+    # environment. No longer read: since Phase 2 it is the group's default
+    # AWS identity, an "AWS role" credential (GroupIdentity, D31), created
+    # from this column by connections.migrate_legacy(). Kept for one release
+    # so a rollback has it.
     role_name = Column(String, nullable=True)
     # The Admin group is marked, not just named "Admin" -- membership in
     # *this* group (however it's renamed) is what grants admin actions
@@ -93,13 +95,104 @@ class GroupEnvironmentAccess(Base):
 
 
 class Environment(Base):
+    """A named place people talk about ("Prod", "IoT Test"), holding one or
+    more connections (PLATFORM_PLAN.md D1, §14). The unit of group access.
+
+    It used to be one AWS account and region itself. Those two columns are
+    no longer read -- each environment's AWS target is a `Connection` now --
+    and are kept, nullable, for one release so a rollback has them."""
+
     __tablename__ = "environments"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    account_id = Column(String, nullable=False, index=True)
-    region = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    account_id = Column(String, nullable=True, index=True)
+    region = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    connections = relationship(
+        "Connection", back_populates="environment", cascade="all, delete-orphan", order_by="Connection.position, Connection.id"
+    )
+
+
+class ConnectionType(Base):
+    """What it takes to reach one kind of system: its public settings (the
+    same field schema as credential types) and which credential types a
+    group may use as its identity there. Built-ins are seeded rows
+    (connections.BUILTINS); admin-defined ones arrive with Phase 3."""
+
+    __tablename__ = "connection_types"
+
+    id = Column(String(64), primary_key=True)
+    label = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    fields = Column(JSON, nullable=False, default=list)
+    identity_types = Column(JSON, nullable=False, default=list)
+    builtin = Column(Boolean, nullable=False, server_default="false")
+
+
+class Connection(Base):
+    """One configured target inside an environment: *where* something is
+    (an account and region, a base URL). *Who* a request runs as there comes
+    from the caller's group (GroupIdentity), falling back to the connection's
+    own credential.
+
+    Ids come from the environments' own sequence, so a connection and an
+    environment never share an id. That is what lets every environment id
+    stored before connections existed -- in pane state, templates, saved
+    items -- keep meaning one target: an environment's first connection
+    takes the environment's own id (D34)."""
+
+    __tablename__ = "connections"
+    __table_args__ = (UniqueConstraint("environment_id", "name", name="uq_connections_environment_name"),)
+
+    id = Column(
+        Integer, primary_key=True, autoincrement=False, server_default=text("nextval('environments_id_seq'::regclass)")
+    )
+    environment_id = Column(Integer, ForeignKey("environments.id", ondelete="CASCADE"), nullable=False, index=True)
+    type_id = Column(String(64), ForeignKey("connection_types.id", ondelete="RESTRICT"), nullable=False)
+    name = Column(String, nullable=False)
+    config = Column(JSON, nullable=False, default=dict)
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="RESTRICT"), nullable=True)
+    position = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    environment = relationship("Environment", back_populates="connections")
+    type = relationship("ConnectionType")
+    credential = relationship("Credential")
+
+
+class GroupIdentity(Base):
+    """Who a group is on a kind of connection (D31): a credential it can
+    use, as its default for a connection type (connection_id null) or as an
+    override for one connection. The AWS role used to be a column on the
+    group; it is one of these now."""
+
+    __tablename__ = "group_identities"
+    __table_args__ = (
+        UniqueConstraint("group_id", "connection_type_id", "connection_id", name="uq_group_identity_override"),
+        # Postgres treats NULLs as distinct, so the constraint above can't
+        # stop two defaults for one type; this index does.
+        Index(
+            "uq_group_identity_default",
+            "group_id",
+            "connection_type_id",
+            unique=True,
+            postgresql_where=text("connection_id IS NULL"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    connection_type_id = Column(String(64), ForeignKey("connection_types.id", ondelete="CASCADE"), nullable=False)
+    connection_id = Column(Integer, ForeignKey("connections.id", ondelete="CASCADE"), nullable=True)
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="RESTRICT"), nullable=False)
+
+    group = relationship("UserGroup")
+    connection = relationship("Connection")
+    credential = relationship("Credential")
 
 
 class Setting(Base):
