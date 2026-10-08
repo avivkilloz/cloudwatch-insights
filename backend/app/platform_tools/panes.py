@@ -1,27 +1,29 @@
 """The pane kinds the platform agent can put in a session, fill in and run.
 
-This is the server's half of `sessions/paneTypes.tsx`: for each kind, which
-group flag allows it, which of its session-state keys are inputs (and in what
-shape the browser stores them), and how to run it. A run happens here, on the
-server, with the same router functions the browser's own requests reach --
-same environment checks, same assumed role -- and its results are written into
-the pane's own result keys, so they appear in the ordinary pane exactly as if
-the user had pressed Run.
+Each kind is generated from its pane manifest (`app/panes/manifests/*.yaml`,
+PLATFORM_PLAN.md §15.3): the manifest says which group flag allows it, its
+inputs and their types, what running it does and what the agent is told
+about it. What only code can say -- the run functions, the converters per
+input type, `implies`, the row listers and detail look-ups -- stays here and
+is named from the manifest (`HANDLERS`, `IMPLIES`, `ROW_LISTERS`,
+`DETAILERS`). This used to be a hand-written copy of every page's keys that
+had to move with the pages; now a pane and its agent kind are one file.
 
-The key names and value shapes are the browser's, and have to stay in step
-with the pages that read them (InsightsPage, IotPage, TablesPage, BucketsPage,
-CognitoPage, and the tools). A kind whose state lives only in the browser's
-memory (the MQTT tester, whose connection is the browser's own, and the JWT
-tool, which keeps a pasted token out of storage on purpose) is listed with no
-inputs: the agent can put one in a session, and name or arrange it, but has
-nothing it could fill in there. Leaving them out entirely made the agent tell
-a user asking for an MQTT tester that there was no such thing.
+A run happens here, on the server, with the same router functions the
+browser's own requests reach -- same environment checks, same identity --
+and its results are written into the pane's own result keys, so they appear
+in the pane exactly as if the user had pressed Run. A pane on the v2 state
+shape keeps them under `in.`/`out.` (`input_key`/`output_key`); one not yet
+ported keeps its page's own keys.
 
-Adding a kind is adding an entry to `KINDS`; nothing else here names one.
+A kind whose state lives only in the browser (the MQTT tester's connection;
+JWT's sensitive inputs) is listed with no inputs: the agent can put one in a
+session, and name or arrange it, but has nothing it could fill in there.
+Leaving them out entirely made the agent tell a user asking for an MQTT
+tester that there was no such thing.
 """
 
 import asyncio
-import base64
 import datetime
 import time
 from dataclasses import dataclass, field
@@ -32,6 +34,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .. import connections, models, schemas
+from ..panes import live
+from ..panes import manifest as pane_manifest
 from ..live_store import tag_set, untag
 from ..routers import buckets, cognito, iot, opensearch, queries, tables
 
@@ -62,6 +66,7 @@ class Input:
     choices: tuple = ()
     minimum: Optional[int] = None
     maximum: Optional[int] = None
+    connection_type: Optional[str] = None
 
     def describe(self) -> dict:
         out: dict[str, Any] = {"key": self.key, "type": _TYPE_NAMES[self.kind], "help": self.help}
@@ -83,8 +88,9 @@ _TYPE_NAMES = {
     "environment": "environment id (get_context's environments)",
     "log_groups": "object: environment id -> list of log group names",
     "opensearch_indices": "list of {environment_id, domain_name, domain_endpoint, indices: [index names]}",
-    "headers": "object: header name -> value",
+    "headers": "object: name -> value",
     "credential": "credential name or id (get_context lists the ones the user can use)",
+    "connection": "connection id or name (get_context's http_apis)",
 }
 
 MAX_TEXT = 100_000
@@ -118,6 +124,17 @@ def _visible_environment(rc: RunContext, value: Any) -> int:
         choices = ", ".join(f"{t['label']} (id {t['id']})" for t in in_env)
         raise InputError(f"{in_env[0]['environment']} holds several AWS connections; name one: {choices}.")
     raise InputError(f"Environment {value} doesn't exist or isn't visible to you.")
+
+
+def _visible_connection(rc: RunContext, value: Any, type_id: str) -> int:
+    """A connection of `type_id` the user can reach, by id or by its name as
+    get_context lists it ("Partner API", or "Partner API · api")."""
+    targets = connections.targets(rc.db, rc.user, type_id)
+    for t in targets:
+        if str(t["id"]) == str(value).strip() or t["label"].lower() == str(value).strip().lower():
+            return t["id"]
+    names = ", ".join(f"{t['label']} (id {t['id']})" for t in targets) or "none"
+    raise InputError(f"{value} isn't a connection you can use here. Yours are: {names}.")
 
 
 def _usable_credential(rc: RunContext, value: Any) -> Optional[int]:
@@ -204,9 +221,11 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
         return out
     if kind == "credential":
         return _usable_credential(rc, value)
+    if kind == "connection":
+        return _visible_connection(rc, value, spec.connection_type or "")
     if kind == "headers":
         if not isinstance(value, dict):
-            raise InputError(f"{spec.key} must be an object of header name -> value.")
+            raise InputError(f"{spec.key} must be an object of name -> value.")
         rows = [{"id": i + 1, "key": str(k), "value": str(v)} for i, (k, v) in enumerate(value.items())]
         # The editor always ends in an empty row to type the next header into.
         rows.append({"id": len(rows) + 1, "key": "", "value": ""})
@@ -254,6 +273,8 @@ class PaneKind:
     rows: Optional[RowLister] = None
     detail: Optional[Detailer] = None
     detail_help: str = ""
+    # Stores in./out. keys (the v2 state shape, PLATFORM_PLAN.md §15.4).
+    v2: bool = False
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -268,20 +289,6 @@ class PaneKind:
             **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
         }
 
-
-# The time presets the query panes offer, in seconds (InsightsPage's select).
-PRESETS = (300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800)
-
-_TIME_INPUTS = (
-    Input(
-        "preset",
-        "choice",
-        "How far back to search, in seconds, or \"custom\" to use customStart/customEnd.",
-        choices=PRESETS + ("custom",),
-    ),
-    Input("customStart", "text", "Start of a custom range, in the user's local time: \"YYYY-MM-DDTHH:mm\"."),
-    Input("customEnd", "text", "End of a custom range, in the user's local time: \"YYYY-MM-DDTHH:mm\"."),
-)
 
 # Every run poll's and wait's upper bound: a turn has to end, and an agent
 # waiting minutes on one query is an agent the user has given up on.
@@ -704,25 +711,6 @@ async def run_cognito(rc: RunContext, values: dict) -> RunResult:
     )
 
 
-async def run_base64(rc: RunContext, values: dict) -> RunResult:
-    # Nothing to store: the pane works its output out from its inputs as it
-    # renders. This is only so the agent can read the answer too, computed
-    # the way Base64Tool computes it.
-    text = values.get("input") or ""
-    url_safe = bool(values.get("urlSafe"))
-    if (values.get("mode") or "encode") == "encode":
-        out = base64.b64encode(text.encode("utf-8")).decode("ascii")
-        if url_safe:
-            out = out.replace("+", "-").replace("/", "_").rstrip("=")
-        return RunResult(writes={}, summary={"output": out})
-    normalized = text.strip().replace("-", "+").replace("_", "/")
-    try:
-        raw = base64.b64decode(normalized + "=" * (-len(normalized) % 4), validate=True)
-    except ValueError:
-        raise InputError("That doesn't look like valid Base64.") from None
-    return RunResult(writes={}, summary={"output": raw.decode("utf-8", errors="replace")})
-
-
 def _with_log_group_environments(values: dict) -> dict:
     envs = [int(e) for e in (values.get("logGroupSelection") or {})]
     return {"selectedEnvironmentIds": envs} if envs else {}
@@ -733,190 +721,167 @@ def _with_opensearch_environments(values: dict) -> dict:
     return {"selectedEnvironmentIds": envs} if envs else {}
 
 
-_ENVIRONMENTS = Input("selectedEnvironmentIds", "environments", "Which environments to search.")
+# What a live run hands the agent is the pane's whole output, which a long
+# text makes long: lists are cut to this many items, saying how many there were.
+LIVE_SUMMARY_ITEMS = 100
 
-KINDS: dict[str, PaneKind] = {
-    k.type: k
-    for k in (
-        PaneKind(
-            type="logs-cloudwatch",
-            label="CloudWatch",
-            flag="logs_enabled",
-            about="CloudWatch Logs Insights: one query across log groups in several environments, results merged "
-            "newest first.",
-            inputs=(
-                _ENVIRONMENTS,
-                Input(
-                    "logGroupSelection",
-                    "log_groups",
-                    "Which log groups to query, per environment (list_log_groups gives the names). Their "
-                    "environments are selected with them.",
-                ),
-                Input("queryString", "text", "The Logs Insights query, in its pipe syntax."),
-                Input("limit", "int", "Most rows to return per environment.", minimum=1, maximum=10000),
-                *_TIME_INPUTS,
-            ),
-            run=run_cloudwatch,
-            run_help="Runs the query and shows the rows in the pane; you get the row counts and a sample.",
-            implies=_with_log_group_environments,
-            rows=_query_rows("results"),
-        ),
-        PaneKind(
-            type="logs-opensearch",
-            label="OpenSearch",
-            flag="opensearch_enabled",
-            about="OpenSearch: a Lucene query_string search across domains and indices in several environments.",
-            inputs=(
-                _ENVIRONMENTS,
-                Input(
-                    "openSearchSelection",
-                    "opensearch_indices",
-                    "Which domains and indices to search (list_opensearch_domains and list_opensearch_indices).",
-                ),
-                Input("queryString", "text", "Lucene query_string syntax, e.g. level:ERROR AND service:checkout."),
-                Input("timestampField", "text", "The field the time range applies to (default @timestamp)."),
-                Input("limit", "int", "Most hits to return per domain.", minimum=1, maximum=1000),
-                *_TIME_INPUTS,
-            ),
-            run=run_opensearch,
-            run_help="Runs the search and shows the hits in the pane; you get the hit counts and a sample.",
-            implies=_with_opensearch_environments,
-            rows=_query_rows("osResults"),
-        ),
-        PaneKind(
-            type="iot",
-            label="IoT",
-            flag="iot_enabled",
-            about="AWS IoT Core: search things (Fleet Indexing syntax) or certificates across environments.",
-            inputs=(
-                _ENVIRONMENTS,
-                Input("searchMode", "choice", "Search things or certificates.", choices=("things", "certificates")),
-                Input(
-                    "queryString",
-                    "text",
-                    "Things: Fleet Indexing syntax, e.g. thingName:robot-* AND connectivity.connected:true. "
-                    "Certificates: status:ACTIVE, certid:<id>, or part of a certificate id.",
-                ),
-                Input("maxResults", "int", "Most results per environment.", minimum=1, maximum=500),
-            ),
-            run=run_iot,
-            run_help="Runs the search and lists the things or certificates in the pane.",
-            rows=_iot_rows,
-            detail=_iot_detail,
-            detail_help="Shows one thing of the last run in full, with its shadows (classic and named), certificates "
-            "and jobs.",
-        ),
-        PaneKind(
-            type="tables",
-            label="DynamoDB",
-            flag="tables_enabled",
-            about="DynamoDB: pick a table in one environment and scan it with field:value filters.",
-            inputs=(
-                Input("environmentId", "environment", "The environment the table is in."),
-                Input("tableName", "text", "The table (list_dynamodb_tables gives the names)."),
-                Input("queryString", "text", "field:value tokens, ANDed as equality filters; blank for all."),
-                Input("limit", "int", "Most items to return.", minimum=1, maximum=200),
-            ),
-            run=run_tables,
-            run_help="Lists the environment's tables, and with a tableName scans it and shows the items.",
-        ),
-        PaneKind(
-            type="buckets",
-            label="S3",
-            flag="buckets_enabled",
-            about="S3: browse a bucket's folders and files in one environment, or search file names under a prefix.",
-            inputs=(
-                Input("environmentId", "environment", "The environment the bucket is in."),
-                Input("bucket", "text", "The bucket (list_s3_buckets gives the names)."),
-                Input("prefix", "text", "The folder to open, e.g. logs/2024/ (blank for the top)."),
-                Input("search", "text", "Search file names containing this under the prefix, instead of one folder."),
-            ),
-            run=run_buckets,
-            run_help="Lists the environment's buckets, and with a bucket lists its folder or search matches.",
-        ),
-        PaneKind(
-            type="cognito",
-            label="Cognito",
-            flag="cognito_enabled",
-            about="Cognito: search a user pool's users in one environment.",
-            inputs=(
-                Input("environmentId", "environment", "The environment the user pool is in."),
-                Input("userPoolId", "text", "The user pool id (list_cognito_user_pools gives them)."),
-                Input("queryString", "text", "One attribute:value, a starts-with match, e.g. email:jane."),
-            ),
-            run=run_cognito,
-            run_help="Lists the environment's user pools, and with a userPoolId searches its users.",
-        ),
-        PaneKind(
-            type="tool-http",
-            label="HTTP client",
-            flag="tools_enabled",
-            about="An HTTP client: method, URL, headers and body, sent from the server.",
-            inputs=(
-                Input(
-                    "method",
-                    "choice",
-                    "The HTTP method.",
-                    choices=("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"),
-                ),
-                Input("url", "text", "The full URL."),
-                Input("headerRows", "headers", "Request headers."),
-                Input("body", "text", "The request body (ignored for GET and HEAD)."),
-                Input(
-                    "credentialId",
-                    "credential",
-                    "A credential to authenticate with; the server adds it when the request is sent, so its value is "
-                    "never in the pane. Only credentials whose type authenticates requests work here.",
-                ),
-            ),
-            run_help="You can fill the request in, but not send it: sending reaches outside the platform, and "
-            "needs the user's approval, which isn't available yet. Tell the user to press Send.",
-        ),
-        PaneKind(
-            type="tool-mqtt",
-            label="MQTT tester",
-            flag="tools_enabled",
-            about="An MQTT client on an environment's IoT Core endpoint: subscribe to topics and publish messages.",
-            inputs=(),
-            run_help="You can add it, but not fill it in or connect it: its environment, topics and connection "
-            "live only in the user's browser. Tell the user to pick the environment and press Connect.",
-        ),
-        PaneKind(
-            type="tool-jwt",
-            label="JWT",
-            flag="tools_enabled",
-            about="Decode a JSON Web Token, or build and sign one.",
-            inputs=(),
-            run_help="You can add it, but not fill it in: a token pasted into it stays in the user's browser, on "
-            "purpose, since it's a credential. Tell the user to paste the token into it.",
-        ),
-        PaneKind(
-            type="tool-base64",
-            label="Base64",
-            flag="tools_enabled",
-            about="Base64 encode or decode text; the pane shows the output as soon as its inputs are set.",
-            inputs=(
-                Input("mode", "choice", "Encode or decode.", choices=("encode", "decode")),
-                Input("input", "text", "The text to encode, or the Base64 to decode."),
-                Input("urlSafe", "bool", "Use the URL-safe alphabet without padding (encoding)."),
-            ),
-            run=run_base64,
-            run_help="Nothing to run -- the pane shows the output once the inputs are set; run_pane tells you it.",
-        ),
-        PaneKind(
-            type="tool-diff",
-            label="Diff",
-            flag="tools_enabled",
-            about="A text diff; the pane shows the difference as soon as both sides are set.",
-            inputs=(
-                Input("left", "text", "The original text."),
-                Input("right", "text", "The changed text."),
-                Input("viewMode", "choice", "How to show it.", choices=("unified", "split", "compact")),
-            ),
-            run_help="Nothing to run -- the pane shows the diff once left and right are set.",
-        ),
-    )
+
+def _capped(outputs: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in outputs.items():
+        if isinstance(value, list) and len(value) > LIVE_SUMMARY_ITEMS:
+            out[key] = value[:LIVE_SUMMARY_ITEMS]
+            out[f"{key}_total"] = len(value)
+        else:
+            out[key] = value
+    return out
+
+
+def _live_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+    """A live pane's run, for the agent: its live functions' Python twins
+    (D43), worked out from the inputs as the browser does. Nothing is
+    stored -- the pane works its outputs out itself as it draws -- and an
+    error output is a failed run, in its own words."""
+    names = [a.live for a in manifest.actions if a.live and a.run_on == "change"]
+    # A pane whose inputs are all sensitive (JWT's) has nothing the agent
+    # could set, so it has no run: run_help says why instead.
+    if not names or not manifest.agent_inputs():
+        return None
+    error_keys = [o.key for o in manifest.outputs if o.render == "error"]
+
+    async def run(rc: RunContext, values: dict) -> RunResult:
+        outputs: dict[str, Any] = {}
+        for name in names:
+            outputs.update(live.FUNCTIONS[name](values))
+        for key in error_keys:
+            if outputs.get(key):
+                raise InputError(str(outputs[key]))
+        if not outputs:
+            raise InputError("There's nothing to work out yet: set the inputs first.")
+        return RunResult(writes={}, summary=_capped(outputs))
+
+    return run
+
+
+def _rows_at(value: Any, path: str) -> Any:
+    for part in [p for p in (path or "").split(".") if p]:
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            raise InputError(f"The reply has nothing at {path!r} (stopped at {part!r}).")
+    return value
+
+
+def request_rows(response: Any, rows_at: str) -> list[dict]:
+    """The rows of a declarative request's reply: the list at `rows_at`, each
+    item a row (a non-object item becomes {"value": item})."""
+    listed = _rows_at(response, rows_at)
+    if not isinstance(listed, list):
+        where = f"at {rows_at!r}" if rows_at else "itself"
+        raise InputError(f"The reply {where} isn't a list, so there are no rows; set Rows at to where the list is.")
+    return [row if isinstance(row, dict) else {"value": row} for row in listed]
+
+
+def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+    """A declarative HTTP action (§15.7), for the agent: the same request the
+    pane's Fetch sends, through routers/panes.run_request -- connection,
+    identity, SSRF guard and masking included -- with its rows written into
+    the pane."""
+    action = next((a for a in manifest.actions if a.request), None)
+    if action is None:
+        return None
+    from ..routers import panes as panes_router  # the router imports this module
+
+    async def run(rc: RunContext, values: dict) -> RunResult:
+        try:
+            outputs = await asyncio.to_thread(
+                panes_router.run_request, rc.db, rc.user, manifest, action, values
+            )
+        except HTTPException as e:
+            raise _http_error(e) from None
+        rows = outputs.get("rows") or []
+        return RunResult(
+            writes={**outputs, **_ran(values)},
+            summary={"rows": len(rows), "sample": _sample(rows)},
+        )
+
+    return run
+
+
+def _api_rows(values: dict) -> list[dict]:
+    return [r for r in values.get("rows") or [] if isinstance(r, dict)]
+
+
+HANDLERS: dict[str, Runner] = {
+    "cloudwatch.run": run_cloudwatch,
+    "opensearch.run": run_opensearch,
+    "iot.run": run_iot,
+    "tables.run": run_tables,
+    "buckets.run": run_buckets,
+    "cognito.run": run_cognito,
 }
+IMPLIES: dict[str, Callable[[dict], dict]] = {
+    "log_group_environments": _with_log_group_environments,
+    "opensearch_environments": _with_opensearch_environments,
+}
+ROW_LISTERS: dict[str, RowLister] = {
+    "rows.results": _query_rows("results"),
+    "rows.osResults": _query_rows("osResults"),
+    "rows.iot": _iot_rows,
+    "rows.api-table": _api_rows,
+}
+DETAILERS: dict[str, Detailer] = {"detail.iot": _iot_detail}
+
+
+def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
+    run: Optional[Runner] = None
+    for action in manifest.actions:
+        if action.handler:
+            run = HANDLERS[action.handler]
+            break
+    run = run or _live_runner(manifest) or _request_runner(manifest)
+    inspect = manifest.inspect
+    return PaneKind(
+        type=manifest.id,
+        label=manifest.label,
+        flag=manifest.flag,
+        about=manifest.about.strip(),
+        inputs=tuple(
+            Input(
+                i.key,
+                i.type,
+                i.help.strip(),
+                choices=tuple(i.choices),
+                minimum=i.min,
+                maximum=i.max,
+                connection_type=i.connection_type,
+            )
+            for i in manifest.agent_inputs()
+        ),
+        run=run,
+        run_help=manifest.agent.run.strip(),
+        implies=IMPLIES[manifest.implies] if manifest.implies else (lambda values: {}),
+        rows=ROW_LISTERS[inspect.rows] if inspect else None,
+        detail=DETAILERS[inspect.detail] if inspect and inspect.detail else None,
+        detail_help=inspect.help.strip() if inspect else "",
+        v2=manifest.state == "v2",
+    )
+
+
+KINDS: dict[str, PaneKind] = {m.id: _kind(m) for m in pane_manifest.manifests().values()}
+
+
+def input_key(kind: PaneKind, pane_id: str, key: str) -> str:
+    """Where an input is stored in session state: under `in.` for a pane on
+    the v2 shape, at its own name for one not yet ported."""
+    return f"{pane_id}.in.{key}" if kind.v2 else f"{pane_id}.{key}"
+
+
+def output_key(kind: PaneKind, pane_id: str, key: str) -> str:
+    """Where a run's result is stored: under `out.` for a v2 pane."""
+    return f"{pane_id}.out.{key}" if kind.v2 else f"{pane_id}.{key}"
 
 
 def available_kinds(user: models.User) -> list[PaneKind]:
@@ -936,6 +901,18 @@ def kind_for(user: models.User, type_: str) -> PaneKind:
 
 
 def pane_values(state: dict, pane_id: str) -> dict:
-    """A pane's keys, without its prefix, as plain values (Sets as lists)."""
+    """A pane's keys, without its prefix -- and, for a v2 pane, without the
+    in./out./view. part, so a runner reads `values["input"]` whichever shape
+    the pane stores -- as plain values (Sets as lists)."""
     prefix = f"{pane_id}."
-    return {k[len(prefix):]: untag(v) for k, v in state.items() if k.startswith(prefix)}
+    out = {}
+    for k, v in state.items():
+        if not k.startswith(prefix):
+            continue
+        key = k[len(prefix):]
+        for part in ("in.", "out.", "view."):
+            if key.startswith(part):
+                key = key[len(part):]
+                break
+        out[key] = untag(v)
+    return out

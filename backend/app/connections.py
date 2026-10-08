@@ -108,6 +108,13 @@ def validate_config(conn_type: models.ConnectionType, config: dict) -> dict:
     return out
 
 
+def join_url(base_url: str, path: str) -> str:
+    """A path on an HTTP API connection, after its base URL ("" or "/x" or
+    "x" or "?q=1" all join the way someone typing them means)."""
+    path = (path or "").strip()
+    return base_url + ("" if not path or path.startswith(("/", "?")) else "/") + path
+
+
 # ------------------------------------------------------------------- names people see
 
 

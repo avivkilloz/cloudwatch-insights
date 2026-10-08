@@ -1,0 +1,29 @@
+id: tool-http
+label: HTTP client
+order: 70
+group: Tools
+flag: tools_enabled
+about: "An HTTP client: method, URL, headers and body, sent from the server."
+inputs:
+  - key: method
+    type: choice
+    help: The HTTP method.
+    choices: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+  - key: url
+    type: text
+    help: The full URL.
+  - key: headerRows
+    type: headers
+    help: Request headers.
+  - key: body
+    type: text
+    help: The request body (ignored for GET and HEAD).
+  - key: credentialId
+    type: credential
+    help: >-
+      A credential to authenticate with; the server adds it when the request is sent, so its value is never in the
+      pane. Only credentials whose type authenticates requests work here.
+agent:
+  run: >-
+    You can fill the request in, but not send it: sending reaches outside the platform, and needs the user's
+    approval, which isn't available yet. Tell the user to press Send.

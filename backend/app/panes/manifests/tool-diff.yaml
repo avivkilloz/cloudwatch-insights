@@ -1,0 +1,58 @@
+id: tool-diff
+label: Diff
+order: 110
+group: Tools
+flag: tools_enabled
+about: A text diff; the pane shows the difference as soon as both sides are set.
+description: Compare two pieces of text.
+help: Paste two pieces of text to see what changed between them -- unified, side by side, or with unchanged runs folded away.
+state: v2
+rendered: true
+inputs:
+  - key: left
+    type: text
+    label: Original
+    help: The original text.
+    rows: 10
+    default: ""
+  - key: right
+    type: text
+    label: Changed
+    help: The changed text.
+    rows: 10
+    default: ""
+  - key: viewMode
+    type: choice
+    help: How to show it.
+    choices: [unified, split, compact]
+    # Named for what it does: it is identical to Unified until there are more
+    # than nine consecutive unchanged lines to fold away.
+    choice_labels: { unified: Unified, split: Split, compact: Compact — fold unchanged runs }
+    default: unified
+actions:
+  - id: compare
+    live: diff.compute
+outputs:
+  - key: diff
+    render: diff
+    config: { view: viewMode }
+  - key: counts
+    render: text
+layout:
+  - title: Text to compare
+    items:
+      - row:
+          - input: left
+          - input: right
+  - title: Diff
+    aside:
+      - toolbar:
+          - output: counts
+            when: { output: counts, present: true }
+          - input: viewMode
+        when: { output: diff, present: true }
+    items:
+      - output: diff
+        empty: Paste text into both boxes above to see the diff.
+agent:
+  run: Works the diff out from left and right; run_pane gives you its rows (equal, modify, remove, add) and the counts.

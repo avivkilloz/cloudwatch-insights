@@ -1,0 +1,10 @@
+id: tool-mqtt
+label: MQTT tester
+order: 80
+group: Tools
+flag: tools_enabled
+about: "An MQTT client on an environment's IoT Core endpoint: subscribe to topics and publish messages."
+agent:
+  run: >-
+    You can add it, but not fill it in or connect it: its environment, topics and connection live only in the
+    user's browser. Tell the user to pick the environment and press Connect.

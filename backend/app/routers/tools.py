@@ -77,7 +77,7 @@ def _through_target(
             detail=f"With {target.name} picked, give a path (e.g. /status), not a whole URL: it goes after "
             f"{target.config['base_url']}.",
         )
-    url = target.config["base_url"] + ("" if not path or path.startswith(("/", "?")) else "/") + path
+    url = connections.join_url(target.config["base_url"], path)
     if payload.credential_id is not None:
         return url, headers
     # A public API needs no identity: only one that exists is applied.

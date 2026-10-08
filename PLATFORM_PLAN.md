@@ -13,7 +13,7 @@ and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
 (2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built. Phase 3 is detailed in
-§15 (D37–D42, drafted 2026-10-08 for review)._
+§15 (D37–D44, agreed 2026-10-08)._
 
 ---
 
@@ -1148,7 +1148,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-Phase 3 PR 1's two are in §15.11. New ones go here as they come up.
+None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 
 ## 11. Decision log
 
@@ -1199,6 +1199,8 @@ Phase 3 PR 1's two are in §15.11. New ones go here as they come up.
 | D40 | 2026-10-08 | **`environment(s)` becomes `connection(s)` in pane state and payloads in Phase 3**, through the same migration as the state shape; payloads accept both names for one release. | D34 deferred it so stored state is migrated once, not twice. |
 | D41 | 2026-10-08 | **A PR only when there is something to try in the UI.** Phase 3 is four PRs: manifests with Base64, Diff and JWT ported and the API table pane (PR 1); the rest of 3b (PR 2); 3c (PR 3); 3d (PR 4). | Each PR is tested by the person who merges it, not only by the suites. |
 | D42 | 2026-10-08 | **Each pane moves to the `in./out./view.` shape when it is ported**, with a per-pane-type version in the session; unported panes keep their keys. | A pane's code reads its own keys; switching them before it is rewritten is churn twice. Each pane is still migrated exactly once. |
+| D43 | 2026-10-08 | **Live panes use built-in live functions for now** (TypeScript in the browser, a Python twin for the agent and workflows); CEL in the browser arrives with the builder (Phase 5). | Nothing user-authored needs evaluating before the builder, and choosing a JavaScript CEL library now would be choosing before knowing what the builder needs. |
+| D44 | 2026-10-08 | **The agent may run GET requests on admin-configured HTTP API connections** (the API table pane), with the group's own identity; arbitrary requests (the HTTP client) stay behind the approval step. | It reads from a system an admin configured, as the AWS panes do; it doesn't send anything anywhere the user chose. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -1949,7 +1951,7 @@ inputs:
     legacy_key: mode          # where it lived before v2, for the migration
   - key: input
     type: text
-  - key: url_safe
+  - key: urlSafe              # names don't change: the agent and its scripts use them
     type: bool
     label: URL-safe
     legacy_key: urlSafe
@@ -2064,7 +2066,8 @@ builder needs.
 - **Each becomes a manifest with `state: v2`.**
   - Its old component is replaced by `ManifestPane`.
   - Its live function is moved, not rewritten: the code is today's.
-  - Its keys migrate (`urlSafe` → `in.url_safe`, and so on).
+  - Its keys move under `in.` (`urlSafe` → `in.urlSafe`); input names stay, since the
+    agent and its scripts use them.
 - **Done means its browser suite passes unchanged**, and a new check opens a session
   saved before the port and finds every input where it was.
 - **JWT's token and secrets are `sensitive`:**
@@ -2163,11 +2166,8 @@ the API table works from its YAML alone; and the agent's registry is generated.
 
 ### 15.11 Open questions for Phase 3 PR 1
 
-- **Live functions now, CEL in the browser with the builder** (D43, recommended).
-  The alternative is adopting a JavaScript CEL library in PR 1.
-- **The agent may run GET requests on admin-configured HTTP API connections**
-  (D44, recommended). The alternative is keeping every HTTP request behind the
-  approval step until Phase 4.
+Both settled 2026-10-08 as D43 (live functions now, CEL in the browser with the
+builder) and D44 (the agent may run the API table).
 
 ## 12. Research sources
 

@@ -1,0 +1,45 @@
+id: logs-cloudwatch
+label: CloudWatch
+order: 10
+group: Services
+flag: logs_enabled
+about: >-
+  CloudWatch Logs Insights: one query across log groups in several environments, results merged newest first.
+inputs:
+  - key: selectedEnvironmentIds
+    type: environments
+    help: Which environments to search.
+  - key: logGroupSelection
+    type: log_groups
+    help: >-
+      Which log groups to query, per environment (list_log_groups gives the names). Their environments are selected
+      with them.
+  - key: queryString
+    type: text
+    help: The Logs Insights query, in its pipe syntax.
+  - key: limit
+    type: int
+    help: Most rows to return per environment.
+    min: 1
+    max: 10000
+  -
+    key: preset
+    type: choice
+    help: How far back to search, in seconds, or "custom" to use customStart/customEnd.
+    choices: [300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800, custom]
+  -
+    key: customStart
+    type: text
+    help: 'Start of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+  -
+    key: customEnd
+    type: text
+    help: 'End of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+actions:
+  - id: run
+    handler: cloudwatch.run
+implies: log_group_environments
+inspect:
+  rows: rows.results
+agent:
+  run: Runs the query and shows the rows in the pane; you get the row counts and a sample.

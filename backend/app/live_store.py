@@ -29,6 +29,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import models
+from .panes import state as pane_state
 from .live_events import notify
 
 # Every session is an Aggregator (SESSION_TYPE in SessionContext.tsx).
@@ -203,7 +204,7 @@ def create(db: Session, user_id: int, title: str, state: dict, origin: Optional[
         type=SESSION_TYPE,
         title=next_title(title.strip() or "Session", taken),
         position=(last + 1) if last is not None else 0,
-        state=state,
+        state=pane_state.migrate(state),
         truncated=False,
         version=0,
     )
@@ -242,7 +243,9 @@ def mutate(
     if member is not None and member.permission == "viewer":
         db.rollback()
         raise StoreError("You have read-only access to this session.")
-    state = copy.deepcopy(row.state or {})
+    # Migrated first, so a tool writing a ported pane's in./out. keys never
+    # sits beside the legacy copy of the same input (PLATFORM_PLAN.md §15.4).
+    state = pane_state.migrate(copy.deepcopy(row.state or {}))
     try:
         result = change(state, row, member)
         _check_size(state)

@@ -1,0 +1,42 @@
+id: logs-opensearch
+label: OpenSearch
+order: 20
+group: Services
+flag: opensearch_enabled
+about: "OpenSearch: a Lucene query_string search across domains and indices in several environments."
+inputs:
+  - key: selectedEnvironmentIds
+    type: environments
+    help: Which environments to search.
+  - key: openSearchSelection
+    type: opensearch_indices
+    help: Which domains and indices to search (list_opensearch_domains and list_opensearch_indices).
+  - key: queryString
+    type: text
+    help: "Lucene query_string syntax, e.g. level:ERROR AND service:checkout."
+  - key: timestampField
+    type: text
+    help: The field the time range applies to (default @timestamp).
+  - key: limit
+    type: int
+    help: Most hits to return per domain.
+    min: 1
+    max: 1000
+  - key: preset
+    type: choice
+    help: How far back to search, in seconds, or "custom" to use customStart/customEnd.
+    choices: [300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800, custom]
+  - key: customStart
+    type: text
+    help: 'Start of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+  - key: customEnd
+    type: text
+    help: 'End of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+actions:
+  - id: run
+    handler: opensearch.run
+implies: opensearch_environments
+inspect:
+  rows: rows.osResults
+agent:
+  run: Runs the search and shows the hits in the pane; you get the hit counts and a sample.

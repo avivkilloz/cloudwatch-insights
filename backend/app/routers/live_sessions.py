@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, live_store, models, schemas
 from ..db import get_db
+from ..panes import state as pane_state
 from ..live_events import listener, notify
 from ..live_store import MAX_STATE_BYTES, commit_write
 
@@ -104,7 +105,8 @@ def _out(row: models.LiveSession, member: Optional[models.SessionMember]) -> sch
         title=row.title,
         position=row.position if member is None else member.position,
         category_id=row.category_id if member is None else member.category_id,
-        state=row.state,
+        # A browser always reads the state shape it writes (§15.4).
+        state=pane_state.migrate(row.state),
         truncated=row.truncated,
         closed_at=row.closed_at if member is None else member.closed_at,
         version=row.version,
@@ -362,8 +364,8 @@ def upsert_live_session(
             # refused. Without this carve-out a viewer's own chat messages,
             # and the agent's replies to them, never left their browser at
             # all -- invisible to the owner and every other participant.
-            current_state = row.state or {}
-            incoming_state = payload.state or {}
+            current_state = pane_state.migrate(row.state or {})
+            incoming_state = pane_state.migrate(payload.state or {})
             changed_state_keys = {
                 k
                 for k in set(current_state) | set(incoming_state)
@@ -386,7 +388,9 @@ def upsert_live_session(
     # positions with every save and quietly undo a reorder made elsewhere.
     if row.id is None:
         row.position = payload.position
-    row.state = payload.state
+    # Legacy keys of a ported pane are moved on the way in, so a tab still
+    # running the old code can't write the old shape back (§15.4).
+    row.state = pane_state.migrate(payload.state)
     row.truncated = payload.truncated
     if member is None:
         # The owner's own view: their category, and writing to a closed

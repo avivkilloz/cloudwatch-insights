@@ -1,0 +1,24 @@
+id: buckets
+label: S3
+order: 50
+group: Services
+flag: buckets_enabled
+about: "S3: browse a bucket's folders and files in one environment, or search file names under a prefix."
+inputs:
+  - key: environmentId
+    type: environment
+    help: The environment the bucket is in.
+  - key: bucket
+    type: text
+    help: The bucket (list_s3_buckets gives the names).
+  - key: prefix
+    type: text
+    help: The folder to open, e.g. logs/2024/ (blank for the top).
+  - key: search
+    type: text
+    help: Search file names containing this under the prefix, instead of one folder.
+actions:
+  - id: run
+    handler: buckets.run
+agent:
+  run: Lists the environment's buckets, and with a bucket lists its folder or search matches.

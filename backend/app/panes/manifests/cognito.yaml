@@ -1,0 +1,21 @@
+id: cognito
+label: Cognito
+order: 60
+group: Services
+flag: cognito_enabled
+about: "Cognito: search a user pool's users in one environment."
+inputs:
+  - key: environmentId
+    type: environment
+    help: The environment the user pool is in.
+  - key: userPoolId
+    type: text
+    help: The user pool id (list_cognito_user_pools gives them).
+  - key: queryString
+    type: text
+    help: "One attribute:value, a starts-with match, e.g. email:jane."
+actions:
+  - id: run
+    handler: cognito.run
+agent:
+  run: Lists the environment's user pools, and with a userPoolId searches its users.
