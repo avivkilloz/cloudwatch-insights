@@ -32,7 +32,10 @@ groups in the Credentials layout, and the HTTP client's Target. Backend 269
 tests (16 new in `test_connections.py`, failing on the old code); browser
 suites smoke60 (environments) and smoke61 (identities, HTTP target), both
 failing against the old frontend. Next: Phase 3 (actions, manifests, output
-components).
+components), detailed in PLATFORM_PLAN.md §15 (2026-10-08): four PRs, each with
+something to try in the UI (D41). PR 1 is manifests for every pane, the agent's
+registry generated from them, the generic renderer with Base64, Diff and JWT
+ported, and a new pane drawn from YAML alone (API table).
 
 ## Where things stand
 
