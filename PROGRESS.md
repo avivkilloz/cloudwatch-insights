@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-09-29, grounding the platform agent's turns (after #96)._
+_Last updated: 2026-10-08, Phase 3 PR 1 (pane manifests)._
 
 ## Platform plan
 
@@ -36,6 +36,17 @@ components), detailed in PLATFORM_PLAN.md §15 (2026-10-08): four PRs, each with
 something to try in the UI (D41). PR 1 is manifests for every pane, the agent's
 registry generated from them, the generic renderer with Base64, Diff and JWT
 ported, and a new pane drawn from YAML alone (API table).
+Phase 3 PR 1 is built: twelve YAML manifests (`backend/app/panes/manifests`),
+`KINDS` generated from them, `/api/pane-types`, the v2 key shape with its
+marker-less migration (server and browser), live functions with Python twins
+held to shared fixtures, the generic renderer (`frontend/src/panes/
+ManifestPane.tsx`) drawing Base64, Diff and JWT pixel-identically to the old
+components, the API table (a declarative GET on an `http_api` connection the
+agent can run too), and a stale-tab reload off `version.json`. As-built notes
+in PLATFORM_PLAN.md §15.12. Backend 316 tests (47 new in
+`test_pane_manifests.py`); browser suites smoke62 (API table), smoke63 (ported
+tools, pre-port template and old-tab keys, the TypeScript fixtures) and smoke64
+(stale tab), each failing against the old frontend.
 
 ## Where things stand
 

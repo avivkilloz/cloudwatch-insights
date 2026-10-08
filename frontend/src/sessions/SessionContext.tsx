@@ -167,6 +167,11 @@ interface SessionsApi {
   /** This session's state with its outputs stripped -- what a saved session
    * stores. */
   captureInputs: (id: string) => Record<string, unknown>;
+  /** Saves every open session now -- locally and to the server -- rather
+   * than on the debounce, resolving once both are done. For leaving the page
+   * on purpose (a reload into a newer build), where the debounced save would
+   * be cut off and the server's older copy would win on the way back. */
+  flushAll: () => Promise<void>;
 
   /** Slack-style groups for the panel's session list, in display order. A
    * session with no category (or one that was deleted) just doesn't appear
@@ -697,6 +702,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   // Named `sessionsApi` rather than `api`: the module-level `api` is the HTTP
   // client, and shadowing it here would quietly break the calls above.
+  const flushAll = useCallback(async () => {
+    await saveWorkspace(userId, workspaceRef.current);
+    await sync.flush(workspaceRef.current.sessions);
+  }, [userId, sync]);
+
   const sessionsApi = useMemo<SessionsApi>(
     () => ({
       sessions: workspace.sessions,
@@ -713,6 +723,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       reorder,
       show,
       captureInputs,
+      flushAll,
       categories,
       createCategory,
       renameCategory,
@@ -733,6 +744,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       reorder,
       show,
       captureInputs,
+      flushAll,
       categories,
       createCategory,
       renameCategory,

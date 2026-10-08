@@ -1906,7 +1906,8 @@ What the build changed or settled that the text above didn't:
 
 _Drafted 2026-10-08 for review. Phase 3 ships as four PRs, each with something to
 try in the UI (D41). This section details the first, §15.1–15.9; the other three
-are outlined in §15.10 and get their own detail just before they are built._
+are outlined in §15.10 and get their own detail just before they are built. PR 1 is
+built; where it departed from this draft is in §15.12._
 
 ### 15.1 What PR 1 delivers, and what you can try
 
@@ -2168,6 +2169,107 @@ the API table works from its YAML alone; and the agent's registry is generated.
 
 Both settled 2026-10-08 as D43 (live functions now, CEL in the browser with the
 builder) and D44 (the agent may run the API table).
+
+### 15.12 PR 1 as built
+
+Where the build departed from §15.1–15.9, and why:
+
+- **The migration has no marker.** §15.4's `__paneStates` map is gone:
+  - the migration is idempotent on its own: a legacy key present moves under `in.`
+    (or `out.`), and a new key already there wins, since it is what the pane has
+    been showing;
+  - a tab left open across the deploy keeps writing old keys, so there is no
+    "done" worth recording.
+
+  It runs in these places:
+  - on the server: `panes/state.migrate` on every PUT, on every read-out
+    (`_out`), in `live_store.mutate`/`create`, and in the viewer's chat-only check;
+  - in the browser: `panes/manifest.migratePaneKeys`, the third step of
+    `migrateSessionList` (the IndexedDB copy, and server rows), and in
+    `templateState` (a template is never rewritten, so it migrates on every open).
+- **The stale-tab check is `version.json`, not an `X-App-Build` header.**
+  - Why: the backend and frontend are separate images, so the backend can't know
+    which frontend build is deployed.
+  - How it works:
+    - the build writes its id beside `index.html` and compiles the same id in;
+    - nginx serves the file `no-store`;
+    - the tab checks it on focus, on becoming visible, and every five minutes.
+  - When the ids differ:
+    - a one-line notice appears;
+    - the tab reloads at the next switch of page or session, or on "Reload now";
+    - before reloading it waits for `flushAll()` (every session saved locally and
+      to the server). Without that wait, the debounced save was cut off and the
+      server's older copy won on the way back.
+  - The dev server answers with its own id.
+- **Layout is part of the manifest.** §15.5 planned a fixed "card of rows". As built,
+  a manifest has a `layout`: cards with a title, an optional `aside` beside it, and
+  items.
+  - Items can be: `input`, `output`, `action`, `text`, `copy`, `row`, `toolbar`.
+  - Visibility: `when: {input, equals}` or `{output, present}`.
+  - Text: a title, label or placeholder may depend on an input
+    (`{by: mode, values: …}`).
+  - Why: it was the only way to port the three tools without changing how they
+    look.
+  - Checked: all twelve states of the three tools (empty, typed, errors, each diff
+    view, JWT both ways) were pixel-compared against the old components. They are
+    identical except JWT's sample `iat`, which is the time the pane is drawn.
+- **Input and output vocabulary as built:**
+  - **Input types:** `text` (one line, or `rows` high), `int`, `choice` (a select,
+    or `buttons`, with `choice_labels`), `bool`, `connection`, `headers`. Any input
+    may set `width` (a one-line box's pixels).
+  - **Output renders:** `text`, `code`, `json`, `diff`, `table`, plus `badge`
+    (JWT's verdict) and `error`.
+  - **Dropped for now:** `options: {action, depends_on}`, since no pane needs a
+    dynamic choice yet.
+- **The table** has:
+  - select one or all, hide the selected;
+  - copy (the checked rows, or all, as JSON);
+  - export (CSV/XLSX/JSON);
+  - attach (the agent's Session tab offers checked rows by the pane's name).
+
+  Changes from the plan:
+  - Cells are one line, with the full value as a tooltip. A row isn't expanded in
+    place; the agent reads one in full with `inspect_row`.
+  - "Rows at" is an input (`rowsAt`), named in the request as `rows_at`, rather
+    than a path on the output.
+- **Catalogue registration.**
+  - `paneTypes.tsx` keeps only the panes still drawn by their own components.
+  - `registerManifestPanes` adds a rendered manifest's pane at startup, in manifest
+    `order`.
+  - `PaneTypesGate` (App.tsx) holds the app until `/api/pane-types` answers, so no
+    session mounts before its ported panes can be drawn or migrated.
+  - A manifest's `description` and `help` are the catalogue's exact text.
+  - **Saved items:** §15.8's generic store isn't built. None of the three ported
+    tools had saved items, so it waits for PR 2's AWS panes.
+- **The agent:**
+  - Base64 and Diff run through their Python twins. A list output is cut to 100
+    items in what the model reads (`LIVE_SUMMARY_ITEMS`).
+  - JWT has no run at all: every input is sensitive, so there is nothing the agent
+    could set, and `run_pane` returns its `agent.run` text.
+  - `get_context` lists `http_apis` (id, name, base URL) for the API table's
+    connection input.
+  - The `headers` type is described as "object: name -> value", since a query uses
+    it too.
+- **Twins and fixtures:**
+  - `backend/tests/fixtures/live_functions.json` holds 25 cases. They were computed
+    by the old tools' own code (and the `diff` library) before the port.
+  - Both sides must match them: pytest checks the Python twins, and `smoke63`
+    bundles `panes/live.ts` with esbuild and checks it.
+  - The Diff twin compares lines with their newlines, as `diffLines` does.
+  - The fixture's empty-secret case was dropped: WebCrypto refuses a zero-length
+    HMAC key, so the old tool errored on it too.
+- **`describe()` before and after** was compared once, not kept as a test, because
+  the hand-written registry no longer exists to compare against. The output was
+  identical except for two intended changes: the new API table, and Diff now
+  runnable.
+- **Browser suites:**
+  - `smoke62`: the API table. Its reply is stood in for with `page.route`, because
+    the sandbox has no DNS; pytest covers the real request path.
+  - `smoke63`: the ported tools, a pre-port template and an old tab's keys, and the
+    TypeScript fixtures.
+  - `smoke64`: the stale tab.
+  - `smoke20` needed one change: its fixed list of add buttons now ends with
+    "API table".
 
 ## 12. Research sources
 

@@ -740,6 +740,17 @@ inputs and its output stay visibly separate.
   unchanged lines, so on a short diff it is identical to Unified by design —
   which is why the option says what it does rather than just "Compact".
   Client-side only.
+- **API table** — read a JSON list from an environment's **HTTP API**
+  connection (Settings → Environments) as a table: pick the connection, give a
+  path, any query parameters, and where the list is in the reply (`data.items`;
+  empty if the reply is the list), then **Fetch**. The request is a GET sent
+  from the backend with your group's identity on that connection (or the
+  connection's own), through the same address checks as the HTTP client, and
+  any secret echoed back is masked. Check rows to copy or export them, or to
+  attach them to a question for the agent; the rows stay in the session. The
+  agent can fill it in and fetch too. It is the first pane described entirely
+  by a manifest (`backend/app/panes/manifests/api-table.yaml`), with no code of
+  its own.
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
   Requests can be saved and reloaded by name (**Save request** / **Load

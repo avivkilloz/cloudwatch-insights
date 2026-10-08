@@ -173,7 +173,7 @@ interface ShellProps {
 
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
-  const { sessions, activeId, view, ready, show, open } = useSessions();
+  const { sessions, activeId, view, ready, show, open, flushAll } = useSessions();
 
   async function handleLogout() {
     await logout();
@@ -183,14 +183,21 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   const brand: BrandInfo = { title: appTitle, logoUrl: appLogoUrl };
 
   // A newer build is deployed: say so, and reload at the next move to another
-  // page or session -- a natural break, never in the middle of typing.
+  // page or session -- a natural break, never in the middle of typing. Every
+  // session is saved first: the debounced save would be cut off by the
+  // reload, and the server's older copy is what the new page would load.
   const stale = useStaleBuild();
   const place = `${view}:${activeId ?? ""}`;
   const staleAt = useRef<string | null>(null);
+  const reload = async () => {
+    await flushAll();
+    window.location.reload();
+  };
   useEffect(() => {
     if (!stale) return;
     if (staleAt.current === null) staleAt.current = place;
-    else if (staleAt.current !== place) window.location.reload();
+    else if (staleAt.current !== place) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale, place]);
 
   const [railWidth, setRailWidth] = useState(() =>
@@ -294,7 +301,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
           {stale && (
             <div className="panel app-update" role="status">
               <span>A new version of the app is available. It loads when you next switch page or session.</span>
-              <button onClick={() => window.location.reload()}>Reload now</button>
+              <button onClick={reload}>Reload now</button>
             </div>
           )}
 
