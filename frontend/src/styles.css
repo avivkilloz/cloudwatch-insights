@@ -3709,3 +3709,46 @@ th {
   width: auto;
   min-width: 160px;
 }
+
+/* A manifest pane's table output (panes/ManifestPane.tsx): every column a
+   reply's rows hold, so cells are kept to one line and the table scrolls
+   inside its own box rather than widening the pane. The full value is the
+   cell's tooltip; the agent can read a row in full (inspect_row). */
+.manifest-table-scroll {
+  overflow: auto;
+  max-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.manifest-table-scroll th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-alt);
+}
+
+.manifest-table-scroll th,
+.manifest-table-scroll td {
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manifest-table-scroll .manifest-table-check {
+  width: 1px;
+  padding-right: 0;
+}
+
+.manifest-table-scroll tr.selected td {
+  background: var(--panel-alt);
+}
+
+/* A newer build is deployed (appBuild.ts): one line above the body's cards. */
+.app-update {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}

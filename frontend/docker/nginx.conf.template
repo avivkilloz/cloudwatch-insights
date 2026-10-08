@@ -14,7 +14,15 @@ server {
         proxy_read_timeout 65s;
     }
 
+    # Never cached: a tab compares it with its own build to know it's stale
+    # (src/appBuild.ts), and a cached index.html would reload into the old app.
+    location = /version.json {
+        add_header Cache-Control "no-store";
+        try_files $uri =404;
+    }
+
     location / {
+        add_header Cache-Control "no-cache";
         try_files $uri /index.html;
     }
 }

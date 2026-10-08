@@ -1,3 +1,4 @@
+import type { PaneManifest } from "./panes/manifest";
 /** What a pane picks as an "environment": an AWS connection the user can
  * reach (PLATFORM_PLAN.md §14). `name` is "Prod", or "Prod · iot" where an
  * environment holds several. Its id is the connection's -- the same number
@@ -785,6 +786,15 @@ export const api = {
       region: t.config.region ?? "",
     })),
   listTargets: (type?: string) => req<Target[]>(`/targets${type ? `?type=${encodeURIComponent(type)}` : ""}`),
+
+  /** Every pane type the user's group may use, as its manifest describes it (PLATFORM_PLAN.md §15). */
+  listPaneTypes: () => req<PaneManifest[]>("/pane-types"),
+  /** Runs a manifest action that needs the server (the API table's Fetch); returns its outputs by key. */
+  runPaneAction: (type: string, action: string, inputs: Record<string, unknown>) =>
+    req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
+      method: "POST",
+      body: JSON.stringify({ inputs }),
+    }),
   listEnvironmentRecords: () => req<EnvironmentRecord[]>("/environments"),
   createEnvironment: (payload: { name: string; description?: string | null; account_id?: string; region?: string }) =>
     req<EnvironmentRecord>("/environments", { method: "POST", body: JSON.stringify(payload) }),

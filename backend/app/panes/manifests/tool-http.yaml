@@ -4,6 +4,11 @@ order: 70
 group: Tools
 flag: tools_enabled
 about: "An HTTP client: method, URL, headers and body, sent from the server."
+description: >-
+  Send a request and inspect the response, Postman-style.
+help: >-
+  Send an HTTP request and inspect the whole response — status, headers and body. Requests go out from the backend,
+  which refuses private and link-local addresses, so this cannot be used to reach inside the cluster.
 inputs:
   - key: method
     type: choice

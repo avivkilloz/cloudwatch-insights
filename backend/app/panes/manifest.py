@@ -79,6 +79,8 @@ class ManifestInput(_Strict):
     max: Optional[int] = None
     # A multi-line box this many rows high; a one-line box when absent.
     rows: Optional[int] = None
+    # A one-line box this many pixels wide, rather than as wide as it may be.
+    width: Optional[int] = None
     # Kept out of session state, the agent and run records: a pasted token,
     # a secret. Lives only in the tab's memory, as JWT's always has.
     sensitive: bool = False

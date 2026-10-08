@@ -4,10 +4,11 @@ order: 90
 group: Tools
 flag: tools_enabled
 about: Decode a JSON Web Token, or build and sign one.
-description: Decode, verify or sign a JSON Web Token.
+description: >-
+  Decode a token, or build and sign a new one.
 help: >-
-  Decode a JSON Web Token to read its header and claims, check an HMAC signature, or build and sign a new one --
-  all in your browser.
+  Decode a JSON Web Token to read its header and claims, and optionally verify an HMAC signature against a secret —
+  or go the other way and build and sign a new token. Everything happens in your browser.
 state: v2
 rendered: true
 # Everything here stays in the tab's memory, on purpose: a pasted token or a
@@ -30,6 +31,7 @@ inputs:
     type: text
     label: Secret — optional, HS256/384/512 only
     placeholder: Secret
+    width: 240
     default: ""
     sensitive: true
   - key: alg
@@ -118,9 +120,10 @@ layout:
   - title: Verify signature
     when: { output: decodedHeader, present: true }
     items:
-      - input: verifySecret
-      - output: verified
-        when: { output: verified, present: true }
+      - row:
+          - input: verifySecret
+          - output: verified
+            when: { output: verified, present: true }
   - title: Signing
     when: { input: mode, equals: encode }
     items:

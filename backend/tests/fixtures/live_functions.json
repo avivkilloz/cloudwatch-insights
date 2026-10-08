@@ -269,10 +269,10 @@
         "alg": "HS512",
         "header": "{\"alg\":\"HS512\"}",
         "payload": "{\"x\":true}",
-        "secret": ""
+        "secret": "another secret"
       },
       "expected": {
-        "signed": "eyJhbGciOiJIUzUxMiJ9.eyJ4Ijp0cnVlfQ.Wnc0JLf2IXvYizQMHQhEuDpcDm8aYE0lbsbD8iALjC-Euk7C0lk7Gk-43KnKKj4K3ps_zErtsAgOtJK6GggMJA"
+        "signed": "eyJhbGciOiJIUzUxMiJ9.eyJ4Ijp0cnVlfQ.SRQS-OveP03DWRtp2mwQMiADYygHEJTRWQlWkZ0kKk9QMdhP6u-5Z-c0ewSYvlX5DsLt5KoE9kvP2kMiHm_0dw"
       }
     },
     {

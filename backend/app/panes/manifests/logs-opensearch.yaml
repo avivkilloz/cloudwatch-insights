@@ -4,6 +4,12 @@ order: 20
 group: Services
 flag: opensearch_enabled
 about: "OpenSearch: a Lucene query_string search across domains and indices in several environments."
+description: >-
+  Query AWS-provisioned OpenSearch domains across environments.
+help: >-
+  Search AWS-provisioned OpenSearch domains across environments using Lucene query_string syntax — the same as
+  OpenSearch Dashboards' search bar — and read the merged results newest-first. Each domain's access policy has to
+  allow the app's assumed role, and its endpoint has to be reachable from the backend.
 inputs:
   - key: selectedEnvironmentIds
     type: environments

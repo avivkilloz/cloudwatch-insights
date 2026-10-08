@@ -5,6 +5,12 @@ group: Services
 flag: logs_enabled
 about: >-
   CloudWatch Logs Insights: one query across log groups in several environments, results merged newest first.
+description: >-
+  Query CloudWatch Logs Insights across environments.
+help: >-
+  Run one CloudWatch Logs Insights query across several AWS accounts and regions at once and read the merged results
+  newest-first. Pick the environments and log groups, write the query in Insights' pipe syntax or have the agent
+  write it, then run it.
 inputs:
   - key: selectedEnvironmentIds
     type: environments

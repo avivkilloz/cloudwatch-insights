@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useRef } from "react";
+import { manifest } from "../panes/manifest";
 
 /**
  * How a pane tells its session what it has checked in its results, so the
@@ -21,7 +22,10 @@ export type PaneDomain =
   | "tables"
   | "buckets"
   | "cognito"
-  | "tools-http";
+  | "tools-http"
+  // A manifest pane's rows, by its type's id (PLATFORM_PLAN.md §15): labelled
+  // by its manifest, since panes added that way aren't known here.
+  | (string & {});
 
 export interface PaneSelection {
   id: string;
@@ -43,7 +47,7 @@ export interface PaneSelectionRegistry {
 
 export const PaneSelectionContext = createContext<PaneSelectionRegistry | null>(null);
 
-export const DOMAIN_LABELS: Record<PaneDomain, string> = {
+export const DOMAIN_LABELS: Record<string, string> = {
   "logs-cloudwatch": "Logs (CloudWatch)",
   "logs-opensearch": "Logs (OpenSearch)",
   "iot-things": "IoT things",
@@ -53,6 +57,10 @@ export const DOMAIN_LABELS: Record<PaneDomain, string> = {
   cognito: "Cognito",
   "tools-http": "HTTP client",
 };
+
+export function domainLabel(domain: PaneDomain): string {
+  return DOMAIN_LABELS[domain] ?? manifest(domain)?.label ?? domain;
+}
 
 /** Registers a pane's checked rows with its session. Renders nothing. */
 export function PaneSelectionShare({ domain, selectedRows }: { domain: PaneDomain; selectedRows?: Record<string, unknown>[] }) {

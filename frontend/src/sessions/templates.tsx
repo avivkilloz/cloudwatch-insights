@@ -18,6 +18,7 @@ import { SessionType, useSessions } from "./SessionContext";
 import { SESSION_SAVED_PAGE, sessionType } from "./registry";
 import { PANE_TYPES } from "./paneTypes";
 import { encode } from "./storage";
+import { migratePaneKeys } from "../panes/manifest";
 import { decode } from "./storage";
 
 /** Stamped into every saved template so the reader can tell the current shape
@@ -87,13 +88,15 @@ export interface Template {
  */
 export function templateState(entry: SavedSession<Record<string, unknown>>): Record<string, unknown> {
   const state = migrateLegacyState(entry.page, entry.state as Record<string, any>);
-  if (entry.page === SESSION_SAVED_PAGE) return state;
+  // A template saved before a pane was ported holds its old keys, and the
+  // saved copy is never rewritten, so this runs on every open (§15.4).
+  if (entry.page === SESSION_SAVED_PAGE) return migratePaneKeys(state);
 
   const pane = paneForPage(entry.page, state);
   if (!pane) return state;
   const wrapped: Record<string, unknown> = { services: [pane], layout: "tabs", activePane: pane };
   for (const [key, value] of Object.entries(state)) wrapped[`${pane}.${key}`] = value;
-  return wrapped;
+  return migratePaneKeys(wrapped);
 }
 
 /** Which pane a template saved from a page becomes. Everything saved from the

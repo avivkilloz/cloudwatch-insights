@@ -3,11 +3,10 @@ import CognitoPage from "../pages/CognitoPage";
 import InsightsPage from "../pages/InsightsPage";
 import IotPage from "../pages/IotPage";
 import TablesPage from "../pages/TablesPage";
-import Base64Tool from "../components/tools/Base64Tool";
-import DiffTool from "../components/tools/DiffTool";
 import HttpClientTool from "../components/tools/HttpClientTool";
-import JwtTool from "../components/tools/JwtTool";
 import MqttTool from "../components/tools/MqttTool";
+import ManifestPane from "../panes/ManifestPane";
+import { PaneManifest } from "../panes/manifest";
 import { SessionType } from "./SessionContext";
 
 /**
@@ -39,7 +38,9 @@ export interface SessionTypeDef {
   paneable?: boolean;
 }
 
-export const PANE_TYPES: SessionTypeDef[] = [
+/** The panes still drawn by their own components, until their PRs port them
+ * to manifests (PLATFORM_PLAN.md §15). */
+const DRAWN: SessionTypeDef[] = [
   {
     type: "logs-cloudwatch",
     label: "CloudWatch",
@@ -146,36 +147,36 @@ export const PANE_TYPES: SessionTypeDef[] = [
     enabledFor: (u) => !!u?.tools_enabled,
     paneable: true,
   },
-  {
-    type: "tool-jwt",
-    label: "JWT",
-    group: "Tools",
-    description: "Decode a token, or build and sign a new one.",
-    help:
-      "Decode a JSON Web Token to read its header and claims, and optionally verify an HMAC signature against a " +
-      "secret — or go the other way and build and sign a new token. Everything happens in your browser.",
-    render: () => <JwtTool />,
-    enabledFor: (u) => !!u?.tools_enabled,
-    paneable: true,
-  },
-  {
-    type: "tool-base64",
-    label: "Base64",
-    group: "Tools",
-    description: "Convert text to and from Base64.",
-    help: "Convert text to and from Base64, with a URL-safe variant for values that travel in query strings.",
-    render: () => <Base64Tool />,
-    enabledFor: (u) => !!u?.tools_enabled,
-    paneable: true,
-  },
-  {
-    type: "tool-diff",
-    label: "Diff",
-    group: "Tools",
-    description: "Compare two blocks of text line by line.",
-    help: "Compare two blocks of text line by line and see exactly what was added, removed and left alone.",
-    render: () => <DiffTool />,
-    enabledFor: (u) => !!u?.tools_enabled,
-    paneable: true,
-  },
 ];
+
+/**
+ * Every pane type, in catalogue order: the ones above, and one for each pane
+ * the generic renderer draws from its manifest alone (Base64, Diff, JWT, the
+ * API table). Empty of the latter until `registerManifestPanes` runs, which
+ * App does before any session mounts; the list is filled in place, since the
+ * catalogue, the renderer and the pane naming all hold this array.
+ */
+export const PANE_TYPES: SessionTypeDef[] = [...DRAWN];
+
+function fromManifest(m: PaneManifest): SessionTypeDef {
+  return {
+    // A manifest's id is data, not one of the types this file was written with.
+    type: m.id as SessionType,
+    label: m.label,
+    group: m.group,
+    description: m.description,
+    help: m.help,
+    render: () => <ManifestPane type={m.id} />,
+    enabledFor: (u) => !!u?.[m.flag],
+    paneable: true,
+  };
+}
+
+export function registerManifestPanes(list: PaneManifest[]): void {
+  const order = new Map(list.map((m) => [m.id, m.order]));
+  const drawn = new Set(DRAWN.map((t) => t.type as string));
+  const all = [...DRAWN, ...list.filter((m) => m.rendered && !drawn.has(m.id)).map(fromManifest)];
+  // Stable, so a hand-drawn pane with no manifest keeps its place among its own.
+  all.sort((a, b) => (order.get(a.type) ?? 1000) - (order.get(b.type) ?? 1000));
+  PANE_TYPES.splice(0, PANE_TYPES.length, ...all);
+}

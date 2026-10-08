@@ -4,6 +4,11 @@ order: 80
 group: Tools
 flag: tools_enabled
 about: "An MQTT client on an environment's IoT Core endpoint: subscribe to topics and publish messages."
+description: >-
+  Subscribe and publish on an environment's IoT Core endpoint.
+help: >-
+  Connect to an environment's AWS IoT Core endpoint over a presigned WebSocket, subscribe to topic filters and
+  publish messages. Everything received is listed newest-first while the connection is open.
 agent:
   run: >-
     You can add it, but not fill it in or connect it: its environment, topics and connection live only in the

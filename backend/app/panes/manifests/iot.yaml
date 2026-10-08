@@ -4,6 +4,11 @@ order: 30
 group: Services
 flag: iot_enabled
 about: "AWS IoT Core: search things (Fleet Indexing syntax) or certificates across environments."
+description: >-
+  Search things by fleet index, or certificates by status.
+help: >-
+  Search AWS IoT Core across environments — things by fleet-index query, or certificates by status. Expanding a
+  result fetches its detail: shadows, attached certificates and their policies, and recent jobs.
 inputs:
   - key: selectedEnvironmentIds
     type: environments

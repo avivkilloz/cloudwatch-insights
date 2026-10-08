@@ -47,7 +47,6 @@ outputs:
     inspect: true
   - key: response
     render: json
-    label: Response
 layout:
   - title: Request
     items:

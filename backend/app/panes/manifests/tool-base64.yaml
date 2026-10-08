@@ -4,8 +4,10 @@ order: 100
 group: Tools
 flag: tools_enabled
 about: Base64 encode or decode text; the pane shows the output as soon as its inputs are set.
-description: Encode or decode Base64, URL-safe or standard.
-help: Encode text to Base64 or decode it back, as you type -- with the URL-safe alphabet when you need it.
+description: >-
+  Convert text to and from Base64.
+help: >-
+  Convert text to and from Base64, with a URL-safe variant for values that travel in query strings.
 state: v2
 rendered: true
 inputs:

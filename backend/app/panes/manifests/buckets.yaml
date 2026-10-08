@@ -4,6 +4,11 @@ order: 50
 group: Services
 flag: buckets_enabled
 about: "S3: browse a bucket's folders and files in one environment, or search file names under a prefix."
+description: >-
+  Browse an S3 bucket and search object names.
+help: >-
+  Browse an S3 bucket like a file tree, walking into folders, or search object names across a prefix. Sizes and
+  last-modified times come back with each object.
 inputs:
   - key: environmentId
     type: environment

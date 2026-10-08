@@ -4,8 +4,10 @@ order: 110
 group: Tools
 flag: tools_enabled
 about: A text diff; the pane shows the difference as soon as both sides are set.
-description: Compare two pieces of text.
-help: Paste two pieces of text to see what changed between them -- unified, side by side, or with unchanged runs folded away.
+description: >-
+  Compare two blocks of text line by line.
+help: >-
+  Compare two blocks of text line by line and see exactly what was added, removed and left alone.
 state: v2
 rendered: true
 inputs:
