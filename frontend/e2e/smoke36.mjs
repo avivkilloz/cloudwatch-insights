@@ -41,8 +41,10 @@ const run = async () => {
 
   // ---------- 1. two permissions, not one ----------
   await openSettings(page, "User groups");
-  await page.waitForSelector('.field-label:text-is("Visible tabs")', { timeout: 15000 });
-  const toggles = await page.locator('.row:has(> .checkbox-item) .checkbox-item').allInnerTexts();
+  // Groups open into sections now (PLATFORM_PLAN.md §14.8); a new one too.
+  await page.click('button:text-is("New group")');
+  await page.waitForSelector(".group-editor .group-flags", { timeout: 15000 });
+  const toggles = await page.locator(".group-editor .group-flags .checkbox-item").allInnerTexts();
   const names = toggles.map((t) => t.trim());
   check(names.includes("CloudWatch") && names.includes("OpenSearch"),
     "The group form offers CloudWatch and OpenSearch separately", JSON.stringify(names));
@@ -50,11 +52,9 @@ const run = async () => {
   await page.screenshot({ path: `${SHOT}/36-groups.png` });
 
   // A group with one and not the other -- which the old single flag could not say.
-  await page.fill('input[placeholder="Group name"], .panel input[type=text]', GROUP).catch(() => {});
-  const nameBox = page.locator('.panel:has(.field-label:text-is("Visible tabs")) input[type=text]').first();
-  await nameBox.fill(GROUP);
-  await page.locator('.checkbox-item:has-text("OpenSearch") input[type=checkbox]').uncheck();
-  await page.click('button:text-is("Add group"), button:text-is("Create group"), button:text-is("Save group")');
+  await page.fill("#group-name", GROUP);
+  await page.locator('.group-editor .checkbox-item:has-text("OpenSearch") input[type=checkbox]').uncheck();
+  await page.click('.group-editor .credential-view-foot button:text-is("Create")');
   await page.waitForTimeout(800);
   const stored = await page.evaluate(async (group) => {
     const list = await (await fetch("/api/user-groups", { credentials: "same-origin" })).json();

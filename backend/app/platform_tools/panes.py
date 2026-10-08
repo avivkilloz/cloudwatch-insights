@@ -31,9 +31,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import connections, models, schemas
 from ..live_store import tag_set, untag
-from ..resolve import user_can_access_environment
 from ..routers import buckets, cognito, iot, opensearch, queries, tables
 
 
@@ -80,8 +79,8 @@ _TYPE_NAMES = {
     "int": "integer",
     "choice": "one of choices",
     "bool": "boolean",
-    "environments": "list of environment ids",
-    "environment": "environment id",
+    "environments": "list of environment ids (get_context's environments)",
+    "environment": "environment id (get_context's environments)",
     "log_groups": "object: environment id -> list of log group names",
     "opensearch_indices": "list of {environment_id, domain_name, domain_endpoint, indices: [index names]}",
     "headers": "object: header name -> value",
@@ -92,14 +91,33 @@ MAX_TEXT = 100_000
 
 
 def _visible_environment(rc: RunContext, value: Any) -> int:
+    """The id of the AWS connection `value` names, as get_context lists them:
+    a connection id, a name ("Prod · iot"), or an environment (by id or name)
+    when it holds exactly one AWS connection. With several, it says which to
+    pick rather than guessing (D32)."""
+    targets = connections.targets(rc.db, rc.user, connections.AWS)
+    by_id = {t["id"]: t for t in targets}
+    by_env: dict[Any, list[dict]] = {}
+    for t in targets:
+        by_env.setdefault(t["environment_id"], []).append(t)
+        by_env.setdefault(t["environment"].lower(), []).append(t)
     try:
-        environment_id = int(value)
+        number: Optional[int] = int(value)
     except (TypeError, ValueError):
-        raise InputError(f"'{value}' is not an environment id; environment ids are numbers.") from None
-    environment = rc.db.get(models.Environment, environment_id)
-    if environment is None or not user_can_access_environment(rc.db, rc.user, environment):
-        raise InputError(f"Environment {environment_id} doesn't exist or isn't visible to you.")
-    return environment_id
+        number = None
+    if number is not None and number in by_id:
+        return number
+    if number is None:
+        named = [t for t in targets if t["label"].lower() == str(value).strip().lower()]
+        if named:
+            return named[0]["id"]
+    in_env = by_env.get(number if number is not None else str(value).strip().lower())
+    if in_env and len(in_env) == 1:
+        return in_env[0]["id"]
+    if in_env:
+        choices = ", ".join(f"{t['label']} (id {t['id']})" for t in in_env)
+        raise InputError(f"{in_env[0]['environment']} holds several AWS connections; name one: {choices}.")
+    raise InputError(f"Environment {value} doesn't exist or isn't visible to you.")
 
 
 def _usable_credential(rc: RunContext, value: Any) -> Optional[int]:

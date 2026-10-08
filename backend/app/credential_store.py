@@ -9,6 +9,7 @@ metadata: names, types, public fields and *which* secret fields are set.
 
 import datetime
 import json
+import time
 from typing import Any, Optional
 
 from sqlalchemy import or_
@@ -75,25 +76,32 @@ def _aad(cred: models.Credential) -> bytes:
     return f"credential:{cred.id}:{cred.type_id}:{cred.type_version}".encode()
 
 
-def _seal(cred: models.Credential, secrets: dict, ring: crypto.Keyring) -> None:
+# The keyring is only asked for when there is something to encrypt or
+# decrypt (D35): a credential with no secret value set -- an AWS role
+# without an external ID is just a name -- can be stored and used with no
+# master key. Without that, a deployment with no PLATFORM_MASTER_KEYS would
+# have lost AWS access on the upgrade that made its group roles credentials.
+
+
+def _seal(cred: models.Credential, secrets: dict, ring: Optional[crypto.Keyring] = None) -> None:
     secrets = {k: v for k, v in secrets.items() if v is not None}
     if not secrets:
         cred.secret_ciphertext = cred.secret_nonce = cred.wrapped_dek = None
         cred.kek_id = None
         cred.secret_fields_set = []
         return
-    sealed = crypto.seal(json.dumps(secrets).encode(), _aad(cred), ring)
+    sealed = crypto.seal(json.dumps(secrets).encode(), _aad(cred), ring or keyring())
     cred.secret_ciphertext, cred.secret_nonce = sealed.ciphertext, sealed.nonce
     cred.wrapped_dek, cred.kek_id = sealed.wrapped_dek, sealed.kek_id
     cred.secret_fields_set = sorted(secrets)
 
 
-def _open(cred: models.Credential, ring: crypto.Keyring) -> dict:
+def _open(cred: models.Credential, ring: Optional[crypto.Keyring] = None) -> dict:
     if not cred.secret_ciphertext:
         return {}
     sealed = crypto.Sealed(cred.secret_ciphertext, cred.secret_nonce, cred.wrapped_dek, cred.kek_id)
     try:
-        return json.loads(crypto.open_sealed(sealed, _aad(cred), ring))
+        return json.loads(crypto.open_sealed(sealed, _aad(cred), ring or keyring()))
     except crypto.DecryptError as e:
         raise CredentialError(f"Credential '{cred.name}' can't be decrypted. {e}") from None
 
@@ -104,8 +112,11 @@ def _open(cred: models.Credential, ring: crypto.Keyring) -> dict:
 def visible(db: Session, user: models.User) -> Query:
     """Admins see every credential. Anyone else sees their own group's, and
     the global ones granted to their group -- never another group's."""
+    return visible_to_group(db, user.group)
+
+
+def visible_to_group(db: Session, group: Optional[models.UserGroup]) -> Query:
     query = db.query(models.Credential)
-    group = user.group
     if group is not None and group.is_admin:
         return query
     group_id = group.id if group else -1
@@ -119,7 +130,11 @@ def visible(db: Session, user: models.User) -> Query:
 
 
 def usable(db: Session, user: models.User, cred: models.Credential) -> bool:
-    return visible(db, user).filter(models.Credential.id == cred.id).first() is not None
+    return usable_by_group(db, user.group, cred)
+
+
+def usable_by_group(db: Session, group: Optional[models.UserGroup], cred: models.Credential) -> bool:
+    return visible_to_group(db, group).filter(models.Credential.id == cred.id).first() is not None
 
 
 def _type(db: Session, type_id: str) -> models.CredentialType:
@@ -169,7 +184,6 @@ def create(
     description: Optional[str],
     values: dict,
 ) -> models.Credential:
-    ring = keyring()
     type_row = _type(db, type_id)
     group_id = _scope(db, scope, group_id)
     _check_name(db, name, scope, group_id)
@@ -194,7 +208,7 @@ def create(
     )
     db.add(cred)
     db.flush()  # the id is part of the ciphertext's associated data
-    _seal(cred, secret, ring)
+    _seal(cred, secret)
     audit.record(
         db, actor=actor, action="credential.create", object_type="credential", object_id=cred.id,
         group_id=group_id, detail={"name": cred.name, "type": type_row.id, "scope": scope},
@@ -216,7 +230,6 @@ def update(
 ) -> models.Credential:
     """A secret field left out of `values` (or sent empty) keeps its value;
     `clear` empties fields; public fields that are sent replace theirs."""
-    ring = keyring()
     type_row = _type(db, cred.type_id)
     changed: list[str] = []
     if name is not None and name.strip() != cred.name:
@@ -226,7 +239,7 @@ def update(
     if description is not None and description != cred.description:
         cred.description = description
         changed.append("description")
-    secrets = _open(cred, ring)
+    secrets = _open(cred)
     public = dict(cred.public_fields or {})
     try:
         new_public, new_secret = credential_types.split_values(type_row.fields, values or {})
@@ -259,7 +272,7 @@ def update(
         raise CredentialError(f"Fill in {', '.join(missing)}.")
     cred.public_fields = public
     cred.type_version = type_row.version
-    _seal(cred, secrets, ring)
+    _seal(cred, secrets)
     cred.updated_by_id = actor.id
     cred.updated_at = datetime.datetime.utcnow()
     audit.record(
@@ -271,9 +284,22 @@ def update(
     return cred
 
 
+def uses(db: Session, cred: models.Credential) -> list[str]:
+    """What a credential is in use as, in words: a group's identity, or a
+    connection's own credential."""
+    out = []
+    for ident in db.query(models.GroupIdentity).filter(models.GroupIdentity.credential_id == cred.id):
+        where = f"for {ident.connection.environment.name} · {ident.connection.name}" if ident.connection else f"for {ident.connection_type_id}"
+        out.append(f"{ident.group.name}'s identity {where}")
+    for conn in db.query(models.Connection).filter(models.Connection.credential_id == cred.id):
+        out.append(f"the connection {conn.environment.name} · {conn.name}")
+    return out
+
+
 def delete(db: Session, actor: models.User, cred: models.Credential) -> None:
-    # Phase 2's connections will reference credentials; deleting one in use
-    # is refused here, naming what uses it, once anything can.
+    in_use = uses(db, cred)
+    if in_use:
+        raise CredentialError(f"'{cred.name}' is in use as {'; '.join(in_use)}. Change that first.")
     audit.record(
         db, actor=actor, action="credential.delete", object_type="credential", object_id=cred.id,
         group_id=cred.group_id, detail={"name": cred.name, "type": cred.type_id},
@@ -312,16 +338,15 @@ def revoke(db: Session, actor: models.User, cred: models.Credential, group_id: i
 # ------------------------------------------------------------------- using secrets
 
 
-def _values(cred: models.Credential, ring: crypto.Keyring) -> dict:
-    secrets = _open(cred, ring)
+def _values(cred: models.Credential) -> dict:
+    secrets = _open(cred)
     masking.register(secrets)
     return {**(cred.public_fields or {}), **secrets}
 
 
 def test(db: Session, actor: models.User, cred: models.Credential) -> tuple[Optional[bool], str]:
-    ring = keyring()
     type_row = _type(db, cred.type_id)
-    values = _values(cred, ring)
+    values = _values(cred)
     try:
         ok, message = credential_types.test(type_row, values)
     except credential_types.CredentialTypeError as e:
@@ -337,25 +362,57 @@ def test(db: Session, actor: models.User, cred: models.Credential) -> tuple[Opti
     return ok, message
 
 
-def resolve(
-    db: Session, credential_id: int, *, actor: models.User, purpose: str, actor_kind: Optional[str] = None
-) -> tuple[models.CredentialType, dict]:
-    """The decrypted values of a credential the actor's group may use, with
-    the use audited (`purpose` says by what, e.g. "HTTP client in session
-    'Checkout'"). The only way a consumer gets a secret."""
-    ring = keyring()
-    cred = db.get(models.Credential, credential_id)
-    if cred is None or not usable(db, actor, cred):
-        # The same answer either way: no need to tell anyone that a
-        # credential they may not use exists.
-        raise CredentialAccessError("That credential doesn't exist or isn't available to your group.")
-    type_row = _type(db, cred.type_id)
-    values = _values(cred, ring)
-    cred.last_used_at = datetime.datetime.utcnow()
+# When each (credential, user, purpose) last had a use recorded, for
+# resolve(coalesce=True). In memory, so per replica: at most one row an hour
+# per replica, which is the point -- not one per AWS call (D36).
+_last_recorded: dict[tuple[int, int, str], float] = {}
+_COALESCE_SECONDS = 3600
+
+
+def _record_use(
+    db: Session, cred: models.Credential, actor: models.User, purpose: str, actor_kind: Optional[str], coalesce: bool
+) -> None:
+    key = (cred.id, actor.id, purpose)
+    now = time.monotonic()
+    if coalesce and now - _last_recorded.get(key, -_COALESCE_SECONDS) < _COALESCE_SECONDS:
+        return
+    _last_recorded[key] = now
     audit.record(
         db, actor=actor, action="credential.use", object_type="credential", object_id=cred.id,
         group_id=actor.group_id, detail={"purpose": purpose}, actor_kind=actor_kind,
     )
+
+
+def resolve(
+    db: Session,
+    credential_id: int,
+    *,
+    actor: models.User,
+    purpose: str,
+    actor_kind: Optional[str] = None,
+    coalesce: bool = False,
+    as_group: Optional[models.UserGroup] = None,
+) -> tuple[models.CredentialType, dict]:
+    """The decrypted values of a credential the actor's group may use, with
+    the use audited (`purpose` says by what, e.g. "HTTP client in session
+    'Checkout'"). The only way a consumer gets a secret.
+
+    `coalesce` is for identities, resolved on every AWS call a pane makes:
+    their use is recorded at most once an hour per (credential, user,
+    purpose), while `last_used_at` still moves every time (D36).
+
+    `as_group` checks a group other than the actor's own: an admin testing
+    whether a group reaches a connection ("Test as…"). The use is still the
+    actor's, and audited as theirs."""
+    cred = db.get(models.Credential, credential_id)
+    if cred is None or not usable_by_group(db, as_group if as_group is not None else actor.group, cred):
+        # The same answer either way: no need to tell anyone that a
+        # credential they may not use exists.
+        raise CredentialAccessError("That credential doesn't exist or isn't available to your group.")
+    type_row = _type(db, cred.type_id)
+    values = _values(cred)
+    cred.last_used_at = datetime.datetime.utcnow()
+    _record_use(db, cred, actor, purpose, actor_kind, coalesce)
     db.commit()
     # The commit expires the type row; loaded again here, the caller can read
     # it (to render or inject) after its own session has closed.

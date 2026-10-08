@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import aws_client, auth, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/queries", tags=["queries"])
 
@@ -20,7 +20,7 @@ def _start_one(
     environment_name,
     account_id,
     region,
-    role_name,
+    identity,
     log_group_names,
     query_string,
     start_time,
@@ -29,7 +29,7 @@ def _start_one(
 ):
     try:
         query_id = aws_client.start_query(
-            account_id, region, role_name, log_group_names, query_string, start_time, end_time, limit
+            account_id, region, identity, log_group_names, query_string, start_time, end_time, limit
         )
         return schemas.StartedQuery(
             environment_id=environment_id,
@@ -63,7 +63,7 @@ async def start_queries(
     tasks = []
     for target in payload.targets:
         try:
-            environment = resolve_environment(db, target.environment_id, current_user)
+            environment = resolve_target(db, target.environment_id, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -78,7 +78,7 @@ async def start_queries(
             )
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -100,7 +100,7 @@ async def start_queries(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
                 target.log_group_names,
                 payload.query_string,
                 payload.start_time,
@@ -112,9 +112,9 @@ async def start_queries(
     return schemas.StartQueryResponse(queries=list(results))
 
 
-def _results_one(environment_id, environment_name, account_id, region, role_name, query_id) -> schemas.QueryResultItem:
+def _results_one(environment_id, environment_name, account_id, region, identity, query_id) -> schemas.QueryResultItem:
     try:
-        data = aws_client.get_query_results(account_id, region, role_name, query_id)
+        data = aws_client.get_query_results(account_id, region, identity, query_id)
         rows = [
             [schemas.ResultField(field=f["field"], value=f["value"]) for f in row]
             for row in data["results"]
@@ -156,7 +156,7 @@ async def get_results(
     tasks = []
     for q in payload.queries:
         try:
-            environment = resolve_environment(db, q.environment_id, current_user)
+            environment = resolve_target(db, q.environment_id, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -173,7 +173,7 @@ async def get_results(
             )
             continue
         try:
-            role_name = resolve_role_name(current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError as e:
             tasks.append(
                 _wrap(
@@ -197,7 +197,7 @@ async def get_results(
                 environment.name,
                 environment.account_id,
                 environment.region,
-                role_name,
+                identity,
                 q.query_id,
             )
         )
@@ -206,9 +206,9 @@ async def get_results(
     return schemas.QueryResultsResponse(results=list(results), all_done=all_done)
 
 
-def _stop_one(account_id, region, role_name, query_id):
+def _stop_one(account_id, region, identity, query_id):
     try:
-        aws_client.stop_query(account_id, region, role_name, query_id)
+        aws_client.stop_query(account_id, region, identity, query_id)
     except Exception:  # noqa: BLE001 - best-effort stop
         pass
 
@@ -230,13 +230,13 @@ async def stop_queries(
     tasks = []
     for q in payload.queries:
         try:
-            environment = resolve_environment(db, q.environment_id, current_user)
-            role_name = resolve_role_name(current_user)
+            environment = resolve_target(db, q.environment_id, current_user)
+            identity = resolve_identity(db, environment, current_user)
         except ResolveError:
             continue
         tasks.append(
             loop.run_in_executor(
-                _executor, _stop_one, environment.account_id, environment.region, role_name, q.query_id
+                _executor, _stop_one, environment.account_id, environment.region, identity, q.query_id
             )
         )
     if tasks:

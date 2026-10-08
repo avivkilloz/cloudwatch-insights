@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from urllib.parse import urlparse
 
-from .. import auth, credential_store, credential_types, iot_mqtt_signer, masking, models, schemas, tools_http_client
+from .. import auth, connections, credential_store, credential_types, iot_mqtt_signer, masking, models, schemas, tools_http_client
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
@@ -23,6 +23,8 @@ def send_http_request(
 
     url = payload.url
     headers = {h.key: h.value for h in payload.headers}
+    if payload.target_id is not None:
+        url, headers = _through_target(db, current_user, payload, headers)
     if payload.credential_id is not None:
         # Resolved and applied here, server-side: the browser only ever named
         # the credential. resolve() checks the caller's group may use it,
@@ -58,6 +60,38 @@ def send_http_request(
     )
 
 
+def _through_target(
+    db: Session, current_user: models.User, payload: schemas.HttpToolRequest, headers: dict[str, str]
+) -> tuple[str, dict[str, str]]:
+    """The URL on an HTTP API connection (D33), and its identity applied
+    unless the request names a credential of its own. The joined URL still
+    goes through the SSRF guard in send_request, like any other."""
+    try:
+        target = resolve_target(db, payload.target_id, current_user, type_id=connections.HTTP_API)
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    path = payload.url.strip()
+    if urlparse(path).scheme:
+        raise HTTPException(
+            status_code=400,
+            detail=f"With {target.name} picked, give a path (e.g. /status), not a whole URL: it goes after "
+            f"{target.config['base_url']}.",
+        )
+    url = target.config["base_url"] + ("" if not path or path.startswith(("/", "?")) else "/") + path
+    if payload.credential_id is not None:
+        return url, headers
+    # A public API needs no identity: only one that exists is applied.
+    if connections.group_identity(db, current_user.group, target.connection) is None and target.connection.credential_id is None:
+        return url, headers
+    try:
+        type_row, values = resolve_identity_values(db, target, current_user)
+        return credential_types.apply_inject(type_row, values, url, headers)
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None
+    except credential_types.CredentialTypeError as e:
+        raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None
+
+
 @router.post("/mqtt/presigned-url", response_model=schemas.MqttPresignedUrlResponse)
 def get_mqtt_presigned_url(
     payload: schemas.MqttPresignedUrlRequest,
@@ -66,13 +100,13 @@ def get_mqtt_presigned_url(
 ):
     try:
         require_flag(current_user, "tools_enabled", "Tools")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        result = iot_mqtt_signer.build_presigned_ws_url(environment.account_id, environment.region, role_name)
+        result = iot_mqtt_signer.build_presigned_ws_url(environment.account_id, environment.region, identity)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to build MQTT connection URL: {e}") from e
 

@@ -28,10 +28,10 @@ MAX_PROBE_BODY_CHARS = 1000
 
 
 def build_presigned_ws_url(
-    account_id: str, region: str, role_name: str, expires: int = DEFAULT_EXPIRES_SECONDS
+    account_id: str, region: str, identity: aws_client.Identity, expires: int = DEFAULT_EXPIRES_SECONDS
 ) -> dict:
-    endpoint = iot_client.get_iot_data_endpoint(account_id, region, role_name)
-    creds = aws_client.get_credentials(account_id, role_name)
+    endpoint = iot_client.get_iot_data_endpoint(account_id, region, identity)
+    creds = aws_client.get_credentials(account_id, identity)
 
     # AWS IoT Core's device gateway recomputes the expected signature
     # *without* the session token and compares -- unlike SigV4Query auth's

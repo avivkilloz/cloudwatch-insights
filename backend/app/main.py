@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, credential_store, credential_types, masking, models
+from . import bootstrap, connections, credential_store, credential_types, masking, models
 from .db import Base, SessionLocal, engine, ensure_columns
 from .platform_tools import server as platform_server
 from .routers import (
@@ -49,10 +49,22 @@ if "user_groups.agent_enabled" in _added_columns:
     with engine.begin() as _conn:
         _conn.execute(text("UPDATE user_groups SET agent_enabled = true WHERE is_admin"))
 
+# An environment is no longer an AWS account and region itself (its
+# connections are), so those two columns stop being required. Kept for one
+# release so a rollback has them; harmless to repeat on every start.
+with engine.begin() as _conn:
+    _conn.execute(text("ALTER TABLE environments ALTER COLUMN account_id DROP NOT NULL"))
+    _conn.execute(text("ALTER TABLE environments ALTER COLUMN region DROP NOT NULL"))
+
 _bootstrap_db = SessionLocal()
 try:
     bootstrap.ensure_admin_exists(_bootstrap_db)
     credential_types.ensure_builtins(_bootstrap_db)
+    connections.ensure_builtins(_bootstrap_db)
+    # Once per database: environments become AWS connections with their own
+    # ids, group roles become group identities (PLATFORM_PLAN.md §14.5).
+    for _line in connections.migrate_legacy(_bootstrap_db):
+        logging.getLogger("connections").warning("Migrated %s", _line)
 finally:
     _bootstrap_db.close()
 
@@ -89,6 +101,9 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(user_groups.router)
 app.include_router(environments.router)
+app.include_router(environments.connections_router)
+app.include_router(environments.types_router)
+app.include_router(environments.targets_router)
 app.include_router(credentials.types_router)
 app.include_router(credentials.router)
 app.include_router(credentials.audit_router)

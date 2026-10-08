@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, cognito_client, models, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/cognito", tags=["cognito"])
 
@@ -16,13 +16,13 @@ def list_user_pools(
 ):
     try:
         require_flag(current_user, "cognito_enabled", "Cognito")
-        environment = resolve_environment(db, environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        pools = cognito_client.list_user_pools(environment.account_id, environment.region, role_name)
+        pools = cognito_client.list_user_pools(environment.account_id, environment.region, identity)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to list user pools: {e}") from e
 
@@ -37,8 +37,8 @@ def search_users(
 ):
     try:
         require_flag(current_user, "cognito_enabled", "Cognito")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -46,7 +46,7 @@ def search_users(
         result = cognito_client.search_users(
             environment.account_id,
             environment.region,
-            role_name,
+            identity,
             payload.user_pool_id,
             payload.query_string,
             payload.limit,

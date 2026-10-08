@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PaneSelectionShare } from "../paneSelection";
 import { useSessionState } from "../../sessions/SessionContext";
-import { api, CredentialSummary, HttpMethod, HttpToolResponse, readableError, SavedSession, ToolHeader } from "../../api";
+import { api, CredentialSummary, HttpMethod, HttpToolResponse, readableError, SavedSession, Target, ToolHeader } from "../../api";
 import { BODYLESS_METHODS, HTTP_METHODS } from "./httpRequestJson";
 
 const METHODS = HTTP_METHODS;
@@ -21,6 +21,8 @@ interface SavedHttpRequestState {
   body: string;
   /** By id only; older saved requests have none. */
   credentialId?: number | null;
+  /** An HTTP API connection, by id: the URL is then a path after its base URL. */
+  targetId?: number | null;
 }
 
 function prettyBody(body: string): string {
@@ -47,6 +49,10 @@ export default function HttpClientTool() {
   // backend resolves it and adds the header itself (PLATFORM_PLAN.md §13.8),
   // so nothing secret is in this pane, the session, or the agent's history.
   const [credentialId, setCredentialId] = useSessionState<number | null>("credentialId", null);
+  // An HTTP API connection (PLATFORM_PLAN.md D33): its base URL, and the
+  // group's identity there, are applied server-side, like Auth.
+  const [targetId, setTargetId] = useSessionState<number | null>("targetId", null);
+  const [targets, setTargets] = useState<Target[]>([]);
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +74,11 @@ export default function HttpClientTool() {
       .listCredentials<CredentialSummary>()
       .then((rows) => setCredentials(rows.filter((c) => c.authenticates)))
       .catch(() => setCredentials([]));
+    api.listTargets("http_api").then(setTargets, () => setTargets([]));
   }, []);
 
   const chosenCredential = credentials.find((c) => c.id === credentialId) ?? null;
+  const chosenTarget = targets.find((t) => t.id === targetId) ?? null;
 
   async function saveCurrentRequest() {
     const name = prompt("Save request as:");
@@ -79,7 +87,7 @@ export default function HttpClientTool() {
     const saved = await api.createSavedSession<SavedHttpRequestState>({
       page: SAVED_REQUESTS_PAGE,
       name,
-      state: { method, url, headers, body, credentialId },
+      state: { method, url, headers, body, credentialId, targetId },
     });
     setSavedRequests((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
   }
@@ -96,6 +104,7 @@ export default function HttpClientTool() {
     );
     setBody(saved.state.body);
     setCredentialId(saved.state.credentialId ?? null);
+    setTargetId(saved.state.targetId ?? null);
   }
 
   function updateHeader(id: number, field: "key" | "value", value: string) {
@@ -111,7 +120,7 @@ export default function HttpClientTool() {
   }
 
   async function send() {
-    if (!url.trim()) {
+    if (!url.trim() && targetId == null) {
       setError("Enter a URL.");
       return;
     }
@@ -127,6 +136,7 @@ export default function HttpClientTool() {
         headers,
         body: sentBody,
         credential_id: credentialId,
+        target_id: targetId,
       });
       setResponse(resp);
       // The request goes in alongside the response: asking "why is this a
@@ -136,11 +146,16 @@ export default function HttpClientTool() {
         {
           request: {
             method,
-            url: url.trim(),
+            url: chosenTarget ? `${chosenTarget.config.base_url}${url.trim().startsWith("/") || !url.trim() ? "" : "/"}${url.trim()}` : url.trim(),
             headers,
             body: sentBody,
             // Which credential signed it, by name: enough to ask about a 401.
-            ...(chosenCredential ? { auth: `credential "${chosenCredential.name}"` } : {}),
+            ...(chosenCredential
+              ? { auth: `credential "${chosenCredential.name}"` }
+              : chosenTarget
+                ? { auth: `your group's identity on ${chosenTarget.label}, if it has one` }
+                : {}),
+            ...(chosenTarget ? { target: chosenTarget.label } : {}),
           },
           response: {
             status_code: resp.status_code,
@@ -177,7 +192,8 @@ export default function HttpClientTool() {
           </select>
           <input
             type="text"
-            placeholder="https://api.example.com/resource"
+            aria-label="URL"
+            placeholder={chosenTarget ? `/path, after ${chosenTarget.config.base_url}` : "https://api.example.com/resource"}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             style={{ flex: 1, minWidth: 240 }}
@@ -186,6 +202,28 @@ export default function HttpClientTool() {
             {sending ? "Sending…" : "Send"}
           </button>
         </div>
+
+        {targets.length > 0 && (
+          <div className="row http-auth-row" style={{ marginBottom: 10 }}>
+            <label className="field-label" htmlFor="http-target" style={{ margin: 0 }}>
+              Target
+            </label>
+            <select
+              id="http-target"
+              value={targetId == null ? "" : String(targetId)}
+              onChange={(e) => setTargetId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Any URL</option>
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label} ({t.config.base_url})
+                </option>
+              ))}
+              {targetId != null && !chosenTarget && <option value={targetId}>A connection you can't reach</option>}
+            </select>
+            {chosenTarget && <span className="muted">The URL is a path after its base URL.</span>}
+          </div>
+        )}
 
         <div className="row http-auth-row" style={{ marginBottom: 10 }}>
           <label className="field-label" htmlFor="http-auth" style={{ margin: 0 }}>
@@ -196,7 +234,7 @@ export default function HttpClientTool() {
             value={credentialId == null ? "" : String(credentialId)}
             onChange={(e) => setCredentialId(e.target.value ? Number(e.target.value) : null)}
           >
-            <option value="">None</option>
+            <option value="">{chosenTarget ? "Your group's identity there" : "None"}</option>
             {credentials.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.type_label})

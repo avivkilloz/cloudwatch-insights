@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, s3_client, schemas
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_environment, resolve_role_name
+from ..resolve import ResolveError, require_flag, resolve_identity, resolve_target
 
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
@@ -16,13 +16,13 @@ def list_buckets(
 ):
     try:
         require_flag(current_user, "buckets_enabled", "S3")
-        environment = resolve_environment(db, environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        buckets = s3_client.list_buckets(environment.account_id, environment.region, role_name)
+        buckets = s3_client.list_buckets(environment.account_id, environment.region, identity)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Failed to list buckets: {e}") from e
 
@@ -37,8 +37,8 @@ def browse_bucket(
 ):
     try:
         require_flag(current_user, "buckets_enabled", "S3")
-        environment = resolve_environment(db, payload.environment_id, current_user)
-        role_name = resolve_role_name(current_user)
+        environment = resolve_target(db, payload.environment_id, current_user)
+        identity = resolve_identity(db, environment, current_user)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -46,7 +46,7 @@ def browse_bucket(
         result = s3_client.browse_bucket(
             environment.account_id,
             environment.region,
-            role_name,
+            identity,
             payload.bucket,
             payload.prefix,
             payload.search,

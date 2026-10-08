@@ -16,13 +16,13 @@ _endpoint_cache: dict[tuple[str, str, str], str] = {}
 _endpoint_lock = threading.Lock()
 
 
-def get_iot_data_endpoint(account_id: str, region: str, role_name: str) -> str:
-    cache_key = (account_id, region, role_name)
+def get_iot_data_endpoint(account_id: str, region: str, identity: aws_client.Identity) -> str:
+    cache_key = (account_id, region, identity)
     with _endpoint_lock:
         cached = _endpoint_cache.get(cache_key)
         if cached:
             return cached
-    client = aws_client.get_client("iot", account_id, region, role_name)
+    client = aws_client.get_client("iot", account_id, region, identity)
     resp = client.describe_endpoint(endpointType="iot:Data-ATS")
     endpoint = resp["endpointAddress"]
     with _endpoint_lock:
@@ -30,16 +30,16 @@ def get_iot_data_endpoint(account_id: str, region: str, role_name: str) -> str:
     return endpoint
 
 
-def _get_iot_data_client(account_id: str, region: str, role_name: str):
-    endpoint = get_iot_data_endpoint(account_id, region, role_name)
-    return aws_client.get_client_with_endpoint("iot-data", account_id, region, role_name, f"https://{endpoint}")
+def _get_iot_data_client(account_id: str, region: str, identity: aws_client.Identity):
+    endpoint = get_iot_data_endpoint(account_id, region, identity)
+    return aws_client.get_client_with_endpoint("iot-data", account_id, region, identity, f"https://{endpoint}")
 
 
-def search_things(account_id: str, region: str, role_name: str, query_string: str, max_results: int = 100) -> list[dict]:
+def search_things(account_id: str, region: str, identity: aws_client.Identity, query_string: str, max_results: int = 100) -> list[dict]:
     """Fleet Indexing search -- the same mechanism and query syntax as the
     "Advanced search" box for IoT things in the AWS console. Requires thing
     indexing to be enabled for this account/region; raises otherwise."""
-    client = aws_client.get_client("iot", account_id, region, role_name)
+    client = aws_client.get_client("iot", account_id, region, identity)
     things: list[dict] = []
     next_token = None
     while len(things) < max_results:
@@ -70,8 +70,8 @@ def search_things(account_id: str, region: str, role_name: str, query_string: st
     return things[:max_results]
 
 
-def _describe_thing(account_id: str, region: str, role_name: str, thing_name: str) -> dict:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def _describe_thing(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> dict:
+    client = aws_client.get_client("iot", account_id, region, identity)
     resp = client.describe_thing(thingName=thing_name)
     return {
         "thing_name": resp.get("thingName"),
@@ -83,8 +83,8 @@ def _describe_thing(account_id: str, region: str, role_name: str, thing_name: st
     }
 
 
-def _get_connectivity(account_id: str, region: str, role_name: str, thing_name: str) -> Optional[dict]:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def _get_connectivity(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> Optional[dict]:
+    client = aws_client.get_client("iot", account_id, region, identity)
     resp = client.search_index(indexName=THINGS_INDEX, queryString=f'thingName:"{thing_name}"', maxResults=1)
     items = resp.get("things", [])
     if not items:
@@ -125,8 +125,8 @@ def _list_attached_policies(client, target_arn: str) -> list[dict]:
     return policies
 
 
-def _list_certificates_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> list[dict]:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def _list_certificates_for_thing(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> list[dict]:
+    client = aws_client.get_client("iot", account_id, region, identity)
     resp = client.list_thing_principals(thingName=thing_name)
     certs = []
     for principal_arn in resp.get("principals", []):
@@ -187,10 +187,10 @@ def _extract_latest_timestamp(node) -> Optional[int]:
     return int(latest) if latest is not None else None
 
 
-def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> tuple[list[dict], list[str]]:
+def _list_shadows_for_thing(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> tuple[list[dict], list[str]]:
     # ListNamedShadowsForThing is a data-plane operation (like GetThingShadow),
     # not a control-plane one -- it lives on the iot-data client, not iot.
-    data_client = _get_iot_data_client(account_id, region, role_name)
+    data_client = _get_iot_data_client(account_id, region, identity)
     shadow_names: list[Optional[str]] = [None]  # classic/unnamed shadow, always attempted
     warnings: list[str] = []
 
@@ -235,8 +235,8 @@ def _list_shadows_for_thing(account_id: str, region: str, role_name: str, thing_
     return shadows, warnings
 
 
-def _list_job_executions_for_thing(account_id: str, region: str, role_name: str, thing_name: str) -> list[dict]:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def _list_job_executions_for_thing(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> list[dict]:
+    client = aws_client.get_client("iot", account_id, region, identity)
     jobs = []
     next_token = None
     while True:
@@ -264,13 +264,13 @@ def _list_job_executions_for_thing(account_id: str, region: str, role_name: str,
     return jobs
 
 
-def get_thing_detail(account_id: str, region: str, role_name: str, thing_name: str) -> dict:
+def get_thing_detail(account_id: str, region: str, identity: aws_client.Identity, thing_name: str) -> dict:
     """Combines several AWS IoT calls into one thing-detail payload. The
     core describe_thing call is allowed to raise (nothing to show without
     it); each auxiliary section (connectivity/certs/shadows/jobs) degrades
     independently so a missing permission on one doesn't hide the rest."""
     result = {
-        **_describe_thing(account_id, region, role_name, thing_name),
+        **_describe_thing(account_id, region, identity, thing_name),
         "connected": None,
         "connectivity_timestamp": None,
         "certificates": [],
@@ -280,7 +280,7 @@ def get_thing_detail(account_id: str, region: str, role_name: str, thing_name: s
     }
 
     try:
-        connectivity = _get_connectivity(account_id, region, role_name, thing_name)
+        connectivity = _get_connectivity(account_id, region, identity, thing_name)
         if connectivity:
             result["connected"] = connectivity.get("connected")
             result["connectivity_timestamp"] = connectivity.get("timestamp")
@@ -288,19 +288,19 @@ def get_thing_detail(account_id: str, region: str, role_name: str, thing_name: s
         result["warnings"].append(f"connectivity: {e}")
 
     try:
-        result["certificates"] = _list_certificates_for_thing(account_id, region, role_name, thing_name)
+        result["certificates"] = _list_certificates_for_thing(account_id, region, identity, thing_name)
     except Exception as e:  # noqa: BLE001
         result["warnings"].append(f"certificates: {e}")
 
     try:
-        shadows, shadow_warnings = _list_shadows_for_thing(account_id, region, role_name, thing_name)
+        shadows, shadow_warnings = _list_shadows_for_thing(account_id, region, identity, thing_name)
         result["shadows"] = shadows
         result["warnings"].extend(shadow_warnings)
     except Exception as e:  # noqa: BLE001
         result["warnings"].append(f"shadows: {e}")
 
     try:
-        result["jobs"] = _list_job_executions_for_thing(account_id, region, role_name, thing_name)
+        result["jobs"] = _list_job_executions_for_thing(account_id, region, identity, thing_name)
     except Exception as e:  # noqa: BLE001
         result["warnings"].append(f"jobs: {e}")
 
@@ -343,8 +343,8 @@ def _cert_summary(fields: dict, fallback_id: Optional[str] = None) -> dict:
     }
 
 
-def search_certificates(account_id: str, region: str, role_name: str, query_string: str, max_results: int = 100) -> list[dict]:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def search_certificates(account_id: str, region: str, identity: aws_client.Identity, query_string: str, max_results: int = 100) -> list[dict]:
+    client = aws_client.get_client("iot", account_id, region, identity)
     filters = _parse_simple_query(query_string)
 
     cert_id_filter = filters.get("certid") or filters.get("certificateid")
@@ -373,8 +373,8 @@ def search_certificates(account_id: str, region: str, role_name: str, query_stri
     return certs
 
 
-def get_certificate_detail(account_id: str, region: str, role_name: str, certificate_id: str) -> dict:
-    client = aws_client.get_client("iot", account_id, region, role_name)
+def get_certificate_detail(account_id: str, region: str, identity: aws_client.Identity, certificate_id: str) -> dict:
+    client = aws_client.get_client("iot", account_id, region, identity)
     resp = client.describe_certificate(certificateId=certificate_id)
     desc = resp.get("certificateDescription", {})
     cert_arn = desc.get("certificateArn")

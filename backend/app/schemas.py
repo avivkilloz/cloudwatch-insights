@@ -3,25 +3,114 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class EnvironmentBase(BaseModel):
+# An environment is a named group of connections (PLATFORM_PLAN.md §14).
+# `account_id`/`region` are its first AWS connection's, kept in and out so
+# the old one-account shape still works (D34): creating an environment with
+# them creates that connection, with the environment's own id.
+
+
+class EnvironmentCreate(BaseModel):
     name: str
-    account_id: str
-    region: str
-
-
-class EnvironmentCreate(EnvironmentBase):
-    pass
-
-
-class EnvironmentUpdate(BaseModel):
-    name: Optional[str] = None
+    description: Optional[str] = None
     account_id: Optional[str] = None
     region: Optional[str] = None
 
 
-class EnvironmentOut(EnvironmentBase):
-    model_config = ConfigDict(from_attributes=True)
+class EnvironmentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    account_id: Optional[str] = None
+    region: Optional[str] = None
+
+
+class ConnectionOut(BaseModel):
     id: int
+    environment_id: int
+    type_id: str
+    type_label: str
+    name: str
+    label: str
+    config: dict[str, Any] = {}
+    credential_id: Optional[int] = None
+    credential_name: Optional[str] = None
+    position: int = 0
+
+
+class EnvironmentOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    account_id: str = ""
+    region: str = ""
+    connections: list[ConnectionOut] = []
+    # Which groups see it -- admins only; empty for anyone else.
+    group_ids: list[int] = []
+
+
+class EnvironmentGroups(BaseModel):
+    group_ids: list[int]
+
+
+class ConnectionCreate(BaseModel):
+    type_id: str
+    name: str
+    config: dict[str, Any] = {}
+    credential_id: Optional[int] = None
+
+
+class ConnectionUpdate(BaseModel):
+    name: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+    credential_id: Optional[int] = None
+    clear_credential: bool = False
+    position: Optional[int] = None
+
+
+class ConnectionTestRequest(BaseModel):
+    group_id: int
+
+
+class ConnectionTestResult(BaseModel):
+    ok: bool
+    message: str
+
+
+class ConnectionTypeOut(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = None
+    fields: list[dict[str, Any]] = []
+    identity_types: list[str] = []
+    builtin: bool = True
+
+
+class TargetOut(BaseModel):
+    """A connection the caller can use, named the way pickers show it."""
+
+    id: int
+    label: str
+    type_id: str
+    environment_id: int
+    environment: str
+    connection: str
+    config: dict[str, Any] = {}
+
+
+class GroupIdentityIn(BaseModel):
+    connection_type_id: str
+    # Null: the group's default for the type; otherwise an override for one connection.
+    connection_id: Optional[int] = None
+    credential_id: int
+
+
+class GroupIdentitiesIn(BaseModel):
+    identities: list[GroupIdentityIn]
+
+
+class GroupIdentityOut(GroupIdentityIn):
+    connection_label: Optional[str] = None
+    credential_name: str
+    credential_type: str
 
 
 class SettingsOut(BaseModel):
@@ -831,6 +920,10 @@ class HttpToolRequest(BaseModel):
     # A credential to authenticate with, by id: the backend resolves it and
     # applies its type's `inject`, so its secret never reaches the browser.
     credential_id: Optional[int] = None
+    # An HTTP API connection to send to (D33): `url` is then a path joined to
+    # its base URL, and without a credential_id the request is signed with
+    # the caller's group's identity there, or the connection's own.
+    target_id: Optional[int] = None
 
 
 class HttpToolResponse(BaseModel):

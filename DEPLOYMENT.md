@@ -66,7 +66,7 @@ from the target-account policy below.)
    export NAMESPACE=cloudwatch-insights
    export SERVICE_ACCOUNT=cloudwatch-insights-backend
    export ROLE_NAME=cloudwatch-insights-hub-role
-   export TARGET_ROLE_NAME=CloudWatchInsightsReadRole   # the role name you'll set on the Admin group in the app's Settings
+   export TARGET_ROLE_NAME=CloudWatchInsightsReadRole   # the AWS role you'll give the Admin group in the app's Settings
 
    cat > trust-policy.json <<EOF
    {
@@ -432,20 +432,44 @@ ever taken to mean "no credentials".
 Local development (`docker-compose.yml`) uses a fixed key that is in the
 repository: fine for trying things out, never for anything real.
 
+## Upgrading to connections and group identities (Phase 2)
+
+The first start of this version migrates, once (PLATFORM_PLAN.md §14.5):
+
+- each environment becomes that environment holding one AWS connection, **with
+  the same id**, so saved sessions, templates and group access need nothing;
+- each user group's IAM role name becomes an *AWS role* credential of that group,
+  set as its default AWS identity (Settings → User groups → Identities).
+
+The backend logs one `Migrated …` line per environment and group. Nothing
+changes for users: the same role is assumed in the same account and region.
+
+- **Back up the database first.** Rolling back after the migration has run means
+  restoring that backup. The old columns (`environments.account_id`/`region`,
+  `user_groups.role_name`) are kept, unread, for one release for exactly this.
+- **No master key is needed for it.** An AWS role is just a name, so it is stored
+  without encryption (D35); only an external ID, if you add one, needs
+  `PLATFORM_MASTER_KEYS`.
+- The hub role (above) is still the platform's only ambient identity, and it is
+  only used to assume each group's role. A group can now also be a different role
+  in one account (an override per connection), or use stored access keys for an
+  account the hub role can't reach.
+
 ## After deploying
 
 Sign in as `admin` (the password is whatever you set via `backend.auth` in
 Helm — see below — or, if you didn't set one, whatever the backend logged on
 first startup; `kubectl logs` the backend pod to find it). Then click your
 picture (end of the strip) → **Settings**:
-1. Under **Environments**, add an environment for each account/region
-   combination you want to query — a name, the 12-digit account ID, and a
-   region.
-2. Under **User groups**, set the Admin group's **IAM role name** to
-   `$TARGET_ROLE_NAME` (default in the examples above:
-   `CloudWatchInsightsReadRole`), and create any other groups/users you
-   need — each group gets its own role name, its own visible tabs, and its
-   own visible environments (the Admin group always sees every
-   environment).
+1. Under **Environments**, add an environment (e.g. "Prod") and give it an
+   AWS connection for each account/region in it — the 12-digit account ID
+   and a region.
+2. Under **User groups**, open the Admin group and, in **Identities**, add
+   its AWS identity: "A new AWS role…" with `$TARGET_ROLE_NAME` (default in
+   the examples above: `CloudWatchInsightsReadRole`). Create any other
+   groups/users you need — each group gets its own identities, its own
+   visible pages, and its own visible environments (the Admin group always
+   sees every environment). **Test as…** on a connection checks a group
+   reaches it.
 
 Then use the **Logs** tab as described in the main README.
