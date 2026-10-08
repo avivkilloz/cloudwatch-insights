@@ -158,7 +158,7 @@ async function newPanedSession(page) {
   // The picker separates the two kinds of thing.
   check(
     (await page.locator(`${SESSION} .session-card-row:has(.session-card-label:text-is("Services")) .aggregator-add-pane`).count()) === 6 &&
-      (await page.locator(`${SESSION} .session-card-row:has(.session-card-label:text-is("Tools")) .aggregator-add-pane`).count()) === 5,
+      (await page.locator(`${SESSION} .session-card-row:has(.session-card-label:text-is("Tools")) .aggregator-add-pane`).count()) === 6,
     "The picker groups search services and tools separately"
   );
 
@@ -269,7 +269,7 @@ async function newPanedSession(page) {
   );
   check(
     JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, ""))) ===
-      JSON.stringify(["CloudWatch", "OpenSearch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client", "MQTT tester", "JWT", "Base64", "Diff"]),
+      JSON.stringify(["CloudWatch", "OpenSearch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client", "MQTT tester", "JWT", "Base64", "Diff", "API table"]),
     "Reordering panes leaves the Panes card's add buttons in their fixed order",
     JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, "")))
   );

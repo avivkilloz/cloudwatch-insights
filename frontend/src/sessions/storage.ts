@@ -171,6 +171,9 @@ export function isInputStateKey(key: string): boolean {
   // Matched by that prefix rather than by leaf name: its leaf "mode" is also
   // Base64's own encode/decode input, which a template must keep.
   if (/(^|\.)ai\./.test(key)) return false;
+  // A pane on the v2 shape (PLATFORM_PLAN.md §15.4) says which keys are its
+  // results and its view by prefix, so they need no entry below.
+  if (/^[^.]+\.(out|view)\./.test(key)) return false;
   return !OUTPUT_STATE_KEYS.has(leaf);
 }
 

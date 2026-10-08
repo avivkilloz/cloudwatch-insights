@@ -1,6 +1,7 @@
-import { CSSProperties, useEffect, useState } from "react";
-import { api, Settings } from "./api";
+import { CSSProperties, ReactNode, useEffect, useRef, useState } from "react";
+import { api, readableError, Settings } from "./api";
 import { useAuth } from "./AuthContext";
+import { useStaleBuild } from "./appBuild";
 import { AgentProvider, useAgent } from "./agent/AgentContext";
 import AgentDock, { DOCK_WIDTH } from "./components/AgentDock";
 import AgentFloat from "./components/AgentFloat";
@@ -21,6 +22,8 @@ import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
 import { TemplatesProvider } from "./sessions/templates";
 import { PersistedSession } from "./sessions/storage";
+import { setManifests } from "./panes/manifest";
+import { registerManifestPanes } from "./sessions/paneTypes";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
 
 /** Whether the left rail is showing, and how wide it and the agent's dock are.
@@ -97,23 +100,67 @@ export default function App() {
   if (!user) return <LoginPage />;
 
   return (
-    <SessionsProvider userId={user.id}>
-      {/* Templates are offered in two places -- the panel's catalogue and the
-          strip's ＋ -- so they are fetched once here rather than per list. */}
-      <TemplatesProvider>
-        {/* One conversation with the agent, for the page and the dock alike. */}
-        <AgentProvider>
-          <AppShell
-            appTitle={appTitle}
-            appLogoUrl={settings.app_logo_url}
-            theme={theme}
-            onThemeChange={setTheme}
-            onSettingsChange={setSettings}
-          />
-        </AgentProvider>
-      </TemplatesProvider>
-    </SessionsProvider>
+    <PaneTypesGate userId={user.id}>
+      <SessionsProvider userId={user.id}>
+        {/* Templates are offered in two places -- the panel's catalogue and the
+            strip's ＋ -- so they are fetched once here rather than per list. */}
+        <TemplatesProvider>
+          {/* One conversation with the agent, for the page and the dock alike. */}
+          <AgentProvider>
+            <AppShell
+              appTitle={appTitle}
+              appLogoUrl={settings.app_logo_url}
+              theme={theme}
+              onThemeChange={setTheme}
+              onSettingsChange={setSettings}
+            />
+          </AgentProvider>
+        </TemplatesProvider>
+      </SessionsProvider>
+    </PaneTypesGate>
   );
+}
+
+/**
+ * Holds the app back until the pane manifests are in (PLATFORM_PLAN.md §15):
+ * the catalogue lists the panes they describe, the renderer draws from them,
+ * and loading a session migrates its ported panes' keys by them -- a session
+ * mounted first would draw those panes empty and then move their keys under
+ * them. Per user, since which manifests come back depends on their group.
+ */
+function PaneTypesGate({ userId, children }: { userId: number; children: ReactNode }) {
+  const [loadedFor, setLoadedFor] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    api
+      .listPaneTypes()
+      .then((list) => {
+        if (cancelled) return;
+        setManifests(list);
+        registerManifestPanes(list);
+        setLoadedFor(userId);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(readableError(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, attempt]);
+
+  if (error) {
+    return (
+      <div className="panel" style={{ margin: 16 }}>
+        <p className="error-text">The app couldn't load its pane types: {error}</p>
+        <button onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+      </div>
+    );
+  }
+  return loadedFor === userId ? <>{children}</> : null;
 }
 
 interface ShellProps {
@@ -126,7 +173,7 @@ interface ShellProps {
 
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
-  const { sessions, activeId, view, ready, show, open } = useSessions();
+  const { sessions, activeId, view, ready, show, open, flushAll } = useSessions();
 
   async function handleLogout() {
     await logout();
@@ -134,6 +181,24 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
 
   const agent = useAgent();
   const brand: BrandInfo = { title: appTitle, logoUrl: appLogoUrl };
+
+  // A newer build is deployed: say so, and reload at the next move to another
+  // page or session -- a natural break, never in the middle of typing. Every
+  // session is saved first: the debounced save would be cut off by the
+  // reload, and the server's older copy is what the new page would load.
+  const stale = useStaleBuild();
+  const place = `${view}:${activeId ?? ""}`;
+  const staleAt = useRef<string | null>(null);
+  const reload = async () => {
+    await flushAll();
+    window.location.reload();
+  };
+  useEffect(() => {
+    if (!stale) return;
+    if (staleAt.current === null) staleAt.current = place;
+    else if (staleAt.current !== place) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stale, place]);
 
   const [railWidth, setRailWidth] = useState(() =>
     storedWidth(RAIL_WIDTH_KEY, RAIL_WIDTH.initial, RAIL_WIDTH.min, RAIL_WIDTH.max),
@@ -233,6 +298,12 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             brand={brand}
             account={dockShown ? null : account}
           />
+          {stale && (
+            <div className="panel app-update" role="status">
+              <span>A new version of the app is available. It loads when you next switch page or session.</span>
+              <button onClick={reload}>Reload now</button>
+            </div>
+          )}
 
         {view === "home" && <HomePage />}
         {view === "settings" && (

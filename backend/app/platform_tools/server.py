@@ -43,7 +43,19 @@ from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..routers import buckets, cognito, log_groups, opensearch, tables
 from . import tokens
-from .panes import KINDS, InputError, PaneKind, RunContext, available_kinds, convert, kind_for, pane_values, _call
+from .panes import (
+    KINDS,
+    InputError,
+    PaneKind,
+    RunContext,
+    _call,
+    available_kinds,
+    convert,
+    input_key,
+    kind_for,
+    output_key,
+    pane_values,
+)
 
 # Every write the agent makes is announced with this origin, so a browser can
 # tell the agent's changes from another tab's (and show them as the agent's).
@@ -264,6 +276,12 @@ async def get_context() -> dict:
                     "region": t["config"].get("region"),
                 }
                 for t in _environments(db, user)
+            ],
+            # HTTP API connections, for a pane's `connection` input (the API
+            # table): names and base URLs, never an identity.
+            "http_apis": [
+                {"id": t["id"], "name": t["label"], "base_url": t["config"].get("base_url")}
+                for t in connections.targets(db, user, connections.HTTP_API)
             ],
             "pane_kinds": [k.describe() for k in available_kinds(user)],
             # Names and types only, never a value: what a pane's credential
@@ -690,10 +708,10 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
     for key, value in kind.implies(inputs).items():
         if key in inputs:
             continue
-        current = untag(state.get(f"{pane_id}.{key}")) or []
+        current = untag(state.get(input_key(kind, pane_id, key))) or []
         converted[key] = _convert(kind, key, sorted(set(current) | set(value)), rc)
     for key, value in converted.items():
-        state[f"{pane_id}.{key}"] = value
+        state[input_key(kind, pane_id, key)] = value
     if (state.get("layout") or "tabs") == "tabs":
         state["activePane"] = pane_id
     # And not folded to its header in the other layouts: a run into a
@@ -736,7 +754,7 @@ def _longest_list(value: Any) -> Optional[list]:
     return best
 
 
-def _write_results(state: dict, pane_id: str, writes: dict[str, Any]) -> bool:
+def _write_results(state: dict, kind: PaneKind, pane_id: str, writes: dict[str, Any]) -> bool:
     """A run's results into its pane, cut down until the session still fits
     under the browser's limit. True if anything had to go."""
     if pane_id not in _pane_ids(state):
@@ -745,7 +763,7 @@ def _write_results(state: dict, pane_id: str, writes: dict[str, Any]) -> bool:
     trimmed = False
     while True:
         for key, value in writes.items():
-            state[f"{pane_id}.{key}"] = value
+            state[output_key(kind, pane_id, key)] = value
         if live_store.state_bytes(state) <= budget:
             return trimmed
         longest = _longest_list(writes)
@@ -825,7 +843,7 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
             return {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         writes = json.loads(json.dumps(result.writes))  # our own copy to trim
         row, trimmed = _mutate(
-            db, user, caller, session_id, lambda s, _r, _m: _write_results(s, pane_id, writes), ORIGIN
+            db, user, caller, session_id, lambda s, _r, _m: _write_results(s, kind, pane_id, writes), ORIGIN
         )
         out = {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         if trimmed:

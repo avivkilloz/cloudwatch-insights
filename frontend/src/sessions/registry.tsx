@@ -16,10 +16,9 @@ import { PANE_TYPES, SessionGroup, SessionTypeDef } from "./paneTypes";
 
 export type { SessionGroup, SessionTypeDef };
 
-export const SESSION_TYPES: SessionTypeDef[] = [
-  ...PANE_TYPES.filter((t) => t.group === "Services"),
-  ...PANE_TYPES.filter((t) => t.group === "Tools"),
-];
+// The same array, not a copy: panes described by a manifest join it when the
+// manifests load. Manifests order services before tools.
+export const SESSION_TYPES: SessionTypeDef[] = PANE_TYPES;
 
 /** Panes are grouped this way everywhere they are offered. "Platform" is no
  * longer one of them: what was under it is either the session itself now

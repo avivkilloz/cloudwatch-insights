@@ -1,0 +1,70 @@
+id: api-table
+label: API table
+order: 120
+group: Tools
+flag: tools_enabled
+about: >-
+  Reads JSON from an environment's HTTP API connection (a GET, with the group's own identity there) and shows it as
+  a table.
+description: Read JSON from an HTTP API connection as a table.
+help: >-
+  Pick an environment's HTTP API connection, a path and where the list is in the reply, and read it as a table:
+  select rows, copy them, export them, or hand them to the agent. Requests are signed with your group's identity
+  on that connection.
+state: v2
+rendered: true
+inputs:
+  - key: connection
+    type: connection
+    connection_type: http_api
+    label: Connection
+    help: The HTTP API connection to read from (get_context's http_apis).
+  - key: path
+    type: text
+    label: Path
+    placeholder: /v1/orders
+    help: The path after the connection's base URL, e.g. /v1/orders.
+    default: ""
+  - key: query
+    type: headers
+    label: Query
+    help: "Query parameters: name -> value."
+  - key: rowsAt
+    type: text
+    label: Rows at
+    placeholder: data.items (empty -- the reply itself)
+    help: Where the list is in the reply, as a dotted path, e.g. data.items; empty if the reply is the list.
+    default: ""
+actions:
+  - id: fetch
+    run_label: Fetch
+    busy_label: Fetching…
+    request: { method: GET, connection: connection, path: path, query: query, rows_at: rowsAt }
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+    inspect: true
+  - key: response
+    render: json
+layout:
+  - title: Request
+    items:
+      - input: connection
+      - input: path
+      - input: query
+      - input: rowsAt
+      - toolbar:
+          - action: fetch
+  - title: Rows
+    when: { output: rows, present: true }
+    items:
+      - output: rows
+  - title: Response
+    when: { output: response, present: true }
+    items:
+      - output: response
+inspect:
+  rows: rows.api-table
+agent:
+  run: Sends the GET to the connection and shows the rows in the pane; you get the row count and a sample.

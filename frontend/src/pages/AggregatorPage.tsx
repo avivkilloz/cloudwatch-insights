@@ -24,7 +24,7 @@ import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
-import { DOMAIN_LABELS, PaneSelection, PaneSelectionContext } from "../components/paneSelection";
+import { domainLabel, PaneSelection, PaneSelectionContext } from "../components/paneSelection";
 import { publishSelection } from "../agent/selection";
 import { useAgent } from "../agent/AgentContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
@@ -279,14 +279,18 @@ function resolveRect(prev: Rect, target: Rect, neighbors: Rect[], pad: number): 
 }
 
 // Panes are session types that make sense side by side -- the registry says
-// which, so a new tool or service shows up here without a second list.
-const SERVICES = PANE_TYPES.map((t) => ({
-  id: t.type as ServiceId,
-  label: t.label,
-  group: t.group,
-  render: t.render,
-  enabledFor: t.enabledFor,
-}));
+// which, so a new tool or service shows up here without a second list. Read
+// when used rather than copied at import: panes described only by a manifest
+// join the registry when the manifests load (App.tsx).
+function catalogue() {
+  return PANE_TYPES.map((t) => ({
+    id: t.type as ServiceId,
+    label: t.label,
+    group: t.group,
+    render: t.render,
+    enabledFor: t.enabledFor,
+  }));
+}
 
 /** Renaming a pane in place, in its header or its tab. Enter or leaving the
  * box keeps the name, Escape keeps the old one -- `onDone(null)`. Guarded so
@@ -399,12 +403,12 @@ export default function AggregatorPage() {
     if (key === publishedRef.current) return;
     publishedRef.current = key;
     publishSelection(scope.id, {
-      summaries: panes.map((p) => ({ pane: p.label ?? DOMAIN_LABELS[p.domain], count: p.selectedRows.length })),
+      summaries: panes.map((p) => ({ pane: p.label ?? domainLabel(p.domain), count: p.selectedRows.length })),
       // Read when a message is sent, not now: the rows are the pane's latest.
       rows: () => {
         const out: Record<string, unknown>[] = [];
         for (const p of panesRef.current.values()) {
-          const tag = { service: DOMAIN_LABELS[p.domain], pane: p.label };
+          const tag = { service: domainLabel(p.domain), pane: p.label };
           for (const row of p.selectedRows) out.push({ ...tag, ...row });
         }
         return out;
@@ -466,9 +470,10 @@ export default function AggregatorPage() {
   // The add buttons keep their fixed order, but the panes follow `services`,
   // which is what reordering rewrites. Each open pane is its kind's catalogue
   // entry under the pane's own id and name.
-  const available = SERVICES.filter((s) => s.enabledFor(user));
+  const kinds = catalogue();
+  const available = kinds.filter((s) => s.enabledFor(user));
   const open = services.flatMap((id) => {
-    const def = SERVICES.find((s) => s.id === paneType(id, paneTypes));
+    const def = kinds.find((s) => s.id === paneType(id, paneTypes));
     return def ? [{ ...def, id, type: def.id, label: paneTitle(id, paneTypes, paneTitles) }] : [];
   });
 
@@ -523,7 +528,7 @@ export default function AggregatorPage() {
     const pane = open.find((s) => s.id === id);
     if (!pane) return;
     const others = open.filter((s) => s.id !== id).map((s) => s.label);
-    const title = name.trim() || nextTitle(SERVICES.find((s) => s.id === pane.type)?.label ?? pane.type, others);
+    const title = name.trim() || nextTitle(kinds.find((s) => s.id === pane.type)?.label ?? pane.type, others);
     setPaneTitles((prev) => (prev[id] === title ? prev : { ...prev, [id]: title }));
   }
 
@@ -1277,8 +1282,8 @@ export default function AggregatorPage() {
           pane a toggle could mean. Closing is the pane's own ✕. */}
       <CardSection>
         {[
-          { heading: "Services", ids: SERVICES.filter((x) => x.group === "Services") },
-          { heading: "Tools", ids: SERVICES.filter((x) => x.group === "Tools") },
+          { heading: "Services", ids: kinds.filter((x) => x.group === "Services") },
+          { heading: "Tools", ids: kinds.filter((x) => x.group === "Tools") },
         ].map((group) => {
           const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
           if (shown.length === 0) return null;

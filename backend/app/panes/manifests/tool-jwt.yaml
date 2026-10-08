@@ -1,0 +1,151 @@
+id: tool-jwt
+label: JWT
+order: 90
+group: Tools
+flag: tools_enabled
+about: Decode a JSON Web Token, or build and sign one.
+description: >-
+  Decode a token, or build and sign a new one.
+help: >-
+  Decode a JSON Web Token to read its header and claims, and optionally verify an HMAC signature against a secret —
+  or go the other way and build and sign a new token. Everything happens in your browser.
+state: v2
+rendered: true
+# Everything here stays in the tab's memory, on purpose: a pasted token or a
+# secret is a credential (sensitive inputs never reach session state).
+inputs:
+  - key: mode
+    type: choice
+    choices: [decode, encode]
+    choice_labels: { decode: Decode, encode: Encode }
+    buttons: true
+    default: decode
+    sensitive: true
+  - key: token
+    type: text
+    rows: 4
+    placeholder: Paste a JWT to decode…
+    default: ""
+    sensitive: true
+  - key: verifySecret
+    type: text
+    label: Secret — optional, HS256/384/512 only
+    placeholder: Secret
+    width: 240
+    default: ""
+    sensitive: true
+  - key: alg
+    type: choice
+    label: Algorithm
+    choices: [HS256, HS384, HS512]
+    default: HS256
+    sensitive: true
+  - key: secret
+    type: text
+    label: Secret
+    default: ""
+    sensitive: true
+  - key: header
+    type: text
+    label: Header
+    rows: 3
+    default: |-
+      {
+        "alg": "HS256",
+        "typ": "JWT"
+      }
+    sensitive: true
+  - key: payload
+    type: text
+    label: Payload
+    rows: 6
+    default: |-
+      {
+        "sub": "1234567890",
+        "name": "Jane Doe",
+        "iat": {now}
+      }
+    sensitive: true
+actions:
+  - id: decode
+    live: jwt.decode
+  - id: verify
+    live: jwt.verify
+  - id: sign
+    live: jwt.sign
+    run_on: click
+    run_label: Generate token
+    busy_label: Signing…
+outputs:
+  - key: decodeError
+    render: error
+  - key: decodedHeader
+    render: json
+    label: Header
+  - key: decodedPayload
+    render: json
+    label: Payload
+  - key: verified
+    render: badge
+    badges:
+      valid: { text: "✓ Valid signature", tone: ok }
+      invalid: { text: "✗ Invalid signature", tone: error }
+      unsupported: { text: Unsupported algorithm for verification, tone: none }
+      unknown: { text: "…", tone: none }
+  - key: signed
+    render: code
+  - key: signError
+    render: error
+layout:
+  - title: Mode
+    items:
+      - toolbar:
+          - input: mode
+      - text: >-
+          Everything here runs in your browser — the token, secret and payload never leave this page. Only symmetric
+          (HS256/384/512) signing and verification are supported; RS/ES-signed tokens can still be decoded, but their
+          signature can't be verified here.
+  - title: Token
+    when: { input: mode, equals: decode }
+    items:
+      - input: token
+      - output: decodeError
+        when: { output: decodeError, present: true }
+  - title: Decoded
+    when: { output: decodedHeader, present: true }
+    items:
+      - output: decodedHeader
+      - output: decodedPayload
+        when: { output: decodedPayload, present: true }
+  - title: Verify signature
+    when: { output: decodedHeader, present: true }
+    items:
+      - row:
+          - input: verifySecret
+          - output: verified
+            when: { output: verified, present: true }
+  - title: Signing
+    when: { input: mode, equals: encode }
+    items:
+      - row:
+          - input: alg
+          - input: secret
+  - title: Claims
+    when: { input: mode, equals: encode }
+    items:
+      - input: header
+      - input: payload
+      - toolbar:
+          - action: sign
+          - output: signError
+            when: { output: signError, present: true }
+  - title: Token
+    when: { output: signed, present: true }
+    aside:
+      - copy: signed
+    items:
+      - output: signed
+agent:
+  run: >-
+    You can add it, but not fill it in: a token pasted into it stays in the user's browser, on purpose, since it's a
+    credential. Tell the user to paste the token into it.

@@ -1,0 +1,41 @@
+// vite.config.ts
+import { defineConfig } from "file:///home/user/cloudwatch-insights/frontend/node_modules/vite/dist/node/index.js";
+import react from "file:///home/user/cloudwatch-insights/frontend/node_modules/@vitejs/plugin-react/dist/index.js";
+import { nodePolyfills } from "file:///home/user/cloudwatch-insights/frontend/node_modules/vite-plugin-node-polyfills/dist/index.js";
+var BUILD_ID = process.env.APP_BUILD_ID || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function versionFile() {
+  return {
+    name: "version-file",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: BUILD_ID }) });
+    }
+  };
+}
+var vite_config_default = defineConfig({
+  define: { __APP_BUILD__: JSON.stringify(BUILD_ID) },
+  plugins: [
+    react(),
+    versionFile(),
+    // The MQTT tool's mqtt.js dependency (and its own dependencies, e.g.
+    // mqtt-packet/readable-stream) assume Node's Buffer/process/global exist
+    // even in its browser build -- Vite/esbuild, unlike webpack, doesn't
+    // polyfill those automatically, so without this the client can silently
+    // fail once it needs to parse a real MQTT packet (anything past the
+    // initial CONNACK), instead of throwing a clear "process is not defined".
+    nodePolyfills({ include: ["buffer", "process"] })
+  ],
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": {
+        target: process.env.BACKEND_URL || "http://127.0.0.1:8000",
+        changeOrigin: true
+      }
+    }
+  }
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcudHMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCIvaG9tZS91c2VyL2Nsb3Vkd2F0Y2gtaW5zaWdodHMvZnJvbnRlbmRcIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfZmlsZW5hbWUgPSBcIi9ob21lL3VzZXIvY2xvdWR3YXRjaC1pbnNpZ2h0cy9mcm9udGVuZC92aXRlLmNvbmZpZy50c1wiO2NvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9pbXBvcnRfbWV0YV91cmwgPSBcImZpbGU6Ly8vaG9tZS91c2VyL2Nsb3Vkd2F0Y2gtaW5zaWdodHMvZnJvbnRlbmQvdml0ZS5jb25maWcudHNcIjtpbXBvcnQgeyBkZWZpbmVDb25maWcsIFBsdWdpbiB9IGZyb20gXCJ2aXRlXCI7XG5pbXBvcnQgcmVhY3QgZnJvbSBcIkB2aXRlanMvcGx1Z2luLXJlYWN0XCI7XG5pbXBvcnQgeyBub2RlUG9seWZpbGxzIH0gZnJvbSBcInZpdGUtcGx1Z2luLW5vZGUtcG9seWZpbGxzXCI7XG5cbi8vIFdoaWNoIGJ1aWxkIHRoaXMgaXMuIENvbXBpbGVkIGludG8gdGhlIGFwcCBhbmQgd3JpdHRlbiBiZXNpZGUgaW5kZXguaHRtbCBhc1xuLy8gdmVyc2lvbi5qc29uLCBzbyBhIHRhYiBsZWZ0IG9wZW4gYWNyb3NzIGEgZGVwbG95IGNhbiB0ZWxsIGl0J3Mgc3RhbGVcbi8vIChzcmMvYXBwQnVpbGQudHMpLiBVbmlxdWUgcGVyIGJ1aWxkOyBhIGRlcGxveW1lbnQgbWF5IHBpbiBpdCBpbnN0ZWFkLlxuY29uc3QgQlVJTERfSUQgPSBwcm9jZXNzLmVudi5BUFBfQlVJTERfSUQgfHwgYCR7RGF0ZS5ub3coKS50b1N0cmluZygzNil9LSR7TWF0aC5yYW5kb20oKS50b1N0cmluZygzNikuc2xpY2UoMiwgOCl9YDtcblxuZnVuY3Rpb24gdmVyc2lvbkZpbGUoKTogUGx1Z2luIHtcbiAgcmV0dXJuIHtcbiAgICBuYW1lOiBcInZlcnNpb24tZmlsZVwiLFxuICAgIGFwcGx5OiBcImJ1aWxkXCIsXG4gICAgZ2VuZXJhdGVCdW5kbGUoKSB7XG4gICAgICB0aGlzLmVtaXRGaWxlKHsgdHlwZTogXCJhc3NldFwiLCBmaWxlTmFtZTogXCJ2ZXJzaW9uLmpzb25cIiwgc291cmNlOiBKU09OLnN0cmluZ2lmeSh7IGJ1aWxkOiBCVUlMRF9JRCB9KSB9KTtcbiAgICB9LFxuICB9O1xufVxuXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xuICBkZWZpbmU6IHsgX19BUFBfQlVJTERfXzogSlNPTi5zdHJpbmdpZnkoQlVJTERfSUQpIH0sXG4gIHBsdWdpbnM6IFtcbiAgICByZWFjdCgpLFxuICAgIHZlcnNpb25GaWxlKCksXG4gICAgLy8gVGhlIE1RVFQgdG9vbCdzIG1xdHQuanMgZGVwZW5kZW5jeSAoYW5kIGl0cyBvd24gZGVwZW5kZW5jaWVzLCBlLmcuXG4gICAgLy8gbXF0dC1wYWNrZXQvcmVhZGFibGUtc3RyZWFtKSBhc3N1bWUgTm9kZSdzIEJ1ZmZlci9wcm9jZXNzL2dsb2JhbCBleGlzdFxuICAgIC8vIGV2ZW4gaW4gaXRzIGJyb3dzZXIgYnVpbGQgLS0gVml0ZS9lc2J1aWxkLCB1bmxpa2Ugd2VicGFjaywgZG9lc24ndFxuICAgIC8vIHBvbHlmaWxsIHRob3NlIGF1dG9tYXRpY2FsbHksIHNvIHdpdGhvdXQgdGhpcyB0aGUgY2xpZW50IGNhbiBzaWxlbnRseVxuICAgIC8vIGZhaWwgb25jZSBpdCBuZWVkcyB0byBwYXJzZSBhIHJlYWwgTVFUVCBwYWNrZXQgKGFueXRoaW5nIHBhc3QgdGhlXG4gICAgLy8gaW5pdGlhbCBDT05OQUNLKSwgaW5zdGVhZCBvZiB0aHJvd2luZyBhIGNsZWFyIFwicHJvY2VzcyBpcyBub3QgZGVmaW5lZFwiLlxuICAgIG5vZGVQb2x5ZmlsbHMoeyBpbmNsdWRlOiBbXCJidWZmZXJcIiwgXCJwcm9jZXNzXCJdIH0pLFxuICBdLFxuICBzZXJ2ZXI6IHtcbiAgICBwb3J0OiA1MTczLFxuICAgIHByb3h5OiB7XG4gICAgICBcIi9hcGlcIjoge1xuICAgICAgICB0YXJnZXQ6IHByb2Nlc3MuZW52LkJBQ0tFTkRfVVJMIHx8IFwiaHR0cDovLzEyNy4wLjAuMTo4MDAwXCIsXG4gICAgICAgIGNoYW5nZU9yaWdpbjogdHJ1ZSxcbiAgICAgIH0sXG4gICAgfSxcbiAgfSxcbn0pO1xuIl0sCiAgIm1hcHBpbmdzIjogIjtBQUF1UyxTQUFTLG9CQUE0QjtBQUM1VSxPQUFPLFdBQVc7QUFDbEIsU0FBUyxxQkFBcUI7QUFLOUIsSUFBTSxXQUFXLFFBQVEsSUFBSSxnQkFBZ0IsR0FBRyxLQUFLLElBQUksRUFBRSxTQUFTLEVBQUUsQ0FBQyxJQUFJLEtBQUssT0FBTyxFQUFFLFNBQVMsRUFBRSxFQUFFLE1BQU0sR0FBRyxDQUFDLENBQUM7QUFFakgsU0FBUyxjQUFzQjtBQUM3QixTQUFPO0FBQUEsSUFDTCxNQUFNO0FBQUEsSUFDTixPQUFPO0FBQUEsSUFDUCxpQkFBaUI7QUFDZixXQUFLLFNBQVMsRUFBRSxNQUFNLFNBQVMsVUFBVSxnQkFBZ0IsUUFBUSxLQUFLLFVBQVUsRUFBRSxPQUFPLFNBQVMsQ0FBQyxFQUFFLENBQUM7QUFBQSxJQUN4RztBQUFBLEVBQ0Y7QUFDRjtBQUVBLElBQU8sc0JBQVEsYUFBYTtBQUFBLEVBQzFCLFFBQVEsRUFBRSxlQUFlLEtBQUssVUFBVSxRQUFRLEVBQUU7QUFBQSxFQUNsRCxTQUFTO0FBQUEsSUFDUCxNQUFNO0FBQUEsSUFDTixZQUFZO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUEsSUFPWixjQUFjLEVBQUUsU0FBUyxDQUFDLFVBQVUsU0FBUyxFQUFFLENBQUM7QUFBQSxFQUNsRDtBQUFBLEVBQ0EsUUFBUTtBQUFBLElBQ04sTUFBTTtBQUFBLElBQ04sT0FBTztBQUFBLE1BQ0wsUUFBUTtBQUFBLFFBQ04sUUFBUSxRQUFRLElBQUksZUFBZTtBQUFBLFFBQ25DLGNBQWM7QUFBQSxNQUNoQjtBQUFBLElBQ0Y7QUFBQSxFQUNGO0FBQ0YsQ0FBQzsiLAogICJuYW1lcyI6IFtdCn0K

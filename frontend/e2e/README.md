@@ -50,6 +50,15 @@ only check that a question asked in the agent panel's Global tab reaches it).
 e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
+`smoke62` (the API table) stands in for its Fetch reply with `page.route`: an HTTP
+API connection has to be a public host (the SSRF guard), which a sandbox without
+DNS can't reach. What the backend does with the request is pinned by
+`backend/tests/test_pane_manifests.py`. `smoke63` also checks
+`src/panes/live.ts` against `backend/tests/fixtures/live_functions.json` in Node,
+bundling it with the esbuild that comes with vite. `smoke64` (the stale-tab
+reload) stands in a newer `/version.json`, which the dev server otherwise answers
+with its own build id.
+
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs
 these. Install it where you run them (`npm i -D playwright`), or point

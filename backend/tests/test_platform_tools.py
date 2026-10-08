@@ -648,7 +648,7 @@ def test_a_browser_holding_an_old_version_is_refused_after_the_agent_writes(mcp)
         f"/api/live-sessions/{session}", json={**before, "state": {}, "base_version": before["version"]}
     )
     assert stale.status_code == 409
-    assert _row(session).state["tool-diff.left"] == "a"
+    assert _row(session).state["tool-diff.in.left"] == "a"
 
 
 def test_arrange_dashboard_leaves_a_plan_for_the_browser_to_place(mcp):

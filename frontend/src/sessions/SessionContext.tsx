@@ -22,6 +22,7 @@ import {
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
 import { subscribeLiveEvents } from "./liveEvents";
+import { migratePaneKeys } from "../panes/manifest";
 
 /** Which panes a session can hold. Values are stored, so renaming one orphans
  * existing sessions -- add rather than rename. ./registry.tsx says what each
@@ -57,7 +58,7 @@ export const SESSION_TYPE: SessionType = "aggregator";
 /**
  * Brings a stored workspace up to the shape this version expects.
  *
- * Two migrations, in order, because the second depends on the first:
+ * Three migrations, in order, because each depends on the one before:
  *
  * 1. The old single "logs" page split into CloudWatch and OpenSearch. Which
  *    one a session was is already in its own state -- the `backend` key the
@@ -66,6 +67,8 @@ export const SESSION_TYPE: SessionType = "aggregator";
  *    holding that page as its only pane: an Aggregator keeps a pane's state
  *    under "<paneId>.<key>", so every key it owns moves under the pane's id in
  *    the same step. Tabs, so one pane looks like the page it used to be.
+ * 3. A pane ported to a manifest keeps its keys under "<pane>.in." and
+ *    "<pane>.out." (PLATFORM_PLAN.md §15.4), by its manifest's own list.
  *
  * Agent sessions have nowhere to go -- the agent is a page now, not something
  * you have several of -- so they are dropped. They only ever held a
@@ -79,7 +82,7 @@ export function migrateSessionList(list: PersistedSession[]): PersistedSession[]
   for (const session of list) {
     const s = migrateLogsSplit(session);
     if (s.type === "agent") continue;
-    out.push(s.type === SESSION_TYPE ? s : wrapAsAggregator(s));
+    out.push(migratePanes(s.type === SESSION_TYPE ? s : wrapAsAggregator(s)));
   }
   return out;
 }
@@ -115,6 +118,13 @@ function migrateLogsSplit(s: PersistedSession): PersistedSession {
     state.minimized = minimized;
   }
   return { ...s, state };
+}
+
+/** The server does the same on every read and write; this covers the copy
+ * kept in IndexedDB, and a remote session merged in before its next read. */
+function migratePanes(s: PersistedSession): PersistedSession {
+  const state = migratePaneKeys(s.state);
+  return state === s.state ? s : { ...s, state };
 }
 
 /** One page's session becomes an Aggregator holding that page. */
@@ -157,6 +167,11 @@ interface SessionsApi {
   /** This session's state with its outputs stripped -- what a saved session
    * stores. */
   captureInputs: (id: string) => Record<string, unknown>;
+  /** Saves every open session now -- locally and to the server -- rather
+   * than on the debounce, resolving once both are done. For leaving the page
+   * on purpose (a reload into a newer build), where the debounced save would
+   * be cut off and the server's older copy would win on the way back. */
+  flushAll: () => Promise<void>;
 
   /** Slack-style groups for the panel's session list, in display order. A
    * session with no category (or one that was deleted) just doesn't appear
@@ -687,6 +702,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   // Named `sessionsApi` rather than `api`: the module-level `api` is the HTTP
   // client, and shadowing it here would quietly break the calls above.
+  const flushAll = useCallback(async () => {
+    await saveWorkspace(userId, workspaceRef.current);
+    await sync.flush(workspaceRef.current.sessions);
+  }, [userId, sync]);
+
   const sessionsApi = useMemo<SessionsApi>(
     () => ({
       sessions: workspace.sessions,
@@ -703,6 +723,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       reorder,
       show,
       captureInputs,
+      flushAll,
       categories,
       createCategory,
       renameCategory,
@@ -723,6 +744,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       reorder,
       show,
       captureInputs,
+      flushAll,
       categories,
       createCategory,
       renameCategory,

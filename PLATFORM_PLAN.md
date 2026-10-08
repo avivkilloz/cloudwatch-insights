@@ -12,7 +12,8 @@ reason), and tick roadmap items as they land. `CLAUDE.md` holds what is already 
 and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
-(2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built; next is Phase 3._
+(2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built. Phase 3 is detailed in
+§15 (D37–D44, agreed 2026-10-08)._
 
 ---
 
@@ -1102,7 +1103,8 @@ foundation the next one needs.
   client can target an HTTP API connection (D33). **Detailed in §14.**
   *Exit:* everything works exactly as today, through the new model.
 - [ ] **Phase 3: Actions, manifests and output components.** The largest phase,
-  because every pane is ported (D5). In three steps, each shippable:
+  because every pane is ported (D5). **Detailed in §15**, shipped as four PRs, each
+  with something to try in the UI (D41). The steps:
   - **3a, manifests for the agent:**
     - The manifest format, and a manifest for every existing pane.
     - `KINDS` and the agent's tools generated from the manifests.
@@ -1146,7 +1148,7 @@ foundation the next one needs.
 
 ## 10. Open questions (to discuss)
 
-None open as of 2026-10-07. New ones go here as they come up.
+None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 
 ## 11. Decision log
 
@@ -1191,6 +1193,14 @@ None open as of 2026-10-07. New ones go here as they come up.
 | D34 | 2026-10-07 | **Migrated connections keep their environment's id, and Phase 2 keeps the `environment_id(s)` keys in payloads and pane state**, now holding connection ids. They are renamed in Phase 3 with the one state shape (D9). | Saved sessions, templates and saved items keep working with no data migration, and pane state is migrated once (Phase 3) rather than twice. |
 | D35 | 2026-10-07 | **A credential with no secret value set can be stored and resolved without a master key.** | An *AWS role* without an external ID is only a name. Without this, a deployment with no `PLATFORM_MASTER_KEYS` would lose AWS access on upgrade. |
 | D36 | 2026-10-07 | **An identity's use is audited at most once an hour per (credential, user, connection)**; `last_used_at` still moves on every use. | A pane makes many AWS calls a minute; one audit row per call would bury everything else in the log. |
+| D37 | 2026-10-08 | **Phase 3 is detailed and shipped a step at a time**, each detailed just before it's built (§15). | Later steps depend on what the first one's manifests turn out to need. |
+| D38 | 2026-10-08 | **Outputs leave the synced session state (D21) in 3c, not 3a.** | It changes how results sync, how shared sessions see them and how the agent writes them, and its reason to exist is auto-refresh (3c). In 3a it would have turned a refactor into a risky change. |
+| D39 | 2026-10-08 | **Manifests are YAML files in the repo**, one per pane type, checked against a schema and served at `/api/pane-types`. Handlers are Python functions they name. | The format plugins will ship (Phase 7), used by the built-in panes from the first day. |
+| D40 | 2026-10-08 | **`environment(s)` becomes `connection(s)` in pane state and payloads in Phase 3**, through the same migration as the state shape; payloads accept both names for one release. | D34 deferred it so stored state is migrated once, not twice. |
+| D41 | 2026-10-08 | **A PR only when there is something to try in the UI.** Phase 3 is four PRs: manifests with Base64, Diff and JWT ported and the API table pane (PR 1); the rest of 3b (PR 2); 3c (PR 3); 3d (PR 4). | Each PR is tested by the person who merges it, not only by the suites. |
+| D42 | 2026-10-08 | **Each pane moves to the `in./out./view.` shape when it is ported**, with a per-pane-type version in the session; unported panes keep their keys. | A pane's code reads its own keys; switching them before it is rewritten is churn twice. Each pane is still migrated exactly once. |
+| D43 | 2026-10-08 | **Live panes use built-in live functions for now** (TypeScript in the browser, a Python twin for the agent and workflows); CEL in the browser arrives with the builder (Phase 5). | Nothing user-authored needs evaluating before the builder, and choosing a JavaScript CEL library now would be choosing before knowing what the builder needs. |
+| D44 | 2026-10-08 | **The agent may run GET requests on admin-configured HTTP API connections** (the API table pane), with the group's own identity; arbitrary requests (the HTTP client) stay behind the approval step. | It reads from a system an admin configured, as the AWS panes do; it doesn't send anything anywhere the user chose. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -1891,6 +1901,375 @@ What the build changed or settled that the text above didn't:
   this phase replaced. What they then check is unchanged and passes, including
   the pane label "Demo Env (111122223333 · us-east-1)", since an environment
   with one connection is called just its name.
+
+## 15. Phase 3 in detail: manifests, the renderer, and the first manifest-drawn panes
+
+_Drafted 2026-10-08 for review. Phase 3 ships as four PRs, each with something to
+try in the UI (D41). This section details the first, §15.1–15.9; the other three
+are outlined in §15.10 and get their own detail just before they are built. PR 1 is
+built; where it departed from this draft is in §15.12._
+
+### 15.1 What PR 1 delivers, and what you can try
+
+**You can try:**
+- **Base64, Diff and JWT, drawn from manifests by the generic renderer.** They look
+  and behave exactly as today; their browser suites pass unchanged.
+- **The agent can fill and run Base64 and Diff**, because their manifests say how.
+  It still can't fill JWT: a pasted token is `sensitive`.
+- **A new pane that exists only as a YAML file: *API table*.**
+  - It reads JSON from an environment's HTTP API connection (Phase 2) and shows it
+    as a table.
+  - The table can select rows, copy, export CSV/JSON, and attach rows to the agent.
+- **Settings and every other pane:** unchanged.
+
+**Underneath** (no visible change):
+- a manifest for every one of today's eleven panes;
+- `panes.py`'s `KINDS` generated from them;
+- `GET /api/pane-types`;
+- the `in.` / `out.` / `view.` state shape for the panes ported so far.
+
+### 15.2 The manifest
+
+One YAML file per pane type, in `backend/app/panes/manifests/`. They are checked
+against a schema at startup and in the tests, and served to the browser at
+`GET /api/pane-types`, filtered to what the caller's group may use. It is the same
+format a plugin will ship in Phase 7 (D39).
+
+```yaml
+id: tool-base64
+label: Base64
+group: Tools                  # a suggested category (§4.8); the catalogue arrives in PR 4
+flag: tools_enabled           # until per-type permissions (PR 4) replace the flags
+about: Base64 encode or decode text.
+help: >-
+  Encode text to Base64 or decode it back, as you type.
+state: v2                     # its keys are in./out./view. (§15.4); absent = still the legacy keys
+inputs:
+  - key: mode
+    type: choice
+    choices: [encode, decode]
+    default: encode
+    legacy_key: mode          # where it lived before v2, for the migration
+  - key: input
+    type: text
+  - key: urlSafe              # names don't change: the agent and its scripts use them
+    type: bool
+    label: URL-safe
+    legacy_key: urlSafe
+actions:
+  - id: convert
+    live: base64.convert      # a live function (§15.5): reruns as the inputs change
+outputs:
+  - key: output
+    render: code
+    actions: [copy]
+agent:
+  run: Nothing to run: the pane shows the output once the inputs are set.
+```
+
+**Fields:**
+- **Header:** `id`, `label`, `group`, `flag`, `about` (for the agent and the
+  catalogue), `help` (the pane's intro).
+- **Inputs:**
+  - `key`, `type`, `label`, `help`, `default`, `choices`, `min`/`max`;
+  - `sensitive` (kept out of session state, the agent and run records);
+  - `options: {action, depends_on}` for a dynamic choice;
+  - `connection_type` for a `connection` input;
+  - `legacy_key`.
+- **Actions:**
+  - `id` and `run_label`;
+  - one of: `handler` (a Python function registered by name), `live` (a live
+    function), or `request` (a declarative HTTP request, as the API table uses);
+  - `effects: external` when a run reaches outside the platform, which the agent
+    may not do until the approval step (§15.7).
+- **Outputs:**
+  - `key` and `render` (`text | code | json | table | diff` in PR 1);
+  - `actions` (`copy | export | attach | select` in PR 1);
+  - `rows` (a path into the output, for a table) and `inspect`.
+- **`agent`:** what `run_pane` says for this kind; today's `run_help`.
+
+The schema is a Pydantic model (`panes/manifest.py`), so a bad manifest fails
+startup and the tests with the file and field named.
+
+### 15.3 The agent's registry, generated
+
+`KINDS` stops being hand-written:
+- **One `PaneKind` per manifest.** Its `Input`s come from the manifest's inputs,
+  and its runner and row listers are looked up by the handler names they declare.
+- **The converters stay keyed by input type**, as now: `environments`, `log_groups`,
+  `headers`, `credential`, and the rest.
+- **What only code can say stays code**, referenced by name from the manifest:
+  - `implies` (picking log groups ticks their environments);
+  - `rows` and `detail` (inspect_row);
+  - the run functions.
+
+The MCP tests already pin every kind's keys and shapes, so they prove the generated
+registry equals the hand-written one. A test also compares `describe()` for each
+kind before and after the switch.
+
+### 15.4 The state shape, per pane as it is ported (D40, D42)
+
+- **The shape.** A ported pane stores:
+  - `<pane>.in.<input>` for its inputs;
+  - `<pane>.out.<output>` for its outputs;
+  - `<pane>.view.<key>` for view state.
+
+  An unported pane keeps its legacy keys until its PR ports it. Its manifest's
+  `state` says which it is. Every pane is still migrated exactly once.
+- **The migration** reads each manifest's `legacy_key`s (inputs and outputs):
+  - **In the browser on load**, after `migrateLogsSplit`/`wrapAsAggregator`, guarded
+    by a per-pane-type version map in the session (`__paneStates: {"tool-base64":
+    2}`), so it runs once per pane type, idempotently.
+  - **On the server**, on the agent's read path and on every PUT. So an old tab
+    left open across the deploy can't write the old keys back.
+  - **For saved templates and saved items**, through `__savedStateVersion`.
+- **Renaming `environment(s)` to `connection(s)`** (D34's deferred rename) rides
+  on the same migration, for each AWS pane when PR 2 ports it. API payloads accept
+  both names for one release.
+- **A stale tab reloads.** Every response carries the frontend build id
+  (`X-App-Build`). A tab whose build is older than the server's says "A new version
+  is available" and reloads on the next navigation. Without this, a tab open across
+  the deploy would read new-shape state it doesn't understand.
+
+### 15.5 The renderer, first cut
+
+`components/panes/ManifestPane.tsx` draws any manifest pane:
+- **Inputs:** a card of rows (the session card's `CardRow` look). PR 1 has:
+  - `string`, `text`, `number`, `bool`, `choice`;
+  - `connection` (a picker of `/api/targets?type=…`);
+  - `headers` (key/value rows).
+- **Actions:** a Run button per action. A `live` action reruns as you type, with no
+  button.
+- **Outputs:** `text`, `code`, `json`, `diff` (today's DiffTool view, lifted out as
+  a component), and `table`.
+- **The table**, lifted from today's results lists:
+  - select one or all rows;
+  - copy a cell or a row;
+  - export the selected or all rows as CSV or JSON;
+  - attach the selected rows to the agent (`PaneSelectionShare`, as every pane does
+    now);
+  - expand a row to its full JSON.
+- **Output actions** run as effects from the fixed vocabulary (§4.3): in PR 1,
+  `copy`, `download`, and `attach`.
+
+**Live functions (tier 1, D43).** `base64.convert`, `jwt.decode`, `jwt.verify`,
+`jwt.sign` and `diff.compute` are built-in named functions:
+- written in TypeScript for the browser, so they still update as you type;
+- with Python twins, so the agent and later workflows can run them.
+
+CEL in the browser, for live expressions people write themselves, arrives with the
+builder (Phase 5). Until then there is nothing user-authored to evaluate, and
+adopting a JavaScript CEL library now would be choosing one before we know what the
+builder needs.
+
+### 15.6 Porting Base64, Diff and JWT
+
+- **Each becomes a manifest with `state: v2`.**
+  - Its old component is replaced by `ManifestPane`.
+  - Its live function is moved, not rewritten: the code is today's.
+  - Its keys move under `in.` (`urlSafe` → `in.urlSafe`); input names stay, since the
+    agent and its scripts use them.
+- **Done means its browser suite passes unchanged**, and a new check opens a session
+  saved before the port and finds every input where it was.
+- **JWT's token and secrets are `sensitive`:**
+  - kept in the tab's memory only, never in session state, as today;
+  - the agent sees the input exists but can't set it.
+
+### 15.7 The API table pane, the first one with no code of its own
+
+```yaml
+id: api-table
+label: API table
+group: Tools
+flag: tools_enabled
+about: Reads JSON from an environment's HTTP API connection and shows it as a table.
+state: v2
+inputs:
+  - { key: connection, type: connection, connection_type: http_api }
+  - { key: path, type: string, help: "e.g. /v1/orders" }
+  - { key: query, type: headers, label: Query parameters }
+  - { key: rows, type: string, label: Rows at, help: "Where the list is in the reply, e.g. data.items; empty: the reply itself" }
+actions:
+  - id: fetch
+    run_label: Fetch
+    request: { method: GET, connection: connection, path: path, query: query }
+outputs:
+  - { key: rows, render: table, rows: rows, actions: [select, copy, export, attach], inspect: true }
+  - { key: response, render: json }
+```
+
+- **`request` is a declarative HTTP action.** It is today's HTTP client path with
+  no new code:
+  - the connection's base URL and the caller's group identity are applied
+    server-side (Phase 2);
+  - it goes through the SSRF guard;
+  - echoed secrets are masked.
+- **GET only** in PR 1.
+- **The agent may run it.** It reads from a connection an admin configured, with the
+  group's own identity, which is exactly what the AWS panes do. That is different
+  from the HTTP client, which sends anything anywhere and stays behind the approval
+  step (D44).
+
+### 15.8 What else changes
+
+- **`paneTypes.tsx`** keeps each type's React-only parts (icon, render function).
+  Label, help, group and flag come from the manifest. A manifest pane needs no entry
+  there: a manifest with no React entry is drawn by `ManifestPane`.
+- **The home catalogue and the Panes card** list manifest panes like any other, by
+  the manifest's `group`.
+- **Saved items** for ported panes go into one generic store keyed by pane type: the
+  manifest's inputs under a name. This replaces the per-pane saved stores as each
+  pane is ported.
+
+### 15.9 Tests and done
+
+- **Backend:**
+  - every manifest validates;
+  - the generated `KINDS` describe exactly what the hand-written ones did;
+  - the state migration in both directions it can meet (legacy to v2, v2 untouched,
+    idempotent), on the read path and on PUT;
+  - each live function's Python twin matches the TypeScript on shared fixtures;
+  - the API table's request, its SSRF refusal, masking, and the agent running it;
+  - `/api/pane-types` filtered by group.
+- **Browser:**
+  - every existing suite passes unchanged (Base64, Diff and JWT included);
+  - a new suite for the API table: pick a connection, fetch, select, export,
+    attach;
+  - a new suite for a session saved before the port reopening with its inputs;
+  - each new suite failing against the old frontend.
+
+**Done when** Base64, Diff and JWT are manifest panes indistinguishable from before;
+the API table works from its YAML alone; and the agent's registry is generated.
+
+### 15.10 After PR 1 (outlined; detailed before each is built)
+
+- **PR 2, the rest of 3b.**
+  - The remaining output components are extracted from their best current versions:
+    - the log list (CloudWatch);
+    - the expandable list with fetched detail (IoT);
+    - the file browser with navigation (S3);
+    - cursor pagination ("Load more").
+  - S3, DynamoDB, Cognito, IoT, CloudWatch, OpenSearch and the HTTP client are
+    ported, in that order, each with `environment(s)` renamed to `connection(s)`.
+  - Visualizations: the data-frame chart spec, ECharts, KPI tiles (D11).
+  - MQTT moves its connection server-side (D6).
+- **PR 3, 3c (live dashboards):**
+  - outputs move to their own store (D21, moved here by D38);
+  - view mode;
+  - session variables;
+  - auto-refresh with coalescing;
+  - Home → session.
+- **PR 4, 3d:**
+  - per-type permissions replace the boolean flags;
+  - the catalogue with categories (§4.8, R6);
+  - admin-defined connection types, in the credential-type editor, which the
+    manifest-only panes can then use.
+
+### 15.11 Open questions for Phase 3 PR 1
+
+Both settled 2026-10-08 as D43 (live functions now, CEL in the browser with the
+builder) and D44 (the agent may run the API table).
+
+### 15.12 PR 1 as built
+
+Where the build departed from §15.1–15.9, and why:
+
+- **The migration has no marker.** §15.4's `__paneStates` map is gone:
+  - the migration is idempotent on its own: a legacy key present moves under `in.`
+    (or `out.`), and a new key already there wins, since it is what the pane has
+    been showing;
+  - a tab left open across the deploy keeps writing old keys, so there is no
+    "done" worth recording.
+
+  It runs in these places:
+  - on the server: `panes/state.migrate` on every PUT, on every read-out
+    (`_out`), in `live_store.mutate`/`create`, and in the viewer's chat-only check;
+  - in the browser: `panes/manifest.migratePaneKeys`, the third step of
+    `migrateSessionList` (the IndexedDB copy, and server rows), and in
+    `templateState` (a template is never rewritten, so it migrates on every open).
+- **The stale-tab check is `version.json`, not an `X-App-Build` header.**
+  - Why: the backend and frontend are separate images, so the backend can't know
+    which frontend build is deployed.
+  - How it works:
+    - the build writes its id beside `index.html` and compiles the same id in;
+    - nginx serves the file `no-store`;
+    - the tab checks it on focus, on becoming visible, and every five minutes.
+  - When the ids differ:
+    - a one-line notice appears;
+    - the tab reloads at the next switch of page or session, or on "Reload now";
+    - before reloading it waits for `flushAll()` (every session saved locally and
+      to the server). Without that wait, the debounced save was cut off and the
+      server's older copy won on the way back.
+  - The dev server answers with its own id.
+- **Layout is part of the manifest.** §15.5 planned a fixed "card of rows". As built,
+  a manifest has a `layout`: cards with a title, an optional `aside` beside it, and
+  items.
+  - Items can be: `input`, `output`, `action`, `text`, `copy`, `row`, `toolbar`.
+  - Visibility: `when: {input, equals}` or `{output, present}`.
+  - Text: a title, label or placeholder may depend on an input
+    (`{by: mode, values: …}`).
+  - Why: it was the only way to port the three tools without changing how they
+    look.
+  - Checked: all twelve states of the three tools (empty, typed, errors, each diff
+    view, JWT both ways) were pixel-compared against the old components. They are
+    identical except JWT's sample `iat`, which is the time the pane is drawn.
+- **Input and output vocabulary as built:**
+  - **Input types:** `text` (one line, or `rows` high), `int`, `choice` (a select,
+    or `buttons`, with `choice_labels`), `bool`, `connection`, `headers`. Any input
+    may set `width` (a one-line box's pixels).
+  - **Output renders:** `text`, `code`, `json`, `diff`, `table`, plus `badge`
+    (JWT's verdict) and `error`.
+  - **Dropped for now:** `options: {action, depends_on}`, since no pane needs a
+    dynamic choice yet.
+- **The table** has:
+  - select one or all, hide the selected;
+  - copy (the checked rows, or all, as JSON);
+  - export (CSV/XLSX/JSON);
+  - attach (the agent's Session tab offers checked rows by the pane's name).
+
+  Changes from the plan:
+  - Cells are one line, with the full value as a tooltip. A row isn't expanded in
+    place; the agent reads one in full with `inspect_row`.
+  - "Rows at" is an input (`rowsAt`), named in the request as `rows_at`, rather
+    than a path on the output.
+- **Catalogue registration.**
+  - `paneTypes.tsx` keeps only the panes still drawn by their own components.
+  - `registerManifestPanes` adds a rendered manifest's pane at startup, in manifest
+    `order`.
+  - `PaneTypesGate` (App.tsx) holds the app until `/api/pane-types` answers, so no
+    session mounts before its ported panes can be drawn or migrated.
+  - A manifest's `description` and `help` are the catalogue's exact text.
+  - **Saved items:** §15.8's generic store isn't built. None of the three ported
+    tools had saved items, so it waits for PR 2's AWS panes.
+- **The agent:**
+  - Base64 and Diff run through their Python twins. A list output is cut to 100
+    items in what the model reads (`LIVE_SUMMARY_ITEMS`).
+  - JWT has no run at all: every input is sensitive, so there is nothing the agent
+    could set, and `run_pane` returns its `agent.run` text.
+  - `get_context` lists `http_apis` (id, name, base URL) for the API table's
+    connection input.
+  - The `headers` type is described as "object: name -> value", since a query uses
+    it too.
+- **Twins and fixtures:**
+  - `backend/tests/fixtures/live_functions.json` holds 25 cases. They were computed
+    by the old tools' own code (and the `diff` library) before the port.
+  - Both sides must match them: pytest checks the Python twins, and `smoke63`
+    bundles `panes/live.ts` with esbuild and checks it.
+  - The Diff twin compares lines with their newlines, as `diffLines` does.
+  - The fixture's empty-secret case was dropped: WebCrypto refuses a zero-length
+    HMAC key, so the old tool errored on it too.
+- **`describe()` before and after** was compared once, not kept as a test, because
+  the hand-written registry no longer exists to compare against. The output was
+  identical except for two intended changes: the new API table, and Diff now
+  runnable.
+- **Browser suites:**
+  - `smoke62`: the API table. Its reply is stood in for with `page.route`, because
+    the sandbox has no DNS; pytest covers the real request path.
+  - `smoke63`: the ported tools, a pre-port template and an old tab's keys, and the
+    TypeScript fixtures.
+  - `smoke64`: the stale tab.
+  - `smoke20` needed one change: its fixed list of add buttons now ends with
+    "API table".
 
 ## 12. Research sources
 

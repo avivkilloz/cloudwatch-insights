@@ -1,0 +1,341 @@
+{
+  "_about": "Inputs and the outputs the browser computed for them before the port (Base64Tool, DiffTool, JwtTool). The live functions (frontend/src/panes/live.ts) and their Python twins (backend/app/panes/live.py) must give the same. Regenerate only on purpose.",
+  "cases": [
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "encode",
+        "input": "hello world"
+      },
+      "expected": {
+        "output": "aGVsbG8gd29ybGQ="
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "encode",
+        "input": "héllo ✓ 🙂"
+      },
+      "expected": {
+        "output": "aMOpbGxvIOKckyDwn5mC"
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "encode",
+        "input": "subjects?_d>>~",
+        "urlSafe": true
+      },
+      "expected": {
+        "output": "c3ViamVjdHM_X2Q-Pn4"
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "encode",
+        "input": "subjects?_d>>~",
+        "urlSafe": false
+      },
+      "expected": {
+        "output": "c3ViamVjdHM/X2Q+Pn4="
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "decode",
+        "input": "aGVsbG8gd29ybGQ="
+      },
+      "expected": {
+        "output": "hello world"
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "decode",
+        "input": "  aMOpbGxvIOKckyDwn5mC  "
+      },
+      "expected": {
+        "output": "héllo ✓ 🙂"
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "decode",
+        "input": "c3ViamVjdHM_X2Q-Pn4"
+      },
+      "expected": {
+        "output": "subjects?_d>>~"
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "decode",
+        "input": "not base64!!"
+      },
+      "expected": {
+        "error": "That doesn't look like valid Base64."
+      }
+    },
+    {
+      "function": "base64.convert",
+      "inputs": {
+        "mode": "encode",
+        "input": ""
+      },
+      "expected": {}
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "a\nb\nc\n",
+        "right": "a\nB\nc\n"
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "equal",
+            "left": "a",
+            "right": "a"
+          },
+          {
+            "type": "modify",
+            "left": "b",
+            "right": "B"
+          },
+          {
+            "type": "equal",
+            "left": "c",
+            "right": "c"
+          }
+        ],
+        "counts": "1 removal, 1 addition"
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "one\ntwo\nthree\n",
+        "right": "one\nthree\nfour\n"
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "equal",
+            "left": "one",
+            "right": "one"
+          },
+          {
+            "type": "remove",
+            "left": "two"
+          },
+          {
+            "type": "equal",
+            "left": "three",
+            "right": "three"
+          },
+          {
+            "type": "add",
+            "right": "four"
+          }
+        ],
+        "counts": "1 removal, 1 addition"
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "same\n",
+        "right": "same\n"
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "equal",
+            "left": "same",
+            "right": "same"
+          }
+        ]
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "x\n",
+        "right": ""
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "remove",
+            "left": "x"
+          }
+        ],
+        "counts": "1 removal, 0 additions"
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "",
+        "right": "new\nlines\n"
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "add",
+            "right": "new"
+          },
+          {
+            "type": "add",
+            "right": "lines"
+          }
+        ],
+        "counts": "0 removals, 2 additions"
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "a\nb\nc",
+        "right": "a\nB\nc\nd"
+      },
+      "expected": {
+        "diff": [
+          {
+            "type": "equal",
+            "left": "a",
+            "right": "a"
+          },
+          {
+            "type": "modify",
+            "left": "b",
+            "right": "B"
+          },
+          {
+            "type": "modify",
+            "left": "c",
+            "right": "c"
+          },
+          {
+            "type": "add",
+            "right": "d"
+          }
+        ],
+        "counts": "2 removals, 3 additions"
+      }
+    },
+    {
+      "function": "diff.compute",
+      "inputs": {
+        "left": "",
+        "right": ""
+      },
+      "expected": {}
+    },
+    {
+      "function": "jwt.sign",
+      "inputs": {
+        "alg": "HS256",
+        "header": "{\"alg\":\"HS256\",\"typ\":\"JWT\"}",
+        "payload": "{\"sub\":\"1234567890\",\"name\":\"Zoë\",\"iat\":1516239022}",
+        "secret": "s3cret"
+      },
+      "expected": {
+        "signed": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4"
+      }
+    },
+    {
+      "function": "jwt.sign",
+      "inputs": {
+        "alg": "HS384",
+        "header": "{\"alg\":\"HS384\",\"typ\":\"JWT\"}",
+        "payload": "{\n  \"a\": [1, 2, {\"b\": null}]\n}",
+        "secret": "k"
+      },
+      "expected": {
+        "signed": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJhIjpbMSwyLHsiYiI6bnVsbH1dfQ.0Tra3gigw9Czz27JdoKZ__mFtwYAA-xy1YP-Qvn_sDrnpuhDMkkPC4C00gXE8BNG"
+      }
+    },
+    {
+      "function": "jwt.sign",
+      "inputs": {
+        "alg": "HS512",
+        "header": "{\"alg\":\"HS512\"}",
+        "payload": "{\"x\":true}",
+        "secret": "another secret"
+      },
+      "expected": {
+        "signed": "eyJhbGciOiJIUzUxMiJ9.eyJ4Ijp0cnVlfQ.SRQS-OveP03DWRtp2mwQMiADYygHEJTRWQlWkZ0kKk9QMdhP6u-5Z-c0ewSYvlX5DsLt5KoE9kvP2kMiHm_0dw"
+      }
+    },
+    {
+      "function": "jwt.decode",
+      "inputs": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4"
+      },
+      "expected": {
+        "decodedHeader": {
+          "alg": "HS256",
+          "typ": "JWT"
+        },
+        "decodedPayload": {
+          "sub": "1234567890",
+          "name": "Zoë",
+          "iat": 1516239022
+        }
+      }
+    },
+    {
+      "function": "jwt.decode",
+      "inputs": {
+        "token": ""
+      },
+      "expected": {}
+    },
+    {
+      "function": "jwt.verify",
+      "inputs": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4",
+        "verifySecret": "s3cret"
+      },
+      "expected": {
+        "verified": "valid"
+      }
+    },
+    {
+      "function": "jwt.verify",
+      "inputs": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4",
+        "verifySecret": "wrong"
+      },
+      "expected": {
+        "verified": "invalid"
+      }
+    },
+    {
+      "function": "jwt.verify",
+      "inputs": {
+        "token": "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4",
+        "verifySecret": "s3cret"
+      },
+      "expected": {
+        "verified": "unsupported"
+      }
+    },
+    {
+      "function": "jwt.verify",
+      "inputs": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ilpvw6siLCJpYXQiOjE1MTYyMzkwMjJ9._jebG542FgZQUpyBeg9iMGhzCN0wAuon9vTdmT38Pa4",
+        "verifySecret": ""
+      },
+      "expected": {}
+    }
+  ]
+}

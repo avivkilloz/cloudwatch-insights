@@ -1,0 +1,59 @@
+id: tool-base64
+label: Base64
+order: 100
+group: Tools
+flag: tools_enabled
+about: Base64 encode or decode text; the pane shows the output as soon as its inputs are set.
+description: >-
+  Convert text to and from Base64.
+help: >-
+  Convert text to and from Base64, with a URL-safe variant for values that travel in query strings.
+state: v2
+rendered: true
+inputs:
+  - key: mode
+    type: choice
+    help: Encode or decode.
+    choices: [encode, decode]
+    choice_labels: { encode: Encode, decode: Decode }
+    buttons: true
+    default: encode
+  - key: input
+    type: text
+    help: The text to encode, or the Base64 to decode.
+    label: { by: mode, values: { encode: Text, decode: Base64 } }
+    placeholder: { by: mode, values: { encode: Type or paste text to encode…, decode: Paste Base64 to decode… } }
+    rows: 6
+    default: ""
+  - key: urlSafe
+    type: bool
+    label: URL-safe
+    help: Use the URL-safe alphabet without padding (encoding).
+    default: false
+actions:
+  - id: convert
+    live: base64.convert
+outputs:
+  - key: output
+    render: code
+    rows: 6
+  - key: error
+    render: error
+layout:
+  - title: Input
+    items:
+      - toolbar:
+          - input: mode
+          - input: urlSafe
+            when: { input: mode, equals: encode }
+      - input: input
+  - title: { by: mode, values: { encode: Base64, decode: Text } }
+    aside:
+      - copy: output
+    items:
+      - output: error
+        when: { output: error, present: true }
+      - output: output
+        when: { output: error, present: false }
+agent:
+  run: Nothing to run -- the pane shows the output once the inputs are set; run_pane tells you it.

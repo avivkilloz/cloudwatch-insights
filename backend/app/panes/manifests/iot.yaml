@@ -1,0 +1,38 @@
+id: iot
+label: IoT
+order: 30
+group: Services
+flag: iot_enabled
+about: "AWS IoT Core: search things (Fleet Indexing syntax) or certificates across environments."
+description: >-
+  Search things by fleet index, or certificates by status.
+help: >-
+  Search AWS IoT Core across environments — things by fleet-index query, or certificates by status. Expanding a
+  result fetches its detail: shadows, attached certificates and their policies, and recent jobs.
+inputs:
+  - key: selectedEnvironmentIds
+    type: environments
+    help: Which environments to search.
+  - key: searchMode
+    type: choice
+    help: Search things or certificates.
+    choices: [things, certificates]
+  - key: queryString
+    type: text
+    help: >-
+      Things: Fleet Indexing syntax, e.g. thingName:robot-* AND connectivity.connected:true. Certificates:
+      status:ACTIVE, certid:<id>, or part of a certificate id.
+  - key: maxResults
+    type: int
+    help: Most results per environment.
+    min: 1
+    max: 500
+actions:
+  - id: run
+    handler: iot.run
+inspect:
+  rows: rows.iot
+  detail: detail.iot
+  help: Shows one thing of the last run in full, with its shadows (classic and named), certificates and jobs.
+agent:
+  run: Runs the search and lists the things or certificates in the pane.

@@ -20,6 +20,7 @@ from .routers import (
     live_sessions,
     log_groups,
     opensearch,
+    panes,
     queries,
     saved_queries,
     saved_sessions,
@@ -104,6 +105,7 @@ app.include_router(environments.router)
 app.include_router(environments.connections_router)
 app.include_router(environments.types_router)
 app.include_router(environments.targets_router)
+app.include_router(panes.router)
 app.include_router(credentials.types_router)
 app.include_router(credentials.router)
 app.include_router(credentials.audit_router)

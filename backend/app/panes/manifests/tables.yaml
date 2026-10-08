@@ -1,0 +1,31 @@
+id: tables
+label: DynamoDB
+order: 40
+group: Services
+flag: tables_enabled
+about: "DynamoDB: pick a table in one environment and scan it with field:value filters."
+description: >-
+  Scan and filter a DynamoDB table.
+help: >-
+  Browse a DynamoDB table in any environment: see its keys and item count, then scan it with an optional filter and
+  page through the items. Expanding a row shows the whole item.
+inputs:
+  - key: environmentId
+    type: environment
+    help: The environment the table is in.
+  - key: tableName
+    type: text
+    help: The table (list_dynamodb_tables gives the names).
+  - key: queryString
+    type: text
+    help: field:value tokens, ANDed as equality filters; blank for all.
+  - key: limit
+    type: int
+    help: Most items to return.
+    min: 1
+    max: 200
+actions:
+  - id: run
+    handler: tables.run
+agent:
+  run: Lists the environment's tables, and with a tableName scans it and shows the items.

@@ -22,7 +22,8 @@ is going:
 
 - **Plugins.** Services and tools become extensible: other clouds, in-house
   systems, anything. Nothing service-specific belongs anywhere a registry entry
-  would do; `sessions/paneTypes.tsx` is that seam.
+  would do. The seam is the **pane manifest** (`backend/app/panes/manifests/*.yaml`,
+  below); `sessions/paneTypes.tsx` holds only the panes still drawn by hand.
 - **More kinds of section than services and tools.** A session will hold chat,
   code and workflow sections the way it holds panes today.
 - **Dashboards** (saved views), **workflows** (n8n-style runs you keep and
@@ -61,6 +62,8 @@ backend/app/
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
   platform_tools/    what the platform agent can do, over MCP at /mcp (see below)
+  panes/             pane manifests: manifests/*.yaml, manifest.py (the schema), state.py
+                     (v2 key migration), live.py (live functions' Python twins)
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
 
@@ -74,6 +77,9 @@ frontend/src/
   sessions/          the session model (see below)
   agent/             AgentContext (the Global and per-session conversations, panel
                      layout), selection.ts (each session's checked rows, for attaching)
+  panes/             manifest.ts (loaded manifests, key migration), ManifestPane.tsx (the
+                     generic renderer), live.ts (live functions), DiffView.tsx
+  appBuild.ts        is a newer build deployed (version.json), for the stale-tab reload
   pages/             one file per pane or page + pageTypes.tsx (non-session pages)
   components/        shared UI; components/tools/ holds the self-contained tools
   styles.css         all styling, theme tokens at the top
@@ -81,6 +87,41 @@ helm/ argocd/ docker-compose.yml   deployment
 ```
 
 ## Architecture decisions that are easy to get wrong
+
+**Panes are described by manifests (PLATFORM_PLAN.md §15).** One YAML file
+per pane type in `backend/app/panes/manifests/`, validated by a strict Pydantic
+model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
+and served, filtered by the group's flags, at `GET /api/pane-types`.
+- **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
+  JWT, the API table) means the generic renderer (`frontend/src/panes/
+  ManifestPane.tsx`) draws it from the manifest's `layout` alone, and its keys
+  are `<pane>.in.<input>` / `.out.<output>` / `.view.<key>`. Every other
+  manifest only describes its pane to the agent and the catalogue until its PR
+  ports it; its page still reads its legacy keys.
+- **The browser loads manifests before any session mounts** (`PaneTypesGate`,
+  App.tsx): the catalogue (`registerManifestPanes`), the renderer and the
+  key migration all need them.
+- **Moving a pane to v2 migrates its keys everywhere they can come from**, with
+  no marker -- idempotent, a new key already present wins: on the server at PUT,
+  read-out, `live_store.mutate`/`create` (`panes/state.migrate`); in the
+  browser on load and on opening a template (`migratePaneKeys`). Input *names*
+  never change in a port: the agent and its scripts use them.
+- **Live functions** (D43) are a pane's outputs worked out as you type:
+  TypeScript in `panes/live.ts`, a Python twin in `backend/app/panes/live.py`
+  for the agent, both held to `backend/tests/fixtures/live_functions.json`
+  (pytest, and `smoke63` via esbuild). Change one, change the other and the
+  fixtures. Their outputs aren't stored -- the inputs are.
+- **`sensitive` inputs** live in the component's memory only: never session
+  state, templates, the agent. A pane whose inputs are all sensitive (JWT) has
+  no agent run.
+- **A `request` action** (the API table's Fetch) runs server-side through
+  `routers/panes.run_request`: a GET on an `http_api` connection, the group's
+  identity applied only if one exists, the SSRF guard, the reply masked. The
+  agent runs the same function (D44).
+- **A tab left open across a deploy** sees `version.json` change (vite writes
+  it; nginx serves it `no-store`), says so, and reloads at the next page or
+  session switch -- after `flushAll()`, or the cut-off debounced save loses
+  the last second and the server's older copy wins on the way back.
 
 **Every session is an Aggregator.** There is one session type
 (`SESSION_TYPE = "aggregator"`). A session holds *panes* — its `services` state
@@ -166,10 +207,14 @@ cookie and the browser never sees the token; keep it that way.
   version, announce with origin `"agent"`), which is how open panes follow the
   agent live. A run happens *between* two mutates -- inputs, then results --
   never holding the row lock while AWS answers.
-- `platform_tools/panes.py` is the server's copy of each pane's state keys and
-  shapes (tagged Sets, `results` vs `osResults`, `resultsVersion` bumps). It
-  has to move with the pages: rename a pane's key and the agent silently
-  writes the old one. The MCP tests pin the shapes.
+- `platform_tools/panes.py` builds `KINDS` from the manifests (inputs, help,
+  flag) and the registries of what only code can say (`HANDLERS`, `IMPLIES`,
+  `ROW_LISTERS`, `DETAILERS`, by the names manifests use). For a pane still
+  drawn by hand it is the server's copy of the pane's state keys and shapes
+  (tagged Sets, `results` vs `osResults`, `resultsVersion` bumps) and has to
+  move with the page: rename a key and the agent silently writes the old one.
+  A ported pane's keys come from its manifest (`input_key`/`output_key`). The
+  MCP tests pin the shapes.
 - What a run writes must fit under the *browser's* 4 MiB cap
   (`BROWSER_STATE_BYTES`), not just the server's, or the browser drops the
   results on its next save; `_write_results` trims to fit.
