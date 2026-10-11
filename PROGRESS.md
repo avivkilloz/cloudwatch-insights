@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-08, Phase 3 PR 1 (pane manifests)._
+_Last updated: 2026-10-11, Phase 3b drafted (§16)._
 
 ## Platform plan
 
@@ -46,7 +46,11 @@ agent can run too), and a stale-tab reload off `version.json`. As-built notes
 in PLATFORM_PLAN.md §15.12. Backend 316 tests (47 new in
 `test_pane_manifests.py`); browser suites smoke62 (API table), smoke63 (ported
 tools, pre-port template and old-tab keys, the TypeScript fixtures) and smoke64
-(stale tab), each failing against the old frontend.
+(stale tab), each failing against the old frontend. Merged as #105. Next: the
+rest of 3b, drafted in PLATFORM_PLAN.md §16 (2026-10-11, for review) from an
+inventory of the seven hand-drawn panes; it proposes five PRs (pickers/lists/Load
+more with DynamoDB, Cognito, S3 and one saved-inputs store; IoT and the HTTP client;
+the logs; charts; MQTT on the server) and asks five questions (§16.6).
 
 ## Where things stand
 
