@@ -20,8 +20,9 @@ from . import manifest as pane_manifest
 
 
 def migrate(state: Any) -> Any:
-    """`state` with every v2 pane's legacy keys moved under in./out.; the
-    same object when there is nothing to move, a new dict otherwise."""
+    """`state` with every v2 pane's legacy keys moved under in./out./view.,
+    and those its manifest no longer keeps dropped; the same object when
+    there is nothing to do, a new dict otherwise."""
     if not isinstance(state, dict):
         return state
     types = state.get("paneTypes") or {}
@@ -39,4 +40,10 @@ def migrate(state: Any) -> Any:
                 out = dict(state)
             value = out.pop(old_key)
             out.setdefault(new_key, value)
+        for old in manifest.legacy_drop:
+            old_key = f"{pane_id}.{old}"
+            if old_key in state:
+                if out is None:
+                    out = dict(state)
+                out.pop(old_key, None)
     return state if out is None else out

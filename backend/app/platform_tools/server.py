@@ -711,7 +711,21 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
         current = untag(state.get(input_key(kind, pane_id, key))) or []
         converted[key] = _convert(kind, key, sorted(set(current) | set(value)), rc)
     for key, value in converted.items():
-        state[input_key(kind, pane_id, key)] = value
+        stored = input_key(kind, pane_id, key)
+        changed = state.get(stored) != value
+        state[stored] = value
+        # What a change to it clears, as the same pick in the pane does: a new
+        # table's info and items, a new bucket's listing and position.
+        if not changed:
+            continue
+        for ref in kind.resets.get(key, ()):
+            part, _, ref_key = ref.partition(".")
+            if part == "in" and ref_key in converted:
+                continue  # set in this same call: that value stands
+            if part == "view":
+                state[f"{pane_id}.{ref}"] = kind.view_defaults.get(ref_key)
+            else:
+                state.pop(f"{pane_id}.{ref}", None)
     if (state.get("layout") or "tabs") == "tabs":
         state["activePane"] = pane_id
     # And not folded to its header in the other layouts: a run into a
@@ -800,10 +814,12 @@ def _check_reachable(db: Session, user: models.User, kind: PaneKind, values: dic
     which input to change, and to what."""
     reachable = {t["id"]: t["label"] for t in _environments(db, user)}
     for spec in kind.inputs:
-        if spec.kind not in _ENVIRONMENT_INPUTS or spec.key not in values:
+        # A ported pane's AWS connection is the environment it used to be (D40).
+        input_kind = "environment" if spec.kind == "connection" and spec.connection_type == "aws" else spec.kind
+        if input_kind not in _ENVIRONMENT_INPUTS or spec.key not in values:
             continue
         unreachable = []
-        for value in _environment_ids(spec.kind, values[spec.key]):
+        for value in _environment_ids(input_kind, values[spec.key]):
             try:
                 if int(value) in reachable:
                     continue

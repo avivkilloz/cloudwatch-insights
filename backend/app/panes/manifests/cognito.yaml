@@ -6,21 +6,109 @@ flag: cognito_enabled
 about: "Cognito: search a user pool's users in one environment."
 description: >-
   Find users in a Cognito user pool.
+# It used to promise group memberships, which nothing ever fetched (§4.7).
 help: >-
   Find users in a Cognito user pool by any attribute — email, username, phone — and open one to see its full
-  attribute set, status, and group memberships.
+  attribute set and status.
+state: v2
+rendered: true
 inputs:
-  - key: environmentId
-    type: environment
+  - key: connection
+    type: connection
+    connection_type: aws
+    legacy_key: environmentId
+    placeholder: Choose environment…
     help: The environment the user pool is in.
   - key: userPoolId
     type: text
     help: The user pool id (list_cognito_user_pools gives them).
+    default: ""
+    options:
+      action: list_user_pools
+      load_label: Load user pools
+      busy_label: Loading user pools…
+      placeholder: Choose user pool…
+    resets: [out.users, out.paginationToken]
   - key: queryString
     type: text
     help: "One attribute:value, a starts-with match, e.g. email:jane."
+    placeholder: email:john
+    width: 280
+    default: ""
+    submit: search
 actions:
-  - id: run
-    handler: cognito.run
+  - id: list_user_pools
+    handler: aws.cognito.list_user_pools
+    requires: { connection: Choose an environment first. }
+    resets: [in.userPoolId, out.users]
+  - id: search
+    handler: aws.cognito.search
+    main: true
+    run_label: Search
+    busy_label: Searching…
+    requires: { connection: Choose an environment first., userPoolId: Choose a user pool first. }
+    page: { cursor: paginationToken, append: [users] }
+    resets: [view.expanded]
+outputs:
+  - key: users
+    render: list
+    legacy_key: users
+    actions: [select, export, attach]
+    config:
+      busy: search
+      toolbar: rows
+      count: "{{ n }} user(s) loaded"
+      export: cognito-users
+      empty: No users loaded yet — click Search.
+      expand: expanded
+      summary:
+        - tag: "{{ row.status ?? 'unknown' }}"
+          tone_of: status
+          tones: { CONFIRMED: ok, UNCONFIRMED: pending, RESET_REQUIRED: pending, FORCE_CHANGE_PASSWORD: pending }
+        - tag: disabled
+          tone: error
+          when: { field: enabled, equals: false }
+        - msg: "{{ row.username }}"
+        - muted: "{{ row.attributes.email }}"
+          when: { field: attributes.email, present: true }
+      detail:
+        - fields:
+            - { label: Created, value: "{{ row.created | time }}" }
+            - { label: Last modified, value: "{{ row.last_modified | time }}" }
+        - title: Attributes
+          entries: attributes
+          empty: No attributes.
+  - key: paginationToken
+    render: text
+    legacy_key: paginationToken
+views:
+  - key: expanded
+    default: []
+    legacy_key: expanded
+legacy_drop: [userPools]
+layout:
+  - title: 1. Choose environment and user pool
+    items:
+      - text: Cognito user pools belong to a single account/region, so pick one environment at a time.
+      - toolbar:
+          - input: connection
+          - input: userPoolId
+      - error: list_user_pools
+  - title: 2. Search users
+    when: { input: userPoolId, present: true }
+    items:
+      - text: >-
+          One `attribute:value` token, matched as a starts-with search (e.g. `email:john` or `username:jdoe`). Cognito
+          only supports filtering by a single attribute at a time; leave blank to list all users.
+      - toolbar:
+          - input: queryString
+          - action: search
+      - restored: search
+      - output: users
+      - more: search
+inspect:
+  rows: rows.cognito
 agent:
-  run: Lists the environment's user pools, and with a userPoolId searches its users.
+  run: >-
+    Searches the user pool's users with queryString and shows them in the pane; you get the count and a sample.
+    list_cognito_user_pools lists the environment's pools.

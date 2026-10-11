@@ -32,7 +32,7 @@ InputType = Literal[
     "connection",
 ]
 
-Render = Literal["text", "code", "json", "table", "diff", "badge", "error"]
+Render = Literal["text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags"]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
 
@@ -51,12 +51,28 @@ Text = Union[str, By]
 
 
 class When(_Strict):
-    """Shows a layout item only when an input equals a value, or an output is present."""
+    """Shows a layout item only when an input equals a value, or an input or
+    an output is present (set, and not empty)."""
 
     input: Optional[str] = None
     equals: Optional[Any] = None
     output: Optional[str] = None
     present: Optional[bool] = None
+
+
+class Options(_Strict):
+    """A choice whose options come from a server action (a loader) rather than
+    the manifest: today's "Load tables" then "Choose table…". The loader
+    returns `{"options": [{"value", "label"}]}`. Options live in the tab's
+    memory, never the session (D47)."""
+
+    action: str
+    # The loader's button, and its text while loading. No button: the loader
+    # runs when the select is first drawn with its dependencies set.
+    load_label: Optional[str] = None
+    busy_label: Optional[str] = None
+    # The select's empty option ("Choose table…").
+    placeholder: Optional[str] = None
 
 
 class ManifestInput(_Strict):
@@ -89,6 +105,36 @@ class ManifestInput(_Strict):
     connection_type: Optional[str] = None
     # Where the input lived before the pane moved to the v2 state shape.
     legacy_key: Optional[str] = None
+    options: Optional[Options] = None
+    # What a change to this input clears, as state keys relative to the pane
+    # (`in.search`, `out.items`, `view.expanded`): today's hand-written
+    # clearing when a table is picked, declared. The agent's writes clear the
+    # same keys (platform_tools/server._apply_inputs).
+    resets: list[str] = []
+    # Enter in this one-line box runs this action.
+    submit: Optional[str] = None
+
+
+class Page(_Strict):
+    """Cursor paging ("Load more"): the action returns the next cursor under
+    the output named `cursor`; running it again with that cursor appends the
+    `append` outputs and adds up the `sum` ones, and leaves the rest of the
+    pane's results (and so the row selection) alone."""
+
+    cursor: str
+    append: list[str] = []
+    sum: list[str] = []
+    label: str = "Load more"
+    busy_label: str = "Loading…"
+
+
+class ManifestView(_Strict):
+    """A key for how the pane looks (expanded rows, the diff's view): session
+    state, synced to every viewer and settable by the agent (D48)."""
+
+    key: str
+    default: Any = None
+    legacy_key: Optional[str] = None
 
 
 class ManifestAction(_Strict):
@@ -106,6 +152,18 @@ class ManifestAction(_Strict):
     # waits for its button (JWT's Generate token). Not called `on`: YAML 1.1
     # reads that key as the boolean true.
     run_on: Literal["change", "click"] = "change"
+    # A server action that runs when one of these inputs is changed by the
+    # person using the pane: picking a table describes it, picking a bucket
+    # browses it, clicking a folder (which sets `prefix`) opens it.
+    on_change: list[str] = []
+    # The inputs it can't run without, and what to say when one is missing.
+    requires: dict[str, str] = {}
+    page: Optional[Page] = None
+    # Cleared by a fresh run (not by Load more), like an input's `resets`.
+    resets: list[str] = []
+    # The action run_pane runs for the agent. A pane's on_change actions whose
+    # inputs are set run first, as picking them in the pane would have.
+    main: bool = False
 
     @model_validator(mode="after")
     def _one_kind(self) -> "ManifestAction":
@@ -151,6 +209,29 @@ class LayoutItem(_Strict):
     # A Copy button for this output ("Copied" for a moment after). `copy` in
     # the YAML; renamed here, where it would shadow BaseModel.copy.
     copy_of: Optional[str] = Field(default=None, alias="copy")
+    # Where an action's error is shown, as a paragraph, instead of beside its
+    # button (a loader's error goes under its card's toolbar).
+    error: Optional[str] = None
+    # "Showing results fetched … ago" for this action's last run, with "Run
+    # again" unless `rerun: false`.
+    restored: Optional[str] = None
+    rerun: bool = True
+    # Breadcrumbs over a path input (S3's prefix): the root button shows
+    # `crumbs_root` (an input), each segment sets the path input.
+    crumbs: Optional[str] = None
+    crumbs_root: Optional[str] = None
+    # A button that sets inputs and runs an action: "Clear search".
+    button: Optional[str] = None
+    sets: dict[str, Any] = {}
+    runs: Optional[str] = None
+    # A list output's Load more, where the layout puts it.
+    more: Optional[str] = None
+    # An action's button drawn as a secondary one (S3's Search).
+    secondary: bool = False
+    # "Loading…" while this action runs.
+    busy: Optional[str] = None
+    # Where the pane's short-lived messages ("S3 URI copied to clipboard") go.
+    flash: bool = False
 
 
 class Card(_Strict):
@@ -195,6 +276,10 @@ class Manifest(_Strict):
     implies: Optional[str] = None
     inspect: Optional[Inspect] = None
     agent: AgentInfo = Field(default_factory=AgentInfo)
+    views: list[ManifestView] = []
+    # Legacy keys the v2 migration drops rather than moves: what the pane no
+    # longer keeps in the session (picker options, D47).
+    legacy_drop: list[str] = []
 
     @model_validator(mode="after")
     def _references(self) -> "Manifest":
@@ -227,13 +312,43 @@ class Manifest(_Strict):
                 raise ValueError(f"the layout names an action {item.action} that isn't declared")
             if item.copy_of is not None and item.copy_of not in outputs:
                 raise ValueError(f"the layout copies an output {item.copy_of} that isn't declared")
+            for ref in (item.error, item.restored, item.runs, item.more, item.busy):
+                if ref is not None and ref not in actions:
+                    raise ValueError(f"the layout names an action {ref} that isn't declared")
+            for ref in [item.crumbs, item.crumbs_root, *item.sets]:
+                if ref is not None and ref not in inputs:
+                    raise ValueError(f"the layout names an input {ref} that isn't declared")
             check_when(item.when)
             for child in (item.row or []) + (item.toolbar or []):
                 check_item(child)
 
+        views = {v.key for v in self.views}
+
+        def check_key(ref: str) -> None:
+            part, _, key = ref.partition(".")
+            known = {"in": inputs, "out": outputs | {"ranAt", "resultsVersion"}, "view": views}.get(part)
+            if known is None or key not in known:
+                raise ValueError(f"'{ref}' names no input (in.), output (out.) or view key (view.)")
+
+        for a in self.actions:
+            for ref in a.on_change + list(a.requires):
+                if ref not in inputs:
+                    raise ValueError(f"action {a.id} names an input {ref} that isn't declared")
+            for ref in a.resets:
+                check_key(ref)
+            if a.page:
+                for ref in [a.page.cursor, *a.page.append, *a.page.sum]:
+                    if ref not in outputs:
+                        raise ValueError(f"action {a.id} pages an output {ref} that isn't declared")
+        if sum(1 for a in self.actions if a.main) > 1:
+            raise ValueError("only one action can be the main one")
         for i in self.inputs:
             check_text(i.label)
             check_text(i.placeholder)
+            for ref in i.resets:
+                check_key(ref)
+            if i.options is not None and i.options.action not in actions:
+                raise ValueError(f"input {i.key}'s options come from an action {i.options.action} that isn't declared")
             if i.type == "choice" and not i.choices:
                 raise ValueError(f"choice input {i.key} has no choices")
             if i.type == "connection" and not i.connection_type:
@@ -255,17 +370,25 @@ class Manifest(_Strict):
         return [i for i in self.inputs if i.agent and not i.sensitive]
 
     def legacy_map(self) -> dict[str, str]:
-        """Old key -> new key, for a v2 pane's one-time migration (§15.4)."""
+        """Old key -> new key, for a v2 pane's migration (§15.4). Every run's
+        bookkeeping moves too: a pane drawn by hand kept `ranAt` and
+        `resultsVersion` beside its results."""
         if self.state != "v2":
             return {}
-        out = {}
+        out = {"ranAt": "out.ranAt", "resultsVersion": "out.resultsVersion"}
         for i in self.inputs:
             if not i.sensitive:
                 out[i.legacy_key or i.key] = f"in.{i.key}"
         for o in self.outputs:
             if o.legacy_key:
                 out[o.legacy_key] = f"out.{o.key}"
+        for v in self.views:
+            if v.legacy_key:
+                out[v.legacy_key] = f"view.{v.key}"
         return out
+
+    def main_action(self) -> Optional[ManifestAction]:
+        return next((a for a in self.actions if a.main), None)
 
 
 class ManifestError(ValueError):

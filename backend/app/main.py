@@ -8,6 +8,7 @@ from starlette.routing import Route
 
 from . import bootstrap, connections, credential_store, credential_types, masking, models
 from .db import Base, SessionLocal, engine, ensure_columns
+from .panes import saved as pane_saved
 from .platform_tools import server as platform_server
 from .routers import (
     agent,
@@ -22,6 +23,7 @@ from .routers import (
     opensearch,
     panes,
     queries,
+    saved_inputs,
     saved_queries,
     saved_sessions,
     session_categories,
@@ -66,6 +68,9 @@ try:
     # ids, group roles become group identities (PLATFORM_PLAN.md §14.5).
     for _line in connections.migrate_legacy(_bootstrap_db):
         logging.getLogger("connections").warning("Migrated %s", _line)
+    # Once per database: the saved tables and buckets become saved inputs (D46).
+    for _line in pane_saved.migrate_saved_shortcuts(_bootstrap_db):
+        logging.getLogger("saved_inputs").warning("Migrated %s", _line)
 finally:
     _bootstrap_db.close()
 
@@ -123,6 +128,7 @@ app.include_router(buckets.router)
 app.include_router(cognito.router)
 app.include_router(agent.router)
 app.include_router(tools.router)
+app.include_router(saved_inputs.router)
 
 
 @app.get("/api/health")

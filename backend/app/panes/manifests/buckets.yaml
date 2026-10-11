@@ -9,21 +9,123 @@ description: >-
 help: >-
   Browse an S3 bucket like a file tree, walking into folders, or search object names across a prefix. Sizes and
   last-modified times come back with each object.
+state: v2
+rendered: true
 inputs:
-  - key: environmentId
-    type: environment
+  - key: connection
+    type: connection
+    connection_type: aws
+    legacy_key: environmentId
+    placeholder: Choose environment…
     help: The environment the bucket is in.
   - key: bucket
     type: text
     help: The bucket (list_s3_buckets gives the names).
+    default: ""
+    options:
+      action: list_buckets
+      load_label: Load buckets
+      busy_label: Loading buckets…
+      placeholder: Choose bucket…
+    # Another bucket opens at its top, with no search.
+    resets: [in.prefix, in.search]
   - key: prefix
     type: text
     help: The folder to open, e.g. logs/2024/ (blank for the top).
+    default: ""
+    # Walking into a folder (or back up the breadcrumbs) leaves the search.
+    resets: [in.search]
   - key: search
     type: text
     help: Search file names containing this under the prefix, instead of one folder.
+    placeholder: Search filenames under this folder…
+    width: 280
+    default: ""
+    submit: browse
 actions:
-  - id: run
-    handler: buckets.run
+  - id: list_buckets
+    handler: aws.s3.list_buckets
+    requires: { connection: Choose an environment first. }
+    resets: [in.bucket, out.folders, out.files]
+  - id: browse
+    handler: aws.s3.browse
+    main: true
+    on_change: [bucket, prefix]
+    run_label: Search
+    busy_label: Search
+    requires: { connection: Choose an environment first., bucket: Choose a bucket first. }
+    page: { cursor: continuationToken, append: [folders, files] }
+outputs:
+  - key: bucketRegion
+    render: text
+    legacy_key: bucketRegion
+  - key: activeSearch
+    render: text
+    legacy_key: activeSearch
+  - key: folders
+    render: text
+    legacy_key: folders
+  - key: files
+    render: files
+    legacy_key: files
+    actions: [select, export, attach]
+    config:
+      busy: browse
+      folders: folders
+      path: prefix
+      count: "{{ folders }} folder(s), {{ n }} file(s)"
+      export: "bucket-{{ in.bucket }}"
+      empty: Nothing here.
+      row_key: key
+      summary:
+        - tag: "{{ row.size | bytes }}"
+        - msg: "{{ out.activeSearch ? row.key : row.name }}"
+        - muted: "{{ row.last_modified | time }}"
+        - copy: "s3://{{ in.bucket }}/{{ row.key }}"
+          label: Copy S3 URI
+          message: S3 URI
+        - copy: "https://{{ in.bucket }}.s3.{{ out.bucketRegion }}.amazonaws.com/{{ row.key | encode_path }}"
+          label: Copy object URL
+          message: Object URL
+  - key: continuationToken
+    render: text
+    legacy_key: continuationToken
+legacy_drop: [buckets]
+layout:
+  - title: 1. Choose environment and bucket
+    items:
+      - text: >-
+          S3 buckets belong to a single account (and each bucket has its own region, resolved automatically), so pick
+          one environment at a time.
+      - toolbar:
+          - input: connection
+          - input: bucket
+      - error: list_buckets
+  - title: 2. Browse
+    when: { input: bucket, present: true }
+    items:
+      - restored: browse
+        rerun: false
+      - crumbs: prefix
+        crumbs_root: bucket
+      - toolbar:
+          - input: search
+          - action: browse
+            secondary: true
+          - button: Clear search
+            sets: { search: "" }
+            runs: browse
+            when: { output: activeSearch, present: true }
+          - busy: browse
+          - flash: true
+      - error: browse
+      - text: Searching recursively under "{{ in.prefix ?? '/' }}" for filenames containing "{{ out.activeSearch }}".
+        when: { output: activeSearch, present: true }
+      - output: files
+      - more: browse
+inspect:
+  rows: rows.buckets
 agent:
-  run: Lists the environment's buckets, and with a bucket lists its folder or search matches.
+  run: >-
+    Opens the bucket at prefix -- or, with search set, finds file names containing it under prefix -- and shows the
+    folders and files in the pane; you get the counts and a sample. list_s3_buckets lists the environment's buckets.

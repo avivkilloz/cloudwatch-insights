@@ -747,6 +747,26 @@ class SavedSessionOut(SavedSessionBase):
     id: int
 
 
+class SavedInputCreate(BaseModel):
+    pane_type: str
+    name: str = Field(min_length=1, max_length=200)
+    inputs: dict
+
+
+class SavedInputUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    inputs: Optional[dict] = None
+
+
+class SavedInputOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    pane_type: str
+    name: str
+    inputs: dict
+    created_at: Optional[datetime] = None
+
+
 # ---- Live sessions ----
 #
 # The sessions currently open in someone's side panel, autosaved. Distinct

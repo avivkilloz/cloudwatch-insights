@@ -44,7 +44,7 @@ def test_a_sensitive_input_never_reaches_the_agent():
     assert jwt.inputs and all(i.sensitive for i in jwt.inputs)
     assert panes.KINDS["tool-jwt"].inputs == ()
     # ...nor the migration: there is no legacy key to carry over.
-    assert jwt.legacy_map() == {}
+    assert not [new for new in jwt.legacy_map().values() if new.startswith("in.")]
 
 
 def test_a_manifest_with_a_typo_fails_naming_its_file(tmp_path):
@@ -73,7 +73,7 @@ def test_pane_types_are_only_those_the_group_may_use():
     base64 = next(m for m in everything if m["id"] == "tool-base64")
     # As the YAML spells it, for the renderer: `copy`, not the model's copy_of.
     aside = base64["layout"][1]["aside"]
-    assert aside == [{"copy": "output"}]
+    assert len(aside) == 1 and aside[0]["copy"] == "output" and "copy_of" not in aside[0]
 
     group = client.post("/api/user-groups", json={
         "name": "logs-only", "opensearch_enabled": False, "iot_enabled": False, "tables_enabled": False,
