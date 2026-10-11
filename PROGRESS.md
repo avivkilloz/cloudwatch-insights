@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-11, Phase 3b drafted (§16)._
+_Last updated: 2026-10-11, Phase 3b-1 (DynamoDB, Cognito, S3; saved inputs)._
 
 ## Platform plan
 
@@ -50,7 +50,16 @@ tools, pre-port template and old-tab keys, the TypeScript fixtures) and smoke64
 rest of 3b, drafted in PLATFORM_PLAN.md §16 (2026-10-11, for review) from an
 inventory of the seven hand-drawn panes; it proposes five PRs (pickers/lists/Load
 more with DynamoDB, Cognito, S3 and one saved-inputs store; IoT and the HTTP client;
-the logs; charts; MQTT on the server) and asks five questions (§16.6).
+the logs; charts; MQTT on the server) and asks five questions (§16.6), all
+settled as D45–D50 (view state stays synced, D48; Settings' "Saved" becomes
+"Library" and Users and User groups one tab, D50). 3b-1 is built: DynamoDB,
+Cognito and S3 drawn from their manifests through one action endpoint the
+agent's run_pane shares (`panes/handlers.py`), loader-backed pickers, resets
+and change-triggered runs, the list and file-browser outputs with Load more,
+saved inputs on every manifest pane with saved tables and buckets moved in
+once, Settings → Library and Users | Groups. As-built notes in §16.7.
+Backend 326 tests (`test_pane_actions.py` new); browser smoke65 and smoke66,
+both failing against the old frontend.
 
 ## Where things stand
 

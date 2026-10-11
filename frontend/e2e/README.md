@@ -59,6 +59,12 @@ bundling it with the esbuild that comes with vite. `smoke64` (the stale-tab
 reload) stands in a newer `/version.json`, which the dev server otherwise answers
 with its own build id.
 
+A pane drawn from a manifest (DynamoDB, Cognito, S3 and the tools) calls one
+endpoint, `POST /api/panes/{type}/actions/{action}`, not routes of its own, so a
+suite stands in for AWS behind it with the harness's `mockPaneActions(page, type,
+{action: outputs | (body) => outputs})`. Mocking `/api/tables/*` and the like no
+longer reaches those panes.
+
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs
 these. Install it where you run them (`npm i -D playwright`), or point

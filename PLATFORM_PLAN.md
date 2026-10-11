@@ -2523,6 +2523,69 @@ Asked 2026-10-11, all settled the same day:
 - Old routes kept for one release (D49).
 - Users and User groups become one tab (D50, §16.3.9).
 
+### 16.7 3b-1 as built
+
+Where the build departed from §16.2–16.3, and why:
+
+- **Manifest additions, as named in the code:**
+  - **On an input:** `options` (a loader action, its button text, its select's
+    placeholder), `resets`, and `submit` (Enter runs an action).
+  - **On an action:** `on_change`, `requires` (the sentence shown when an input is
+    missing, the same for the pane and the agent), `page`, `resets`, and `main`.
+  - **On the manifest:** `views` (view keys with their legacy key) and
+    `legacy_drop` (what the migration drops: picker options).
+  - **Layout items:** `error`, `restored`, `crumbs`, `button` + `sets` + `runs`
+    (Clear search), `busy`, `flash`, `more`, and `secondary` on an action's
+    button.
+  - The bookkeeping keys `ranAt` and `resultsVersion` move to `out.` for every v2
+    pane.
+- **A template language for text from data** (`panes/template.ts`). Paths,
+  `??`, `a ? b : c`, and the filters `bytes`, `time` and `encode_path`. It has no
+  calls, so a manifest can only read what it's given. §16.3.2 assumed one without
+  saying what it was; CEL replaces it with the builder.
+- **The list's details are declared:** `detail: json`, or sections of `fields`
+  and `entries`. DynamoDB's summary is a `keys` part: the row's values at the
+  table's key fields, which are read from another output.
+- **Where errors are shown is part of the layout.** A loader's error, and a
+  table's describe error, go under the card's toolbar as before (`error:`).
+  Otherwise an error sits beside its button.
+- **Saved inputs sit at the top right of every manifest pane's body.** This is
+  the only place that works in every layout, because tabs have no per-pane
+  header. The old "Saved tables" and "Saved buckets" cards are gone.
+- **"Templates" and "Saved inputs"** are the Library's first two tabs. The other
+  per-pane stores follow until their panes are ported.
+- **Settings → Users:** the add form opens from the list's head ("Add user"), as
+  New group and New credential do. With the list now first, it would otherwise
+  have been below every user.
+- **Payloads:** the new endpoint takes `connection`, and the old routes keep
+  `environment_id` for the one release they remain (D49). So D40's "both names"
+  needed nothing more for these panes.
+- **Not built:** the generic "list a picker's options" agent tool. The agent keeps
+  `list_dynamodb_tables`, `list_s3_buckets` and `list_cognito_user_pools`. It
+  comes with 3b-2, when the routes and the old tools go.
+- **New for the agent:** `inspect_row` works on these three panes (`rows.tables`,
+  `rows.cognito`, `rows.buckets`). Its run summary includes what describing the
+  table found.
+- **Fixed in passing:**
+  - The old S3 page called a browse it had just made "restored with this
+    session". Its card mounted at the same moment the run's time landed.
+  - Changing the table now clears the old table's scanned count too.
+- **Checked:**
+  - **Pixels:** every card of the three panes, across 24 states (empty, loaded,
+    picked, run, expanded, Load more, a folder, a search), matches the old pages
+    apart from anti-aliasing. The one exception is the S3 fix above.
+  - **Suite changes:**
+    - smoke13, 22 and 23 now mock the action endpoint (harness
+      `mockPaneActions`) instead of the old routes;
+    - smoke13's waits for the "Saved …" cards became waits for each pane's first
+      card;
+    - smoke23 addresses the environment select as the first one, because a
+      restored table now shows as a second select before its list reloads (D47);
+    - smoke35, 36 and 61 follow the renamed Settings tabs.
+  - **New suites:** smoke65 (saved inputs, the Library, Users and Groups) and
+    smoke66 (the file browser, row copy, Load more and the selection, an expanded
+    row reaching another tab, tag tones). Both fail against the old frontend.
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):

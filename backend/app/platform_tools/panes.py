@@ -736,7 +736,9 @@ def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
             part, _, key = ref.partition(".")
             if part == "view":
                 writes[ref] = next((v.default for v in manifest.views if v.key == key), None)
-        return RunResult(writes=writes, summary=_summary(found, main.page))
+        # Everything it ran, so the model sees what describing found too (the
+        # table's keys) beside the rows.
+        return RunResult(writes=writes, summary=_summary(outputs, main.page))
 
     return run
 
