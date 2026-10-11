@@ -26,7 +26,7 @@ const run = async () => {
   await mockPaneActions(page, "buckets", {
     list_buckets: { options: [{ value: "demo-bucket", label: "demo-bucket" }] },
     browse: ({ inputs, cursor }) => {
-      browsed.push({ prefix: inputs.prefix, search: inputs.search, cursor });
+      browsed.push({ prefix: inputs.prefix, search: inputs.search, cursor: cursor ?? null });
       if (cursor) return { bucketRegion: "eu-west-1", activeSearch: inputs.search, folders: [], files: MORE, continuationToken: null };
       return {
         bucketRegion: "eu-west-1",

@@ -802,7 +802,8 @@ export const api = {
   runPaneAction: (type: string, action: string, inputs: Record<string, unknown>, cursor?: unknown) =>
     req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
       method: "POST",
-      body: JSON.stringify({ inputs, cursor: cursor ?? null }),
+      // A cursor only for Load more: a first run's request is just its inputs.
+      body: JSON.stringify(cursor === undefined || cursor === null ? { inputs } : { inputs, cursor }),
     }),
 
   /** A pane's inputs saved under a name (D46), by pane type; the user's own. */
