@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IotSavedSearch, SavedQuery, SavedSession } from "../api";
 import { SESSION_SAVED_PAGE } from "../sessions/registry";
 import { TEMPLATE_PAGES } from "../sessions/templates";
+import SavedInputsPanel from "./SavedInputsPanel";
 import SavedItemsPanel from "./SavedItemsPanel";
 import SavedSessionEditorPanel from "./SavedSessionEditorPanel";
 
@@ -23,26 +24,20 @@ interface Props {
   onDeleteSession: (id: number) => Promise<void>;
 }
 
-type TabId =
-  | "session-templates"
-  | "logs-queries"
-  | "iot-searches"
-  | "buckets"
-  | "tables"
-  | "http-requests"
-  | "mqtt-topics";
+type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "iot-searches" | "http-requests" | "mqtt-topics";
 
 /* Templates first: a whole session is the biggest thing you can save, and the
    rest are inputs you load inside one. The per-service "sessions" tabs that
    used to sit here are gone -- a service is a pane now, not a session, so
    nothing has written one since; the ones saved back then are listed under
    Session templates, which is also where Add offers them. */
+// Saved inputs are every ported pane's (D46); the stores after them go as
+// their panes are ported -- S3's and DynamoDB's already have (3b-1).
 const TABS: { id: TabId; label: string }[] = [
-  { id: "session-templates", label: "Session Templates" },
+  { id: "session-templates", label: "Templates" },
+  { id: "saved-inputs", label: "Saved inputs" },
   { id: "logs-queries", label: "Log Queries" },
   { id: "iot-searches", label: "IoT Searches" },
-  { id: "buckets", label: "S3" },
-  { id: "tables", label: "DynamoDB" },
   { id: "http-requests", label: "HTTP Requests" },
   { id: "mqtt-topics", label: "MQTT Topics" },
 ];
@@ -52,7 +47,7 @@ export default function SavedItemsHub(props: Props) {
 
   return (
     <div className="panel">
-      <h2>Saved items</h2>
+      <h2>Library</h2>
       <div className="tabs" style={{ justifySelf: "start", marginBottom: 14, flexWrap: "wrap" }}>
         {TABS.map((t) => (
           <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
@@ -71,6 +66,8 @@ export default function SavedItemsHub(props: Props) {
           onDelete={props.onDeleteSession}
         />
       )}
+
+      {tab === "saved-inputs" && <SavedInputsPanel />}
 
       {tab === "logs-queries" && (
         <SavedItemsPanel
@@ -111,28 +108,6 @@ export default function SavedItemsHub(props: Props) {
             defaultValue: "things",
             getValue: (item) => item.search_mode,
           }}
-        />
-      )}
-
-      {tab === "buckets" && (
-        <SavedSessionEditorPanel
-          description="Available from the Buckets page's &quot;Load saved bucket…&quot; dropdown, created via its &quot;Save current bucket&quot; button."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "buckets")}
-          onCreate={(name, state) => props.onCreateSession("buckets", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
-        />
-      )}
-
-      {tab === "tables" && (
-        <SavedSessionEditorPanel
-          description="Available from the Tables page's &quot;Load saved table…&quot; dropdown, created via its &quot;Save current table&quot; button."
-          kind="json"
-          items={props.savedSessions.filter((s) => s.page === "tables")}
-          onCreate={(name, state) => props.onCreateSession("tables", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
         />
       )}
 

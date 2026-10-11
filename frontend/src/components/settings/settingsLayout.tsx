@@ -104,3 +104,33 @@ export function TagPicker<T extends { id: number; name: string }>({
     </div>
   );
 }
+
+/**
+ * Two lists in one Settings tab, switched at the head of either list:
+ * Credentials | Types, Users | Groups. A tab per list wrapped the tab row onto
+ * two lines; a thing and its kinds belong together anyway.
+ */
+export function ViewSwitch<T extends string>({
+  views,
+  view,
+  onChange,
+}: {
+  views: readonly (readonly [T, string])[];
+  view: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label="Show">
+      {views.map(([value, label]) => (
+        <button
+          key={value}
+          className={view === value ? "" : "secondary"}
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}

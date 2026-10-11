@@ -149,18 +149,19 @@ const run = async () => {
   await page.click(".rail-row-home");
   await page.click('.home-card:has(.home-card-title:text-is("Settings")) .home-card-open');
   await page.waitForSelector(".settings-nav, .panel", { timeout: 15000 });
-  await page.click('button:text-is("Saved")');
+  await page.click('button:text-is("Library")');
   // The hub is not there while its items are being fetched.
-  await page.waitForSelector('.panel:has(h2:text-is("Saved items")) .tab', { timeout: 15000 });
-  const savedTabs = await page.locator(".panel:has(h2:text-is(\"Saved items\")) .tabs .tab").allInnerTexts();
-  check(savedTabs[0] === "Session Templates", "Session Templates is the first saved-items tab", JSON.stringify(savedTabs));
+  await page.waitForSelector('.panel:has(h2:text-is("Library")) .tab', { timeout: 15000 });
+  const savedTabs = await page.locator(".panel:has(h2:text-is(\"Library\")) .tabs .tab").allInnerTexts();
+  check(savedTabs[0] === "Templates", "Templates is the first Library tab", JSON.stringify(savedTabs));
   check(!savedTabs.some((t) => /Aggregator/.test(t)), "…and nothing is called Aggregator any more", JSON.stringify(savedTabs));
   check(!savedTabs.some((t) => ["CloudWatch Sessions", "OpenSearch Sessions", "IoT Sessions"].includes(t)),
     "The per-service saved-session tabs are gone", JSON.stringify(savedTabs));
-  check(savedTabs.includes("Log Queries") && savedTabs.includes("IoT Searches") && savedTabs.includes("S3"),
+  // S3's and DynamoDB's saved items are saved inputs now (D46).
+  check(savedTabs.includes("Log Queries") && savedTabs.includes("IoT Searches") && savedTabs.includes("Saved inputs"),
     "The saved items that are still written are all still there", JSON.stringify(savedTabs));
-  const openTab = await page.locator(".panel:has(h2:text-is(\"Saved items\")) .tab.active").innerText();
-  check(openTab === "Session Templates", "…and it is the one open on arrival", openTab);
+  const openTab = await page.locator(".panel:has(h2:text-is(\"Library\")) .tab.active").innerText();
+  check(openTab === "Templates", "…and it is the one open on arrival", openTab);
   await page.screenshot({ path: `${SHOT}/35-saved.png` });
 
   // A template saved from a session lands in that tab, and old per-service
@@ -175,11 +176,11 @@ const run = async () => {
   await page.waitForSelector(".rail", { timeout: 15000 });
   await page.click(".rail-row-home");
   await page.click('.home-card:has(.home-card-title:text-is("Settings")) .home-card-open');
-  await page.click('button:text-is("Saved")');
-  await page.waitForSelector('.panel:has(h2:text-is("Saved items")) .tab', { timeout: 15000 });
-  const listed = await page.locator('.panel:has(h2:text-is("Saved items")) .result-row-summary .msg').allInnerTexts();
+  await page.click('button:text-is("Library")');
+  await page.waitForSelector('.panel:has(h2:text-is("Library")) .tab', { timeout: 15000 });
+  const listed = await page.locator('.panel:has(h2:text-is("Library")) .result-row-summary .msg').allInnerTexts();
   check(listed.some((t) => t.includes("Legacy CloudWatch template")),
-    "A template saved when a service was a session is listed under Session Templates", JSON.stringify(listed).slice(0, 200));
+    "A template saved when a service was a session is listed under Templates", JSON.stringify(listed).slice(0, 200));
 
   await browser.close();
   report();

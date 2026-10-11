@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, ApiError, ConnectionType, Credential, EnvironmentRecord, GroupIdentity, readableError, UserGroup } from "../../api";
 import { CardRow } from "../SessionCard";
 import { accepts } from "./EnvironmentsSettings";
@@ -73,7 +73,7 @@ function usableBy(group: { id: number | null; is_admin?: boolean }, c: Credentia
   return group.id != null && c.grants.includes(group.id);
 }
 
-export default function UserGroupsSettings() {
+export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode }) {
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [envs, setEnvs] = useState<EnvironmentRecord[]>([]);
   const [types, setTypes] = useState<ConnectionType[]>([]);
@@ -389,7 +389,7 @@ export default function UserGroupsSettings() {
   return (
     <div className="panel credential-list">
       <div className="credential-list-head">
-        <h2>User groups</h2>
+        {switcher ?? <h2>User groups</h2>}
         <span className="muted">What each group sees, and who it is where it connects.</span>
         <button onClick={() => start()}>New group</button>
       </div>

@@ -12,17 +12,27 @@
  * - a live action's outputs (D43) are worked out here from the inputs on
  *   every change and never stored: the inputs are, and they come back the
  *   same. A `run_on: click` one keeps its last result in memory too;
- * - a server action's outputs (a declarative request) under "<pane>.out.<key>",
- *   with `ranAt`/`resultsVersion` beside them, as every run's results are.
+ * - a server action's outputs (a declarative request, or a handler such as
+ *   DynamoDB's scan) under "<pane>.out.<key>", with `ranAt`/`resultsVersion`
+ *   beside them, as every run's results are; Load more appends to them;
+ * - how the pane looks (expanded rows) under "<pane>.view.<key>", synced like
+ *   the inputs so the agent or another member can show you something (D48);
+ * - a picker's options in this component's memory, never the session (D47).
+ *
+ * A person's change to an input goes through `changeInputs`: it clears what
+ * the input `resets` and runs the actions whose `on_change` names it (picking
+ * a table describes it; clicking a folder opens it), with the new values.
  */
 
-import { Dispatch, ReactNode, SetStateAction, useEffect, useMemo, useState } from "react";
-import { api, readableError, Target } from "../api";
+import { Dispatch, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { api, Environment, readableError, Target } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
+import RestoredResultsNote from "../components/RestoredResultsNote";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 import { useSessionState } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
+import { FilesView, ListView, TagsView } from "./ListView";
 import { DiffRow, LIVE_FUNCTIONS, Outputs } from "./live";
 import {
   Card,
@@ -32,27 +42,24 @@ import {
   ManifestAction,
   ManifestInput,
   ManifestOutput,
+  ManifestView,
   PaneManifest,
   textOf,
   When,
 } from "./manifest";
-
-type Values = Record<string, unknown>;
+import { actionById, Option, PaneApi, RunOptions, Values } from "./paneApi";
+import SavedInputsBar from "./SavedInputsBar";
+import { render } from "./template";
 
 /** Where an item is drawn, which decides its markup: a card's own column, a
  * toolbar line, a row of equal columns, beside the card's title, or "bare" --
  * an input whose label its row has already drawn. */
 type Place = "card" | "toolbar" | "row" | "aside" | "bare";
 
-interface Pane {
-  m: PaneManifest;
-  inputs: Values;
-  setInput: (key: string, value: unknown) => void;
-  outputs: Values;
-  run: (action: ManifestAction) => void;
-  busy: Record<string, boolean>;
-  errors: Record<string, string | null>;
-  resultsVersion: number;
+interface Pane extends PaneApi {
+  /** Actions whose errors the layout places itself (`error:`), so their
+   * buttons don't repeat them. */
+  errorsPlaced: Set<string>;
 }
 
 export default function ManifestPane({ type }: { type: string }) {
@@ -78,6 +85,37 @@ function useStoredOutput(output: ManifestOutput): [unknown, Dispatch<SetStateAct
   return useSessionState<unknown>(`out.${output.key}`, undefined);
 }
 
+function useStoredView(view: ManifestView): [unknown, Dispatch<SetStateAction<unknown>>] {
+  return useSessionState<unknown>(`view.${view.key}`, () => view.default ?? null);
+}
+
+function isLoader(m: PaneManifest, action: ManifestAction): boolean {
+  return m.inputs.some((i) => i.options?.action === action.id);
+}
+
+function missingInput(action: ManifestAction, inputs: Values): string | null {
+  for (const [key, message] of Object.entries(action.requires ?? {})) {
+    if (!present(inputs[key]) || (Array.isArray(inputs[key]) && (inputs[key] as unknown[]).length === 0)) {
+      return message;
+    }
+  }
+  return null;
+}
+
+/** Where every layout item names an action's error, so its button leaves it out. */
+function placedErrors(m: PaneManifest): Set<string> {
+  const placed = new Set<string>();
+  const walk = (items: LayoutItem[]) => {
+    for (const item of items) {
+      if (item.error) placed.add(item.error);
+      walk(item.toolbar ?? []);
+      walk(item.row ?? []);
+    }
+  };
+  for (const card of m.layout) walk([...card.aside, ...card.items]);
+  return placed;
+}
+
 function Rendered({ m }: { m: PaneManifest }) {
   // A manifest never changes while its pane is mounted, so the number of
   // hooks below is fixed for the component's life.
@@ -88,39 +126,137 @@ function Rendered({ m }: { m: PaneManifest }) {
   const inputs: Values = { ...secret };
   for (const [i, [value]] of stored) inputs[i.key] = value;
 
-  function setInput(key: string, value: unknown) {
+  function setInputValue(key: string, value: unknown) {
     const found = stored.find(([i]) => i.key === key);
     if (found) found[1][1](value);
     else setSecret((prev) => ({ ...prev, [key]: value }));
   }
 
   const storedOutputs = m.outputs.map((o) => [o, useStoredOutput(o)] as const);
+  const storedViews = (m.views ?? []).map((v) => [v, useStoredView(v)] as const);
   // Undefined until a run, so a pane that never runs anything on the server
   // (Base64) adds nothing to its session.
   const [resultsVersion, setResultsVersion] = useSessionState<number | undefined>("out.resultsVersion", undefined);
-  const [, setRanAt] = useSessionState<number | undefined>("out.ranAt", undefined);
+  const [ranAt, setRanAt] = useSessionState<number | undefined>("out.ranAt", undefined);
 
   const live = useLiveOutputs(m, inputs);
   const [clicked, setClicked] = useState<Outputs>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
+  const [options, setOptions] = useState<Record<string, Option[] | undefined>>({});
+  const [flashed, setFlashed] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  const errorsPlaced = useMemo(() => placedErrors(m), [m]);
 
   const outputs: Values = {};
   for (const [o, [value]] of storedOutputs) if (value !== undefined) outputs[o.key] = value;
   Object.assign(outputs, live, clicked);
+  const views: Values = {};
+  for (const [v, [value]] of storedViews) views[v.key] = value;
 
-  async function run(action: ManifestAction) {
+  function setOutput(key: string, value: SetStateAction<unknown>) {
+    storedOutputs.find(([o]) => o.key === key)?.[1][1](value);
+  }
+
+  function setView(key: string, value: unknown) {
+    storedViews.find(([v]) => v.key === key)?.[1][1](value);
+  }
+
+  /** Clears one `resets` entry (`in.search`, `out.items`, `view.expanded`). */
+  function clear(ref: string) {
+    const dot = ref.indexOf(".");
+    const part = ref.slice(0, dot);
+    const key = ref.slice(dot + 1);
+    if (part === "in") {
+      const input = m.inputs.find((i) => i.key === key);
+      if (input) setInputValue(key, defaultOf(input));
+    } else if (part === "out") {
+      if (key === "ranAt") setRanAt(undefined);
+      else if (key !== "resultsVersion") setOutput(key, undefined);
+    } else if (part === "view") {
+      setView(key, (m.views ?? []).find((v) => v.key === key)?.default ?? null);
+    }
+  }
+
+  function changeInputs(changes: Values): string[] {
+    const next: Values = { ...inputs, ...changes };
+    for (const [key, value] of Object.entries(changes)) setInputValue(key, value);
+    for (const key of Object.keys(changes)) {
+      if (Object.is(inputs[key], changes[key])) continue;
+      for (const ref of m.inputs.find((i) => i.key === key)?.resets ?? []) {
+        // Set in this same change (a saved item's prefix with its bucket):
+        // that value stands.
+        if (ref.startsWith("in.") && ref.slice(3) in changes) continue;
+        clear(ref);
+        if (ref.startsWith("in.")) {
+          const input = m.inputs.find((i) => i.key === ref.slice(3));
+          if (input) next[input.key] = defaultOf(input);
+        }
+      }
+    }
+    const ran: string[] = [];
+    for (const action of m.actions) {
+      if (!(action.on_change ?? []).some((k) => k in changes && !Object.is(inputs[k], changes[k]))) continue;
+      ran.push(action.id);
+      run(action, { inputs: next });
+    }
+    return ran;
+  }
+
+  function flash(message: string) {
+    setFlashed(message);
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashed(null), 2000);
+  }
+
+  async function run(action: ManifestAction, opts: RunOptions = {}) {
+    const current = opts.inputs ?? inputs;
+    const loadMore = opts.cursor !== undefined && opts.cursor !== null;
+    if (action.handler) {
+      const message = missingInput(action, current);
+      if (message) {
+        setErrors((prev) => ({ ...prev, [action.id]: message }));
+        return;
+      }
+    }
     setBusy((b) => ({ ...b, [action.id]: true }));
     setErrors((e) => ({ ...e, [action.id]: null }));
     try {
       if (action.live) {
-        const result = await LIVE_FUNCTIONS[action.live]?.(inputs);
+        const result = await LIVE_FUNCTIONS[action.live]?.(current);
         setClicked(result ?? {});
       } else if (action.request) {
-        const result = await api.runPaneAction(m.id, action.id, inputs);
+        const result = await api.runPaneAction(m.id, action.id, current);
         for (const [o, [, set]] of storedOutputs) set(result[o.key]);
         setRanAt(Date.now());
         setResultsVersion((v) => (v || 0) + 1);
+      } else if (action.handler) {
+        const loader = isLoader(m, action);
+        if (!loadMore) for (const ref of action.resets ?? []) clear(ref);
+        if (loader) setOptions((prev) => ({ ...prev, [action.id]: undefined }));
+        const result = await api.runPaneAction(m.id, action.id, current, loadMore ? opts.cursor : undefined);
+        if (loader) {
+          setOptions((prev) => ({ ...prev, [action.id]: (result.options as Option[] | undefined) ?? [] }));
+          return;
+        }
+        const page = action.page;
+        for (const [key, value] of Object.entries(result)) {
+          if (!m.outputs.some((o) => o.key === key)) continue;
+          if (loadMore && page?.append.includes(key)) {
+            setOutput(key, (prev: unknown) => [...(Array.isArray(prev) ? prev : []), ...(Array.isArray(value) ? value : [])]);
+          } else if (loadMore && page?.sum.includes(key)) {
+            setOutput(key, (prev: unknown) => (Number(prev) || 0) + (Number(value) || 0));
+          } else {
+            setOutput(key, value);
+          }
+        }
+        // A fresh run of what the pane is for: its results' age, and a new
+        // version (which clears the row selection). Load more keeps both, so
+        // the rows you checked stay checked; describing a table is neither.
+        if (!loadMore && (action.main || action.page)) {
+          setRanAt(Date.now());
+          setResultsVersion((v) => (v || 0) + 1);
+        }
       }
     } catch (e) {
       setErrors((prev) => ({ ...prev, [action.id]: readableError(e) }));
@@ -129,9 +265,26 @@ function Rendered({ m }: { m: PaneManifest }) {
     }
   }
 
-  const pane: Pane = { m, inputs, setInput, outputs, run, busy, errors, resultsVersion: resultsVersion ?? 0 };
+  const pane: Pane = {
+    m,
+    inputs,
+    outputs,
+    views,
+    changeInputs,
+    setView,
+    run,
+    busy,
+    errors,
+    resultsVersion: resultsVersion ?? 0,
+    ranAt: ranAt ?? null,
+    flash,
+    flashed,
+    options,
+    errorsPlaced,
+  };
   return (
     <div>
+      <SavedInputsBar pane={pane} />
       {m.layout.map((card, i) =>
         shown(card.when, pane) ? <CardView key={i} card={card} pane={pane} /> : null,
       )}
@@ -179,11 +332,20 @@ function present(value: unknown): boolean {
   return value !== undefined && value !== null && value !== "";
 }
 
-function shown(when: When | undefined, pane: Pane): boolean {
+function shown(when: When | undefined, pane: PaneApi): boolean {
   if (!when) return true;
-  if (when.input !== undefined && pane.inputs[when.input] !== when.equals) return false;
+  if (when.input !== undefined) {
+    if (when.equals !== undefined && pane.inputs[when.input] !== when.equals) return false;
+    if (when.equals === undefined && present(pane.inputs[when.input]) !== (when.present ?? true)) return false;
+  }
   if (when.output !== undefined && present(pane.outputs[when.output]) !== (when.present ?? true)) return false;
   return true;
+}
+
+/** Text with `code` in backticks, as manifests write help. */
+function rich(source: string): ReactNode {
+  const parts = source.split("`");
+  return parts.map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
 }
 
 function CardView({ card, pane }: { card: Card; pane: Pane }) {
@@ -205,14 +367,26 @@ function CardView({ card, pane }: { card: Card; pane: Pane }) {
       )}
       {card.items
         .filter((item) => shown(item.when, pane))
-        .map((item, i) => (
-          <Item key={i} item={item} pane={pane} place="card" first={i === 0} />
+        .map((item, i, items) => (
+          <Item key={i} item={item} pane={pane} place="card" first={i === 0} prev={items[i - 1]} />
         ))}
     </div>
   );
 }
 
-function Item({ item, pane, place, first }: { item: LayoutItem; pane: Pane; place: Place; first?: boolean }) {
+function Item({
+  item,
+  pane,
+  place,
+  first,
+  prev,
+}: {
+  item: LayoutItem;
+  pane: Pane;
+  place: Place;
+  first?: boolean;
+  prev?: LayoutItem;
+}) {
   const children = (list: LayoutItem[], inner: Place) =>
     list
       .filter((child) => shown(child.when, pane))
@@ -220,31 +394,58 @@ function Item({ item, pane, place, first }: { item: LayoutItem; pane: Pane; plac
 
   if (item.toolbar) {
     // Beside a title a toolbar is a tight row; in a card, the app's toolbar
-    // line, set off from whatever is above it.
+    // line, set off from a box above it (JWT's Generate under its payload).
     return place === "aside" ? (
       <div className="row" style={{ gap: 8 }}>
         {children(item.toolbar, "toolbar")}
       </div>
     ) : (
-      <div className="toolbar" style={place === "card" && !first ? { marginTop: 10 } : undefined}>
+      <div className="toolbar" style={place === "card" && prev?.input ? { marginTop: 10 } : undefined}>
         {children(item.toolbar, "toolbar")}
       </div>
     );
   }
   if (item.row) return <RowView items={item.row.filter((child) => shown(child.when, pane))} pane={pane} />;
   if (item.text !== undefined) {
-    return place === "toolbar" || place === "aside" ? (
-      <span className="muted">{item.text}</span>
-    ) : (
-      <p className="muted" style={{ margin: "10px 0 0" }}>
-        {item.text}
+    const shownText = rich(render(item.text, { in: pane.inputs, out: pane.outputs }));
+    if (place === "toolbar" || place === "aside") return <span className="muted">{shownText}</span>;
+    // Under a toolbar it sits closer than a paragraph would (JWT's Mode card).
+    return (
+      <p className="muted" style={prev?.toolbar ? { margin: "10px 0 0" } : undefined}>
+        {shownText}
       </p>
     );
   }
   if (item.copy) return <CopyButton value={pane.outputs[item.copy]} />;
+  if (item.error) {
+    const error = pane.errors[item.error];
+    return error ? <p className="error-text">{error}</p> : null;
+  }
+  if (item.restored) {
+    const action = actionById(pane, item.restored)!;
+    return <RestoredResultsNote ranAt={pane.ranAt} onRerun={item.rerun ? () => pane.run(action) : undefined} />;
+  }
+  if (item.crumbs) return <Crumbs item={item} pane={pane} />;
+  if (item.button !== undefined) {
+    return (
+      <button
+        className="secondary"
+        onClick={() => {
+          const ran = pane.changeInputs(item.sets ?? {});
+          const action = actionById(pane, item.runs);
+          if (action && !ran.includes(action.id)) pane.run(action, { inputs: { ...pane.inputs, ...item.sets } });
+        }}
+      >
+        {item.button}
+      </button>
+    );
+  }
+  if (item.busy) return pane.busy[item.busy] ? <span className="muted">Loading…</span> : null;
+  if (item.flash) return pane.flashed ? <span className="muted">{pane.flashed}</span> : null;
+  if (item.more) return <LoadMore action={actionById(pane, item.more)!} pane={pane} />;
   if (item.action) {
     const action = pane.m.actions.find((a) => a.id === item.action)!;
-    return <ActionButton action={action} pane={pane} place={place} />;
+    return <ActionButton action={action} pane={pane} place={place} secondary={item.secondary} />;
   }
   if (item.input) {
     const input = pane.m.inputs.find((i) => i.key === item.input)!;
@@ -263,6 +464,51 @@ function Item({ item, pane, place, first }: { item: LayoutItem; pane: Pane; plac
     return <OutputView output={output} value={value} pane={pane} place={place} first={first} />;
   }
   return null;
+}
+
+/** Breadcrumbs over a path input (S3's prefix): the root, then each folder;
+ * clicking one sets the path, and the pane's own `on_change` opens it. */
+function Crumbs({ item, pane }: { item: LayoutItem; pane: Pane }) {
+  const path = String(pane.inputs[item.crumbs!] ?? "");
+  const root = String(pane.inputs[item.crumbs_root ?? ""] ?? "");
+  const segments: { label: string; path: string }[] = [];
+  let acc = "";
+  for (const part of path.split("/").filter(Boolean)) {
+    acc += part + "/";
+    segments.push({ label: part, path: acc });
+  }
+  const go = (to: string) => pane.changeInputs({ [item.crumbs!]: to });
+  return (
+    <div className="row" style={{ marginBottom: 10, gap: 4 }}>
+      <button className="secondary" onClick={() => go("")}>
+        {root}
+      </button>
+      {segments.map((seg, i) => (
+        <span key={i} className="row" style={{ gap: 4 }}>
+          <span className="muted">/</span>
+          <button className="secondary" onClick={() => go(seg.path)}>
+            {seg.label}
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** A paged action's Load more, while its last run returned a cursor. */
+function LoadMore({ action, pane }: { action: ManifestAction; pane: Pane }) {
+  const page = action.page;
+  if (!page) return null;
+  const cursor = pane.outputs[page.cursor];
+  if (!present(cursor)) return null;
+  const busy = !!pane.busy[action.id];
+  return (
+    <div className="toolbar" style={{ marginTop: 10 }}>
+      <button className="secondary" onClick={() => pane.run(action, { cursor })} disabled={busy}>
+        {busy ? page.busy_label : page.label}
+      </button>
+    </div>
+  );
 }
 
 function inputOf(item: LayoutItem, pane: Pane): ManifestInput | undefined {
@@ -317,11 +563,21 @@ function CopyButton({ value }: { value: unknown }) {
   );
 }
 
-function ActionButton({ action, pane, place }: { action: ManifestAction; pane: Pane; place: Place }) {
+function ActionButton({
+  action,
+  pane,
+  place,
+  secondary,
+}: {
+  action: ManifestAction;
+  pane: Pane;
+  place: Place;
+  secondary?: boolean;
+}) {
   const busy = !!pane.busy[action.id];
-  const error = pane.errors[action.id];
+  const error = pane.errorsPlaced.has(action.id) ? null : pane.errors[action.id];
   const button = (
-    <button onClick={() => pane.run(action)} disabled={busy}>
+    <button className={secondary ? "secondary" : undefined} onClick={() => pane.run(action)} disabled={busy}>
       {busy ? action.busy_label ?? "Running…" : textOf(action.run_label, pane.inputs) || "Run"}
     </button>
   );
@@ -371,7 +627,12 @@ function Labelled({
 
 function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; place: Place }) {
   const value = pane.inputs[input.key];
-  const set = (v: unknown) => pane.setInput(input.key, v);
+  const set = (v: unknown) => pane.changeInputs({ [input.key]: v });
+  const submit = () => {
+    const action = actionById(pane, input.submit);
+    if (action) pane.run(action);
+  };
+  const inline = place === "toolbar" || place === "aside";
   const label = textOf(input.label, pane.inputs);
   const placeholder = textOf(input.placeholder, pane.inputs) || undefined;
   const inRow = place === "row";
@@ -380,6 +641,15 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   // A column in a row grows: a text box further than a line.
   const grow = (min: number): number | false => (bare ? -1 : inRow ? min : false);
   const spaced = place === "card" && !input.rows;
+
+  if (input.options) {
+    const picker = <OptionsPicker input={input} pane={pane} value={value} onChange={set} />;
+    return inline ? picker : <Labelled label={label} grow={grow(200)} spaced={spaced}>{picker}</Labelled>;
+  }
+  if (input.type === "connection" && input.connection_type === "aws") {
+    const select = <AwsConnectionSelect value={value} onChange={set} placeholder={placeholder} label={label} />;
+    return inline || bare ? select : <Labelled label={label} grow={grow(200)} spaced={spaced}>{select}</Labelled>;
+  }
 
   if (input.type === "choice" && input.buttons) {
     const buttons = input.choices.map((choice) => (
@@ -433,6 +703,22 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
       </Labelled>
     );
   }
+  if (input.type === "int" && inline) {
+    return (
+      <label className="row" style={{ gap: 6 }}>
+        {label && <span className="muted">{label}</span>}
+        <input
+          type="number"
+          min={input.min}
+          max={input.max}
+          value={value == null ? "" : String(value)}
+          onChange={(e) => set(Number(e.target.value))}
+          title={title}
+          style={{ width: 80 }}
+        />
+      </label>
+    );
+  }
   if (input.type === "int") {
     return (
       <Labelled label={label} grow={bare ? -1 : false} spaced={spaced}>
@@ -447,6 +733,20 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
           style={{ width: 100 }}
         />
       </Labelled>
+    );
+  }
+  if (input.type === "text" && inline && !input.rows) {
+    return (
+      <input
+        type="text"
+        value={typeof value === "string" ? value : ""}
+        onChange={(e) => set(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder={placeholder}
+        aria-label={label || placeholder || input.key}
+        title={title}
+        style={input.width ? { width: input.width } : undefined}
+      />
     );
   }
   if (input.type === "text") {
@@ -466,6 +766,7 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
         type="text"
         value={text}
         onChange={(e) => set(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
         placeholder={placeholder}
         aria-label={label || placeholder || input.key}
         title={title}
@@ -481,6 +782,97 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   // Environment and log-group pickers are drawn by their services' own pages
   // until those are ported (Phase 3's later PRs).
   return <p className="muted">{label || input.key}: not drawn by manifests yet.</p>;
+}
+
+/**
+ * An AWS connection, drawn as the environment picker always was:
+ * "Prod (111122223333 · eu-west-1)", one per AWS connection the user can
+ * reach (D34: its id is the environment's old id).
+ */
+function AwsConnectionSelect({
+  value,
+  onChange,
+  placeholder,
+  label,
+}: {
+  value: unknown;
+  onChange: (v: unknown) => void;
+  placeholder?: string;
+  label: string;
+}) {
+  const [environments, setEnvironments] = useState<Environment[] | null>(null);
+  useEffect(() => {
+    api.listEnvironments().then(setEnvironments, () => setEnvironments([]));
+  }, []);
+  const known = environments?.some((e) => e.id === value);
+  return (
+    <select
+      value={value == null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      aria-label={label || "Environment"}
+    >
+      <option value="">{placeholder ?? "Choose environment…"}</option>
+      {environments?.map((e) => (
+        <option key={e.id} value={e.id}>
+          {e.name} ({e.account_id} · {e.region})
+        </option>
+      ))}
+      {value != null && value !== "" && environments !== null && !known && (
+        <option value={String(value)}>An environment you can't reach</option>
+      )}
+    </select>
+  );
+}
+
+/**
+ * A choice whose options a loader fetches (D47): "Load tables", then "Choose
+ * table…". The options live in this tab only, so after a reload the select
+ * shows just the value already chosen until the list is loaded again.
+ */
+function OptionsPicker({
+  input,
+  pane,
+  value,
+  onChange,
+}: {
+  input: ManifestInput;
+  pane: Pane;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const spec = input.options!;
+  const loader = actionById(pane, spec.action);
+  const loaded = pane.options[spec.action];
+  const busy = !!pane.busy[spec.action];
+  const current = value == null ? "" : String(value);
+  const options = loaded ?? [];
+  const showSelect = options.length > 0 || current !== "";
+  return (
+    <>
+      {spec.load_label && loader && (
+        <button
+          className="secondary"
+          onClick={() => pane.run(loader)}
+          disabled={busy || missingInput(loader, pane.inputs) !== null}
+        >
+          {busy ? spec.busy_label ?? spec.load_label : spec.load_label}
+        </button>
+      )}
+      {showSelect && (
+        <select value={current} onChange={(e) => onChange(e.target.value)} aria-label={input.key}>
+          <option value="" disabled>
+            {spec.placeholder ?? "Choose…"}
+          </option>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+          {current !== "" && !options.some((o) => o.value === current) && <option value={current}>{current}</option>}
+        </select>
+      )}
+    </>
+  );
 }
 
 /** A connection of the input's type the user can reach, by its label. */
@@ -642,6 +1034,12 @@ function OutputView({
     }
     case "table":
       return <TableView output={output} rows={Array.isArray(value) ? (value as Values[]) : []} pane={pane} />;
+    case "list":
+      return <ListView output={output} value={value} pane={pane} />;
+    case "files":
+      return <FilesView output={output} value={value} pane={pane} />;
+    case "tags":
+      return present(value) ? <TagsView output={output} value={value} pane={pane} /> : null;
   }
 }
 

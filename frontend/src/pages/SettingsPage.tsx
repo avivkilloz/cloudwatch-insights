@@ -8,6 +8,7 @@ import SavedItemsPage from "./SavedItemsPage";
 import CredentialsSettings from "../components/settings/CredentialsSettings";
 import EnvironmentsSettings from "../components/settings/EnvironmentsSettings";
 import UserGroupsSettings from "../components/settings/UserGroupsSettings";
+import { ViewSwitch } from "../components/settings/settingsLayout";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
 
@@ -25,20 +26,22 @@ type Section =
   | "saved"
   | "app"
   | "environments"
-  | "groups"
   | "users"
   | "credentials";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
   { id: "theme", label: "Theme" },
-  { id: "saved", label: "Saved" },
+  // Templates, and every pane's saved inputs (D46, D50). "Storage" is kept for
+  // files, which will need a section of their own.
+  { id: "saved", label: "Library" },
 ];
 
 const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "app", label: "App settings" },
   { id: "environments", label: "Environments" },
-  { id: "groups", label: "User groups" },
+  // Users and their groups are one tab, switched inside it (D50), as
+  // credentials and their types are.
   { id: "users", label: "Users" },
   // Credentials and their types are one tab, switched inside it: a ninth tab
   // wrapped "Credential types" onto two lines.
@@ -54,7 +57,16 @@ interface Props {
   onSettingsChange: (settings: Settings) => void;
 }
 
+const USER_VIEWS = [
+  ["users", "Users"],
+  ["groups", "Groups"],
+] as const;
+
 export default function SettingsPage({ theme, onThemeChange, onSettingsChange }: Props) {
+  const [usersView, setUsersView] = useState<"users" | "groups">("users");
+  // The add form opens at the head of the list, as New group / New credential
+  // open theirs: below a long list it was out of sight.
+  const [addingUser, setAddingUser] = useState(false);
   const { user: currentUser, refresh: refreshAuth } = useAuth();
   const isAdmin = !!currentUser?.is_admin;
   const sections = isAdmin ? [...BASE_SECTIONS, ...ADMIN_SECTIONS] : BASE_SECTIONS;
@@ -165,6 +177,7 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       setNewUsername("");
       setNewUserPassword("");
       setNewUserGroupId("");
+      setAddingUser(false);
       await refresh();
     });
   }
@@ -285,48 +298,56 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
 
       {isAdmin && section === "environments" && <EnvironmentsSettings />}
 
-      {isAdmin && section === "groups" && <UserGroupsSettings />}
+      {isAdmin && section === "users" && usersView === "groups" && (
+        <UserGroupsSettings switcher={<ViewSwitch views={USER_VIEWS} view={usersView} onChange={setUsersView} />} />
+      )}
 
-      {isAdmin && !loading && !error && section === "users" && (
+      {isAdmin && !loading && !error && section === "users" && usersView === "users" && (
         <>
-          <div className="panel">
-            <h2>Add user</h2>
-            <div className="row" style={{ marginBottom: 10 }}>
-              <div>
-                <span className="field-label">Username</span>
-                <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} style={{ width: 180 }} />
-              </div>
-              <div>
-                <span className="field-label">Password</span>
-                <input
-                  type="password"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  style={{ width: 180 }}
-                />
-              </div>
-              <div>
-                <span className="field-label">Group</span>
-                <select
-                  value={newUserGroupId}
-                  onChange={(e) => setNewUserGroupId(e.target.value ? Number(e.target.value) : "")}
-                >
-                  <option value="">Choose a group…</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="panel credential-list">
+            <div className="credential-list-head">
+              <ViewSwitch views={USER_VIEWS} view={usersView} onChange={setUsersView} />
+              <span className="muted">Who can sign in, and the group each one is in.</span>
+              <button className={addingUser ? "secondary" : undefined} onClick={() => setAddingUser((v) => !v)}>
+                {addingUser ? "Cancel" : "Add user"}
+              </button>
             </div>
-            <button onClick={addUser} disabled={!newUsername.trim() || !newUserPassword || newUserGroupId === ""}>
-              Add user
-            </button>
-          </div>
-
-          <div className="panel">
-            <h2>Users</h2>
+            {addingUser && (
+              <div className="settings-add-user">
+                <div className="row" style={{ marginBottom: 10 }}>
+                  <div>
+                    <span className="field-label">Username</span>
+                    <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} style={{ width: 180 }} />
+                  </div>
+                  <div>
+                    <span className="field-label">Password</span>
+                    <input
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      style={{ width: 180 }}
+                    />
+                  </div>
+                  <div>
+                    <span className="field-label">Group</span>
+                    <select
+                      value={newUserGroupId}
+                      onChange={(e) => setNewUserGroupId(e.target.value ? Number(e.target.value) : "")}
+                    >
+                      <option value="">Choose a group…</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button onClick={addUser} disabled={!newUsername.trim() || !newUserPassword || newUserGroupId === ""}>
+                  Add user
+                </button>
+              </div>
+            )}
             <table>
               <thead>
                 <tr>
@@ -390,6 +411,8 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
               </tbody>
             </table>
           </div>
+
+
         </>
       )}
     </div>

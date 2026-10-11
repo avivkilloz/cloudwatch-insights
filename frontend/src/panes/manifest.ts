@@ -34,6 +34,14 @@ export type InputType =
   | "credential"
   | "connection";
 
+/** A choice whose options come from a server action (a loader). */
+export interface Options {
+  action: string;
+  load_label?: string;
+  busy_label?: string;
+  placeholder?: string;
+}
+
 export interface ManifestInput {
   key: string;
   type: InputType;
@@ -52,6 +60,23 @@ export interface ManifestInput {
   agent: boolean;
   connection_type?: string;
   legacy_key?: string;
+  options?: Options;
+  resets: string[];
+  submit?: string;
+}
+
+export interface Page {
+  cursor: string;
+  append: string[];
+  sum: string[];
+  label: string;
+  busy_label: string;
+}
+
+export interface ManifestView {
+  key: string;
+  default?: unknown;
+  legacy_key?: string;
 }
 
 export interface ManifestAction {
@@ -63,9 +88,14 @@ export interface ManifestAction {
   request?: Record<string, unknown>;
   effects?: "external";
   run_on: "change" | "click";
+  on_change: string[];
+  requires: Record<string, string>;
+  page?: Page;
+  resets: string[];
+  main: boolean;
 }
 
-export type Render = "text" | "code" | "json" | "table" | "diff" | "badge" | "error";
+export type Render = "text" | "code" | "json" | "table" | "diff" | "badge" | "error" | "list" | "files" | "tags";
 
 export interface ManifestOutput {
   key: string;
@@ -89,6 +119,18 @@ export interface LayoutItem {
   when?: When;
   empty?: string;
   copy?: string;
+  error?: string;
+  restored?: string;
+  rerun: boolean;
+  crumbs?: string;
+  crumbs_root?: string;
+  button?: string;
+  sets: Record<string, unknown>;
+  runs?: string;
+  more?: string;
+  secondary: boolean;
+  busy?: string;
+  flash: boolean;
 }
 
 export interface Card {
@@ -114,6 +156,8 @@ export interface PaneManifest {
   outputs: ManifestOutput[];
   layout: Card[];
   implies?: string;
+  views: ManifestView[];
+  legacy_drop: string[];
 }
 
 let loaded: PaneManifest[] = [];
@@ -145,12 +189,13 @@ export function defaultOf(input: ManifestInput): unknown {
 }
 
 /** Old key -> new key, for a v2 pane's migration (§15.4). A sensitive input
- * was never stored, so it has nothing to move. */
+ * was never stored, so it has nothing to move; every run's bookkeeping does. */
 function legacyMap(m: PaneManifest): Record<string, string> {
   if (m.state !== "v2") return {};
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = { ranAt: "out.ranAt", resultsVersion: "out.resultsVersion" };
   for (const i of m.inputs) if (!i.sensitive) out[i.legacy_key ?? i.key] = `in.${i.key}`;
   for (const o of m.outputs) if (o.legacy_key) out[o.legacy_key] = `out.${o.key}`;
+  for (const v of m.views ?? []) if (v.legacy_key) out[v.legacy_key] = `view.${v.key}`;
   return out;
 }
 
@@ -182,6 +227,13 @@ export function migratePaneKeys(state: Record<string, unknown>): Record<string, 
       delete out[from];
       const to = `${paneId}.${newKey}`;
       if (!(to in out)) out[to] = value;
+    }
+    // What the pane no longer keeps in the session (picker options, D47).
+    for (const old of m.legacy_drop ?? []) {
+      const from = `${paneId}.${old}`;
+      if (!(from in state)) continue;
+      out ??= { ...state };
+      delete out[from];
     }
   }
   return out ?? state;

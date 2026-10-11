@@ -3752,3 +3752,22 @@ th {
   gap: 12px;
   flex-wrap: wrap;
 }
+
+/* "Load saved…" / "Save as…" at the top right of every manifest pane
+   (panes/SavedInputsBar.tsx): one line above its cards, the 16px gap below
+   it that the cards keep between themselves. */
+.pane-saved {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* Settings → Users: the add form, opened from the list's head above the list. */
+.settings-add-user {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
