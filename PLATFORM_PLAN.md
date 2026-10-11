@@ -13,8 +13,8 @@ and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
 (2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built. Phase 3 is detailed in
-§15 (D37–D44, agreed 2026-10-08); its PR 1 is built. The rest of 3b is drafted in §16
-(2026-10-11, for review)._
+§15 (D37–D44, agreed 2026-10-08); its PR 1 is built. The rest of 3b is detailed in §16
+(D45–D50, agreed 2026-10-11)._
 
 ---
 
@@ -1202,6 +1202,12 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D42 | 2026-10-08 | **Each pane moves to the `in./out./view.` shape when it is ported**, with a per-pane-type version in the session; unported panes keep their keys. | A pane's code reads its own keys; switching them before it is rewritten is churn twice. Each pane is still migrated exactly once. |
 | D43 | 2026-10-08 | **Live panes use built-in live functions for now** (TypeScript in the browser, a Python twin for the agent and workflows); CEL in the browser arrives with the builder (Phase 5). | Nothing user-authored needs evaluating before the builder, and choosing a JavaScript CEL library now would be choosing before knowing what the builder needs. |
 | D44 | 2026-10-08 | **The agent may run GET requests on admin-configured HTTP API connections** (the API table pane), with the group's own identity; arbitrary requests (the HTTP client) stay behind the approval step. | It reads from a system an admin configured, as the AWS panes do; it doesn't send anything anywhere the user chose. |
+| D45 | 2026-10-11 | **The rest of 3b ships as five PRs** (§16.1): pickers, lists and Load more (DynamoDB, Cognito, S3); detail and requests (IoT, HTTP client); logs; charts; MQTT on the server. Phase 3 is eight PRs, amending D41's count. | Each is a sitting's worth of testing, and each adds something new to try. |
+| D46 | 2026-10-11 | **Saved inputs are one store for every pane type, separate from templates**; the five per-pane stores migrate into it as each pane is ported (§16.3.4). | Filling the pane you're in is not starting a session; every pane gains it at once. |
+| D47 | 2026-10-11 | **Picker options live in the tab's memory, not the session** (§16.2). | Less synced state; the agent stops writing option lists; the chosen value shows while the list reloads. |
+| D48 | 2026-10-11 | **How a pane looks is session state, synced like its inputs**: `view.` keys (expanded rows, group-by, sort, the diff's view) go to the server and every viewer, for every pane, including IoT and the logs, which keep them in memory today. | Arranging what is on screen is exactly what the agent will do to show users something, and what one member does to show another; per-browser view state would hide it. |
+| D49 | 2026-10-11 | **Old per-pane routes are kept for one release after their pane is ported**, then removed (§16.3.8). | A tab that hasn't reloaded yet keeps working; PR 1's stale-tab reload covers the rest. |
+| D50 | 2026-10-11 | **Settings → "Saved" becomes "Library"** (Templates and Saved inputs; the user asked for "Storage or similar", "Library" was proposed back for the reason given, and changing it is one word), and **Users and User groups become one tab** with a Users / Groups switch, as Credentials / Types (§16.3.4, §16.3.9). | "Library" says reusable things you start from or load; "Storage" is kept for files and blobs (D7), which will need a section of their own. One tab for people and their groups, as for credentials and their types. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -2287,7 +2293,7 @@ by what the panes share. Each PR ports panes **and** adds something visibly new:
 
 | PR | Ports | Builds | New to try |
 |---|---|---|---|
-| **3b-1** Pickers, lists and Load more | DynamoDB, Cognito, S3 | connection pickers; options from a loader; cascades; a run on a pick; the expandable list; cursor paging; the file browser; row copy; the restored-results note; one store for saved inputs | **Saved inputs for every pane** ("Save as…" / "Load…"), including Cognito, Base64 and the API table, which had none |
+| **3b-1** Pickers, lists and Load more | DynamoDB, Cognito, S3 | connection pickers; options from a loader; cascades; a run on a pick; the expandable list; cursor paging; the file browser; row copy; the restored-results note; one store for saved inputs | **Saved inputs for every pane** ("Save as…" / "Load…"), including Cognito, Base64 and the API table, which had none; **Settings → Library**; **Users and groups in one tab** |
 | **3b-2** Detail and requests | IoT, HTTP client | a multi-connection picker; per-connection errors; a detail action per row, lazy and in bulk; a mode switching outputs; the request/response viewer; an action only a person may run (`effects: external`) | **Row detail anywhere:** "Include detail" and expand-to-fetch on any pane with a detail action. The agent inspects certificates too. |
 | **3b-3** Logs | CloudWatch, OpenSearch | the log list (merged targets, sort, cap, group by); two-level lazy pickers; a time range input; start / poll / **Stop** | **The agent can stop a running query**, and Stop survives a reload. OpenSearch's limit is fixed (§4.7). |
 | **3b-4** Charts | none | data frames, the chart spec, ECharts loaded on demand, KPI tiles (D11) | **A chart on the API table**, and a log-volume histogram over the log list |
@@ -2319,6 +2325,8 @@ the first PR that needs it:
   input changes (S3's "pick a bucket shows it", DynamoDB's describe on pick).
 - **Bookkeeping and view keys are migrated too.** `ranAt` and `resultsVersion` move to
   `out.`, `expanded` to `view.` (the inventory found the migration missed them).
+  `view.` keys are session state, synced to every viewer and settable by the agent
+  (D48).
 - **Runs no longer write their inputs back.**
   - Today S3's run writes `bucket` and `prefix`.
   - In v2 the inputs are the source of truth, and the run returns what it showed
@@ -2355,7 +2363,8 @@ The rows of DynamoDB, Cognito and the API table, generalised from today's
   `status: {CONFIRMED: ok, UNCONFIRMED: pending}` and `enabled: false → "disabled"
   error`.
 - **Expanded:** `json` (DynamoDB) or `fields` (a key/value table with sections:
-  Cognito's dates and attributes). Expanded rows are view state (Q4).
+  Cognito's dates and attributes). Expanded rows are `view.expanded`, synced (D48),
+  so the agent or a member can open a row for everyone looking.
 - **Toolbar:**
   - select all, hide / show hidden, export, attach (PR 1's);
   - a count line from a template ("{{ n }} item(s) loaded, {{ out.scannedCount }}
@@ -2391,8 +2400,10 @@ The rows of DynamoDB, Cognito and the API table, generalised from today's
   `saved_sessions` pages `tables` and `buckets`; IoT's searches, saved queries, HTTP
   requests and MQTT topics follow in their PRs.
 - Each migration is once-only, keyed by a `Settings` marker, as Phase 2's was.
-- **Settings → Saved items** lists them by pane type; the per-store tabs go as each
-  is migrated.
+- **Settings → Library** (D50, formerly "Saved") has two views, as Credentials has:
+  *Templates* and *Saved inputs*. Saved inputs are listed in one table with a pane-type
+  column and filter, rather than one tab per store; the per-store tabs go as each is
+  migrated.
 - **How it differs from a template:** a template starts a new session; saved inputs
   fill the pane you're in. Both stay (Q2).
 
@@ -2451,6 +2462,16 @@ All three look and behave as today, checked by:
   tab that hasn't reloaded yet (PR 1's stale-tab reload covers the rest).
 - They are removed in 3b-2, along with the old pages' components.
 
+#### 16.3.9 Settings: Users and groups in one tab
+
+- **Users** and **User groups** become one tab, **Users**, with a *Users | Groups*
+  switch in the Credentials layout (`settingsLayout.tsx`). Each view keeps today's
+  screens and behaviour.
+- With "Saved" renamed **Library**, Settings goes from nine tabs to eight and stops
+  wrapping.
+- Suites that open these tabs by name (smoke13, 16, 17, 20, 22, 23, 36, 60, 61)
+  change only their navigation steps.
+
 ### 16.4 PR 3b-2, outlined: IoT and the HTTP client
 
 - **`connections`** (a checkbox list), and actions that fan out across connections and
@@ -2489,36 +2510,18 @@ All three look and behave as today, checked by:
 - **3b-5 MQTT:** the subscription action and stream output of §4.4, over the existing
   event stream, with subscriptions closed after the last viewer leaves.
 
-### 16.6 Open questions for 3b-1
+### 16.6 Settled for 3b-1
 
-1. **Split 3b into the five PRs of §16.1?** That makes Phase 3 eight PRs, amending
-   D41's count.
-
-   *Recommended: yes.* Each one is a sitting's worth of testing.
-2. **Saved inputs: one store, separate from templates, with the old stores migrated
-   in as each pane is ported?**
-
-   *Recommended: yes.* Filling the pane you're in differs from starting a session.
-   Five stores become one, and every pane gains it.
-3. **Picker options in the tab's memory, not the session?**
-   - Today the lists of tables, buckets and pools are stored in session state, so a
-     reload shows them without asking AWS again.
-   - Kept in memory, a reload asks again the first time you open the picker. The
-     chosen value shows meanwhile.
-   - It also means less synced state, and the agent stops writing option lists.
-
-   *Recommended: in memory.*
-4. **Expanded rows: per browser, not synced?**
-   - DynamoDB and Cognito store them in the session today, so they sync to every tab
-     and every member. IoT and the logs keep them in memory.
-   - Proposal: `view.` keys are kept with the session in this browser (IndexedDB)
-     but never sent to the server. Your expansions survive a reload, and don't open
-     rows on a colleague's screen.
-
-   *Recommended: yes*, for every pane.
-5. **Old routes kept for one release, then removed (§16.3.8)?**
-
-   *Recommended: yes.*
+Asked 2026-10-11, all settled the same day:
+- Split into five PRs (D45).
+- Saved inputs as one store, separate from templates (D46), in a Settings section
+  called **Library** (D50).
+- Picker options in the tab's memory (D47).
+- **View state stays in the session, synced (D48).** This reverses the draft's
+  proposal: how a pane looks is something the agent and other members set to show
+  you something.
+- Old routes kept for one release (D49).
+- Users and User groups become one tab (D50, §16.3.9).
 
 ## 12. Research sources
 
