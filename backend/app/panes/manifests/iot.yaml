@@ -9,30 +9,236 @@ description: >-
 help: >-
   Search AWS IoT Core across environments — things by fleet-index query, or certificates by status. Expanding a
   result fetches its detail: shadows, attached certificates and their policies, and recent jobs.
+state: v2
+rendered: true
 inputs:
-  - key: selectedEnvironmentIds
-    type: environments
+  - key: connections
+    type: connections
+    connection_type: aws
+    legacy_key: selectedEnvironmentIds
+    default: []
     help: Which environments to search.
   - key: searchMode
     type: choice
+    label: Search for
     help: Search things or certificates.
     choices: [things, certificates]
+    choice_labels: { things: Things, certificates: Certificates }
+    buttons: true
+    default: things
+    # Another mode is another search: its own default query, and nothing of
+    # the last one's results or expanded rows.
+    resets: [out.thingResults, out.certResults, out.ranAt, view.expanded]
+    choice_sets:
+      things: { queryString: "thingName:*" }
+      certificates: { queryString: "status:ACTIVE" }
   - key: queryString
     type: text
+    default: "thingName:*"
+    placeholder: { by: searchMode, values: { things: "thingName:*", certificates: "status:ACTIVE" } }
     help: >-
       Things: Fleet Indexing syntax, e.g. thingName:robot-* AND connectivity.connected:true. Certificates:
       status:ACTIVE, certid:<id>, or part of a certificate id.
+    examples:
+      by: searchMode
+      values:
+        things:
+          - "thingName:my-thing-*"
+          - "connectivity.connected:true"
+          - "attributes.stage:prod AND thingTypeName:sensor"
+          - "shadow.reported.firmwareVersion:1.2.*"
+          - "thingGroupNames:my-group"
+        certificates: ["status:ACTIVE", "status:INACTIVE", "certid:abcdef1234", "my-cert-prefix"]
   - key: maxResults
     type: int
+    label: Max results
     help: Most results per environment.
+    default: 50
     min: 1
     max: 500
+    width: 90
 actions:
-  - id: run
-    handler: iot.run
+  - id: search
+    handler: aws.iot.search
+    main: true
+    run_label: Search
+    busy_label: Searching…
+    requires: { connections: Select at least one environment to search. }
+    resets: [view.expanded]
+  - id: thing_detail
+    handler: aws.iot.thing_detail
+    args: { connection: group.environment_id, thingName: row.thing_name }
+  - id: cert_detail
+    handler: aws.iot.cert_detail
+    args: { connection: group.environment_id, certificateId: row.certificate_id }
+outputs:
+  - key: thingResults
+    render: list
+    legacy_key: thingResults
+    actions: [select, export, attach]
+    config:
+      groups: { rows: things, name: environment_name, error: error, as: environment }
+      row_key: thing_name
+      domain: iot-things
+      toolbar: always
+      count: "{{ n }} thing(s) across {{ groups }} target(s)"
+      export: iot-things
+      empty: No things found.
+      expand: expanded
+      summary:
+        - { tag: Connected, tone: ok, when: { field: connected, equals: true } }
+        - { tag: Disconnected, tone: error, when: { field: connected, equals: false } }
+        - { tag: Unknown, when: { field: connected, present: false } }
+        - tag: "{{ row.environment }}"
+        - { tag: "{{ row.thing_type_name }}", when: { field: thing_type_name } }
+        - msg: "{{ row.thing_name }}"
+      detail:
+        action: thing_detail
+        include: Include shadows, certificates & jobs
+        include_help: >-
+          Fetches each checked thing's full detail and includes it in the export and in what the agent is sent with
+          a question. One request per thing.
+        noun: thing(s)
+        merge: [thing_arn, version, shadows, certificates, jobs]
+        sections:
+          - warnings: warnings
+          - title: Attributes
+            entries: attributes
+            empty: No attributes.
+          - title: "Shadows ({{ d.shadows | count }})"
+            list: shadows
+            empty: No shadow documents found.
+            open: always
+            summary:
+              - tag: "{{ row.name }}"
+              - muted: "version {{ row.version ?? '—' }}"
+              - muted: "updated {{ row.last_updated | time }}"
+            detail:
+              - grid:
+                  - { title: Reported, json: reported }
+                  - { title: Desired, json: desired }
+          - title: "Certificates ({{ d.certificates | count }})"
+            list: certificates
+            empty: No certificates attached.
+            summary: &cert_summary
+              - tag: "{{ row.status }}"
+                tone_of: status
+                tones: { ACTIVE: ok, REVOKED: error, PENDING_TRANSFER: error, REGISTER_INACTIVE: error }
+                tone_default: pending
+              - msg: "{{ row.certificate_id }}"
+              - muted: "created {{ row.creation_date | time }}"
+            detail: &policies
+              - title: "Attached policies ({{ d.policies | count }})"
+                list: policies
+                empty: No policies attached.
+                gap: 6
+                summary:
+                  - msg: "{{ row.policy_name }}"
+                  - { muted: document unavailable, when: { field: policy_document, present: false } }
+                detail:
+                  - { json: policy_document, empty: Could not load policy document. }
+          - title: "Jobs ({{ d.jobs | count }})"
+            table: jobs
+            empty: No job executions found.
+            columns:
+              - { label: Job ID, value: "{{ row.job_id }}" }
+              - label: Status
+                tag: "{{ row.status }}"
+                tone_of: status
+                tones:
+                  SUCCEEDED: ok
+                  FAILED: error
+                  TIMED_OUT: error
+                  REJECTED: error
+                  REMOVED: error
+                  CANCELED: error
+                tone_default: pending
+              - { label: Queued, value: "{{ row.queued_at | time }}" }
+              - { label: Started, value: "{{ row.started_at | time }}" }
+              - { label: Last updated, value: "{{ row.last_updated_at | time }}" }
+  - key: certResults
+    render: list
+    legacy_key: certResults
+    actions: [select, export, attach]
+    config:
+      groups: { rows: certificates, name: environment_name, error: error, as: environment }
+      row_key: certificate_id
+      domain: iot-certificates
+      toolbar: always
+      count: "{{ n }} certificate(s) across {{ groups }} target(s)"
+      export: iot-certificates
+      empty: No certificates found.
+      expand: expanded
+      summary:
+        - tag: "{{ row.status }}"
+          tone_of: status
+          tones: { ACTIVE: ok, REVOKED: error, PENDING_TRANSFER: error, REGISTER_INACTIVE: error }
+          tone_default: pending
+        - tag: "{{ row.environment }}"
+        - msg: "{{ row.certificate_id }}"
+      detail:
+        action: cert_detail
+        include: Include attached things
+        include_help: >-
+          Fetches which things each checked certificate is attached to, and includes them in the export and in what
+          the agent is sent with a question. One request per certificate.
+        noun: certificate(s)
+        merge: [thing_names]
+        sections:
+          - warnings: warnings
+          - fields:
+              - { label: Certificate ARN, value: "{{ d.certificate_arn ?? '—' }}" }
+              - { label: Created, value: "{{ d.creation_date | time }}" }
+          - title: "Attached things ({{ d.thing_names | count }})"
+            tags: thing_names
+            empty: No things use this certificate.
+          - title: "Attached policies ({{ d.policies | count }})"
+            list: policies
+            empty: No policies attached.
+            gap: 6
+            summary:
+              - msg: "{{ row.policy_name }}"
+              - { muted: document unavailable, when: { field: policy_document, present: false } }
+            detail:
+              - { json: policy_document, empty: Could not load policy document. }
+views:
+  - key: expanded
+    default: []
+layout:
+  - title: 1. Choose environments
+    items:
+      - input: connections
+  - title: 2. Search
+    items:
+      - toolbar:
+          - input: searchMode
+      - text: >-
+          Uses AWS IoT Fleet Indexing — the same "Advanced search" syntax as the AWS console. Search by thing name,
+          attributes, connectivity, shadow values, group membership, and more. Requires thing indexing to be enabled
+          for the account/region.
+        when: { input: searchMode, equals: things }
+      - text: >-
+          Fleet Indexing does not cover certificates, so this searches directly against
+          `list_certificates`/`describe_certificate`. Use `status:ACTIVE` or `status:INACTIVE` to filter by status,
+          `certid:<id>` for an exact certificate ID lookup, or free text to match against certificate IDs.
+        when: { input: searchMode, equals: certificates }
+      - toolbar:
+          - input: maxResults
+          - examples: queryString
+      - examples: queryString
+      - input: queryString
+      - toolbar:
+          - action: search
+  - title: 3. Results
+    items:
+      - restored: search
+      - output: thingResults
+        when: { input: searchMode, equals: things }
+      - output: certResults
+        when: { input: searchMode, equals: certificates }
 inspect:
-  rows: rows.iot
-  detail: detail.iot
-  help: Shows one thing of the last run in full, with its shadows (classic and named), certificates and jobs.
+  help: >-
+    Shows one thing or certificate of the last run in full: a thing with its shadows (classic and named),
+    certificates and jobs; a certificate with the things it is attached to.
 agent:
-  run: Runs the search and lists the things or certificates in the pane.
+  run: Runs the search and lists the things or certificates in the pane, per environment.

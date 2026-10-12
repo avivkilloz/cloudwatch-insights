@@ -21,7 +21,7 @@ inputs:
     help: The environment the user pool is in.
   - key: userPoolId
     type: text
-    help: The user pool id (list_cognito_user_pools gives them).
+    help: The user pool id (list_options lists them).
     default: ""
     options:
       action: list_user_pools
@@ -106,9 +106,9 @@ layout:
       - restored: search
       - output: users
       - more: search
-inspect:
-  rows: rows.cognito
+# The rows of its list, as the pane draws them (platform_tools/panes._manifest_rows).
+inspect: {}
 agent:
   run: >-
     Searches the user pool's users with queryString and shows them in the pane; you get the count and a sample.
-    list_cognito_user_pools lists the environment's pools.
+    list_options lists the environment's pools (input userPoolId).

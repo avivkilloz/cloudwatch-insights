@@ -254,34 +254,26 @@ def test_saved_session_crud():
     assert resp.status_code == 404
 
 
-def test_tables_endpoints_reject_unconfigured_environment():
-    resp = client.get("/api/tables/list", params={"environment_id": 999999})
+def _action(pane: str, action: str, inputs: dict):
+    return client.post(f"/api/panes/{pane}/actions/{action}", json={"inputs": inputs})
+
+
+def test_tables_actions_reject_unconfigured_environment():
+    assert _action("tables", "list_tables", {"connection": 999999}).status_code == 400
+    assert _action("tables", "describe", {"connection": 999999, "tableName": "orders"}).status_code == 400
+    assert _action("tables", "scan", {"connection": 999999, "tableName": "orders"}).status_code == 400
+
+
+def test_buckets_actions_reject_unconfigured_environment():
+    assert _action("buckets", "list_buckets", {"connection": 999999}).status_code == 400
+    assert _action("buckets", "browse", {"connection": 999999, "bucket": "my-bucket"}).status_code == 400
+
+
+def test_cognito_actions_reject_unconfigured_environment():
+    assert _action("cognito", "list_user_pools", {"connection": 999999}).status_code == 400
+    resp = _action("cognito", "search", {"connection": 999999, "userPoolId": "us-east-1_abc123"})
     assert resp.status_code == 400
-
-    resp = client.post("/api/tables/describe", json={"environment_id": 999999, "table_name": "orders"})
-    assert resp.status_code == 400
-
-    resp = client.post("/api/tables/scan", json={"environment_id": 999999, "table_name": "orders"})
-    assert resp.status_code == 400
-
-
-def test_buckets_endpoints_reject_unconfigured_environment():
-    resp = client.get("/api/buckets/list", params={"environment_id": 999999})
-    assert resp.status_code == 400
-
-    resp = client.post("/api/buckets/browse", json={"environment_id": 999999, "bucket": "my-bucket"})
-    assert resp.status_code == 400
-
-
-def test_cognito_endpoints_reject_unconfigured_environment():
-    resp = client.get("/api/cognito/user-pools", params={"environment_id": 999999})
-    assert resp.status_code == 400
-
-    resp = client.post(
-        "/api/cognito/users",
-        json={"environment_id": 999999, "user_pool_id": "us-east-1_abc123"},
-    )
-    assert resp.status_code == 400
+    assert "not configured" in resp.json()["detail"]
 
 
 def test_opensearch_domains_reports_error_for_unconfigured_environment():

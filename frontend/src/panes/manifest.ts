@@ -17,8 +17,11 @@ export type Text = string | { by: string; values: Record<string, string> };
 export interface When {
   input?: string;
   equals?: unknown;
+  not_in?: unknown[];
   output?: string;
   present?: boolean;
+  /** Shown while this action's last run failed. */
+  error?: string;
 }
 
 export type InputType =
@@ -32,7 +35,8 @@ export type InputType =
   | "opensearch_indices"
   | "headers"
   | "credential"
-  | "connection";
+  | "connection"
+  | "connections";
 
 /** A choice whose options come from a server action (a loader). */
 export interface Options {
@@ -63,6 +67,14 @@ export interface ManifestInput {
   options?: Options;
   resets: string[];
   submit?: string;
+  /** What choosing a value sets besides: value -> {input: value}. */
+  choice_sets: Record<string, Record<string, unknown>>;
+  /** A connection that may be left unset ("Any URL"); not drawn without any. */
+  optional: boolean;
+  examples?: { by: string; values: Record<string, string[]> };
+  grow?: number;
+  hint?: string;
+  pairs: Record<string, string>;
 }
 
 export interface Page {
@@ -93,9 +105,23 @@ export interface ManifestAction {
   page?: Page;
   resets: string[];
   main: boolean;
+  /** A row action's inputs, as paths into `row.` and `group.`. */
+  args: Record<string, string>;
 }
 
-export type Render = "text" | "code" | "json" | "table" | "diff" | "badge" | "error" | "list" | "files" | "tags";
+export type Render =
+  | "text"
+  | "code"
+  | "json"
+  | "table"
+  | "diff"
+  | "badge"
+  | "error"
+  | "list"
+  | "files"
+  | "tags"
+  | "http_response"
+  | "attach";
 
 export interface ManifestOutput {
   key: string;
@@ -116,6 +142,7 @@ export interface LayoutItem {
   text?: string;
   row?: LayoutItem[];
   toolbar?: LayoutItem[];
+  line?: LayoutItem[];
   when?: When;
   empty?: string;
   copy?: string;
@@ -131,10 +158,11 @@ export interface LayoutItem {
   secondary: boolean;
   busy?: string;
   flash: boolean;
+  examples?: string;
 }
 
 export interface Card {
-  title: Text;
+  title?: Text;
   when?: When;
   aside: LayoutItem[];
   items: LayoutItem[];

@@ -20,7 +20,7 @@ inputs:
     help: The environment the bucket is in.
   - key: bucket
     type: text
-    help: The bucket (list_s3_buckets gives the names).
+    help: The bucket (list_options lists them).
     default: ""
     options:
       action: list_buckets
@@ -123,9 +123,10 @@ layout:
         when: { output: activeSearch, present: true }
       - output: files
       - more: browse
-inspect:
-  rows: rows.buckets
+# The rows of its list, as the pane draws them (platform_tools/panes._manifest_rows).
+inspect: {}
 agent:
   run: >-
     Opens the bucket at prefix -- or, with search set, finds file names containing it under prefix -- and shows the
-    folders and files in the pane; you get the counts and a sample. list_s3_buckets lists the environment's buckets.
+    folders and files in the pane; you get the counts and a sample. list_options lists the
+    environment's buckets (input bucket).

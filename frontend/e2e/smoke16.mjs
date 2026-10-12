@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 import fs from "fs";
 
 const SCRATCH = `${SHOT}/downloads`;
@@ -37,91 +37,55 @@ async function openSession(page, label) {
     if (m.type() === "error" && !m.text().includes("401")) console.log("CONSOLE ERROR:", m.text());
   });
 
-  await page.route("**/api/iot/search", (r) =>
-    r.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            things: ["alpha", "bravo", "charlie"].map((n) => ({
-              thing_name: `thing-${n}`,
-              thing_id: null,
-              thing_type_name: null,
-              thing_group_names: [],
-              attributes: {},
-              connected: true,
-              connectivity_timestamp: null,
-            })),
-            error: null,
-          },
-        ],
-      },
-    })
-  );
-  await page.route("**/api/iot/things/detail", (r) => {
-    const body = JSON.parse(r.request().postData() || "{}");
-    thingDetailCalls.push(body.thing_name);
-    r.fulfill({
-      json: {
-        thing_name: body.thing_name,
-        thing_id: `id-${body.thing_name}`,
-        thing_arn: `arn:aws:iot:::thing/${body.thing_name}`,
+  // IoT is a manifest pane now (3b-2): its search and each row's detail are
+  // actions on one endpoint, a row's detail taking its inputs from the row.
+  const demo = { environment_id: 1, environment_name: "Demo Env", account_id: "111122223333", region: "us-east-1", error: null };
+  const things = ["alpha", "bravo", "charlie"].map((n) => ({
+    thing_name: `thing-${n}`, thing_id: null, thing_type_name: null, thing_group_names: [], attributes: {}, connected: true,
+    connectivity_timestamp: null,
+  }));
+  const certificates = ["one", "two"].map((n) => ({
+    certificate_id: `cert-${n}`, certificate_arn: `arn:aws:iot:::cert/${n}`, status: "ACTIVE", creation_date: null,
+    policies: [{ policy_name: `pol-${n}`, policy_arn: null, policy_document: null }],
+  }));
+  await mockPaneActions(page, "iot", {
+    search: ({ inputs }) =>
+      inputs.searchMode === "certificates"
+        ? { thingResults: [], certResults: [{ ...demo, certificates }] }
+        : { certResults: [], thingResults: [{ ...demo, things }] },
+    thing_detail: ({ inputs }) => {
+      thingDetailCalls.push(inputs.thingName);
+      return {
+        thing_name: inputs.thingName,
+        thing_id: `id-${inputs.thingName}`,
+        thing_arn: `arn:aws:iot:::thing/${inputs.thingName}`,
         thing_type_name: null,
         attributes: {},
         version: 7,
         connected: true,
         connectivity_timestamp: null,
         certificates: [
-          { certificate_id: `cert-of-${body.thing_name}`, certificate_arn: "arn:c", status: "ACTIVE", creation_date: null, policies: [] },
+          { certificate_id: `cert-of-${inputs.thingName}`, certificate_arn: "arn:c", status: "ACTIVE", creation_date: null, policies: [] },
         ],
         shadows: [
-          { name: "classic", reported: { firmware: `1.2.${body.thing_name.length}` }, desired: {}, version: 3, last_updated: null },
+          { name: "classic", reported: { firmware: `1.2.${inputs.thingName.length}` }, desired: {}, version: 3, last_updated: null },
         ],
-        jobs: [{ job_id: `job-${body.thing_name}`, status: "SUCCEEDED", queued_at: null, started_at: null, last_updated_at: null }],
+        jobs: [{ job_id: `job-${inputs.thingName}`, status: "SUCCEEDED", queued_at: null, started_at: null, last_updated_at: null }],
         warnings: [],
-      },
-    });
-  });
-
-  await page.route("**/api/iot/certificates/search", (r) =>
-    r.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            certificates: ["one", "two"].map((n) => ({
-              certificate_id: `cert-${n}`,
-              certificate_arn: `arn:aws:iot:::cert/${n}`,
-              status: "ACTIVE",
-              creation_date: null,
-              policies: [{ policy_name: `pol-${n}`, policy_arn: null, policy_document: null }],
-            })),
-            error: null,
-          },
-        ],
-      },
-    })
-  );
-  await page.route("**/api/iot/certificates/detail", (r) => {
-    const body = JSON.parse(r.request().postData() || "{}");
-    certDetailCalls.push(body.certificate_id);
-    r.fulfill({
-      json: {
-        certificate_id: body.certificate_id,
+      };
+    },
+    cert_detail: ({ inputs }) => {
+      certDetailCalls.push(inputs.certificateId);
+      return {
+        certificate_id: inputs.certificateId,
         certificate_arn: "arn:c",
         status: "ACTIVE",
         creation_date: null,
         policies: [],
-        thing_names: [`attached-to-${body.certificate_id}`],
+        thing_names: [`attached-to-${inputs.certificateId}`],
         warnings: [],
-      },
-    });
+      };
+    },
   });
 
   // Login + environment

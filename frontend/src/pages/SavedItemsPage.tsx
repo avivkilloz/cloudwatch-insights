@@ -1,19 +1,17 @@
 import { useEffect, useState } from "react";
-import { api, IotSavedSearch, LogsBackend, SavedQuery, SavedSession } from "../api";
+import { api, LogsBackend, SavedQuery, SavedSession } from "../api";
 import SavedItemsHub from "../components/SavedItemsHub";
 
 export default function SavedItemsPage() {
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
-  const [iotSavedSearches, setIotSavedSearches] = useState<IotSavedSearch[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listSavedQueries(), api.listIotSavedSearches(), api.listSavedSessions()])
-      .then(([queries, searches, sessions]) => {
+    Promise.all([api.listSavedQueries(), api.listSavedSessions()])
+      .then(([queries, sessions]) => {
         setSavedQueries(queries);
-        setIotSavedSearches(searches);
         setSavedSessions(sessions);
       })
       .catch((e) => setError(e.message))
@@ -33,29 +31,6 @@ export default function SavedItemsPage() {
   async function deleteSavedQueryItem(id: number) {
     await api.deleteSavedQuery(id);
     setSavedQueries((prev) => prev.filter((q) => q.id !== id));
-  }
-
-  async function createIotSavedSearchItem(payload: { name: string; query_string: string; search_mode?: string }) {
-    const saved = await api.createIotSavedSearch({
-      name: payload.name,
-      query_string: payload.query_string,
-      search_mode: (payload.search_mode as IotSavedSearch["search_mode"]) || "things",
-    });
-    setIotSavedSearches((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
-  }
-
-  async function updateIotSavedSearchItem(id: number, payload: { name: string; query_string: string; search_mode?: string }) {
-    const updated = await api.updateIotSavedSearch(id, {
-      name: payload.name,
-      query_string: payload.query_string,
-      search_mode: payload.search_mode as IotSavedSearch["search_mode"] | undefined,
-    });
-    setIotSavedSearches((prev) => prev.map((s) => (s.id === id ? updated : s)));
-  }
-
-  async function deleteIotSavedSearchItem(id: number) {
-    await api.deleteIotSavedSearch(id);
-    setIotSavedSearches((prev) => prev.filter((s) => s.id !== id));
   }
 
   async function createSavedSessionItem(page: string, name: string, state: Record<string, unknown>) {
@@ -82,10 +57,6 @@ export default function SavedItemsPage() {
       onCreateSavedQuery={createSavedQuery}
       onUpdateSavedQuery={updateSavedQueryItem}
       onDeleteSavedQuery={deleteSavedQueryItem}
-      iotSavedSearches={iotSavedSearches}
-      onCreateIotSearch={createIotSavedSearchItem}
-      onUpdateIotSearch={updateIotSavedSearchItem}
-      onDeleteIotSearch={deleteIotSavedSearchItem}
       savedSessions={savedSessions}
       onCreateSession={createSavedSessionItem}
       onUpdateSession={updateSavedSessionItem}

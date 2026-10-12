@@ -13,8 +13,6 @@ from .platform_tools import server as platform_server
 from .routers import (
     agent,
     auth,
-    buckets,
-    cognito,
     credentials,
     environments,
     iot,
@@ -28,7 +26,6 @@ from .routers import (
     saved_sessions,
     session_categories,
     settings,
-    tables,
     tools,
     user_groups,
     users,
@@ -68,7 +65,7 @@ try:
     # ids, group roles become group identities (PLATFORM_PLAN.md §14.5).
     for _line in connections.migrate_legacy(_bootstrap_db):
         logging.getLogger("connections").warning("Migrated %s", _line)
-    # Once per database: the saved tables and buckets become saved inputs (D46).
+    # Once per database: the per-pane saved stores become saved inputs (D46).
     for _line in pane_saved.migrate_saved_shortcuts(_bootstrap_db):
         logging.getLogger("saved_inputs").warning("Migrated %s", _line)
 finally:
@@ -123,9 +120,6 @@ app.include_router(saved_sessions.router)
 app.include_router(session_categories.router)
 app.include_router(live_sessions.router)
 app.include_router(iot.router)
-app.include_router(tables.router)
-app.include_router(buckets.router)
-app.include_router(cognito.router)
 app.include_router(agent.router)
 app.include_router(tools.router)
 app.include_router(saved_inputs.router)

@@ -51,7 +51,8 @@ const run = async () => {
   const bodies = [];
   const sentRequests = [];
   page.on("request", (req) => {
-    if (req.url().includes("/api/tools/http-request")) sentRequests.push(req.postData() ?? "");
+    // Send is the HTTP client's manifest action now (3b-2).
+    if (req.url().includes("/api/panes/tool-http/actions/send")) sentRequests.push(req.postData() ?? "");
   });
   page.on("response", async (res) => {
     if (!res.url().includes("/api/")) return;
@@ -67,13 +68,13 @@ const run = async () => {
   await newSession(page, "HTTP client");
   // The only pane of the session on screen.
   const pane = SHOWN;
-  await page.waitForSelector(`${pane} #http-auth`);
-  await page.waitForSelector(`${pane} #http-auth option:text-is("e2e-api-token (API token)")`, { state: "attached" });
-  const options = await page.locator(`${pane} #http-auth option`).allInnerTexts();
+  await page.waitForSelector(`${pane} select[aria-label="Auth"]`);
+  await page.waitForSelector(`${pane} select[aria-label="Auth"] option:text-is("e2e-api-token (API token)")`, { state: "attached" });
+  const options = await page.locator(`${pane} select[aria-label="Auth"] option`).allInnerTexts();
   check(options.includes("e2e-api-token (API token)"), "The Auth picker offers a credential that can authenticate", JSON.stringify(options));
   check(!options.some((o) => o.startsWith("e2e-plain-secret")), "…and not one whose type can't", JSON.stringify(options));
 
-  await page.selectOption(`${pane} #http-auth`, { label: "e2e-api-token (API token)" });
+  await page.selectOption(`${pane} select[aria-label="Auth"]`, { label: "e2e-api-token (API token)" });
   await page.fill(`${pane} input[placeholder="https://api.example.com/resource"]`, `https://${HOST}/me`);
   await page.click(`${pane} button:text-is("Send")`);
   await page.waitForSelector(`${pane} .error-text`, { timeout: 40000 });
@@ -81,7 +82,7 @@ const run = async () => {
   check(error.includes(HOST) && !error.startsWith("400"), "A failed send shows the backend's own sentence", error);
 
   const sent = sentRequests.map((b) => JSON.parse(b));
-  check(sent.length === 1 && sent[0].credential_id === token.id, "The browser sent the credential's id", JSON.stringify(sent));
+  check(sent.length === 1 && sent[0].inputs.credentialId === token.id, "The browser sent the credential's id", JSON.stringify(sent));
   check(!sentRequests.some((b) => b.includes(SECRET)), "…and never its value");
 
   const history = (await api(page, "GET", `/audit?object=credential:${token.id}`)).body;
@@ -92,7 +93,7 @@ const run = async () => {
   const sessions = (await api(page, "GET", "/live-sessions")).body;
   const live = (await api(page, "GET", `/live-sessions/${sessions[0].client_id}`)).body;
   const state = JSON.stringify(live.state);
-  check(state.includes(`"tool-http.credentialId":${token.id}`), "The session stores the credential's id", state.slice(0, 300));
+  check(state.includes(`"tool-http.in.credentialId":${token.id}`), "The session stores the credential's id", state.slice(0, 300));
   check(!state.includes(SECRET), "…and nothing secret");
 
   const leaked = bodies.filter((b) => b.includes(SECRET));

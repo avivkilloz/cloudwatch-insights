@@ -44,12 +44,8 @@ function describe(step: AgentStep): string {
     case "list_opensearch_domains":
     case "list_opensearch_indices":
       return done ? "Listed OpenSearch domains" : "Listing OpenSearch domains…";
-    case "list_dynamodb_tables":
-      return done ? "Listed DynamoDB tables" : "Listing DynamoDB tables…";
-    case "list_s3_buckets":
-      return done ? "Listed S3 buckets" : "Listing S3 buckets…";
-    case "list_cognito_user_pools":
-      return done ? "Listed Cognito user pools" : "Listing Cognito user pools…";
+    case "list_options":
+      return done ? "Listed the choices for a pane" : "Listing the choices for a pane…";
     case "create_session":
       return `${done ? "Created" : "Creating"} session “${String(a.title ?? "")}”`;
     case "add_pane":

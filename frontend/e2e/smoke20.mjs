@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, closePane, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, closePane, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 
 const SESSION = '.session-card';
 
@@ -33,44 +33,41 @@ async function newPanedSession(page) {
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
 
-  await page.route("**/api/tools/http-request", (r) =>
-    r.fulfill({
-      json: {
-        status_code: 500,
-        status_text: "Internal Server Error",
-        elapsed_ms: 9,
-        headers: [{ key: "content-type", value: "text/plain" }],
-        body: "boom",
-        body_truncated: false,
-      },
-    })
-  );
-  await page.route("**/api/iot/search", (r) =>
-    r.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            things: [
-              {
-                thing_name: "thing-alpha",
-                thing_id: null,
-                thing_type_name: null,
-                thing_group_names: [],
-                attributes: {},
-                connected: true,
-                connectivity_timestamp: null,
-              },
-            ],
-            error: null,
-          },
-        ],
-      },
-    })
-  );
+  // Both are manifest panes now (3b-2): their actions are one endpoint.
+  const response = {
+    status_code: 500,
+    status_text: "Internal Server Error",
+    elapsed_ms: 9,
+    headers: [{ key: "content-type", value: "text/plain" }],
+    body: "boom",
+    body_truncated: false,
+  };
+  await mockPaneActions(page, "tool-http", { send: { response, exchange: [{ request: {}, response }] } });
+  await mockPaneActions(page, "iot", {
+    search: {
+      certResults: [],
+      thingResults: [
+        {
+          environment_id: 1,
+          environment_name: "Demo Env",
+          account_id: "111122223333",
+          region: "us-east-1",
+          things: [
+            {
+              thing_name: "thing-alpha",
+              thing_id: null,
+              thing_type_name: null,
+              thing_group_names: [],
+              attributes: {},
+              connected: true,
+              connectivity_timestamp: null,
+            },
+          ],
+          error: null,
+        },
+      ],
+    },
+  });
 
   /** The pane titles in the order they're actually laid out on screen. */
   // Scoped to the session on screen: opening a saved session leaves the

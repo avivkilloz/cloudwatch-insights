@@ -24,8 +24,8 @@
  * a table describes it; clicking a folder opens it), with the new values.
  */
 
-import { Dispatch, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-import { api, Environment, readableError, Target } from "../api";
+import { Dispatch, ReactNode, SetStateAction, useEffect, useId, useMemo, useRef, useState } from "react";
+import { api, CredentialSummary, Environment, readableError, Target } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
@@ -47,19 +47,40 @@ import {
   textOf,
   When,
 } from "./manifest";
-import { actionById, Option, PaneApi, RunOptions, Values } from "./paneApi";
-import SavedInputsBar from "./SavedInputsBar";
+import { actionById, Option, PaneApi, plain, RunOptions, Values } from "./paneApi";
+import HttpResponseView from "./HttpResponseView";
+import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
 /** Where an item is drawn, which decides its markup: a card's own column, a
- * toolbar line, a row of equal columns, beside the card's title, or "bare" --
- * an input whose label its row has already drawn. */
-type Place = "card" | "toolbar" | "row" | "aside" | "bare";
+ * toolbar line, a row of equal columns, beside the card's title, "bare" --
+ * an input whose label its row has already drawn -- or a `line`: inline as
+ * in a toolbar, with a picker's label beside it (the HTTP client's Auth). */
+type Place = "card" | "toolbar" | "row" | "aside" | "bare" | "line";
 
 interface Pane extends PaneApi {
   /** Actions whose errors the layout places itself (`error:`), so their
    * buttons don't repeat them. */
   errorsPlaced: Set<string>;
+  /** Each connection type's connections the user can reach, for its
+   * pickers; null while loading. Fetched once per pane, not per picker. */
+  targets: Record<string, Target[] | null>;
+  /** Which inputs' examples are shown: the tab's own business. */
+  examplesOpen: Record<string, boolean>;
+  toggleExamples: (key: string) => void;
+}
+
+/** A manifest text that may be a template over the inputs and the chosen
+ * connections (`sel.targetId.base_url`): the HTTP client's URL placeholder. */
+function textIn(text: Parameters<typeof textOf>[0], pane: Pane): string {
+  const shown = textOf(text, pane.inputs);
+  if (!shown.includes("{{")) return shown;
+  const sel: Values = {};
+  for (const input of pane.m.inputs) {
+    if (input.type !== "connection" || !input.connection_type) continue;
+    sel[input.key] = pane.targets[input.connection_type]?.find((t) => t.id === pane.inputs[input.key])?.config;
+  }
+  return render(shown, { in: pane.inputs, sel });
 }
 
 export default function ManifestPane({ type }: { type: string }) {
@@ -95,9 +116,9 @@ function isLoader(m: PaneManifest, action: ManifestAction): boolean {
 
 function missingInput(action: ManifestAction, inputs: Values): string | null {
   for (const [key, message] of Object.entries(action.requires ?? {})) {
-    if (!present(inputs[key]) || (Array.isArray(inputs[key]) && (inputs[key] as unknown[]).length === 0)) {
-      return message;
-    }
+    const value = inputs[key];
+    const empty = (Array.isArray(value) && value.length === 0) || (value instanceof Set && value.size === 0);
+    if (!present(value) || empty) return message;
   }
   return null;
 }
@@ -110,6 +131,7 @@ function placedErrors(m: PaneManifest): Set<string> {
       if (item.error) placed.add(item.error);
       walk(item.toolbar ?? []);
       walk(item.row ?? []);
+      walk(item.line ?? []);
     }
   };
   for (const card of m.layout) walk([...card.aside, ...card.items]);
@@ -147,6 +169,8 @@ function Rendered({ m }: { m: PaneManifest }) {
   const [flashed, setFlashed] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
   const errorsPlaced = useMemo(() => placedErrors(m), [m]);
+  const targets = useTargets(m);
+  const [examplesOpen, setExamplesOpen] = useState<Record<string, boolean>>({});
 
   const outputs: Values = {};
   for (const [o, [value]] of storedOutputs) if (value !== undefined) outputs[o.key] = value;
@@ -178,7 +202,17 @@ function Rendered({ m }: { m: PaneManifest }) {
     }
   }
 
-  function changeInputs(changes: Values): string[] {
+  function changeInputs(given: Values): string[] {
+    // A choice that sets others too (IoT's mode puts its own default query
+    // in), unless this same change sets them -- a saved item's query stands.
+    const changes: Values = { ...given };
+    for (const [key, value] of Object.entries(given)) {
+      const input = m.inputs.find((i) => i.key === key);
+      if (!input?.choice_sets || Object.is(inputs[key], value)) continue;
+      for (const [other, setTo] of Object.entries(input.choice_sets[String(value)] ?? {})) {
+        if (!(other in given)) changes[other] = setTo;
+      }
+    }
     const next: Values = { ...inputs, ...changes };
     for (const [key, value] of Object.entries(changes)) setInputValue(key, value);
     for (const key of Object.keys(changes)) {
@@ -209,8 +243,15 @@ function Rendered({ m }: { m: PaneManifest }) {
     flashTimer.current = window.setTimeout(() => setFlashed(null), 2000);
   }
 
+  async function runRow(action: ManifestAction, args: Values): Promise<Values> {
+    const message = missingInput(action, args);
+    if (message) throw new Error(message);
+    return api.runPaneAction(m.id, action.id, plain(args) as Values);
+  }
+
   async function run(action: ManifestAction, opts: RunOptions = {}) {
     const current = opts.inputs ?? inputs;
+    const sent = plain(current) as Values;
     const loadMore = opts.cursor !== undefined && opts.cursor !== null;
     if (action.handler) {
       const message = missingInput(action, current);
@@ -226,7 +267,7 @@ function Rendered({ m }: { m: PaneManifest }) {
         const result = await LIVE_FUNCTIONS[action.live]?.(current);
         setClicked(result ?? {});
       } else if (action.request) {
-        const result = await api.runPaneAction(m.id, action.id, current);
+        const result = await api.runPaneAction(m.id, action.id, sent);
         for (const [o, [, set]] of storedOutputs) set(result[o.key]);
         setRanAt(Date.now());
         setResultsVersion((v) => (v || 0) + 1);
@@ -234,7 +275,7 @@ function Rendered({ m }: { m: PaneManifest }) {
         const loader = isLoader(m, action);
         if (!loadMore) for (const ref of action.resets ?? []) clear(ref);
         if (loader) setOptions((prev) => ({ ...prev, [action.id]: undefined }));
-        const result = await api.runPaneAction(m.id, action.id, current, loadMore ? opts.cursor : undefined);
+        const result = await api.runPaneAction(m.id, action.id, sent, loadMore ? opts.cursor : undefined);
         if (loader) {
           setOptions((prev) => ({ ...prev, [action.id]: (result.options as Option[] | undefined) ?? [] }));
           return;
@@ -281,12 +322,20 @@ function Rendered({ m }: { m: PaneManifest }) {
     flashed,
     options,
     errorsPlaced,
+    runRow,
+    targets,
+    examplesOpen,
+    toggleExamples: (key) => setExamplesOpen((prev) => ({ ...prev, [key]: !prev[key] })),
   };
+  // The Saved ▾ menu goes in the first title shown (an untitled card -- the
+  // HTTP client's error -- has none to hold it).
+  const first = m.layout.findIndex((card) => card.title !== undefined && shown(card.when, pane));
   return (
     <div>
-      <SavedInputsBar pane={pane} />
       {m.layout.map((card, i) =>
-        shown(card.when, pane) ? <CardView key={i} card={card} pane={pane} /> : null,
+        shown(card.when, pane) ? (
+          <CardView key={i} card={card} pane={pane} saved={i === first ? <SavedInputsMenu pane={pane} /> : null} />
+        ) : null,
       )}
     </div>
   );
@@ -335,9 +384,14 @@ function present(value: unknown): boolean {
 function shown(when: When | undefined, pane: PaneApi): boolean {
   if (!when) return true;
   if (when.input !== undefined) {
-    if (when.equals !== undefined && pane.inputs[when.input] !== when.equals) return false;
-    if (when.equals === undefined && present(pane.inputs[when.input]) !== (when.present ?? true)) return false;
+    const value = pane.inputs[when.input];
+    if (when.equals !== undefined && value !== when.equals) return false;
+    if (when.not_in !== undefined && when.not_in.includes(value)) return false;
+    if (when.equals === undefined && when.not_in === undefined && present(value) !== (when.present ?? true)) {
+      return false;
+    }
   }
+  if (when.error !== undefined && !pane.errors[when.error]) return false;
   if (when.output !== undefined && present(pane.outputs[when.output]) !== (when.present ?? true)) return false;
   return true;
 }
@@ -348,30 +402,68 @@ function rich(source: string): ReactNode {
   return parts.map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
 }
 
-function CardView({ card, pane }: { card: Card; pane: Pane }) {
+/** `saved` is the Saved ▾ menu, given to the pane's first card only: it sits
+ * at the right of that card's title, after anything the manifest put there. */
+function CardView({ card, pane, saved }: { card: Card; pane: Pane; saved: ReactNode }) {
   const title = textOf(card.title, pane.inputs);
   const aside = card.aside.filter((item) => shown(item.when, pane));
+  if (card.title === undefined) {
+    // Its one output or error draws its own title row, or none.
+    return (
+      <div className="panel">
+        {card.items.map((item, i) => (
+          <Item key={i} item={item} pane={pane} place="card" first={i === 0} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="panel">
       {/* By whether the card has an aside at all, not whether it's showing:
           the title keeps one place as the aside comes and goes. */}
-      {card.aside.length > 0 ? (
+      {card.aside.length > 0 || saved ? (
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          {aside.map((item, i) => (
-            <Item key={i} item={item} pane={pane} place="aside" />
-          ))}
+          {saved ? (
+            <span className="row" style={{ gap: 8 }}>
+              {aside.map((item, i) => (
+                <Item key={i} item={item} pane={pane} place="aside" />
+              ))}
+              {saved}
+            </span>
+          ) : (
+            aside.map((item, i) => <Item key={i} item={item} pane={pane} place="aside" />)
+          )}
         </div>
       ) : (
         <h2>{title}</h2>
       )}
+      {/* Keyed by place in the manifest, not among those shown: two items
+          that take turns by `when` (IoT's things and certificates lists)
+          would otherwise be one component, handing the second the first's
+          checked rows. */}
       {card.items
-        .filter((item) => shown(item.when, pane))
-        .map((item, i, items) => (
-          <Item key={i} item={item} pane={pane} place="card" first={i === 0} prev={items[i - 1]} />
+        .map((item, at) => ({ item, at }))
+        .filter(({ item }) => shown(item.when, pane))
+        .map(({ item, at }, i, items) => (
+          <Item
+            key={at}
+            item={item}
+            pane={pane}
+            place="card"
+            first={i === 0}
+            prev={items[i - 1]?.item}
+            last={items.slice(i + 1).every((later) => drawsNothing(later.item, pane))}
+          />
         ))}
     </div>
   );
+}
+
+/** An item with nothing to see: the HTTP client's exchange, only offered to
+ * the agent's chat. What comes before it is still the card's last line. */
+function drawsNothing(item: LayoutItem, pane: Pane): boolean {
+  return !!item.output && pane.m.outputs.find((o) => o.key === item.output)?.render === "attach";
 }
 
 function Item({
@@ -380,17 +472,17 @@ function Item({
   place,
   first,
   prev,
+  last,
 }: {
   item: LayoutItem;
   pane: Pane;
   place: Place;
   first?: boolean;
   prev?: LayoutItem;
+  last?: boolean;
 }) {
   const children = (list: LayoutItem[], inner: Place) =>
-    list
-      .filter((child) => shown(child.when, pane))
-      .map((child, i) => <Item key={i} item={child} pane={pane} place={inner} />);
+    list.map((child, at) => (shown(child.when, pane) ? <Item key={at} item={child} pane={pane} place={inner} /> : null));
 
   if (item.toolbar) {
     // Beside a title a toolbar is a tight row; in a card, the app's toolbar
@@ -405,13 +497,23 @@ function Item({
       </div>
     );
   }
+  if (item.line) {
+    return (
+      <div className="row" style={{ marginBottom: 10 }}>
+        {children(item.line, "line")}
+      </div>
+    );
+  }
   if (item.row) return <RowView items={item.row.filter((child) => shown(child.when, pane))} pane={pane} />;
+  if (item.examples) return <Examples input={item.examples} pane={pane} place={place} />;
   if (item.text !== undefined) {
     const shownText = rich(render(item.text, { in: pane.inputs, out: pane.outputs }));
     if (place === "toolbar" || place === "aside") return <span className="muted">{shownText}</span>;
-    // Under a toolbar it sits closer than a paragraph would (JWT's Mode card).
+    // Ending its card under a toolbar, it sits closer than a paragraph would
+    // (JWT's Mode card, the HTTP client's Request); between two toolbars
+    // (IoT's mode help) it keeps a paragraph's margins.
     return (
-      <p className="muted" style={prev?.toolbar ? { margin: "10px 0 0" } : undefined}>
+      <p className="muted" style={(prev?.toolbar || prev?.line) && last ? { margin: "10px 0 0" } : undefined}>
         {shownText}
       </p>
     );
@@ -419,7 +521,12 @@ function Item({
   if (item.copy) return <CopyButton value={pane.outputs[item.copy]} />;
   if (item.error) {
     const error = pane.errors[item.error];
-    return error ? <p className="error-text">{error}</p> : null;
+    // First in its card (the HTTP client's error card), it is the card.
+    return error ? (
+      <p className="error-text" style={first ? { margin: 0 } : undefined}>
+        {error}
+      </p>
+    ) : null;
   }
   if (item.restored) {
     const action = actionById(pane, item.restored)!;
@@ -582,7 +689,7 @@ function ActionButton({
     </button>
   );
   const shownError = error ? <span className="error-text">{error}</span> : null;
-  if (place === "toolbar") {
+  if (place === "toolbar" || place === "line") {
     return (
       <>
         {button}
@@ -632,9 +739,12 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
     const action = actionById(pane, input.submit);
     if (action) pane.run(action);
   };
-  const inline = place === "toolbar" || place === "aside";
+  const inline = place === "toolbar" || place === "aside" || place === "line";
+  // What a label beside a picker points at (two panes of one kind in a
+  // session each have their own).
+  const fieldId = useId();
   const label = textOf(input.label, pane.inputs);
-  const placeholder = textOf(input.placeholder, pane.inputs) || undefined;
+  const placeholder = textIn(input.placeholder, pane) || undefined;
   const inRow = place === "row";
   const bare = place === "bare";
   const title = input.help || undefined;
@@ -652,6 +762,13 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   }
 
   if (input.type === "choice" && input.buttons) {
+    // Labelled in a toolbar: "Search for [Things] [Certificates]".
+    const lead =
+      inline && label ? (
+        <span className="field-label" style={{ marginRight: 4 }}>
+          {label}
+        </span>
+      ) : null;
     const buttons = input.choices.map((choice) => (
       <button
         key={String(choice)}
@@ -662,7 +779,14 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
         {input.choice_labels[String(choice)] ?? String(choice)}
       </button>
     ));
-    return place === "toolbar" || place === "aside" ? <>{buttons}</> : <div className="toolbar">{buttons}</div>;
+    return inline ? (
+      <>
+        {lead}
+        {buttons}
+      </>
+    ) : (
+      <div className="toolbar">{buttons}</div>
+    );
   }
   if (input.type === "bool") {
     return (
@@ -682,24 +806,59 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
         ))}
       </select>
     );
-    if (place === "toolbar" || place === "aside" || bare) return select;
+    if (inline || bare) return select;
     return (
       <Labelled label={label} grow={false} spaced={spaced}>
         {select}
       </Labelled>
     );
   }
+  if (input.type === "connections") {
+    return <ConnectionsPicker input={input} pane={pane} value={value} onChange={set} />;
+  }
   if (input.type === "connection") {
+    const targets = pane.targets[input.connection_type ?? ""] ?? null;
+    // An optional one (the HTTP client's Target) isn't offered at all while
+    // the group has no connection of its type: there'd be nothing to pick.
+    if (input.optional && (targets === null || targets.length === 0)) return null;
+    const picker = (
+      <ConnectionPicker
+        id={fieldId}
+        input={input}
+        targets={targets}
+        value={value}
+        onChange={set}
+        label={label}
+        placeholder={placeholder}
+      />
+    );
+    if (place === "line") {
+      return (
+        <>
+          <label className="field-label" htmlFor={fieldId} style={{ margin: 0 }}>
+            {label}
+          </label>
+          {picker}
+          {input.hint && present(value) && targets?.some((t) => t.id === value) && <span className="muted">{input.hint}</span>}
+        </>
+      );
+    }
     return (
       <Labelled label={label} grow={grow(200)} spaced={spaced}>
-        <ConnectionPicker input={input} value={value} onChange={set} label={label} />
+        {picker}
       </Labelled>
     );
   }
+  if (input.type === "credential") {
+    return <CredentialPicker input={input} value={value} onChange={set} label={label} placeholder={placeholder} place={place} />;
+  }
   if (input.type === "headers") {
+    const editor = <PairsEditor value={value} onChange={set} label={label} words={input.pairs ?? {}} />;
+    // Unlabelled in a card of its own (the HTTP client's Headers), it is the card.
+    if (!label && place === "card") return editor;
     return (
       <Labelled label={label} grow={grow(200)} spaced={spaced}>
-        <PairsEditor value={value} onChange={set} label={label} />
+        {editor}
       </Labelled>
     );
   }
@@ -714,7 +873,7 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
           value={value == null ? "" : String(value)}
           onChange={(e) => set(Number(e.target.value))}
           title={title}
-          style={{ width: 80 }}
+          style={{ width: input.width ?? 80 }}
         />
       </label>
     );
@@ -736,6 +895,7 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
     );
   }
   if (input.type === "text" && inline && !input.rows) {
+    const style = input.grow ? { flex: 1, minWidth: input.grow } : input.width ? { width: input.width } : undefined;
     return (
       <input
         type="text"
@@ -745,7 +905,7 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
         placeholder={placeholder}
         aria-label={label || placeholder || input.key}
         title={title}
-        style={input.width ? { width: input.width } : undefined}
+        style={style}
       />
     );
   }
@@ -875,35 +1035,64 @@ function OptionsPicker({
   );
 }
 
-/** A connection of the input's type the user can reach, by its label. */
+/** Each connection type the manifest's pickers use, fetched once when the
+ * pane mounts: the pickers draw from it, and so does a placeholder naming the
+ * chosen one's base URL. AWS connections come as environments (D34). */
+function useTargets(m: PaneManifest): Record<string, Target[] | null> {
+  const types = useMemo(
+    () => [
+      ...new Set(
+        m.inputs
+          // A single AWS one is drawn by AwsConnectionSelect, which fetches its own.
+          .filter((i) => i.type === "connections" || (i.type === "connection" && i.connection_type !== "aws"))
+          .map((i) => i.connection_type ?? ""),
+      ),
+    ],
+    [m],
+  );
+  const [targets, setTargets] = useState<Record<string, Target[] | null>>(() =>
+    Object.fromEntries(types.map((t) => [t, null])),
+  );
+  useEffect(() => {
+    for (const type of types) {
+      api.listTargets(type).then(
+        (list) => setTargets((prev) => ({ ...prev, [type]: list })),
+        () => setTargets((prev) => ({ ...prev, [type]: [] })),
+      );
+    }
+  }, [types]);
+  return targets;
+}
+
+/** A connection of the input's type the user can reach, by its label. An
+ * optional one's empty choice is its placeholder ("Any URL"). */
 function ConnectionPicker({
+  id,
   input,
+  targets,
   value,
   onChange,
   label,
+  placeholder,
 }: {
+  id?: string;
   input: ManifestInput;
+  targets: Target[] | null;
   value: unknown;
   onChange: (v: unknown) => void;
   label: string;
+  placeholder?: string;
 }) {
-  const [targets, setTargets] = useState<Target[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    api
-      .listTargets(input.connection_type)
-      .then(setTargets)
-      .catch((e) => setError(readableError(e)));
-  }, [input.connection_type]);
   const chosen = targets?.find((t) => t.id === value);
   return (
     <>
       <select
+        id={id}
         value={value == null ? "" : String(value)}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
         aria-label={label || input.key}
       >
-        <option value="">{targets === null ? "Loading…" : "Choose a connection…"}</option>
+        <option value="">{targets === null ? "Loading…" : placeholder ?? "Choose a connection…"}</option>
         {targets?.map((t) => (
           <option key={t.id} value={t.id}>
             {t.label}
@@ -914,13 +1103,160 @@ function ConnectionPicker({
           <option value={String(value)}>A connection you can't reach</option>
         )}
       </select>
-      {targets?.length === 0 && (
+      {!input.optional && targets?.length === 0 && (
         <span className="muted" style={{ marginLeft: 8 }}>
           None of your environments has one.
         </span>
       )}
-      {error && <span className="error-text">{error}</span>}
     </>
+  );
+}
+
+/** Several AWS connections, as the environment checkbox list always was:
+ * "Prod (111122223333 · eu-west-1)", and how many are ticked. Stored as a
+ * plain sorted list; a session saved before the port holds a Set, read the
+ * same. */
+function ConnectionsPicker({
+  input,
+  pane,
+  value,
+  onChange,
+}: {
+  input: ManifestInput;
+  pane: Pane;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const targets = pane.targets[input.connection_type ?? ""] ?? [];
+  const chosen = new Set<number>(value instanceof Set ? (value as Set<number>) : Array.isArray(value) ? (value as number[]) : []);
+  const toggle = (id: number) => {
+    const next = new Set(chosen);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange([...next].sort((a, b) => a - b));
+  };
+  return (
+    <div>
+      {pane.targets[input.connection_type ?? ""] !== null && targets.length === 0 && (
+        <p className="muted">No environments configured yet — add some under "Settings".</p>
+      )}
+      <div className="checkbox-list" style={{ maxHeight: 200 }}>
+        {targets.map((t) => (
+          <label key={t.id} className="checkbox-item">
+            <input type="checkbox" checked={chosen.has(t.id)} onChange={() => toggle(t.id)} />
+            {t.label} ({String(t.config.account_id ?? "")} · {String(t.config.region ?? "")})
+          </label>
+        ))}
+      </div>
+      <p className="muted" style={{ marginTop: 8 }}>
+        {targets.filter((t) => chosen.has(t.id)).length} environment(s) selected.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A credential to authenticate with -- by id, never its value: the server
+ * resolves it and applies it when the request is sent (PLATFORM_PLAN.md
+ * §13.8), so nothing secret is in the pane, the session or the agent's
+ * history. Only credentials whose type authenticates requests are offered.
+ */
+function CredentialPicker({
+  input,
+  value,
+  onChange,
+  label,
+  placeholder,
+  place,
+}: {
+  input: ManifestInput;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  label: string;
+  placeholder?: string;
+  place: Place;
+}) {
+  const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
+  const id = useId();
+  useEffect(() => {
+    // Admins get full rows and everyone else summaries; both say whether a
+    // credential can authenticate a request, which is all this needs.
+    api
+      .listCredentials<CredentialSummary>()
+      .then((rows) => setCredentials(rows.filter((c) => c.authenticates)))
+      .catch(() => setCredentials([]));
+  }, []);
+  const chosen = credentials.find((c) => c.id === value) ?? null;
+  const select = (
+    <select
+      id={id}
+      value={value == null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      aria-label={label || input.key}
+      title={input.help || undefined}
+    >
+      <option value="">{placeholder ?? "None"}</option>
+      {credentials.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name} ({c.type_label})
+        </option>
+      ))}
+      {value != null && value !== "" && !chosen && <option value={String(value)}>A credential you can't use</option>}
+    </select>
+  );
+  const hints = (
+    <>
+      {chosen && <span className="muted">Added by the server when sent; never shown here.</span>}
+      {credentials.length === 0 && <span className="muted">No credentials your group can use for requests.</span>}
+    </>
+  );
+  if (place === "line") {
+    return (
+      <>
+        <label className="field-label" htmlFor={id} style={{ margin: 0 }}>
+          {label}
+        </label>
+        {select}
+        {hints}
+      </>
+    );
+  }
+  return (
+    <div className="row" style={{ marginBottom: 10 }}>
+      {label && <span className="field-label" style={{ margin: 0 }}>{label}</span>}
+      {select}
+      {hints}
+    </div>
+  );
+}
+
+/** An input's examples (`examples`, by another input's value): in a toolbar
+ * the Show/Hide button, in a card the list with a Use button each. Whether
+ * they're shown is this tab's, not the session's. */
+function Examples({ input: key, pane, place }: { input: string; pane: Pane; place: Place }) {
+  const input = pane.m.inputs.find((i) => i.key === key);
+  const open = !!pane.examplesOpen[key];
+  if (!input?.examples) return null;
+  if (place === "toolbar" || place === "line" || place === "aside") {
+    return (
+      <button className="secondary" onClick={() => pane.toggleExamples(key)}>
+        {open ? "Hide examples" : "Show examples"}
+      </button>
+    );
+  }
+  if (!open) return null;
+  const examples = input.examples.values[String(pane.inputs[input.examples.by])] ?? [];
+  return (
+    <div className="checkbox-list" style={{ marginBottom: 10, maxHeight: 140 }}>
+      {examples.map((example) => (
+        <div key={example} className="row" style={{ justifyContent: "space-between" }}>
+          <code style={{ fontSize: 12.5 }}>{example}</code>
+          <button className="secondary" style={{ padding: "2px 8px" }} onClick={() => pane.changeInputs({ [key]: example })}>
+            Use
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -932,7 +1268,18 @@ interface Pair {
 
 /** Name/value rows, the HTTP client's header editor's shape, which the agent
  * writes the same way (`platform_tools/panes.convert`). */
-function PairsEditor({ value, onChange, label }: { value: unknown; onChange: (v: Pair[]) => void; label: string }) {
+function PairsEditor({
+  value,
+  onChange,
+  label,
+  words,
+}: {
+  value: unknown;
+  onChange: (v: Pair[]) => void;
+  label: string;
+  /** The name box's placeholder and the add button's text (`pairs`). */
+  words: Record<string, string>;
+}) {
   const pairs: Pair[] = Array.isArray(value) ? (value as Pair[]) : [];
   const nextId = () => pairs.reduce((max, p) => Math.max(max, p.id), 0) + 1;
   const update = (id: number, field: "key" | "value", text: string) =>
@@ -943,8 +1290,8 @@ function PairsEditor({ value, onChange, label }: { value: unknown; onChange: (v:
         <div className="row" key={pair.id} style={{ marginBottom: 6 }}>
           <input
             type="text"
-            placeholder="Name"
-            aria-label={`${label} name`}
+            placeholder={words.key ?? "Name"}
+            aria-label={`${label || words.key || ""} name`.trim()}
             value={pair.key}
             onChange={(e) => update(pair.id, "key", e.target.value)}
             style={{ width: 200 }}
@@ -952,7 +1299,7 @@ function PairsEditor({ value, onChange, label }: { value: unknown; onChange: (v:
           <input
             type="text"
             placeholder="Value"
-            aria-label={`${label} value`}
+            aria-label={`${label || words.key || ""} value`.trim()}
             value={pair.value}
             onChange={(e) => update(pair.id, "value", e.target.value)}
             style={{ flex: 1, minWidth: 200 }}
@@ -964,10 +1311,10 @@ function PairsEditor({ value, onChange, label }: { value: unknown; onChange: (v:
       ))}
       <button
         className="secondary"
-        aria-label={`Add a row to ${label || "the list"}`}
+        aria-label={words.add ? undefined : `Add a row to ${label || "the list"}`}
         onClick={() => onChange([...pairs, { id: nextId(), key: "", value: "" }])}
       >
-        Add row
+        {words.add ?? "Add row"}
       </button>
     </>
   );
@@ -1040,6 +1387,14 @@ function OutputView({
       return <FilesView output={output} value={value} pane={pane} />;
     case "tags":
       return present(value) ? <TagsView output={output} value={value} pane={pane} /> : null;
+    case "http_response":
+      return value && typeof value === "object" ? <HttpResponseView response={value as Values} /> : null;
+    case "attach": {
+      // Always offered to the agent's chat, no checkbox: the HTTP client's
+      // last exchange, to ask why a request came back the way it did.
+      const rows = Array.isArray(value) ? (value as Values[]) : [];
+      return <PaneSelectionShare domain={String(output.config.domain ?? pane.m.id)} selectedRows={rows} />;
+    }
   }
 }
 

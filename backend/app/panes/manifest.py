@@ -30,9 +30,12 @@ InputType = Literal[
     "headers",
     "credential",
     "connection",
+    "connections",
 ]
 
-Render = Literal["text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags"]
+Render = Literal[
+    "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach"
+]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
 
@@ -51,13 +54,25 @@ Text = Union[str, By]
 
 
 class When(_Strict):
-    """Shows a layout item only when an input equals a value, or an input or
-    an output is present (set, and not empty)."""
+    """Shows a layout item only when an input equals a value (or isn't one of
+    `not_in`: the HTTP client's Body, for a method that has one), an input or
+    an output is present (set, and not empty), or an action's last run
+    failed (`error`: the HTTP client's error card)."""
 
     input: Optional[str] = None
     equals: Optional[Any] = None
+    not_in: Optional[list[Any]] = None
     output: Optional[str] = None
     present: Optional[bool] = None
+    error: Optional[str] = None
+
+
+class Examples(_Strict):
+    """Example values for a text input, by another input's value (IoT's
+    queries by mode): what "Show examples" lists, each with a Use button."""
+
+    by: str
+    values: dict[str, list[str]]
 
 
 class Options(_Strict):
@@ -113,6 +128,22 @@ class ManifestInput(_Strict):
     resets: list[str] = []
     # Enter in this one-line box runs this action.
     submit: Optional[str] = None
+    # A choice that sets other inputs too, by value: IoT's mode puts its own
+    # default query in. Applied after `resets`; an input set in the same
+    # change (the agent's, a saved item's) wins.
+    choice_sets: dict[str, dict[str, Any]] = {}
+    # A connection that may be left unset: its empty option is `placeholder`
+    # ("Any URL") rather than a prompt to choose. The input isn't drawn at
+    # all while the group has no connection of its type.
+    optional: bool = False
+    examples: Optional[Examples] = None
+    # A one-line box in a `line` that takes the rest of it, at least this wide.
+    grow: Optional[int] = None
+    # Said beside the input while it's set ("The URL is a path after its base URL.").
+    hint: Optional[str] = None
+    # A `headers` editor's wording: the name box's placeholder and the add
+    # button ({key: Header name, add: Add header}).
+    pairs: dict[str, str] = {}
 
 
 class Page(_Strict):
@@ -164,6 +195,11 @@ class ManifestAction(_Strict):
     # The action run_pane runs for the agent. A pane's on_change actions whose
     # inputs are set run first, as picking them in the pane would have.
     main: bool = False
+    # An action for one row of a list (§16.4.2): its inputs are these paths
+    # into the row and its group (`row.thing_name`, `group.environment_id`),
+    # not the pane's inputs. Paths, not templates, so the server works out
+    # the same inputs for the agent's inspect_row.
+    args: dict[str, str] = {}
 
     @model_validator(mode="after")
     def _one_kind(self) -> "ManifestAction":
@@ -203,6 +239,9 @@ class LayoutItem(_Strict):
     # toolbar line ("toolbar").
     row: Optional[list["LayoutItem"]] = None
     toolbar: Optional[list["LayoutItem"]] = None
+    # Items in one line spaced as a row is, each drawn inline (a picker's
+    # label beside it): the HTTP client's method, URL and Send.
+    line: Optional[list["LayoutItem"]] = None
     when: Optional[When] = None
     # Shown in place of an output that has nothing yet.
     empty: Optional[str] = None
@@ -232,10 +271,14 @@ class LayoutItem(_Strict):
     busy: Optional[str] = None
     # Where the pane's short-lived messages ("S3 URI copied to clipboard") go.
     flash: bool = False
+    # The Show/Hide examples button of this input's `examples`, and the list.
+    examples: Optional[str] = None
 
 
 class Card(_Strict):
-    title: Text
+    # None: the card's one output draws its own title row (the HTTP
+    # client's Response, whose status sits beside it).
+    title: Optional[Text] = None
     when: Optional[When] = None
     # Items at the right of the card's title: a Copy button, a view select.
     aside: list[LayoutItem] = []
@@ -243,7 +286,9 @@ class Card(_Strict):
 
 
 class Inspect(_Strict):
-    rows: str
+    # A registered row lister (platform_tools/panes.ROW_LISTERS). None: the
+    # rows of the manifest's list outputs, and the detail its list declares.
+    rows: Optional[str] = None
     detail: Optional[str] = None
     help: str = ""
 
@@ -302,6 +347,8 @@ class Manifest(_Strict):
                 raise ValueError(f"'when: input {w.input}' names no input")
             if w.output is not None and w.output not in outputs:
                 raise ValueError(f"'when: output {w.output}' names no output")
+            if w.error is not None and w.error not in actions:
+                raise ValueError(f"'when: error {w.error}' names no action")
 
         def check_item(item: LayoutItem) -> None:
             if item.input is not None and item.input not in inputs:
@@ -315,11 +362,11 @@ class Manifest(_Strict):
             for ref in (item.error, item.restored, item.runs, item.more, item.busy):
                 if ref is not None and ref not in actions:
                     raise ValueError(f"the layout names an action {ref} that isn't declared")
-            for ref in [item.crumbs, item.crumbs_root, *item.sets]:
+            for ref in [item.crumbs, item.crumbs_root, item.examples, *item.sets]:
                 if ref is not None and ref not in inputs:
                     raise ValueError(f"the layout names an input {ref} that isn't declared")
             check_when(item.when)
-            for child in (item.row or []) + (item.toolbar or []):
+            for child in (item.row or []) + (item.toolbar or []) + (item.line or []):
                 check_item(child)
 
         views = {v.key for v in self.views}
@@ -331,9 +378,16 @@ class Manifest(_Strict):
                 raise ValueError(f"'{ref}' names no input (in.), output (out.) or view key (view.)")
 
         for a in self.actions:
-            for ref in a.on_change + list(a.requires):
+            for ref in a.on_change:
                 if ref not in inputs:
                     raise ValueError(f"action {a.id} names an input {ref} that isn't declared")
+            for ref in a.requires:
+                # A row action requires its own args, not the pane's inputs.
+                if ref not in (a.args if a.args else inputs):
+                    raise ValueError(f"action {a.id} requires {ref}, which isn't one of its inputs")
+            for path in a.args.values():
+                if path.partition(".")[0] not in ("row", "group"):
+                    raise ValueError(f"action {a.id}'s arg {path!r} must be a path into row. or group.")
             for ref in a.resets:
                 check_key(ref)
             if a.page:
@@ -351,15 +405,30 @@ class Manifest(_Strict):
                 raise ValueError(f"input {i.key}'s options come from an action {i.options.action} that isn't declared")
             if i.type == "choice" and not i.choices:
                 raise ValueError(f"choice input {i.key} has no choices")
-            if i.type == "connection" and not i.connection_type:
+            if i.type in ("connection", "connections") and not i.connection_type:
                 raise ValueError(f"connection input {i.key} needs a connection_type")
+            for value, sets in i.choice_sets.items():
+                if value not in i.choices:
+                    raise ValueError(f"input {i.key}'s choice_sets names {value!r}, which isn't one of its choices")
+                for ref in sets:
+                    if ref not in inputs:
+                        raise ValueError(f"input {i.key}'s choice_sets sets {ref}, which isn't an input")
+            if i.examples is not None and i.examples.by not in inputs:
+                raise ValueError(f"input {i.key}'s examples are by {i.examples.by}, which isn't an input")
         for card in self.layout:
+            if card.title is None and not (
+                len(card.items) == 1 and (card.items[0].output or card.items[0].error) and not card.aside
+            ):
+                raise ValueError("a card without a title holds exactly one output or error, which draws its own")
             check_text(card.title)
             check_when(card.when)
             for item in card.aside + card.items:
                 check_item(item)
         for o in self.outputs:
             check_text(o.label)
+            detail = o.config.get("detail")
+            if isinstance(detail, dict) and detail.get("action") not in {a.id for a in self.actions if a.args}:
+                raise ValueError(f"output {o.key}'s detail needs a row action (one with args), not {detail.get('action')!r}")
         if self.rendered and not self.layout:
             raise ValueError("a rendered pane needs a layout")
         if self.rendered and self.state != "v2":

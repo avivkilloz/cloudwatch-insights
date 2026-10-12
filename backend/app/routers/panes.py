@@ -56,8 +56,18 @@ def run_handler(
     cursor: Any = None,
 ) -> dict[str, Any]:
     """A handler action (§16.3.1), for the browser and the agent alike: the
-    manifest's `requires` first, then the handler, whose own checks (flag,
-    connection, identity) answer with the routes' sentences."""
+    group's flag, the manifest's `requires`, then the handler, whose own
+    checks (connection, identity) answer in sentences a user can act on."""
+    # The group's flag, whoever is asking: the action endpoint and the agent
+    # both check it first, but a handler never runs without it either.
+    try:
+        require_flag(user, manifest.flag, manifest.label)
+    except ResolveError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    # An input never set is its default, as the pane shows it: a pane the
+    # agent made holds only what it was given.
+    if not action.args:
+        inputs = {**{i.key: i.default for i in manifest.inputs if i.default is not None}, **inputs}
     message = pane_handlers.missing(action.requires, inputs)
     if message:
         raise HTTPException(status_code=400, detail=message)

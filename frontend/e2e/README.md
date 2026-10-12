@@ -59,11 +59,19 @@ bundling it with the esbuild that comes with vite. `smoke64` (the stale-tab
 reload) stands in a newer `/version.json`, which the dev server otherwise answers
 with its own build id.
 
-A pane drawn from a manifest (DynamoDB, Cognito, S3 and the tools) calls one
-endpoint, `POST /api/panes/{type}/actions/{action}`, not routes of its own, so a
-suite stands in for AWS behind it with the harness's `mockPaneActions(page, type,
-{action: outputs | (body) => outputs})`. Mocking `/api/tables/*` and the like no
-longer reaches those panes.
+A pane drawn from a manifest (DynamoDB, Cognito, S3, IoT, the HTTP client and
+the tools) calls one endpoint, `POST /api/panes/{type}/actions/{action}`, not
+routes of its own, so a suite stands in for AWS behind it with the harness's
+`mockPaneActions(page, type, {action: outputs | (body) => outputs})`; a reply of
+`{ __status: 400, detail }` stands in a failed action. Mocking `/api/iot/*`,
+`/api/tools/http-request` and the like no longer reaches those panes. A row's
+detail is an action too (IoT's `thing_detail`), whose `inputs` are what its
+`args` read from the row.
+
+The first `select` on a session's screen is the session card's member role,
+not the pane's: address a pane's select by its name (`select[aria-label=
+"method"]`) or its options. smoke25 and smoke26 had timed out on exactly this
+since the Members row arrived.
 
 Playwright is deliberately **not** a dependency of this package — it would add a
 browser download to every `npm ci` in CI, which builds the app and never runs

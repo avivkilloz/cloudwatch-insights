@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IotSavedSearch, SavedQuery, SavedSession } from "../api";
+import { SavedQuery, SavedSession } from "../api";
 import { SESSION_SAVED_PAGE } from "../sessions/registry";
 import { TEMPLATE_PAGES } from "../sessions/templates";
 import SavedInputsPanel from "./SavedInputsPanel";
@@ -12,11 +12,6 @@ interface Props {
   onUpdateSavedQuery: (id: number, payload: { name: string; query_string: string; backend?: string }) => Promise<void>;
   onDeleteSavedQuery: (id: number) => Promise<void>;
 
-  iotSavedSearches: IotSavedSearch[];
-  onCreateIotSearch: (payload: { name: string; query_string: string; search_mode?: string }) => Promise<void>;
-  onUpdateIotSearch: (id: number, payload: { name: string; query_string: string; search_mode?: string }) => Promise<void>;
-  onDeleteIotSearch: (id: number) => Promise<void>;
-
   /** All saved sessions, every page -- the tab content below filters by `page` itself. */
   savedSessions: SavedSession[];
   onCreateSession: (page: string, name: string, state: Record<string, unknown>) => Promise<void>;
@@ -24,7 +19,7 @@ interface Props {
   onDeleteSession: (id: number) => Promise<void>;
 }
 
-type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "iot-searches" | "http-requests" | "mqtt-topics";
+type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "mqtt-topics";
 
 /* Templates first: a whole session is the biggest thing you can save, and the
    rest are inputs you load inside one. The per-service "sessions" tabs that
@@ -32,13 +27,12 @@ type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "iot-search
    nothing has written one since; the ones saved back then are listed under
    Session templates, which is also where Add offers them. */
 // Saved inputs are every ported pane's (D46); the stores after them go as
-// their panes are ported -- S3's and DynamoDB's already have (3b-1).
+// their panes are ported -- S3's and DynamoDB's (3b-1), IoT's searches and
+// the HTTP client's requests (3b-2) already have.
 const TABS: { id: TabId; label: string }[] = [
   { id: "session-templates", label: "Templates" },
   { id: "saved-inputs", label: "Saved inputs" },
   { id: "logs-queries", label: "Log Queries" },
-  { id: "iot-searches", label: "IoT Searches" },
-  { id: "http-requests", label: "HTTP Requests" },
   { id: "mqtt-topics", label: "MQTT Topics" },
 ];
 
@@ -87,38 +81,6 @@ export default function SavedItemsHub(props: Props) {
             defaultValue: "cloudwatch",
             getValue: (item) => item.backend,
           }}
-        />
-      )}
-
-      {tab === "iot-searches" && (
-        <SavedItemsPanel
-          description="Available from the IoT page's &quot;Load saved search&quot; dropdown."
-          queryLabel="Search query"
-          items={props.iotSavedSearches}
-          onCreate={props.onCreateIotSearch}
-          onUpdate={props.onUpdateIotSearch}
-          onDelete={props.onDeleteIotSearch}
-          extra={{
-            key: "search_mode",
-            label: "Search mode",
-            options: [
-              { value: "things", label: "Things" },
-              { value: "certificates", label: "Certificates" },
-            ],
-            defaultValue: "things",
-            getValue: (item) => item.search_mode,
-          }}
-        />
-      )}
-
-      {tab === "http-requests" && (
-        <SavedSessionEditorPanel
-          description="Available from the HTTP Client tool's &quot;Load saved request…&quot; dropdown."
-          kind="http"
-          items={props.savedSessions.filter((s) => s.page === "tools-http")}
-          onCreate={(name, state) => props.onCreateSession("tools-http", name, state)}
-          onUpdate={props.onUpdateSession}
-          onDelete={props.onDeleteSession}
         />
       )}
 

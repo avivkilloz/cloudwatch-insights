@@ -2394,6 +2394,9 @@ The rows of DynamoDB, Cognito and the API table, generalised from today's
 
 - **"Save as…" and "Load…" on every manifest pane** save the pane's inputs under a
   name, by pane type, in one table (`saved_inputs`).
+  - Both are one **Saved ▾** menu at the right of the pane's first card title.
+    3b-1 shipped them as a row of their own above the cards, which left an almost
+    empty row between two full ones; the user found that odd.
   - Sensitive inputs are never saved.
   - Loading writes the inputs and, for a pane that runs on a pick, runs.
 - **The old stores migrate into it** as each pane is ported. In 3b-1 that is
@@ -2472,23 +2475,149 @@ All three look and behave as today, checked by:
 - Suites that open these tabs by name (smoke13, 16, 17, 20, 22, 23, 36, 60, 61)
   change only their navigation steps.
 
-### 16.4 PR 3b-2, outlined: IoT and the HTTP client
+### 16.4 PR 3b-2 in detail: IoT and the HTTP client
 
-- **`connections`** (a checkbox list), and actions that fan out across connections and
-  return per-connection errors (the "Target errors" box).
-- **A detail action per row:**
-  - `detail: {action: thing_detail, key: [connection, thingName]}`;
-  - expand-to-fetch, cached in the tab;
-  - "Include detail" fetches the checked rows, five at a time, into export and attach.
-  - The agent's `inspect_row` uses the same action, so it gains certificates.
-- **IoT's mode** switches which output, detail action and selection domain apply:
-  `when` on outputs, as in PR 1.
-- **The HTTP client:**
-  - the request/response viewer (status badge by range, headers table, pretty
-    body);
-  - Send is an `effects: external` action: a person may run it, the agent may not;
-  - its last exchange is always attached (`attach: always`).
-  - `targetId` joins the manifest, so the agent can set it.
+_Detailed 2026-10-12, after 3b-1 merged, from an inventory of `IotPage.tsx`, the
+two IoT result lists and detail panels, `HttpClientTool.tsx`, and the routes and
+agent runners behind them. Nothing here needed a new decision: D45–D50 cover it.
+The few choices made along the way are noted where they apply._
+
+#### 16.4.1 Fan-out across connections
+
+- **A `connections` input** (`type: connections`, `connection_type: aws`) is
+  today's environment checkbox list, drawn generically. IoT's
+  `selectedEnvironmentIds` becomes `in.connections` (D40, `legacy_key`), stored
+  as a plain list (the legacy Set still reads).
+- **The handler fans out, not the endpoint.** A handler gets the connection ids
+  and returns one group per connection, `{id, name, rows…, error}`. It uses a shared
+  helper (`panes/handlers.fan_out`) that resolves each connection as the caller,
+  runs them in parallel and turns any failure into that group's `error`.
+  - A generic endpoint fan-out would have had to rename the stored fields every
+    IoT session already holds (`environment_id`, `environment_name`, `things`).
+  - Handlers are code anyway, so a plugin calls the helper just as easily.
+- **A list draws groups** (`config.groups: {rows, name, error, as}`). It
+  flattens each group's rows, stamping the group's name on each row under `as`
+  (what export and attach always called `environment`). Groups with an error
+  become the **Target errors** box above the rows, as before.
+- **The agent** reads the same groups. Its run summary keeps its per-environment
+  counts and errors.
+
+#### 16.4.2 A detail action per row
+
+- **An action can be for a row** (`for: row`). Its inputs come from the row, by
+  path, as the list declares:
+  `detail: {action: thing_detail, args: {connection: group.environment_id, thingName: row.thing_name}}`.
+  - Paths only, no templates: the server evaluates the same args for the agent.
+  - The browser sends them as the action's inputs. The same endpoint, the same
+    `requires`.
+- **Expanding a row fetches its detail.** The detail is cached in the tab
+  (D47's rule: fetched data that is only a view of AWS isn't session state).
+  Which rows are expanded is a view key (D48), so another member's expand fetches
+  the detail in their tab too.
+- **"Include detail"** (`detail.include`, the checkbox's label) appears once rows
+  are checked.
+  - It fetches the checked rows' detail five at a time.
+  - Export and attach then carry each row merged with its detail's `merge`
+    fields, plus `detail_warnings`.
+  - Loading and failure counts show as before.
+- **Detail sections grow** to draw IoT's panels from data:
+  - `table` (columns with tones);
+  - `list`, nested and expandable (a thing's certificates, then their
+    policies);
+  - `json` side by side (`grid`, reported and desired);
+  - `tags`;
+  - `warnings`.
+  - Titles take a count: `Shadows ({{ d.shadows | count }})`.
+- **The agent's `inspect_row` uses the list's detail action.**
+  - The registered `detail.iot` goes, and certificates gain their detail
+    (attached things), which the agent couldn't see before.
+  - Rows come from the manifest's lists generically (`rows.iot` goes), from
+    whichever list output holds rows.
+
+#### 16.4.3 IoT
+
+- **Mode:** `searchMode` is drawn as the "Search for [Things] [Certificates]"
+  buttons.
+  - Its `resets` clear the outputs and expanded rows.
+  - A choice can set other inputs (`choice_sets`), so a mode resets the query to
+    its own default, as `switchMode` did.
+- **Outputs:** `thingResults` and `certResults` (both move to `out.`, same shape),
+  each in a Results card shown by `when` on the mode.
+  - The selection domain is per output (`iot-things`, `iot-certificates`), as
+    before.
+- **One `search` action** dispatches on the mode server-side. It wraps today's
+  two search routes.
+  - Its handler raises the mode's own "Enter a search query (e.g. …)" sentence.
+  - `thing_detail` and `cert_detail` are row actions.
+- **Text by mode:** the help paragraph and the query placeholder use `By`
+  (PR 1's text-by-input).
+- **Examples:** an input can carry `examples` (by mode). A layout item
+  `{examples: queryString}` is the Show/Hide examples toggle, and its list with
+  Use buttons. Whether it is open is tab-local UI, not session state.
+- **Max results:** a toolbar int, clamped server-side as before.
+- **Saved searches move into saved inputs:** `{searchMode, queryString}`, once,
+  behind a `Settings` marker. The Library's IoT tab goes.
+
+#### 16.4.4 The HTTP client
+
+- **Inputs:**
+  - `targetId` joins the manifest, so the agent can set it: `type: connection`,
+    `connection_type: http_api`, optional (**Any URL**). It is drawn only when
+    the group has such a connection.
+  - `method`, `url`, `headerRows` and `body` are unchanged.
+  - `credentialId` uses the existing type.
+  - The URL placeholder reads the chosen target's base URL (`sel.targetId` in
+    the template scope).
+- **New input renderers:** `headers` (the key/value rows with Remove and Add
+  header) and `credential` (the Auth select, the hints, "A credential you can't
+  use").
+- **Send** (`effects: external`) is a person's action.
+  - `run_pane` refuses it. It already did by its agent text; now the server
+    does too.
+  - Its handler wraps `/api/tools/http-request`: the SSRF guard, the credential's
+    `inject` and the masking are all unchanged.
+  - It returns the response and the exchange. The exchange is built server-side,
+    with the joined URL, the auth said by name, and nothing secret.
+- **The Body card** is shown by `when: {input: method, not_in: [GET, HEAD]}`.
+- **Outputs:**
+  - The **response viewer** (`render: http_response`): the status badge by
+    range, time, truncated, the headers table, and the pretty body. It draws its
+    own title row.
+  - The **error card** (`when: {error: send}`).
+  - The exchange, attached always (`attach: always`, no checkbox), as before.
+- **Saved requests move into saved inputs**, once (`saved_sessions` page
+  `tools-http`). The Library's HTTP tab goes.
+
+#### 16.4.5 Removed, as D49 said
+
+- The `/api/tables/*`, `/api/cognito/*` and `/api/buckets/*` routes. Their
+  functions stay as the handlers' implementation.
+- The agent's `list_dynamodb_tables`, `list_s3_buckets` and
+  `list_cognito_user_pools`. They become one `list_options(session, pane, input)`
+  that runs the input's loader through `run_handler`, so any picker a manifest
+  declares is listable.
+- `IotPage.tsx`, the IoT lists and panels, `iotDetails.ts`, `PolicyList.tsx`,
+  `HttpClientTool.tsx`, and the IoT and HTTP Library tabs.
+- The IoT and HTTP routes stay one release (D49), as 3b-1's did.
+
+#### 16.4.6 Tests
+
+- **Backend:**
+  - the fan-out (one connection failing, one not reachable);
+  - row actions and their args;
+  - `inspect_row` on things and certificates;
+  - `list_options`;
+  - Send refused to the agent;
+  - the HTTP exchange carries no secret;
+  - both once-only migrations;
+  - the old routes gone.
+- **Browser:**
+  - smoke suites driving IoT (mode, examples, expand-to-fetch, Include detail,
+    target errors, a member's expand) and the HTTP client (headers, target,
+    auth, body by method, response, error, attach);
+  - each failing against the old frontend;
+  - the existing IoT and HTTP suites moved to `mockPaneActions`;
+  - pixel comparison with the old pages, card by card.
 
 ### 16.5 PRs 3b-3 to 3b-5, outlined
 
@@ -2549,9 +2678,11 @@ Where the build departed from §16.2–16.3, and why:
 - **Where errors are shown is part of the layout.** A loader's error, and a
   table's describe error, go under the card's toolbar as before (`error:`).
   Otherwise an error sits beside its button.
-- **Saved inputs sit at the top right of every manifest pane's body.** This is
-  the only place that works in every layout, because tabs have no per-pane
-  header. The old "Saved tables" and "Saved buckets" cards are gone.
+- **Saved inputs are a Saved ▾ menu at the right of the pane's first card
+  title.** It works in every layout, because tabs have no per-pane header. (It
+  first shipped as a row of its own above the cards, which left an almost empty
+  row between two full ones. It moved into the title row right after 3b-1.) The
+  old "Saved tables" and "Saved buckets" cards are gone.
 - **"Templates" and "Saved inputs"** are the Library's first two tabs. The other
   per-pane stores follow until their panes are ported.
 - **Settings → Users:** the add form opens from the list's head ("Add user"), as
@@ -2585,6 +2716,68 @@ Where the build departed from §16.2–16.3, and why:
   - **New suites:** smoke65 (saved inputs, the Library, Users and Groups) and
     smoke66 (the file browser, row copy, Load more and the selection, an expanded
     row reaching another tab, tag tones). Both fail against the old frontend.
+
+### 16.8 3b-2 as built
+
+Where the build departed from §16.4, and why:
+
+- **Schema additions, as named in the code:**
+  - **On an input:** `choice_sets`, `optional`, `examples`, `grow`, `hint`, and `pairs`.
+    `pairs` is the wording of a `headers` editor.
+  - **On an action:** `args`, which makes it a row action.
+  - **`when`:** `not_in` and `error`.
+  - **Layout:** `line` and `examples`.
+  - **Cards:** may be untitled. Such a card holds one output or error, which draws
+    its own title or none.
+  - **Renders:** `http_response` and `attach`.
+- **The fan-out is a helper, not an endpoint feature.** `handlers.fan_out`
+  returns the group shape every fan-out pane already stored. So IoT's migration
+  is a key move, and an IoT session keeps its results.
+- **The agent's rows and detail come from the manifest.** `_manifest_rows` and
+  `_manifest_detail` read each list's `groups` and `detail`.
+  - The registered `rows.tables`, `rows.cognito`, `rows.buckets`, `rows.iot` and
+    `detail.iot` are gone.
+  - Certificates gained their detail.
+  - The run summary of a grouped list keeps its per-environment counts and errors.
+    It leaves out the other mode's emptied list.
+- **The agent accepts an input's old name.** `PaneKind.aliases` maps
+  `selectedEnvironmentIds` to `connections`, because an earlier turn in the
+  history may still use it.
+- **Unset inputs take their defaults in `run_handler`.** A pane the agent made
+  holds only what it was given, and IoT's search would otherwise refuse an empty
+  query that the pane shows as `thingName:*`.
+- **`run_handler` checks the group's flag itself.** The action endpoint already
+  did, and so did the agent. With the per-service routes gone, the handlers have
+  no other place that would.
+- **Expanded IoT rows became session state.** IoT's old lists kept them in the
+  tab. Under D48 they are a view key now, by row index. The mode and a fresh
+  search reset it.
+- **Layout items are keyed by their place in the manifest.** Keyed among those
+  shown, IoT's things and certificates lists were one component, so a thing
+  checked in one mode stayed checked in the other.
+- **The detail cache resets only on a real change.** React's development mode
+  runs mount effects twice, and the reset cleared what an expanded row had just
+  requested, so the row was fetched twice.
+- **Fixed in passing:**
+  - smoke25 and smoke26 had timed out on main since the Members row arrived. Each
+    picked the first select on screen, which is now the session card's member
+    role. Both now address their select by name and pass.
+  - Each inline label (Target, Auth) is now tied to its select.
+- **Checked:**
+  - **Pixels:** every IoT and HTTP client card, old page against ported, in 16
+    states. They match apart from text sub-pixel rendering and one intended
+    change: **the Saved ▾ menu**. It sits in IoT's first card and in Request,
+    replacing "Load saved search…" and "Save search", and "Load saved request…"
+    and "Save request". (The comparison caught one real difference, now fixed:
+    the help paragraph between IoT's two toolbars had lost its bottom margin.)
+  - **New suites:**
+    - smoke67, for IoT: mode and examples, what Search sends, Target errors,
+      expand-to-fetch, another tab opening the same row, Saved ▾ keeping mode and
+      query, and an old session.
+    - smoke68, for the HTTP client: Body by method, headers, what Send sends, the
+      response, the exchange always attached, the error card, Saved ▾, and an old
+      session.
+    - Both fail against the old frontend.
 
 ## 12. Research sources
 

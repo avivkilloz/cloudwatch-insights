@@ -9,25 +9,102 @@ description: >-
 help: >-
   Send an HTTP request and inspect the whole response — status, headers and body. Requests go out from the backend,
   which refuses private and link-local addresses, so this cannot be used to reach inside the cluster.
+state: v2
+rendered: true
 inputs:
   - key: method
     type: choice
     help: The HTTP method.
     choices: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+    default: GET
   - key: url
     type: text
-    help: The full URL.
+    label: URL
+    default: ""
+    # The target's base URL, when one is picked, says what to type after it.
+    placeholder: "{{ sel.targetId ? '/path, after ' : '' }}{{ sel.targetId.base_url ?? 'https://api.example.com/resource' }}"
+    grow: 240
+    help: The full URL, or with targetId set, the path after that connection's base URL.
+  - key: targetId
+    type: connection
+    connection_type: http_api
+    label: Target
+    optional: true
+    placeholder: Any URL
+    hint: The URL is a path after its base URL.
+    help: >-
+      An HTTP API connection (get_context's http_apis) to send to: url is then a path after its base URL, and the
+      user's group's identity there is applied when it's sent. Leave unset for any public URL.
   - key: headerRows
     type: headers
+    default: [{ id: 1, key: "", value: "" }]
+    pairs: { key: Header name, add: Add header }
     help: Request headers.
   - key: body
     type: text
+    rows: 6
+    default: ""
+    placeholder: Request body (raw)…
     help: The request body (ignored for GET and HEAD).
   - key: credentialId
     type: credential
+    label: Auth
+    placeholder: "{{ in.targetId ? \"Your group's identity there\" : 'None' }}"
     help: >-
       A credential to authenticate with; the server adds it when the request is sent, so its value is never in the
       pane. Only credentials whose type authenticates requests work here.
+actions:
+  - id: send
+    handler: http.send
+    main: true
+    effects: external
+    run_label: Send
+    busy_label: Sending…
+    # A new request replaces the last one's response, and a failed one leaves
+    # nothing to ask about.
+    resets: [out.response, out.exchange]
+outputs:
+  - key: response
+    render: http_response
+    legacy_key: response
+  - key: exchange
+    render: attach
+    legacy_key: exchange
+    actions: [attach]
+    config:
+      domain: tools-http
+legacy_drop: [exchangeVersion]
+layout:
+  - title: Request
+    items:
+      - line:
+          - input: method
+          - input: url
+          - action: send
+      - line:
+          - input: targetId
+      - line:
+          - input: credentialId
+      - text: >-
+          Requests are sent from the backend, not your browser, so CORS doesn't apply — but for the same reason the
+          backend refuses to reach loopback, private and link-local addresses (cloud metadata endpoints included), so
+          this can't be used to reach internal infrastructure. Redirects are shown as-is rather than followed.
+      # The last exchange is this pane's one "row": what the agent's session
+      # chat can attach, to ask why a request came back the way it did.
+      - output: exchange
+  - title: Headers
+    items:
+      - input: headerRows
+  - title: Body
+    when: { input: method, not_in: [GET, HEAD] }
+    items:
+      - input: body
+  - when: { error: send }
+    items:
+      - error: send
+  - when: { output: response, present: true }
+    items:
+      - output: response
 agent:
   run: >-
     You can fill the request in, but not send it: sending reaches outside the platform, and needs the user's

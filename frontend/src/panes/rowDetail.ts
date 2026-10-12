@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { readableError } from "../api";
 
-// Both IoT result lists show a summary per row and fetch the full detail
-// (shadows/certificates/jobs for a thing, attached things for a certificate)
-// lazily, one call per row, when you expand it. The same cache backs the
-// "include details" option, so a row you already expanded costs nothing to
-// include, and a row fetched for an export is already there when you expand it.
+// A list whose rows have a detail action (PLATFORM_PLAN.md §16.4.2: IoT's
+// shadows/certificates/jobs for a thing, attached things for a certificate)
+// shows a summary per row and fetches the full detail lazily, one call per
+// row, when you expand it. The same cache backs "Include detail", so a row you
+// already expanded costs nothing to include, and a row fetched for an export
+// is already there when you expand it. It lives in the tab (D47's rule:
+// fetched data that's only a view of AWS isn't session state).
 
 export type DetailState<D> =
   | { status: "loading" }
@@ -59,7 +62,13 @@ export function useDetailCache<TRow, TDetail>(options: {
   // can't both fire a request.
   const requested = useRef(new Set<string>());
 
+  // Only when it actually changes: on mount there's nothing to clear, and
+  // StrictMode's second run of mount effects cleared what an expanded row had
+  // just asked for, so it was fetched twice.
+  const resetFor = useRef(resetOn);
   useEffect(() => {
+    if (Object.is(resetFor.current, resetOn)) return;
+    resetFor.current = resetOn;
     requested.current = new Set();
     setDetails({});
     setLoadingCount(0);
@@ -74,8 +83,8 @@ export function useDetailCache<TRow, TDetail>(options: {
     try {
       const detail = await fetchDetail(row);
       setDetails((prev) => ({ ...prev, [key]: { status: "ready", detail } }));
-    } catch (e: any) {
-      setDetails((prev) => ({ ...prev, [key]: { status: "error", message: e.message } }));
+    } catch (e) {
+      setDetails((prev) => ({ ...prev, [key]: { status: "error", message: readableError(e) } }));
     } finally {
       setLoadingCount((n) => n - 1);
     }

@@ -98,6 +98,16 @@ const run = async () => {
         state: { services: ["logs-cloudwatch", "cognito"], layout: "tabs", "logs-cloudwatch.queryString": "fields @message" },
       }),
     });
+    // A saved MQTT topic, for its one-line summary below. Made before the
+    // Library opens: it reads its lists once, as it opens. Any left by a run
+    // that died half-way goes first.
+    for (const s of await (await fetch("/api/saved-sessions?page=tools-mqtt-topics", { credentials: "same-origin" })).json()) {
+      if (s.name === "e2e topic") await fetch(`/api/saved-sessions/${s.id}`, { method: "DELETE", credentials: "same-origin" });
+    }
+    await fetch("/api/saved-sessions", {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: "tools-mqtt-topics", name: "e2e topic", state: { topic: "devices/+/status" } }),
+    });
   });
   await page.reload();
   await page.waitForSelector(".rail", { timeout: 15000 });
@@ -119,17 +129,19 @@ const run = async () => {
     "Expanding it shows the JSON, editable as before", detail.slice(0, 80));
   await page.screenshot({ path: `${SHOT}/36-saved-expanded.png` });
 
-  // An HTTP request keeps its short summary -- that one says something.
-  await page.click(`${SAVED} .tab:text-is("HTTP Requests")`);
-  await page.waitForTimeout(400);
-  const httpRows = await page.locator(`${SAVED} .result-row-summary`).allInnerTexts();
-  check(httpRows.length === 0 || httpRows.some((t) => /GET|POST|PUT|DELETE/.test(t)),
-    "HTTP requests still show method and URL beside the name", JSON.stringify(httpRows.slice(0, 2)));
+  // A saved MQTT topic keeps its short summary -- that one says something.
+  // (HTTP requests, which did too, are saved inputs now.)
+  await page.click(`${SAVED} .tab:text-is("MQTT Topics")`);
+  await page.waitForSelector(`${SAVED} .result-row-summary:has-text("e2e topic")`);
+  const topicRow = await page.locator(`${SAVED} .result-row-summary:has-text("e2e topic")`).innerText();
+  check(topicRow.includes("devices/+/status"), "A saved topic still shows the topic beside its name", topicRow);
 
   // Tidy up after the run.
   await page.evaluate(async ([group, user]) => {
-    for (const s of await (await fetch("/api/saved-sessions?page=aggregator", { credentials: "same-origin" })).json()) {
-      if (s.name === "Readable template") await fetch(`/api/saved-sessions/${s.id}`, { method: "DELETE", credentials: "same-origin" });
+    for (const s of await (await fetch("/api/saved-sessions", { credentials: "same-origin" })).json()) {
+      if (s.name === "Readable template" || s.name === "e2e topic") {
+        await fetch(`/api/saved-sessions/${s.id}`, { method: "DELETE", credentials: "same-origin" });
+      }
     }
     for (const u of await (await fetch("/api/users", { credentials: "same-origin" })).json()) {
       if (u.username === user) await fetch(`/api/users/${u.id}`, { method: "DELETE", credentials: "same-origin" });

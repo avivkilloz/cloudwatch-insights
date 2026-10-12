@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-11, Phase 3b-1 (DynamoDB, Cognito, S3; saved inputs)._
+_Last updated: 2026-10-12, Phase 3b-2 (IoT and the HTTP client)._
 
 ## Platform plan
 
@@ -59,7 +59,22 @@ and change-triggered runs, the list and file-browser outputs with Load more,
 saved inputs on every manifest pane with saved tables and buckets moved in
 once, Settings → Library and Users | Groups. As-built notes in §16.7.
 Backend 326 tests (`test_pane_actions.py` new); browser smoke65 and smoke66,
-both failing against the old frontend.
+both failing against the old frontend. Merged as #106. Right after it, the
+saved-inputs row (which left an almost empty row between two full ones, the
+user's remark) became a Saved ▾ menu in the first card's title. 3b-2 is built
+(PLATFORM_PLAN.md §16.4, as built in §16.8): IoT and the HTTP client drawn from
+their manifests -- a `connections` picker and handlers that fan out per
+connection with per-environment errors, a row action per list (expand-to-fetch,
+"Include detail", the agent's `inspect_row`) with its detail drawn from the
+manifest's sections, IoT's mode and examples, the HTTP client's request editor,
+response viewer and always-attached exchange, Send kept a person's action;
+DynamoDB's, Cognito's and S3's old routes removed with the agent's three list
+tools (now one `list_options`); IoT's saved searches and the HTTP client's saved
+requests moved into saved inputs. Backend 337 tests (11 new in
+`test_pane_actions.py`); agent 25; browser smoke67 (IoT) and smoke68 (the HTTP
+client), both failing against the old frontend; the full browser run is 51 of
+52 green, smoke31's two styling checks failing as they do on main (smoke25 and
+smoke26, which had been timing out on main, pass again).
 
 ## Where things stand
 
@@ -991,10 +1006,10 @@ Everything below is merged and verified against the running app.
 
 ## In progress / where I left off
 
-This round's UI changes are built and verified against the running stack
-(with the fake model) and await their PR; nothing is half-written. After it
-merges, restart the branch from `main` (`git fetch origin main && git
-checkout -B <branch> origin/main`) for phase 3.
+3b-2 (IoT and the HTTP client) is built and verified against the running stack
+and awaits its PR; nothing is half-written. After it merges, restart the branch
+from `main` (`git fetch origin main && git checkout -B <branch> origin/main`)
+and detail 3b-3 (the logs, PLATFORM_PLAN.md §16.5) before building it.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1161,7 +1176,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Restart the branch from `main` once this round's PR merges.
+1. Restart the branch from `main` once 3b-2's PR merges; then 3b-3 (CloudWatch
+   and OpenSearch), 3b-4 (charts), 3b-5 (MQTT on the server), each detailed in
+   PLATFORM_PLAN.md §16 before it is built. IoT's and the HTTP client's old
+   routes go in 3b-3 (D49).
 2. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,
