@@ -20,7 +20,7 @@ inputs:
     help: The environment the table is in.
   - key: tableName
     type: text
-    help: The table (list_dynamodb_tables gives the names).
+    help: The table (list_options lists them).
     default: ""
     options:
       action: list_tables
@@ -122,9 +122,10 @@ layout:
           - action: scan
       - output: items
       - more: scan
-inspect:
-  rows: rows.tables
+# The rows of its list, as the pane draws them (platform_tools/panes._manifest_rows).
+inspect: {}
 agent:
   run: >-
     Describes the table and scans it with queryString and limit, showing the items in the pane; you get the count and a
-    sample. list_dynamodb_tables lists the environment's tables.
+    sample. list_options lists the environment's
+    tables (input tableName).

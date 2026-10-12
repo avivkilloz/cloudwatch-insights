@@ -105,7 +105,7 @@ def test_group_with_no_role_name_rejects_aws_calls():
     client.post("/api/users", json={"username": "frank", "password": "frank-pass", "group_id": group["id"]})
     frank = _login_as("frank", "frank-pass")
 
-    resp = frank.get("/api/tables/list", params={"environment_id": env["id"]})
+    resp = frank.post("/api/panes/tables/actions/list_tables", json={"inputs": {"connection": env["id"]}})
     assert resp.status_code == 400
     assert "role name" in resp.json()["detail"].lower()
 

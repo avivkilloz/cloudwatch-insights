@@ -22,6 +22,7 @@ The endpoint is stateless (each POST stands alone, no MCP session to keep),
 so it works the same whichever backend replica a call reaches.
 """
 
+import asyncio
 import contextlib
 import contextvars
 import datetime
@@ -29,6 +30,7 @@ import json
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -41,7 +43,8 @@ from starlette.types import Receive, Scope, Send
 from .. import connections, credential_store, live_store, models, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
-from ..routers import buckets, cognito, log_groups, opensearch, tables
+from ..panes import manifest as pane_manifest
+from ..routers import log_groups, opensearch
 from . import tokens
 from .panes import (
     KINDS,
@@ -419,29 +422,37 @@ async def list_opensearch_indices(environment_id: int, domain_endpoint: str) -> 
 
 
 @mcp.tool()
-async def list_dynamodb_tables(environment_id: int) -> dict:
-    """DynamoDB table names in one environment."""
+async def list_options(
+    session_id: str, pane_id: str, input: str, inputs: Optional[dict[str, Any]] = None
+) -> dict:
+    """The choices for a pane input whose options are loaded (get_context's pane_kinds mark them `options`): a
+    DynamoDB pane's tables, an S3 pane's buckets, a Cognito pane's user pools. Uses the pane's current inputs, with
+    `inputs` (same keys as set_pane_inputs) used instead for this look-up only -- e.g. {"connection": 3} to list
+    another environment's tables. Changes nothing."""
     with _acting() as (db, user, caller):
-        _flagged(user, "tables_enabled", "DynamoDB")
-        return {"tables": list(_call(tables.list_tables, environment_id=environment_id, db=db, current_user=user).tables)}
+        found, _ = live_store.reachable(db, user.id, session_id)
+        if found is None:
+            raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
+        kind = kind_for(user, _pane(found.state, pane_id))
+        manifest = pane_manifest.get(kind.type)
+        spec = next((i for i in manifest.inputs if i.key == input), None) if manifest else None
+        if spec is None or spec.options is None:
+            loaded = ", ".join(i.key for i in (manifest.inputs if manifest else []) if i.options) or "none"
+            raise InputError(f"{kind.label}'s {input} has no options to list. Its inputs with options: {loaded}.")
+        rc = RunContext(db=db, user=user, timezone=caller.timezone)
+        unknown = [k for k in inputs or {} if kind.input(k) is None]
+        if unknown:
+            raise InputError(f"{kind.label} has no input {', '.join(unknown)}.")
+        values = {**pane_values(found.state, pane_id), **{k: _convert(kind, k, v, rc) for k, v in (inputs or {}).items()}}
+        _check_reachable(db, user, kind, values)
+        action = next(a for a in manifest.actions if a.id == spec.options.action)
+        from ..routers import panes as panes_router
 
-
-@mcp.tool()
-async def list_s3_buckets(environment_id: int) -> dict:
-    """S3 bucket names in one environment."""
-    with _acting() as (db, user, caller):
-        _flagged(user, "buckets_enabled", "S3")
-        listed = _call(buckets.list_buckets, environment_id=environment_id, db=db, current_user=user)
-        return {"buckets": [b.name for b in listed.buckets]}
-
-
-@mcp.tool()
-async def list_cognito_user_pools(environment_id: int) -> dict:
-    """Cognito user pools (id and name) in one environment."""
-    with _acting() as (db, user, caller):
-        _flagged(user, "cognito_enabled", "Cognito")
-        pools = _call(cognito.list_user_pools, environment_id=environment_id, db=db, current_user=user)
-        return {"user_pools": [p.model_dump() for p in pools.user_pools]}
+        try:
+            listed = await asyncio.to_thread(panes_router.run_handler, db, user, manifest, action, values)
+        except HTTPException as e:
+            raise InputError(str(e.detail)) from None
+        return {"input": input, "options": listed.get("options") or []}
 
 
 # ---------------------------------------------------------------- shaping a session
@@ -696,6 +707,10 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
     type_ = _pane(state, pane_id)
     kind = kind_for(user, type_)
     rc = RunContext(db=db, user=user, timezone=caller.timezone)
+    # An input renamed by its port (selectedEnvironmentIds -> connections,
+    # D40) is still taken by its old name: an earlier turn in the history
+    # may use it, and the model copies what it sees.
+    inputs = {kind.aliases.get(k, k): v for k, v in inputs.items()}
     unknown = [k for k in inputs if kind.input(k) is None]
     if unknown:
         if not kind.inputs:
@@ -726,6 +741,12 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
                 state[f"{pane_id}.{ref}"] = kind.view_defaults.get(ref_key)
             else:
                 state.pop(f"{pane_id}.{ref}", None)
+        # A choice that sets others (IoT's mode puts its own default query
+        # in), unless this call set them itself.
+        sets = kind.choice_sets.get(key, {}).get(value, {}) if isinstance(value, (str, int, bool)) else {}
+        for other, set_to in sets.items():
+            if other not in converted:
+                state[input_key(kind, pane_id, other)] = set_to
     if (state.get("layout") or "tabs") == "tabs":
         state["activePane"] = pane_id
     # And not folded to its header in the other layouts: a run into a
@@ -795,11 +816,14 @@ def _shown_in(row: models.LiveSession, pane_id: str) -> str:
 
 # Input types that name environments, and where in their stored value the ids are.
 _ENVIRONMENT_INPUTS = ("environments", "environment", "log_groups", "opensearch_indices")
+# A ported pane's AWS connections are the environments they used to be (D40).
+_AS_ENVIRONMENT = {"connection": "environment", "connections": "environments"}
 
 
 def _environment_ids(input_kind: str, value: Any) -> list[Any]:
     if input_kind == "environments":
-        return list(value) if isinstance(value, list) else []
+        value = untag(value)
+        return list(value) if isinstance(value, (list, set, tuple)) else []
     if input_kind == "environment":
         return [] if value is None else [value]
     return list(value) if isinstance(value, dict) else []  # keyed by environment id
@@ -814,8 +838,7 @@ def _check_reachable(db: Session, user: models.User, kind: PaneKind, values: dic
     which input to change, and to what."""
     reachable = {t["id"]: t["label"] for t in _environments(db, user)}
     for spec in kind.inputs:
-        # A ported pane's AWS connection is the environment it used to be (D40).
-        input_kind = "environment" if spec.kind == "connection" and spec.connection_type == "aws" else spec.kind
+        input_kind = _AS_ENVIRONMENT.get(spec.kind, spec.kind) if spec.connection_type == "aws" else spec.kind
         if input_kind not in _ENVIRONMENT_INPUTS or spec.key not in values:
             continue
         unreachable = []

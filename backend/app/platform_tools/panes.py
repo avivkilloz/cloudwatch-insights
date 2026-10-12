@@ -37,7 +37,7 @@ from .. import connections, models, schemas
 from ..panes import live
 from ..panes import manifest as pane_manifest
 from ..live_store import tag_set, untag
-from ..routers import iot, opensearch, queries
+from ..routers import opensearch, queries
 
 
 class InputError(Exception):
@@ -67,11 +67,15 @@ class Input:
     minimum: Optional[int] = None
     maximum: Optional[int] = None
     connection_type: Optional[str] = None
+    # Its choices come from a loader: list_options lists them.
+    options: bool = False
 
     def describe(self) -> dict:
         type_name = _TYPE_NAMES[self.kind]
         if self.kind == "connection" and self.connection_type == "aws":
             type_name = _TYPE_NAMES["environment"]
+        if self.kind == "connections" and self.connection_type == "aws":
+            type_name = _TYPE_NAMES["environments"]
         out: dict[str, Any] = {"key": self.key, "type": type_name, "help": self.help}
         if self.choices:
             out["choices"] = list(self.choices)
@@ -79,6 +83,8 @@ class Input:
             out["min"] = self.minimum
         if self.maximum is not None:
             out["max"] = self.maximum
+        if self.options:
+            out["options"] = "list_options lists them"
         return out
 
 
@@ -94,6 +100,7 @@ _TYPE_NAMES = {
     "headers": "object: name -> value",
     "credential": "credential name or id (get_context lists the ones the user can use)",
     "connection": "connection id or name (get_context's http_apis)",
+    "connections": "list of connection ids or names",
 }
 
 MAX_TEXT = 100_000
@@ -231,6 +238,14 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
         if spec.connection_type == "aws":
             return _visible_environment(rc, value)
         return _visible_connection(rc, value, spec.connection_type or "")
+    if kind == "connections":
+        # Stored as a plain list (v2), not the tagged Set the hand-drawn
+        # pane kept; the renderer reads either.
+        if not isinstance(value, list):
+            raise InputError(f"{spec.key} must be a list of environment ids.")
+        if spec.connection_type == "aws":
+            return sorted({_visible_environment(rc, v) for v in value})
+        return sorted({_visible_connection(rc, v, spec.connection_type or "") for v in value})
     if kind == "headers":
         if not isinstance(value, dict):
             raise InputError(f"{spec.key} must be an object of name -> value.")
@@ -287,6 +302,11 @@ class PaneKind:
     # relative to the pane, and each view key's default.
     resets: dict[str, tuple[str, ...]] = field(default_factory=dict)
     view_defaults: dict[str, Any] = field(default_factory=dict)
+    # What choosing a value of an input sets besides (its manifest
+    # `choice_sets`): input -> value -> {other input: value}.
+    choice_sets: dict[str, dict[Any, dict[str, Any]]] = field(default_factory=dict)
+    # An input's name before its port, where that differs (D40): old -> new.
+    aliases: dict[str, str] = field(default_factory=dict)
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -501,49 +521,6 @@ async def run_opensearch(rc: RunContext, values: dict) -> RunResult:
     )
 
 
-async def run_iot(rc: RunContext, values: dict) -> RunResult:
-    environment_ids = list(values.get("selectedEnvironmentIds") or [])
-    if not environment_ids:
-        raise InputError("Choose at least one environment first (set selectedEnvironmentIds).")
-    mode = values.get("searchMode") or "things"
-    query_string = values.get("queryString") or ""
-    max_results = min(max(int(values.get("maxResults") or 50), 1), 500)
-    if mode == "certificates":
-        response = await iot.search_certificates(
-            payload=schemas.IotCertificateSearchRequest(
-                environment_ids=environment_ids, query_string=query_string, max_results=max_results
-            ),
-            db=rc.db,
-            current_user=rc.user,
-        )
-        results, key, listed = [r.model_dump() for r in response.results], "certResults", "certificates"
-    else:
-        response = await iot.search_things(
-            payload=schemas.IotSearchRequest(
-                environment_ids=environment_ids, query_string=query_string or "thingName:*", max_results=max_results
-            ),
-            db=rc.db,
-            current_user=rc.user,
-        )
-        results, key, listed = [r.model_dump() for r in response.results], "thingResults", "things"
-    found = [row for r in results for row in r[listed]]
-    return RunResult(
-        writes={key: results, **_ran(values)},
-        summary={
-            "environments": [
-                {
-                    "environment": r["environment_name"],
-                    listed: len(r[listed]),
-                    **({"error": r["error"]} if r.get("error") else {}),
-                }
-                for r in results
-            ],
-            "total": len(found),
-            "sample": _sample(found),
-        },
-    )
-
-
 def _query_rows(key: str) -> RowLister:
     """CloudWatch's and OpenSearch's rows, as their runs sampled them."""
 
@@ -551,31 +528,6 @@ def _query_rows(key: str) -> RowLister:
         return [row for r in values.get(key) or [] if isinstance(r, dict) for row in _field_rows(r.get("rows") or [])]
 
     return rows
-
-
-def _iot_rows(values: dict) -> list[dict]:
-    key, listed = ("certResults", "certificates") if values.get("searchMode") == "certificates" else ("thingResults", "things")
-    return [
-        {**row, "environment_id": r.get("environment_id"), "environment": r.get("environment_name")}
-        for r in values.get(key) or []
-        if isinstance(r, dict)
-        for row in r.get(listed) or []
-    ]
-
-
-async def _iot_detail(rc: RunContext, values: dict, row: dict) -> dict:
-    # A search returns a thing's summary; its shadows, certificates and jobs
-    # come only from its own detail -- what the pane shows on expanding a row.
-    if values.get("searchMode") == "certificates" or not row.get("thing_name") or row.get("environment_id") is None:
-        return row
-    detail = await asyncio.to_thread(
-        _call,
-        iot.get_thing_detail,
-        payload=schemas.IotThingDetailRequest(environment_id=int(row["environment_id"]), thing_name=row["thing_name"]),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    return {"environment": row.get("environment"), **detail.model_dump()}
 
 
 def _call(fn, **kwargs):
@@ -686,20 +638,69 @@ def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     return run
 
 
-def _summary(outputs: dict[str, Any], page: Optional[pane_manifest.Page]) -> dict[str, Any]:
-    """What a handler run tells the model: each list's length, a sample of
-    the paged one (or the first list), whether there is more, and anything
-    small as it is."""
+def _groups(manifest: pane_manifest.Manifest, key: str) -> Optional[dict]:
+    """A list output's `groups` config (§16.4.1): its value is one group per
+    connection, each holding its rows."""
+    output = next((o for o in manifest.outputs if o.key == key), None)
+    groups = output.config.get("groups") if output else None
+    return groups if isinstance(groups, dict) else None
+
+
+def flatten(value: Any, groups: Optional[dict]) -> list[tuple[dict, Optional[dict]]]:
+    """A list output's rows, each with its group: the browser's ListView
+    flattens the same way, stamping the group's name on each row under `as`
+    (what export and attach have always called `environment`)."""
+    if not isinstance(value, list):
+        return []
+    if groups is None:
+        return [(r, None) for r in value if isinstance(r, dict)]
+    out = []
+    for group in value:
+        if not isinstance(group, dict):
+            continue
+        for row in group.get(groups.get("rows", "rows")) or []:
+            if isinstance(row, dict):
+                stamped = {groups["as"]: group.get(groups.get("name", "name"))} if groups.get("as") else {}
+                out.append(({**stamped, **row}, group))
+    return out
+
+
+def _summary(manifest: pane_manifest.Manifest, outputs: dict[str, Any], page: Optional[pane_manifest.Page]) -> dict[str, Any]:
+    """What a handler run tells the model: each list's length -- or, for a
+    list of groups, each connection's count and error -- a sample of the
+    paged one (or the first list that has rows), whether there is more, and
+    anything small as it is."""
     out: dict[str, Any] = {}
     lists = {k: v for k, v in outputs.items() if isinstance(v, list)}
+    rows = {k: [r for r, _ in flatten(v, _groups(manifest, k))] for k, v in lists.items()}
     for key, value in outputs.items():
-        if key in lists:
+        groups = _groups(manifest, key)
+        if key in lists and groups is not None and not value:
+            continue  # the other mode's list, emptied by this run: nothing to say
+        if key in lists and groups is not None:
+            listed = groups.get("rows", "rows")
+            out[key] = {
+                "environments": [
+                    {
+                        "environment": g.get(groups.get("name", "name")),
+                        listed: len(g.get(listed) or []),
+                        **({"error": g["error"]} if g.get("error") else {}),
+                    }
+                    for g in value
+                    if isinstance(g, dict)
+                ],
+                "total": len(rows[key]),
+            }
+        elif key in lists:
             out[key] = len(value)
         elif page is None or key != page.cursor:
             out[key] = value
-    sampled = next((k for k in (page.append if page else []) if k in lists), next(iter(lists), None))
+    sampled = next(
+        (k for k in (page.append if page else []) if k in lists),
+        next((k for k in lists if rows[k]), next(iter(lists), None)),
+    )
     if sampled is not None:
-        out["sample"] = _sample([r for r in lists[sampled] if isinstance(r, dict)])
+        out["sample"] = _sample(rows[sampled])
     if page is not None:
         out["more"] = outputs.get(page.cursor) is not None
     return out
@@ -713,10 +714,15 @@ def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     main = manifest.main_action()
     if manifest.state != "v2" or main is None or main.handler is None:
         return None
+    # Reaching outside the platform (the HTTP client's Send) is a person's to
+    # do until the approval step exists: no run, and run_help says so.
+    if main.effects == "external":
+        return None
     from ..routers import panes as panes_router  # the router imports this module
 
     before = [
-        a for a in manifest.actions if a.handler and a.on_change and a is not main and not _is_loader(manifest, a)
+        a for a in manifest.actions
+        if a.handler and a.on_change and a is not main and not _is_loader(manifest, a) and a.effects != "external"
     ]
 
     async def run(rc: RunContext, values: dict) -> RunResult:
@@ -738,7 +744,7 @@ def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
                 writes[ref] = next((v.default for v in manifest.views if v.key == key), None)
         # Everything it ran, so the model sees what describing found too (the
         # table's keys) beside the rows.
-        return RunResult(writes=writes, summary=_summary(outputs, main.page))
+        return RunResult(writes=writes, summary=_summary(manifest, outputs, main.page))
 
     return run
 
@@ -754,31 +760,86 @@ def _api_rows(values: dict) -> list[dict]:
 HANDLERS: dict[str, Runner] = {
     "cloudwatch.run": run_cloudwatch,
     "opensearch.run": run_opensearch,
-    "iot.run": run_iot,
 }
 IMPLIES: dict[str, Callable[[dict], dict]] = {
     "log_group_environments": _with_log_group_environments,
     "opensearch_environments": _with_opensearch_environments,
 }
-def _rows_of(key: str) -> RowLister:
-    """A ported pane's rows as its list output holds them."""
+def _list_outputs(manifest: pane_manifest.Manifest) -> list[pane_manifest.ManifestOutput]:
+    return [o for o in manifest.outputs if o.render in ("list", "files")]
+
+
+def _shown_list(manifest: pane_manifest.Manifest, values: dict) -> Optional[pane_manifest.ManifestOutput]:
+    """The list output that holds the last run's rows: the first with any.
+    A pane with a mode (IoT's things or certificates) keeps the other mode's
+    list empty, so this is the one on screen."""
+    for output in _list_outputs(manifest):
+        if flatten(values.get(output.key), _groups(manifest, output.key)):
+            return output
+    return None
+
+
+def _manifest_rows(manifest: pane_manifest.Manifest) -> RowLister:
+    """A ported pane's rows, read from its manifest's list outputs as the
+    pane draws them (§16.4.2) -- no lister of its own to keep in step."""
 
     def rows(values: dict) -> list[dict]:
-        return [r for r in values.get(key) or [] if isinstance(r, dict)]
+        output = _shown_list(manifest, values)
+        return [r for r, _ in flatten(values.get(output.key), _groups(manifest, output.key))] if output else []
 
     return rows
 
 
+def _arg(path: str, row: dict, group: Optional[dict]) -> Any:
+    part, _, rest = path.partition(".")
+    value: Any = row if part == "row" else (group or {})
+    for key in [k for k in rest.split(".") if k]:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def _manifest_detail(manifest: pane_manifest.Manifest) -> Optional[Detailer]:
+    """inspect_row's second look-up, through the row action the shown list
+    declares (`detail: {action}`) -- the same one expanding the row in the
+    pane runs -- with its args read from the row and its group. A list
+    without one shows the row as the run left it."""
+    if not any(isinstance(o.config.get("detail"), dict) for o in _list_outputs(manifest)):
+        return None
+    from ..routers import panes as panes_router  # the router imports this module
+
+    async def detail(rc: RunContext, values: dict, row: dict) -> dict:
+        output = _shown_list(manifest, values)
+        spec = output.config.get("detail") if output else None
+        if not isinstance(spec, dict):
+            return row
+        action = next(a for a in manifest.actions if a.id == spec["action"])
+        pairs = flatten(values.get(output.key), _groups(manifest, output.key))
+        group = next((g for r, g in pairs if r == row), None)
+        args = {name: _arg(path, row, group) for name, path in action.args.items()}
+        # A second look-up acts as the caller, like a run: in a shared
+        # session the row may be from an environment only its owner has.
+        if "connection" in args:
+            reachable = {t["id"] for t in connections.targets(rc.db, rc.user, connections.AWS)}
+            if args["connection"] not in reachable:
+                raise InputError(
+                    f"That row is from environment {args['connection']}, which you can't reach, so it can't be "
+                    "looked up for you."
+                )
+        try:
+            found = await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, action, args)
+        except HTTPException as e:
+            raise _http_error(e) from None
+        return {**row, **found}
+
+    return detail
+
+
 ROW_LISTERS: dict[str, RowLister] = {
-    "rows.tables": _rows_of("items"),
-    "rows.cognito": _rows_of("users"),
-    "rows.buckets": _rows_of("files"),
     "rows.results": _query_rows("results"),
     "rows.osResults": _query_rows("osResults"),
-    "rows.iot": _iot_rows,
     "rows.api-table": _api_rows,
 }
-DETAILERS: dict[str, Detailer] = {"detail.iot": _iot_detail}
+DETAILERS: dict[str, Detailer] = {}
 
 
 def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
@@ -806,18 +867,25 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
                 minimum=i.min,
                 maximum=i.max,
                 connection_type=i.connection_type,
+                options=i.options is not None,
             )
             for i in manifest.agent_inputs()
         ),
         run=run,
         run_help=manifest.agent.run.strip(),
         implies=IMPLIES[manifest.implies] if manifest.implies else (lambda values: {}),
-        rows=ROW_LISTERS[inspect.rows] if inspect else None,
-        detail=DETAILERS[inspect.detail] if inspect and inspect.detail else None,
+        rows=(ROW_LISTERS[inspect.rows] if inspect.rows else _manifest_rows(manifest)) if inspect else None,
+        detail=(
+            (DETAILERS[inspect.detail] if inspect.detail else None if inspect.rows else _manifest_detail(manifest))
+            if inspect
+            else None
+        ),
         detail_help=inspect.help.strip() if inspect else "",
         v2=manifest.state == "v2",
         resets={i.key: tuple(i.resets) for i in manifest.inputs if i.resets},
         view_defaults={v.key: v.default for v in manifest.views},
+        choice_sets={i.key: i.choice_sets for i in manifest.inputs if i.choice_sets},
+        aliases={i.legacy_key: i.key for i in manifest.agent_inputs() if i.legacy_key and i.legacy_key != i.key},
     )
 
 

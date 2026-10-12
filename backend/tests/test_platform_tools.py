@@ -274,12 +274,12 @@ def test_nobody_can_run_a_shared_pane_with_the_owners_access(mcp, monkeypatch):
     assert [e["name"] for e in call(mcp, _token(bob), "get_context")["environments"]] == ["IoT Test"]
     # Pointed at their own, it runs, as them.
     out = call(mcp, _token(bob), "run_pane", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [test]})
-    assert searched == ["111100001111"] and out["total"] == 1
+    assert searched == ["111100001111"] and out["thingResults"]["total"] == 1
 
     # The owner's own run does reach Prod.
     call(mcp, owner, "set_pane_inputs", session_id=session, pane_id="iot", inputs={"selectedEnvironmentIds": [prod]})
     out = call(mcp, owner, "run_pane", session_id=session, pane_id="iot")
-    assert searched == ["111100001111", "999988887777"] and out["total"] == 1
+    assert searched == ["111100001111", "999988887777"] and out["thingResults"]["total"] == 1
 
 
 def test_a_shared_sessions_pane_is_still_gated_by_the_members_own_group_not_the_owners(mcp):
@@ -780,9 +780,9 @@ def test_sending_an_http_request_waits_for_approval_but_the_request_is_filled_in
     )
     assert "approval" in error
     state = _row(session).state
-    assert state["tool-http.method"] == "POST"
-    assert state["tool-http.headerRows"][0] == {"id": 1, "key": "X-A", "value": "1"}
-    assert "tool-http.response" not in state
+    assert state["tool-http.in.method"] == "POST"
+    assert state["tool-http.in.headerRows"][0] == {"id": 1, "key": "X-A", "value": "1"}
+    assert "tool-http.out.response" not in state
 
 
 def test_base64_is_worked_out_for_the_agent_too(mcp):

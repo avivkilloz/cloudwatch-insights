@@ -45,6 +45,11 @@ def seen(monkeypatch) -> list[tuple]:
     return calls
 
 
+def _list_tables(c, connection_id):
+    """An AWS call as whoever `c` is signed in as: DynamoDB's table loader, through the one action endpoint."""
+    return c.post("/api/panes/tables/actions/list_tables", json={"inputs": {"connection": connection_id}})
+
+
 def _login_as(username: str, password: str) -> TestClient:
     c = TestClient(app)
     resp = c.post("/api/auth/login", json={"username": username, "password": password})
@@ -127,7 +132,7 @@ def test_the_migration_keeps_every_id_and_every_role():
 def test_a_migrated_environment_resolves_to_the_same_account_region_and_role(seen):
     env = _env()
     # The Admin group's role was migrated by conftest the way startup does it.
-    assert client.get(f"/api/tables/list?environment_id={env['id']}").status_code == 200
+    assert _list_tables(client, env['id']).status_code == 200
     account, region, identity = seen[-1]
     assert (account, region, identity.role_name) == ("111122223333", "eu-west-1", TEST_ROLE_NAME)
     assert env["connections"][0]["id"] == env["id"]  # its first connection kept its id
@@ -140,7 +145,7 @@ def test_identities_need_no_master_key_when_nothing_is_secret(monkeypatch, seen)
     env = _env()
     group_id, as_g = _group("Keyless", [env["id"]], role_name="KeylessRole")
     assert client.get(f"/api/user-groups").json()[-1]["role_name"] in {"KeylessRole", TEST_ROLE_NAME}
-    assert as_g.get(f"/api/tables/list?environment_id={env['id']}").status_code == 200
+    assert _list_tables(as_g, env['id']).status_code == 200
     assert seen[-1][2].role_name == "KeylessRole"
 
 
@@ -172,19 +177,19 @@ def test_an_override_then_the_default_then_the_connections_own_credential(seen):
     )
     assert resp.status_code == 200, resp.text
 
-    as_g.get(f"/api/tables/list?environment_id={env['id']}")
-    as_g.get(f"/api/tables/list?environment_id={eks['id']}")
+    _list_tables(as_g, env['id'])
+    _list_tables(as_g, eks['id'])
     assert [(a, i.role_name) for a, _r, i in seen] == [("111122223333", "BackendRole"), ("444455556666", "BackendEksRole")]
 
     # No identity of its own: the connection's own credential is used.
     assert client.put(f"/api/user-groups/{group_id}/identities", json={"identities": []}).status_code == 200
     shared = _role(group_id, "Connection role", "ConnRole")
     assert client.patch(f"/api/connections/{eks['id']}", json={"credential_id": shared}).status_code == 200
-    as_g.get(f"/api/tables/list?environment_id={eks['id']}")
+    _list_tables(as_g, eks['id'])
     assert seen[-1][2].role_name == "ConnRole"
 
     # Nothing at all: a sentence saying what's missing and where to set it.
-    resp = as_g.get(f"/api/tables/list?environment_id={env['id']}")
+    resp = _list_tables(as_g, env['id'])
     assert resp.status_code == 400
     assert "no AWS role for Prod · aws" in resp.json()["detail"] and "User groups" in resp.json()["detail"]
 
@@ -221,11 +226,11 @@ def test_a_revoked_grant_stops_an_identity_when_it_is_used(seen):
         f"/api/user-groups/{group_id}/identities",
         json={"identities": [{"connection_type_id": "aws", "credential_id": shared["id"]}]},
     ).status_code == 200
-    assert as_g.get(f"/api/tables/list?environment_id={env['id']}").status_code == 200
+    assert _list_tables(as_g, env['id']).status_code == 200
     assert seen[-1][2].role_name == "SharedRole"
 
     assert client.delete(f"/api/credentials/{shared['id']}/grants/{group_id}").status_code == 204
-    resp = as_g.get(f"/api/tables/list?environment_id={env['id']}")
+    resp = _list_tables(as_g, env['id'])
     assert resp.status_code == 400 and "isn't available to it any more" in resp.json()["detail"]
     # And a credential in use can't be deleted out from under the group.
     resp = client.delete(f"/api/credentials/{shared['id']}")
@@ -240,7 +245,7 @@ def test_access_keys_are_used_directly(master_key, seen):
         "values": {"access_key_id": "AKIAEXAMPLE", "secret_access_key": "very-secret-access-key"},
     }).json()
     client.put(f"/api/user-groups/{group_id}/identities", json={"identities": [{"connection_type_id": "aws", "credential_id": keys["id"]}]})
-    assert as_g.get(f"/api/tables/list?environment_id={env['id']}").status_code == 200
+    assert _list_tables(as_g, env['id']).status_code == 200
     identity = seen[-1][2]
     assert identity.access_key_id == "AKIAEXAMPLE" and identity.role_name is None
     assert "very-secret-access-key" not in repr(identity)
@@ -257,8 +262,8 @@ def test_several_connections_in_one_environment_are_named_and_each_reachable(see
     assert [t["label"] for t in targets] == ["Prod · aws", "Prod · eks"]
     assert {t["id"] for t in targets} == {env["id"], eks["id"]}
     # One environment, two accounts.
-    client.get(f"/api/tables/list?environment_id={env['id']}")
-    client.get(f"/api/tables/list?environment_id={eks['id']}")
+    _list_tables(client, env['id'])
+    _list_tables(client, eks['id'])
     assert [(a, r) for a, r, _i in seen] == [("111122223333", "eu-west-1"), ("444455556666", "us-east-1")]
 
     # A name already used in the environment is refused.
@@ -274,9 +279,9 @@ def test_a_group_reaches_an_environments_connections_only_with_access_to_it(seen
     _gid, as_g = _group("Testers", [test_env["id"]])
     assert [t["label"] for t in as_g.get("/api/targets?type=aws").json()] == ["Test"]
     for target in (prod["id"], eks["id"]):
-        resp = as_g.get(f"/api/tables/list?environment_id={target}")
+        resp = _list_tables(as_g, target)
         assert resp.status_code == 400 and "is not configured" in resp.json()["detail"]
-    assert as_g.get(f"/api/tables/list?environment_id={test_env['id']}").status_code == 200
+    assert _list_tables(as_g, test_env['id']).status_code == 200
 
 
 def test_the_agent_can_name_a_connection_and_is_told_to_choose_when_there_are_several():
@@ -308,7 +313,7 @@ def test_an_identitys_use_is_audited_hourly_but_last_used_moves_every_time(seen)
     finally:
         db.close()
     for _ in range(3):
-        assert client.get(f"/api/tables/list?environment_id={env['id']}").status_code == 200
+        assert _list_tables(client, env['id']).status_code == 200
     db = SessionLocal()
     try:
         uses = db.query(models.AuditEvent).filter(models.AuditEvent.action == "credential.use").all()

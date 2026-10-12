@@ -75,28 +75,48 @@ def test_logs_disabled_refuses_cloudwatch_queries():
     assert resp.json()["queries"][0].get("error")  # no real AWS -- fails past the flag check
 
 
+def _action(c: TestClient, pane: str, action: str, inputs: dict):
+    return c.post(f"/api/panes/{pane}/actions/{action}", json={"inputs": inputs})
+
+
+def _no_pane(resp) -> None:
+    # A ported pane's actions are one endpoint, which a group without the
+    # pane's flag doesn't have at all -- the same 404 as a pane type that
+    # doesn't exist, rather than a hint that it does.
+    assert resp.status_code == 404, resp.text
+    assert "no pane type" in resp.json()["detail"], resp.text
+
+
 def test_tables_disabled_refuses_dynamodb():
     env_id = _environment()
     off = _user(env_id, tables_enabled=False)
-    _refused(off.get("/api/tables/list", params={"environment_id": env_id}))
+    _no_pane(_action(off, "tables", "list_tables", {"connection": env_id}))
     on = _user(env_id, tables_enabled=True)
-    _reached_aws(on.get("/api/tables/list", params={"environment_id": env_id}))
+    _reached_aws(_action(on, "tables", "list_tables", {"connection": env_id}))
 
 
 def test_buckets_disabled_refuses_s3():
     env_id = _environment()
     off = _user(env_id, buckets_enabled=False)
-    _refused(off.get("/api/buckets/list", params={"environment_id": env_id}))
+    _no_pane(_action(off, "buckets", "list_buckets", {"connection": env_id}))
     on = _user(env_id, buckets_enabled=True)
-    _reached_aws(on.get("/api/buckets/list", params={"environment_id": env_id}))
+    _reached_aws(_action(on, "buckets", "list_buckets", {"connection": env_id}))
 
 
 def test_cognito_disabled_refuses_user_pools():
     env_id = _environment()
     off = _user(env_id, cognito_enabled=False)
-    _refused(off.get("/api/cognito/user-pools", params={"environment_id": env_id}))
+    _no_pane(_action(off, "cognito", "list_user_pools", {"connection": env_id}))
     on = _user(env_id, cognito_enabled=True)
-    _reached_aws(on.get("/api/cognito/user-pools", params={"environment_id": env_id}))
+    _reached_aws(_action(on, "cognito", "list_user_pools", {"connection": env_id}))
+
+
+def test_the_old_per_service_routes_are_gone():
+    # Kept one release for tabs that hadn't reloaded (D49), then removed in 3b-2.
+    env_id = _environment()
+    assert client.get("/api/tables/list", params={"environment_id": env_id}).status_code == 404
+    assert client.get("/api/buckets/list", params={"environment_id": env_id}).status_code == 404
+    assert client.get("/api/cognito/user-pools", params={"environment_id": env_id}).status_code == 404
 
 
 def test_opensearch_disabled_refuses_domains():
@@ -117,6 +137,11 @@ def test_iot_disabled_refuses_search():
     resp = on.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": ""})
     assert resp.status_code == 200
     assert resp.json()["results"][0].get("error")
+    # And the ported pane's own action, the one the browser and agent use now.
+    _no_pane(_action(off, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"}))
+    resp = _action(on, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["thingResults"][0].get("error")  # no real AWS -- fails past the flag check, per environment
 
 
 def test_tools_disabled_refuses_http_client_and_mqtt():
