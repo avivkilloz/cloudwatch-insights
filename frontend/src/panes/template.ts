@@ -10,7 +10,8 @@
  *
  * Inside `{{ }}`: dotted paths into the scope (`row`, `in`, `out`, `v` and
  * the component's own counts), quoted strings and numbers; `a ?? b` takes b
- * when a is missing or empty; `c ? a : b`; then `| filter`s. Nothing else --
+ * when a is missing or empty; `c ? a : b`; then `| filter`s (bytes, time,
+ * encode_path, json, count). Nothing else --
  * no calls, no operators -- so a manifest from anywhere can't do more than
  * read what it was given. CEL replaces this with the builder (D8, D43).
  */
@@ -46,6 +47,9 @@ const FILTERS: Record<string, (value: unknown) => unknown> = {
   // Each path segment URL-encoded, the slashes kept: an S3 key in a URL.
   encode_path: (value) => text(value).split("/").map(encodeURIComponent).join("/"),
   json: (value) => JSON.stringify(value),
+  // How many: a list's items or an object's keys ("Shadows (2)").
+  count: (value) =>
+    Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0,
 };
 
 export function text(value: unknown): string {

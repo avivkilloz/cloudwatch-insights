@@ -5,9 +5,9 @@ interface Props {
   /** The exact rows currently on screen -- callers should pass post-filter/
    * sort/limit data so the export matches what the user is looking at.
    * Typed loosely (rather than Record<string, unknown>[]) so callers can
-   * pass any concrete result-item array (S3FileInfo[], CognitoUserInfo[],
-   * etc.) without a cast at every call site -- export.ts only ever reads
-   * these via Object.keys/values, which works on any plain object shape. */
+   * pass any concrete result-item array without a cast at every call site --
+   * export.ts only ever reads these via Object.keys/values, which works on
+   * any plain object shape. */
   rows: object[];
   /** When the user has checked rows in the results list, export exports just
    * those instead of everything on screen. */

@@ -1,14 +1,9 @@
 import { useState } from "react";
-import { SavedSession, ToolHeader } from "../api";
+import { SavedSession } from "../api";
 
-export type SessionEditorKind = "http" | "mqtt-topic" | "json";
-
-interface HttpRequestState {
-  method: string;
-  url: string;
-  headers: ToolHeader[];
-  body: string;
-}
+// The HTTP client's saved requests moved into saved inputs (3b-2), and its
+// editor with them.
+export type SessionEditorKind = "mqtt-topic" | "json";
 
 interface MqttTopicState {
   topic: string;
@@ -23,10 +18,7 @@ interface Props {
   onDelete: (id: number) => Promise<void>;
 }
 
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-
 function emptyStateFor(kind: SessionEditorKind): Record<string, unknown> {
-  if (kind === "http") return { method: "GET", url: "", headers: [], body: "" } satisfies HttpRequestState;
   if (kind === "mqtt-topic") return { topic: "" } satisfies MqttTopicState;
   return {};
 }
@@ -38,78 +30,10 @@ function emptyStateFor(kind: SessionEditorKind): Record<string, unknown> {
  * the thing you are actually looking for -- down to nothing. Expanding the
  * row is what shows it, in the editor that can also change it. */
 function summaryFor(kind: SessionEditorKind, state: Record<string, unknown>): string {
-  if (kind === "http") {
-    const s = state as unknown as HttpRequestState;
-    return `${s.method ?? "GET"} ${s.url ?? ""}`;
-  }
   if (kind === "mqtt-topic") {
     return String((state as unknown as MqttTopicState).topic ?? "");
   }
   return "";
-}
-
-function HttpStateEditor({ value, onChange }: { value: HttpRequestState; onChange: (next: HttpRequestState) => void }) {
-  function updateHeader(i: number, field: "key" | "value", v: string) {
-    onChange({ ...value, headers: value.headers.map((h, idx) => (idx === i ? { ...h, [field]: v } : h)) });
-  }
-  function addHeader() {
-    onChange({ ...value, headers: [...value.headers, { key: "", value: "" }] });
-  }
-  function removeHeader(i: number) {
-    onChange({ ...value, headers: value.headers.filter((_, idx) => idx !== i) });
-  }
-  return (
-    <>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <select value={value.method} onChange={(e) => onChange({ ...value, method: e.target.value })}>
-          {HTTP_METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          value={value.url}
-          onChange={(e) => onChange({ ...value, url: e.target.value })}
-          placeholder="https://api.example.com/resource"
-          style={{ flex: 1, minWidth: 200 }}
-        />
-      </div>
-      <span className="field-label">Headers</span>
-      {value.headers.map((h, i) => (
-        <div className="row" key={i} style={{ marginBottom: 6 }}>
-          <input
-            type="text"
-            placeholder="Header name"
-            value={h.key}
-            onChange={(e) => updateHeader(i, "key", e.target.value)}
-            style={{ width: 200 }}
-          />
-          <input
-            type="text"
-            placeholder="Value"
-            value={h.value}
-            onChange={(e) => updateHeader(i, "value", e.target.value)}
-            style={{ flex: 1, minWidth: 160 }}
-          />
-          <button className="danger" onClick={() => removeHeader(i)}>
-            Remove
-          </button>
-        </div>
-      ))}
-      <button className="secondary" onClick={addHeader} style={{ marginBottom: 8 }}>
-        Add header
-      </button>
-      <span className="field-label">Body</span>
-      <textarea
-        rows={4}
-        value={value.body}
-        onChange={(e) => onChange({ ...value, body: e.target.value })}
-        style={{ width: "100%" }}
-      />
-    </>
-  );
 }
 
 export default function SavedSessionEditorPanel({ description, kind, items, onCreate, onUpdate, onDelete }: Props) {
@@ -193,12 +117,6 @@ export default function SavedSessionEditorPanel({ description, kind, items, onCr
             onChange={(e) => setNewName(e.target.value)}
             style={{ width: "100%", maxWidth: 320, marginBottom: 8, display: "block" }}
           />
-          {kind === "http" && (
-            <HttpStateEditor
-              value={newState as unknown as HttpRequestState}
-              onChange={(s) => setNewState(s as unknown as Record<string, unknown>)}
-            />
-          )}
           {kind === "mqtt-topic" && (
             <input
               type="text"
@@ -238,12 +156,6 @@ export default function SavedSessionEditorPanel({ description, kind, items, onCr
                       onChange={(e) => setEditName(e.target.value)}
                       style={{ width: "100%", marginBottom: 8 }}
                     />
-                    {kind === "http" && (
-                      <HttpStateEditor
-                        value={editState as unknown as HttpRequestState}
-                        onChange={(s) => setEditState(s as unknown as Record<string, unknown>)}
-                      />
-                    )}
                     {kind === "mqtt-topic" && (
                       <input
                         type="text"

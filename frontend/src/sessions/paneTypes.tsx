@@ -1,6 +1,4 @@
 import InsightsPage from "../pages/InsightsPage";
-import IotPage from "../pages/IotPage";
-import HttpClientTool from "../components/tools/HttpClientTool";
 import MqttTool from "../components/tools/MqttTool";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest } from "../panes/manifest";
@@ -69,34 +67,6 @@ const DRAWN: SessionTypeDef[] = [
     paneable: true,
   },
   {
-    type: "iot",
-    label: "IoT",
-    group: "Services",
-    description: "Search things by fleet index, or certificates by status.",
-    help:
-      "Search AWS IoT Core across environments — things by fleet-index query, or certificates by status. Expanding a " +
-      "result fetches its detail: shadows, attached certificates and their policies, and recent jobs.",
-    render: () => <IotPage />,
-    enabledFor: (u) => !!u?.iot_enabled,
-    savedPage: "iot",
-    paneable: true,
-  },
-
-
-
-  {
-    type: "tool-http",
-    label: "HTTP client",
-    group: "Tools",
-    description: "Send a request and inspect the response, Postman-style.",
-    help:
-      "Send an HTTP request and inspect the whole response — status, headers and body. Requests go out from the " +
-      "backend, which refuses private and link-local addresses, so this cannot be used to reach inside the cluster.",
-    render: () => <HttpClientTool />,
-    enabledFor: (u) => !!u?.tools_enabled,
-    paneable: true,
-  },
-  {
     type: "tool-mqtt",
     label: "MQTT tester",
     group: "Tools",
@@ -126,6 +96,7 @@ const LEGACY_SAVED_PAGES: Record<string, string> = {
   tables: "tables-session",
   buckets: "buckets-session",
   cognito: "cognito-session",
+  iot: "iot",
 };
 
 function fromManifest(m: PaneManifest): SessionTypeDef {

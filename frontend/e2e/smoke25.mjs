@@ -1,13 +1,15 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 const V = ".session-body:not([hidden])";
 
 (async () => {
   const browser = await launch();
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
-  await page.route("**/api/tools/http-request", (r) => r.fulfill({ json: {
+  // The HTTP client's Send is a manifest action now (3b-2).
+  const response = {
     status_code: 200, status_text: "OK", elapsed_ms: 42, body_truncated: false,
-    headers: [{ key: "content-type", value: "application/json" }], body: '{"ok":true}' } }));
+    headers: [{ key: "content-type", value: "application/json" }], body: '{"ok":true}' };
+  await mockPaneActions(page, "tool-http", { send: { response, exchange: [{ request: {}, response }] } });
   // The rail's catalogue folds shut by default now (smoke28 covers that);
   // these suites are about what it offers, so open it before the first paint.
   await page.addInitScript(() => {
@@ -116,7 +118,8 @@ const V = ".session-body:not([hidden])";
   const httpPanels = (await page.locator(`${V} .panel:not(.session-card) h2`).allTextContents());
   check(JSON.stringify(httpPanels) === JSON.stringify(["Request", "Headers"]),
     "HTTP client is laid out as cards", JSON.stringify(httpPanels));
-  await page.selectOption(`${V} select >> nth=0`, "POST");
+  // By its name: the first select on screen is the session card's member role.
+  await page.selectOption(`${V} select[aria-label="method"]`, "POST");
   await page.waitForTimeout(200);
   check((await page.locator(`${V} .panel h2`).allTextContents()).includes("Body"),
     "…and a Body card appears for methods that take one");

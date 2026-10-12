@@ -259,6 +259,9 @@ export async function mockPaneActions(page, type, replies) {
     if (reply === undefined) return route.continue();
     const body = JSON.parse(route.request().postData() || "{}");
     const json = typeof reply === "function" ? await reply(body) : reply;
+    // `{ __status: 400, detail: "…" }` stands in a failed action, as the
+    // backend answers one.
+    if (json && json.__status) return route.fulfill({ status: json.__status, json: { detail: json.detail } });
     return route.fulfill({ json });
   });
 }

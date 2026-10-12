@@ -140,10 +140,11 @@ const V = ".session-body:not([hidden])";
   await page.waitForTimeout(300);
   const opt = await page.locator(`${V} select option[value="compact"]`).textContent();
   check(opt.toLowerCase().includes("unchanged"), "The Compact option says what it does", opt);
-  await page.selectOption(`${V} select`, "unified");
+  // The diff's own view select, not the first one on screen (the session card's member role).
+  await page.selectOption(`${V} select:has(option[value="compact"])`, "unified");
   await page.waitForTimeout(200);
   const uni = await page.locator(`${V} .diff-output`).innerText();
-  await page.selectOption(`${V} select`, "compact");
+  await page.selectOption(`${V} select:has(option[value="compact"])`, "compact");
   await page.waitForTimeout(200);
   const comp = await page.locator(`${V} .diff-output`).innerText();
   check(uni !== comp && comp.includes("unchanged lines"), "Compact folds long unchanged runs, Unified does not",

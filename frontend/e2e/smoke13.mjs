@@ -116,44 +116,26 @@ async function openSession(page, label) {
       paginationToken: null,
     },
   });
-  await page.route("**/api/iot/search", (route) =>
-    route.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            things: [
-              { thing_name: "thing-alpha", thing_id: null, thing_type_name: null, thing_group_names: [], attributes: {}, connected: true, connectivity_timestamp: null },
-              { thing_name: "thing-bravo", thing_id: null, thing_type_name: null, thing_group_names: [], attributes: {}, connected: false, connectivity_timestamp: null },
-            ],
-            error: null,
-          },
-        ],
-      },
-    })
-  );
-  await page.route("**/api/iot/certificates/search", (route) =>
-    route.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            certificates: [
+  // IoT is a manifest pane now (3b-2): one action, the mode deciding which list it fills.
+  const demo = { environment_id: 1, environment_name: "Demo Env", account_id: "111122223333", region: "us-east-1", error: null };
+  await mockPaneActions(page, "iot", {
+    search: ({ inputs }) =>
+      inputs.searchMode === "certificates"
+        ? {
+            thingResults: [],
+            certResults: [{ ...demo, certificates: [
               { certificate_id: "cert-alpha", certificate_arn: "arn:a", status: "ACTIVE", creation_date: null, policies: [] },
               { certificate_id: "cert-bravo", certificate_arn: "arn:b", status: "ACTIVE", creation_date: null, policies: [] },
-            ],
-            error: null,
+            ] }],
+          }
+        : {
+            certResults: [],
+            thingResults: [{ ...demo, things: [
+              { thing_name: "thing-alpha", thing_id: null, thing_type_name: null, thing_group_names: [], attributes: {}, connected: true, connectivity_timestamp: null },
+              { thing_name: "thing-bravo", thing_id: null, thing_type_name: null, thing_group_names: [], attributes: {}, connected: false, connectivity_timestamp: null },
+            ] }],
           },
-        ],
-      },
-    })
-  );
+  });
 
   // Login
   // The rail's catalogue folds shut by default now (smoke28 covers that);

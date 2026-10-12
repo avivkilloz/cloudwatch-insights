@@ -101,19 +101,20 @@ const run = async () => {
   // ---- 4. the HTTP client's Target
   const sent = [];
   page.on("request", (req) => {
-    if (req.url().includes("/api/tools/http-request")) sent.push(JSON.parse(req.postData() ?? "{}"));
+    // Send is the HTTP client's manifest action now (3b-2).
+    if (req.url().includes("/api/panes/tool-http/actions/send")) sent.push(JSON.parse(req.postData() ?? "{}").inputs);
   });
   await newSession(page, "HTTP client");
-  await page.waitForSelector(`${SHOWN} #http-target option:has-text("${PARTNER}")`, { state: "attached" });
-  await page.selectOption(`${SHOWN} #http-target`, { label: `${PARTNER} (https://e2e-partner.invalid/v1)` });
+  await page.waitForSelector(`${SHOWN} select[aria-label="Target"] option:has-text("${PARTNER}")`, { state: "attached" });
+  await page.selectOption(`${SHOWN} select[aria-label="Target"]`, { label: `${PARTNER} (https://e2e-partner.invalid/v1)` });
   const placeholder = await page.getAttribute(`${SHOWN} input[aria-label="URL"]`, "placeholder");
   check(placeholder.includes("after https://e2e-partner.invalid/v1"), "With a target picked, the URL is a path after its base URL", placeholder);
-  const none = await page.locator(`${SHOWN} #http-auth option[value=""]`).innerText();
+  const none = await page.locator(`${SHOWN} select[aria-label="Auth"] option[value=""]`).innerText();
   check(none === "Your group's identity there", "…and Auth defaults to the group's identity there", none);
   await page.fill(`${SHOWN} input[aria-label="URL"]`, "/status");
   await page.click(`${SHOWN} button:text-is("Send")`);
   await page.waitForSelector(`${SHOWN} .error-text`, { timeout: 40000 });
-  check(sent.length === 1 && sent[0].target_id === api1.id && sent[0].url === "/status",
+  check(sent.length === 1 && sent[0].targetId === api1.id && sent[0].url === "/status",
     "The browser sends the target's id and the path, nothing else", JSON.stringify(sent));
   const error = await page.locator(`${SHOWN} .error-text`).innerText();
   check(error.includes("e2e-partner.invalid"), "The backend joined the base URL (its own sentence names the host)", error);
