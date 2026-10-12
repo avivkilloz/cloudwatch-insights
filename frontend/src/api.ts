@@ -232,102 +232,6 @@ export interface SessionParticipant {
   role: SessionRole;
 }
 
-/** Which Logs-page backend a saved query/search is written for -- CloudWatch
- * Logs Insights' pipe syntax and OpenSearch's Lucene query_string syntax
- * aren't interchangeable. */
-export type LogsBackend = "cloudwatch" | "opensearch";
-
-export interface SavedQuery {
-  id: number;
-  name: string;
-  query_string: string;
-  backend: LogsBackend;
-}
-
-export interface LogGroupInfo {
-  name: string;
-  stored_bytes: number | null;
-  creation_time: number | null;
-}
-
-export interface LogGroupsResultItem {
-  environment_id: number;
-  environment_name: string;
-  account_id: string;
-  region: string;
-  log_groups: LogGroupInfo[];
-  error: string | null;
-}
-
-export interface StartedQuery {
-  environment_id: number;
-  environment_name: string;
-  account_id: string;
-  region: string;
-  query_id: string | null;
-  error: string | null;
-}
-
-export interface ResultField {
-  field: string;
-  value: string;
-}
-
-export interface QueryResultItem {
-  environment_id: number;
-  environment_name: string;
-  account_id: string;
-  region: string;
-  query_id: string;
-  status: string;
-  rows: ResultField[][];
-  statistics: Record<string, number> | null;
-  error: string | null;
-}
-
-// ---- OpenSearch (Logs tab: OpenSearch backend) ----
-
-export interface OpenSearchDomainInfo {
-  domain_name: string;
-  endpoint: string | null;
-  engine_version: string | null;
-}
-
-export interface OpenSearchDomainsResultItem {
-  environment_id: number;
-  environment_name: string;
-  account_id: string;
-  region: string;
-  domains: OpenSearchDomainInfo[];
-  error: string | null;
-}
-
-export interface OpenSearchIndexInfo {
-  index: string;
-  docs_count: number | null;
-  store_size: string | null;
-}
-
-export interface OpenSearchTarget {
-  environment_id: number;
-  domain_name: string;
-  domain_endpoint: string;
-  indices: string[];
-}
-
-export interface OpenSearchResultItem {
-  environment_id: number;
-  environment_name: string;
-  account_id: string;
-  region: string;
-  domain_name: string;
-  indices: string[];
-  status: string;
-  rows: ResultField[][];
-  total_hits: number | null;
-  error: string | null;
-}
-
 // ---- Tools page ----
 
 export interface MqttPresignedUrlResponse {
@@ -623,11 +527,24 @@ export const api = {
   /** Every pane type the user's group may use, as its manifest describes it (PLATFORM_PLAN.md §15). */
   listPaneTypes: () => req<PaneManifest[]>("/pane-types"),
   /** Runs a manifest action that needs the server (the API table's Fetch); returns its outputs by key. */
-  runPaneAction: (type: string, action: string, inputs: Record<string, unknown>, cursor?: unknown) =>
+  runPaneAction: (
+    type: string,
+    action: string,
+    inputs: Record<string, unknown>,
+    cursor?: unknown,
+    /** A background action's session and pane (D51), and a time range's zone. */
+    extra?: { session?: string; pane?: string; timezone?: string },
+  ) =>
     req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
       method: "POST",
       // A cursor only for Load more: a first run's request is just its inputs.
-      body: JSON.stringify(cursor === undefined || cursor === null ? { inputs } : { inputs, cursor }),
+      body: JSON.stringify({ inputs, ...(cursor === undefined || cursor === null ? {} : { cursor }), ...(extra ?? {}) }),
+    }),
+  /** Stops a pane's background run (a CloudWatch query), whoever started it. */
+  stopPaneRun: (type: string, session: string, pane: string) =>
+    req<{ stopped: boolean }>(`/panes/${encodeURIComponent(type)}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ session, pane }),
     }),
 
   /** A pane's inputs saved under a name (D46), by pane type; the user's own. */
@@ -716,40 +633,6 @@ export const api = {
   updateSettings: (payload: Partial<Settings>) =>
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
-  listSavedQueries: () => req<SavedQuery[]>("/saved-queries"),
-  createSavedQuery: (payload: { name: string; query_string: string; backend?: LogsBackend }) =>
-    req<SavedQuery>("/saved-queries", { method: "POST", body: JSON.stringify(payload) }),
-  updateSavedQuery: (id: number, payload: Partial<{ name: string; query_string: string; backend: LogsBackend }>) =>
-    req<SavedQuery>(`/saved-queries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteSavedQuery: (id: number) => req<void>(`/saved-queries/${id}`, { method: "DELETE" }),
-
-  getLogGroups: (environmentIds: number[]) =>
-    req<{ results: LogGroupsResultItem[] }>("/log-groups", {
-      method: "POST",
-      body: JSON.stringify({ environment_ids: environmentIds }),
-    }),
-
-  startQueries: (payload: {
-    targets: { environment_id: number; log_group_names: string[] }[];
-    query_string: string;
-    start_time: number;
-    end_time: number;
-    limit?: number;
-  }) =>
-    req<{ queries: StartedQuery[] }>("/queries/start", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  getQueryResults: (queries: { environment_id: number; query_id: string }[]) =>
-    req<{ results: QueryResultItem[]; all_done: boolean }>("/queries/results", {
-      method: "POST",
-      body: JSON.stringify({ queries }),
-    }),
-
-  stopQueries: (queries: { environment_id: number; query_id: string }[]) =>
-    req<void>("/queries/stop", { method: "POST", body: JSON.stringify({ queries }) }),
-
   listSavedSessions: <T = Record<string, unknown>>(page?: string) =>
     req<SavedSession<T>[]>(`/saved-sessions${page ? `?page=${encodeURIComponent(page)}` : ""}`),
   createSavedSession: <T = Record<string, unknown>>(payload: { page: string; name: string; state: T }) =>
@@ -806,31 +689,6 @@ export const api = {
 
   getAgentStatus: () => req<AgentStatus>("/agent/status"),
   agentChat,
-
-  getOpenSearchDomains: (environmentIds: number[]) =>
-    req<{ results: OpenSearchDomainsResultItem[] }>("/opensearch/domains", {
-      method: "POST",
-      body: JSON.stringify({ environment_ids: environmentIds }),
-    }),
-
-  getOpenSearchIndices: (payload: { environment_id: number; domain_endpoint: string }) =>
-    req<{ indices: OpenSearchIndexInfo[] }>("/opensearch/indices", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  searchOpenSearch: (payload: {
-    targets: OpenSearchTarget[];
-    query_string?: string;
-    start_time: number;
-    end_time: number;
-    timestamp_field?: string;
-    limit?: number;
-  }) =>
-    req<{ results: OpenSearchResultItem[] }>("/opensearch/search", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
 
   getMqttPresignedUrl: (environmentId: number) =>
     req<MqttPresignedUrlResponse>("/tools/mqtt/presigned-url", {

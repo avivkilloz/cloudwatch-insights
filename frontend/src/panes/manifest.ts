@@ -44,6 +44,10 @@ export interface Options {
   load_label?: string;
   busy_label?: string;
   placeholder?: string;
+  /** A two-level picker's second level: the action listing one item's options. */
+  children?: string;
+  /** A two-level picker's filter box placeholder. */
+  filter?: string;
 }
 
 export interface ManifestInput {
@@ -107,6 +111,8 @@ export interface ManifestAction {
   main: boolean;
   /** A row action's inputs, as paths into `row.` and `group.`. */
   args: Record<string, string>;
+  /** Run in the background, polled by the server into the session (D51). */
+  poll?: { handler: string; stop: string };
 }
 
 export type Render =
@@ -121,7 +127,9 @@ export type Render =
   | "files"
   | "tags"
   | "http_response"
-  | "attach";
+  | "attach"
+  | "logs"
+  | "run";
 
 export interface ManifestOutput {
   key: string;
@@ -159,6 +167,12 @@ export interface LayoutItem {
   busy?: string;
   flash: boolean;
   examples?: string;
+  /** The Stop button of a background action's run. */
+  stop?: string;
+  /** A time range control over these inputs. */
+  time_range?: { preset: string; start: string; end: string };
+  /** "Sort by" this output's fields, bound to its sort view keys. */
+  sort?: string;
 }
 
 export interface Card {
