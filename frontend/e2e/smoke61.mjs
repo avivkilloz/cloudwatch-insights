@@ -59,7 +59,9 @@ const run = async () => {
   await page.click('[aria-label="Account menu"]');
   await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector("text=Profile picture");
-  await page.click('.content .settings-tabs button:text-is("User groups")');
+  // Users and their groups are one tab, switched inside it (D50).
+  await page.click('.content .settings-tabs button:text-is("Users")');
+  await page.click('.segmented button:text-is("Groups")');
   await page.waitForSelector(`[data-group="${GROUP}"]`);
   check((await page.locator(`[data-group="${GROUP}"]`).innerText()).includes("e2e-ReadOnly"), "The list shows each group's AWS role");
 

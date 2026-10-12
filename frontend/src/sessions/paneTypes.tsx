@@ -1,8 +1,5 @@
-import BucketsPage from "../pages/BucketsPage";
-import CognitoPage from "../pages/CognitoPage";
 import InsightsPage from "../pages/InsightsPage";
 import IotPage from "../pages/IotPage";
-import TablesPage from "../pages/TablesPage";
 import HttpClientTool from "../components/tools/HttpClientTool";
 import MqttTool from "../components/tools/MqttTool";
 import ManifestPane from "../panes/ManifestPane";
@@ -84,45 +81,9 @@ const DRAWN: SessionTypeDef[] = [
     savedPage: "iot",
     paneable: true,
   },
-  {
-    type: "tables",
-    label: "DynamoDB",
-    group: "Services",
-    description: "Scan and filter a DynamoDB table.",
-    help:
-      "Browse a DynamoDB table in any environment: see its keys and item count, then scan it with an optional filter " +
-      "and page through the items. Expanding a row shows the whole item.",
-    render: () => <TablesPage />,
-    enabledFor: (u) => !!u?.tables_enabled,
-    savedPage: "tables-session",
-    paneable: true,
-  },
-  {
-    type: "buckets",
-    label: "S3",
-    group: "Services",
-    description: "Browse an S3 bucket and search object names.",
-    help:
-      "Browse an S3 bucket like a file tree, walking into folders, or search object names across a prefix. Sizes and " +
-      "last-modified times come back with each object.",
-    render: () => <BucketsPage />,
-    enabledFor: (u) => !!u?.buckets_enabled,
-    savedPage: "buckets-session",
-    paneable: true,
-  },
-  {
-    type: "cognito",
-    label: "Cognito",
-    group: "Services",
-    description: "Find users in a Cognito user pool.",
-    help:
-      "Find users in a Cognito user pool by any attribute — email, username, phone — and open one to see its full " +
-      "attribute set, status, and group memberships.",
-    render: () => <CognitoPage />,
-    enabledFor: (u) => !!u?.cognito_enabled,
-    savedPage: "cognito-session",
-    paneable: true,
-  },
+
+
+
   {
     type: "tool-http",
     label: "HTTP client",
@@ -158,6 +119,15 @@ const DRAWN: SessionTypeDef[] = [
  */
 export const PANE_TYPES: SessionTypeDef[] = [...DRAWN];
 
+/** Where whole-session templates saved from a pane's own page -- before every
+ * session was an Aggregator -- live (sessions/templates.tsx), for the panes
+ * now drawn from a manifest. */
+const LEGACY_SAVED_PAGES: Record<string, string> = {
+  tables: "tables-session",
+  buckets: "buckets-session",
+  cognito: "cognito-session",
+};
+
 function fromManifest(m: PaneManifest): SessionTypeDef {
   return {
     // A manifest's id is data, not one of the types this file was written with.
@@ -168,6 +138,7 @@ function fromManifest(m: PaneManifest): SessionTypeDef {
     help: m.help,
     render: () => <ManifestPane type={m.id} />,
     enabledFor: (u) => !!u?.[m.flag],
+    savedPage: LEGACY_SAVED_PAGES[m.id],
     paneable: true,
   };
 }

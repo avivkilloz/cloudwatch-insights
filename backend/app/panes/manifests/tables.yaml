@@ -9,23 +9,122 @@ description: >-
 help: >-
   Browse a DynamoDB table in any environment: see its keys and item count, then scan it with an optional filter and
   page through the items. Expanding a row shows the whole item.
+state: v2
+rendered: true
 inputs:
-  - key: environmentId
-    type: environment
+  - key: connection
+    type: connection
+    connection_type: aws
+    legacy_key: environmentId
+    placeholder: Choose environment…
     help: The environment the table is in.
   - key: tableName
     type: text
     help: The table (list_dynamodb_tables gives the names).
+    default: ""
+    options:
+      action: list_tables
+      load_label: Load tables
+      busy_label: Loading tables…
+      placeholder: Choose table…
+    # A different table: its info and items are another table's.
+    resets: [out.tableInfo, out.items, out.lastEvaluatedKey, out.scannedCount]
   - key: queryString
     type: text
     help: field:value tokens, ANDed as equality filters; blank for all.
+    placeholder: field:value field2:value2
+    width: 320
+    default: ""
+    submit: scan
   - key: limit
     type: int
+    label: Page size
     help: Most items to return.
     min: 1
     max: 200
+    default: 25
 actions:
-  - id: run
-    handler: tables.run
+  - id: list_tables
+    handler: aws.dynamodb.list_tables
+    requires: { connection: Choose an environment first. }
+    resets: [in.tableName, out.tableInfo]
+  - id: describe
+    handler: aws.dynamodb.describe
+    on_change: [tableName]
+    requires: { connection: Choose an environment first., tableName: Choose a table first. }
+  - id: scan
+    handler: aws.dynamodb.scan
+    main: true
+    run_label: Scan
+    busy_label: Scanning…
+    requires: { connection: Choose an environment first., tableName: Choose a table first. }
+    page: { cursor: lastEvaluatedKey, append: [items], sum: [scannedCount] }
+    resets: [view.expanded]
+outputs:
+  - key: tableInfo
+    render: tags
+    legacy_key: tableInfo
+    config:
+      tags:
+        - "status: {{ v.status ?? 'unknown' }}"
+        - "~{{ v.item_count ?? '?' }} items"
+        - "partition key: {{ v.partition_key ?? '—' }}"
+        - { text: "sort key: {{ v.sort_key }}", when: sort_key }
+  - key: items
+    render: list
+    legacy_key: items
+    actions: [select, export, attach]
+    config:
+      busy: scan
+      toolbar: always
+      count: "{{ n }} item(s) loaded, {{ out.scannedCount ?? 0 }} scanned so far"
+      export: "table-{{ in.tableName }}"
+      empty: No items loaded yet — click Scan.
+      expand: expanded
+      summary:
+        - keys: [out.tableInfo.partition_key, out.tableInfo.sort_key]
+          separator: " / "
+      detail: json
+  - key: lastEvaluatedKey
+    render: text
+    legacy_key: lastEvaluatedKey
+  - key: scannedCount
+    render: text
+    legacy_key: scannedCount
+views:
+  - key: expanded
+    default: []
+    legacy_key: expanded
+legacy_drop: [tables]
+layout:
+  - title: 1. Choose environment and table
+    items:
+      - text: >-
+          DynamoDB tables belong to a single account/region, so pick one environment (unlike Logs/IoT, this page
+          doesn't fan out across several at once).
+      - toolbar:
+          - input: connection
+          - input: tableName
+      - error: list_tables
+      - error: describe
+      - output: tableInfo
+        when: { output: tableInfo, present: true }
+  - title: 2. Search items
+    when: { input: tableName, present: true }
+    items:
+      - restored: scan
+      - text: >-
+          Filter with `field:value` tokens (exact match, ANDed), e.g. `status:ACTIVE region:us`. This scans the table
+          and filters server-side — leave blank to browse it unfiltered.
+      - toolbar:
+          - input: queryString
+          - input: limit
+          - action: scan
+      - output: items
+      - more: scan
+inspect:
+  rows: rows.tables
 agent:
-  run: Lists the environment's tables, and with a tableName scans it and shows the items.
+  run: >-
+    Describes the table and scans it with queryString and limit, showing the items in the pane; you get the count and a
+    sample. list_dynamodb_tables lists the environment's tables.

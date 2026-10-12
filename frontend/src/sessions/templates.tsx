@@ -125,7 +125,16 @@ export function useTemplates(): TemplatesApi {
 /** Every page a template could have been saved under: the session's own key,
  * plus the per-page keys used when a page was a session. Old templates still
  * open -- they just become a session holding that page. */
-export const TEMPLATE_PAGES = [SESSION_SAVED_PAGE, "logs", ...PANE_TYPES.map((t) => t.savedPage)].filter(
+// The ported panes' old pages are listed by name: this is read when the module
+// loads, before the manifests register those panes (App.tsx).
+export const TEMPLATE_PAGES = [
+  SESSION_SAVED_PAGE,
+  "logs",
+  "tables-session",
+  "buckets-session",
+  "cognito-session",
+  ...PANE_TYPES.map((t) => t.savedPage),
+].filter(
   (p, i, all): p is string => !!p && all.indexOf(p) === i,
 );
 

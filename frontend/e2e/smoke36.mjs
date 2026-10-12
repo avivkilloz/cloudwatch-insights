@@ -1,7 +1,7 @@
 // CloudWatch and OpenSearch are separate group permissions, and a saved item's
 // collapsed row shows its name rather than its JSON.
 import { BASE, SHOT, check, launch, report } from "./harness.mjs";
-const SAVED = '.panel:has(h2:text-is("Saved items"))';
+const SAVED = '.panel:has(h2:text-is("Library"))';
 const GROUP = "Smoke CW only";
 const USER = "smokecw";
 
@@ -40,7 +40,9 @@ const run = async () => {
   }, [GROUP, USER]);
 
   // ---------- 1. two permissions, not one ----------
-  await openSettings(page, "User groups");
+  // Users and their groups are one tab, switched inside it (D50).
+  await openSettings(page, "Users");
+  await page.click('.segmented button:text-is("Groups")');
   // Groups open into sections now (PLATFORM_PLAN.md §14.8); a new one too.
   await page.click('button:text-is("New group")');
   await page.waitForSelector(".group-editor .group-flags", { timeout: 15000 });
@@ -99,7 +101,7 @@ const run = async () => {
   });
   await page.reload();
   await page.waitForSelector(".rail", { timeout: 15000 });
-  await openSettings(page, "Saved");
+  await openSettings(page, "Library");
   const row = `${SAVED} .result-row:has(.msg:text-is("Readable template"))`;
   await page.waitForSelector(row, { timeout: 15000 });
   const collapsed = (await page.locator(`${row} .result-row-summary`).innerText()).trim();

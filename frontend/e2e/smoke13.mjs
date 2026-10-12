@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 import fs from "fs";
 
 const SCRATCH = `${SHOT}/downloads`;
@@ -87,43 +87,35 @@ async function openSession(page, label) {
       },
     })
   );
-  await page.route("**/api/buckets/list*", (route) => route.fulfill({ json: { buckets: [{ name: "demo-bucket", creation_date: null }] } }));
-  await page.route("**/api/buckets/browse", (route) =>
-    route.fulfill({
-      json: {
-        bucket: "demo-bucket",
-        bucket_region: "us-east-1",
-        prefix: "",
-        folders: [],
-        files: [
-          { key: "alpha.txt", name: "alpha.txt", size: 42, last_modified: null, storage_class: null },
-          { key: "bravo.txt", name: "bravo.txt", size: 43, last_modified: null, storage_class: null },
-        ],
-        continuation_token: null,
-      },
-    })
-  );
-  await page.route("**/api/tables/list*", (route) => route.fulfill({ json: { tables: ["DemoTable"] } }));
-  await page.route("**/api/tables/describe", (route) =>
-    route.fulfill({ json: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 100, partition_key: "id", sort_key: null } })
-  );
-  await page.route("**/api/tables/scan", (route) =>
-    route.fulfill({
-      json: { items: [{ id: "1", name: "Alice" }, { id: "2", name: "Bob" }], scanned_count: 2, count: 2, last_evaluated_key: null },
-    })
-  );
-  await page.route("**/api/cognito/user-pools*", (route) => route.fulfill({ json: { user_pools: [{ id: "pool1", name: "MyPool" }] } }));
-  await page.route("**/api/cognito/users", (route) =>
-    route.fulfill({
-      json: {
-        users: [
-          { username: "alice", status: "CONFIRMED", enabled: true, created: null, last_modified: null, attributes: { email: "alice@example.com" } },
-          { username: "bob", status: "CONFIRMED", enabled: true, created: null, last_modified: null, attributes: { email: "bob@example.com" } },
-        ],
-        pagination_token: null,
-      },
-    })
-  );
+  // DynamoDB, Cognito and S3 are manifest panes: one action endpoint each.
+  await mockPaneActions(page, "buckets", {
+    list_buckets: { options: [{ value: "demo-bucket", label: "demo-bucket" }] },
+    browse: {
+      bucketRegion: "us-east-1",
+      activeSearch: "",
+      folders: [],
+      files: [
+        { key: "alpha.txt", name: "alpha.txt", size: 42, last_modified: null, storage_class: null },
+        { key: "bravo.txt", name: "bravo.txt", size: 43, last_modified: null, storage_class: null },
+      ],
+      continuationToken: null,
+    },
+  });
+  await mockPaneActions(page, "tables", {
+    list_tables: { options: [{ value: "DemoTable", label: "DemoTable" }] },
+    describe: { tableInfo: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 100, partition_key: "id", sort_key: null } },
+    scan: { items: [{ id: "1", name: "Alice" }, { id: "2", name: "Bob" }], scannedCount: 2, lastEvaluatedKey: null },
+  });
+  await mockPaneActions(page, "cognito", {
+    list_user_pools: { options: [{ value: "pool1", label: "MyPool (pool1)" }] },
+    search: {
+      users: [
+        { username: "alice", status: "CONFIRMED", enabled: true, created: null, last_modified: null, attributes: { email: "alice@example.com" } },
+        { username: "bob", status: "CONFIRMED", enabled: true, created: null, last_modified: null, attributes: { email: "bob@example.com" } },
+      ],
+      paginationToken: null,
+    },
+  });
   await page.route("**/api/iot/search", (route) =>
     route.fulfill({
       json: {
@@ -220,7 +212,8 @@ async function openSession(page, label) {
 
   // ---------- Tables ----------
   await openSession(page, "DynamoDB");
-  await page.waitForSelector("text=Saved tables");
+  // Its "Saved tables" card is now the "Load saved…" every pane has (D46).
+  await page.waitForSelector("text=1. Choose environment and table");
   await page.selectOption('.panel:has-text("Choose environment and table") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load tables")');
   await page.waitForSelector('option[value="DemoTable"]', { state: "attached" });
@@ -253,7 +246,7 @@ async function openSession(page, label) {
 
   // ---------- Buckets ----------
   await openSession(page, "S3");
-  await page.waitForSelector("text=Saved buckets");
+  await page.waitForSelector("text=1. Choose environment and bucket");
   await page.selectOption('.panel:has-text("Choose environment and bucket") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load buckets")');
   await page.waitForSelector('option[value="demo-bucket"]', { state: "attached" });

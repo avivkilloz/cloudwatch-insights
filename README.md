@@ -103,13 +103,20 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   the rows, the fetched-at markers, the agent conversation — so what's kept is
   everything you chose, including each Aggregator pane's own inputs. Open one
   from **+** and it starts a fresh session seeded with those inputs; nothing
-  you then do changes the saved copy. Manage them under **Saved items** in
-  Settings.
+  you then do changes the saved copy. Manage them under **Library →
+  Templates** in Settings.
+- **Saved inputs** are smaller: one pane's inputs under a name. Every pane
+  drawn from a manifest (DynamoDB, S3, Cognito, Base64, Diff, JWT, the API
+  table) has **Load saved…** and **Save as…** at its top right. Loading
+  fills the pane you're in — and runs what picking those inputs by hand
+  would, so a saved table is described and a saved bucket opened. A pasted
+  token or secret is never saved. They are listed, renamed and deleted under
+  **Library → Saved inputs**.
 - The **agent** has two conversations, a tab each in its panel: **Global**,
   about the platform as a whole, and **Session**, one per session, about that
   one — see [Platform agent](#platform-agent).
 
-Settings (including Environments, Users, Groups and Saved items) is reached
+Settings (including Environments, Users and their groups, and the Library) is reached
 from your picture's menu and is not a session; the strip stays above it.
 
 - Define **environments** — each one an AWS account paired with a single
@@ -152,10 +159,8 @@ from your picture's menu and is not a session; the strip stays above it.
   schemaless table other than scanning; leave the query blank to browse
   it unfiltered. Expand an item to see its full attributes as JSON. "Load
   more" pages through the table via DynamoDB's own `LastEvaluatedKey`.
-  A **Saved tables** panel at the top lets you bookmark an
-  environment+table pair via "Save current table" and jump straight back
-  to it later from "Load saved table…" — per-user, like every other saved
-  item, and manageable from Settings' **Saved** section too.
+  **Save as…** at the top of the pane bookmarks the environment, table and
+  filter; **Load saved…** jumps straight back (see Saved inputs above).
 - **S3 page**: pick one environment and a bucket (its actual region is
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
@@ -164,8 +169,8 @@ from your picture's menu and is not a session; the strip stays above it.
   instead. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
-  HTTPS URL) buttons. A **Saved buckets** panel works the same way as
-  DynamoDB' above — bookmark an environment+bucket pair for quick access.
+  HTTPS URL) buttons. **Save as…** / **Load saved…** bookmark an
+  environment, bucket and folder, as on DynamoDB.
 - **Cognito tab**: pick one environment and a user pool, then search users
   with a single `attribute:value` token (starts-with match, e.g.
   `email:john`) — Cognito's `ListUsers` only supports filtering by one
@@ -217,7 +222,7 @@ from your picture's menu and is not a session; the strip stays above it.
   errors line up with the devices that went offline — or have it write a
   pane's query, add or arrange panes. A
   session (which panes, in which order, and which layout) can be saved as a
-  template from its **⋮**, and those are managed under **Saved items → Session
+  template from its **⋮**, and those are managed under **Library →
   Templates**.
 - **Result row selection**, on every tab that returns a list of results —
   CloudWatch, OpenSearch, IoT (things and certificates), DynamoDB, S3 and
@@ -248,16 +253,17 @@ from your picture's menu and is not a session; the strip stays above it.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- Everything saved anywhere in the app — log/IoT saved queries and
-  searches, session templates, saved buckets/tables, saved HTTP
-  requests, and saved MQTT topics — is **per user** (each user only ever
-  sees and manages their own) and is managed from one **Saved items** panel
-  under the **Saved** section of Settings, with a tab for each kind (Session
-  Templates first, then Log Queries, IoT Searches,
-  S3, DynamoDB, HTTP Requests, MQTT Topics). The per-service session tabs
+- Everything saved anywhere in the app — session templates, saved inputs,
+  log/IoT saved queries and searches, saved HTTP requests, and saved MQTT
+  topics — is **per user** (each user only ever sees and manages their own)
+  and is managed from the **Library** section of Settings, with a tab for
+  each kind (Templates first, then Saved inputs, Log Queries, IoT Searches,
+  HTTP Requests, MQTT Topics). Saved tables and buckets became saved inputs,
+  once, when DynamoDB and S3 moved to manifests; the other kinds follow as
+  their panes do. The per-service session tabs
   (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
   than a session now, so nothing writes one, and the ones saved back then are
-  listed under Session Templates — which is also where Add offers them.
+  listed under Templates — which is also where Add offers them.
   Every kind supports full editing there, not just
   rename/delete: saved queries/searches edit their query text and extra
   fields (backend, search mode) directly; saved HTTP requests edit
@@ -378,9 +384,10 @@ initials), at the end of the strip — or of the docked agent panel's header:
 clicking it shows their username and group, a **Settings** link, and **Log
 out**. Settings itself is one page with a row of section tabs: **My
 account** (change your own password, upload/remove your avatar), **Theme**
-(see below), and **Saved** (manage your own saved queries/searches/sessions)
-are open to every user. Admin-group members additionally get **App
-settings**, **Environments**, **User groups**, and **Users** — everyone else
+(see below), and **Library** (your own templates, saved inputs, queries and
+searches) are open to every user. Admin-group members additionally get **App
+settings**, **Environments**, **Users** (with a *Users | Groups* switch for
+the user groups), and **Credentials** — everyone else
 can't add or
 edit users/groups, change app settings, or add/remove environments; those
 sections simply aren't there for them.
@@ -623,7 +630,7 @@ members only see the sections below), add an environment under **Environments** 
 a connection for each AWS account/region in it (the 12-digit account ID
 and a region). One environment can hold several, e.g. *iot* and *eks* in
 two accounts; panes then offer them as "Prod · iot" and "Prod · eks".
-Then, under **User groups**, give each group its AWS identity in
+Then, under **Users → Groups**, give each group its AWS identity in
 **Identities** — "A new AWS role…" with the role name (e.g.
 `CloudWatchInsightsReadRole`) — the role that group's members assume in
 every AWS connection it can see, unless an override names another for one
@@ -755,7 +762,7 @@ inputs and its output stay visibly separate.
   set headers/body, and see the status, headers, and body that come back.
   Requests can be saved and reloaded by name (**Save request** / **Load
   saved request…**) — manageable, including full editing, from the
-  **Saved items** panel's "HTTP Requests" tab, under Settings' **Saved** section. Requests are
+  "HTTP Requests" tab of Settings' **Library**. Requests are
   sent **from the backend**, not the
   browser, so they aren't
   subject to CORS — but for that same reason, the backend refuses to reach

@@ -13,7 +13,8 @@ and why.
 
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
 (2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built. Phase 3 is detailed in
-§15 (D37–D44, agreed 2026-10-08)._
+§15 (D37–D44, agreed 2026-10-08); its PR 1 is built. The rest of 3b is detailed in §16
+(D45–D50, agreed 2026-10-11)._
 
 ---
 
@@ -1201,6 +1202,12 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D42 | 2026-10-08 | **Each pane moves to the `in./out./view.` shape when it is ported**, with a per-pane-type version in the session; unported panes keep their keys. | A pane's code reads its own keys; switching them before it is rewritten is churn twice. Each pane is still migrated exactly once. |
 | D43 | 2026-10-08 | **Live panes use built-in live functions for now** (TypeScript in the browser, a Python twin for the agent and workflows); CEL in the browser arrives with the builder (Phase 5). | Nothing user-authored needs evaluating before the builder, and choosing a JavaScript CEL library now would be choosing before knowing what the builder needs. |
 | D44 | 2026-10-08 | **The agent may run GET requests on admin-configured HTTP API connections** (the API table pane), with the group's own identity; arbitrary requests (the HTTP client) stay behind the approval step. | It reads from a system an admin configured, as the AWS panes do; it doesn't send anything anywhere the user chose. |
+| D45 | 2026-10-11 | **The rest of 3b ships as five PRs** (§16.1): pickers, lists and Load more (DynamoDB, Cognito, S3); detail and requests (IoT, HTTP client); logs; charts; MQTT on the server. Phase 3 is eight PRs, amending D41's count. | Each is a sitting's worth of testing, and each adds something new to try. |
+| D46 | 2026-10-11 | **Saved inputs are one store for every pane type, separate from templates**; the five per-pane stores migrate into it as each pane is ported (§16.3.4). | Filling the pane you're in is not starting a session; every pane gains it at once. |
+| D47 | 2026-10-11 | **Picker options live in the tab's memory, not the session** (§16.2). | Less synced state; the agent stops writing option lists; the chosen value shows while the list reloads. |
+| D48 | 2026-10-11 | **How a pane looks is session state, synced like its inputs**: `view.` keys (expanded rows, group-by, sort, the diff's view) go to the server and every viewer, for every pane, including IoT and the logs, which keep them in memory today. | Arranging what is on screen is exactly what the agent will do to show users something, and what one member does to show another; per-browser view state would hide it. |
+| D49 | 2026-10-11 | **Old per-pane routes are kept for one release after their pane is ported**, then removed (§16.3.8). | A tab that hasn't reloaded yet keeps working; PR 1's stale-tab reload covers the rest. |
+| D50 | 2026-10-11 | **Settings → "Saved" becomes "Library"** (Templates and Saved inputs; the user asked for "Storage or similar", "Library" was proposed back for the reason given, and changing it is one word), and **Users and User groups become one tab** with a Users / Groups switch, as Credentials / Types (§16.3.4, §16.3.9). | "Library" says reusable things you start from or load; "Storage" is kept for files and blobs (D7), which will need a section of their own. One tab for people and their groups, as for credentials and their types. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -2143,7 +2150,7 @@ the API table works from its YAML alone; and the agent's registry is generated.
 
 ### 15.10 After PR 1 (outlined; detailed before each is built)
 
-- **PR 2, the rest of 3b.**
+- **PR 2, the rest of 3b** (detailed in §16, which proposes splitting it into five).
   - The remaining output components are extracted from their best current versions:
     - the log list (CloudWatch);
     - the expandable list with fetched detail (IoT);
@@ -2270,6 +2277,314 @@ Where the build departed from §15.1–15.9, and why:
   - `smoke64`: the stale tab.
   - `smoke20` needed one change: its fixed list of add buttons now ends with
     "API table".
+
+## 16. Phase 3b in detail: the AWS panes, the HTTP client and MQTT
+
+_Drafted 2026-10-11 for review, after PR 1 (§15) merged. Built on an inventory of the
+seven panes still drawn by hand (state keys, backend calls, cards, agent keys, the
+browser-suite selectors each depends on). §4.7 is the requirements list; this is how
+to meet it without any pane getting worse._
+
+### 16.1 Splitting 3b so each PR has something to try (D41)
+
+§15.10 put the rest of 3b in one PR: seven pane ports, four new output components,
+charts and MQTT on the server. That is too much to try in one sitting, so it splits
+by what the panes share. Each PR ports panes **and** adds something visibly new:
+
+| PR | Ports | Builds | New to try |
+|---|---|---|---|
+| **3b-1** Pickers, lists and Load more | DynamoDB, Cognito, S3 | connection pickers; options from a loader; cascades; a run on a pick; the expandable list; cursor paging; the file browser; row copy; the restored-results note; one store for saved inputs | **Saved inputs for every pane** ("Save as…" / "Load…"), including Cognito, Base64 and the API table, which had none; **Settings → Library**; **Users and groups in one tab** |
+| **3b-2** Detail and requests | IoT, HTTP client | a multi-connection picker; per-connection errors; a detail action per row, lazy and in bulk; a mode switching outputs; the request/response viewer; an action only a person may run (`effects: external`) | **Row detail anywhere:** "Include detail" and expand-to-fetch on any pane with a detail action. The agent inspects certificates too. |
+| **3b-3** Logs | CloudWatch, OpenSearch | the log list (merged targets, sort, cap, group by); two-level lazy pickers; a time range input; start / poll / **Stop** | **The agent can stop a running query**, and Stop survives a reload. OpenSearch's limit is fixed (§4.7). |
+| **3b-4** Charts | none | data frames, the chart spec, ECharts loaded on demand, KPI tiles (D11) | **A chart on the API table**, and a log-volume histogram over the log list |
+| **3b-5** MQTT on the server | MQTT | a subscription action, a stream output, publish behind approval (D6) | **The agent can subscribe**, and a shared session sees one stream |
+
+Phase 3 becomes eight PRs: PR 1 (done), these five, then 3c and 3d as before.
+
+The order goes simplest first, as in §4.4. Each PR leaves every pane working, and
+the old routes stay for one release (§16.3.8).
+
+### 16.2 What the manifest gains, for all of 3b
+
+What PR 1's manifests can't yet say, and the form each takes. Each is introduced in
+the first PR that needs it:
+
+- **Connection inputs drawn generically.**
+  - **Single** (`connection`, PR 1's type) gains a per-type label: `{name} ({account_id} · {region})` for AWS,
+    `{name} ({base_url})` for HTTP.
+  - **Multiple** (`connections`): today's environment checkbox list.
+  - Both replace `environment` / `environments` as part of the rename (D40, §16.3.6).
+- **Options from a loader:** `options: {action: list_tables, depends_on: [connection]}`.
+  - The loader is a server action returning `[{value, label}]`.
+  - It runs on demand ("Load tables") or when `depends_on` changes, and is cached in the
+    tab. **Options are no longer stored in the session** (§16.6, Q3).
+  - The agent gets the same action, so `list_dynamodb_tables` becomes generic.
+- **Cascades:** `resets: [tableName, out.items]` on an input clears what depends on it
+  when it changes. This is today's hand-written clearing, declared.
+- **A run on a change:** `run_on: {change: bucket}` on a server action runs it when that
+  input changes (S3's "pick a bucket shows it", DynamoDB's describe on pick).
+- **Bookkeeping and view keys are migrated too.** `ranAt` and `resultsVersion` move to
+  `out.`, `expanded` to `view.` (the inventory found the migration missed them).
+  `view.` keys are session state, synced to every viewer and settable by the agent
+  (D48).
+- **Runs no longer write their inputs back.**
+  - Today S3's run writes `bucket` and `prefix`.
+  - In v2 the inputs are the source of truth, and the run returns what it showed
+    (`out.shownPrefix`) only where the display needs it.
+- **`when` gains `in: [GET, HEAD]`** (the HTTP Body card) and **`not`**.
+- **Enter runs** a one-line input's card action (`submit: run`).
+
+### 16.3 PR 3b-1 in detail: DynamoDB, Cognito and S3
+
+#### 16.3.1 One action endpoint, for the browser and the agent
+
+- Today each pane calls its own routes (`/api/tables/scan`, `/api/cognito/users`,
+  `/api/buckets/browse`), and the agent runs separate `run_*` functions that write
+  legacy keys.
+- After the port, both call **`POST /api/panes/{type}/actions/{action}`** (PR 1's
+  endpoint). It dispatches to a handler registered by name (`aws.dynamodb.scan`).
+  - The handler takes the inputs and a cursor, and returns outputs.
+  - The flag, connection and identity checks happen once, in the endpoint, as
+    `run_request` does now.
+  - The agent's `run_pane` calls the same handler and writes its outputs with
+    `output_key`.
+  - One code path, so the browser and the agent can't drift (the reason for D5).
+- Loaders are actions too: `list_tables`, `list_user_pools`, `list_buckets`. The
+  `describe` action fetches DynamoDB's table info.
+
+#### 16.3.2 The list component
+
+The rows of DynamoDB, Cognito and the API table, generalised from today's
+`.result-row` lists (the API table's grid stays available as `render: table`):
+
+- **Summary:** a template over the row (`{{ row.username }}`). It can read another
+  output (DynamoDB's summary uses the table's keys from `out.tableInfo`).
+- **Tags:** a field with tones from a value map, e.g. Cognito's
+  `status: {CONFIRMED: ok, UNCONFIRMED: pending}` and `enabled: false → "disabled"
+  error`.
+- **Expanded:** `json` (DynamoDB) or `fields` (a key/value table with sections:
+  Cognito's dates and attributes). Expanded rows are `view.expanded`, synced (D48),
+  so the agent or a member can open a row for everyone looking.
+- **Toolbar:**
+  - select all, hide / show hidden, export, attach (PR 1's);
+  - a count line from a template ("{{ n }} item(s) loaded, {{ out.scannedCount }}
+    scanned so far");
+  - an empty text.
+- **Paging:** `page: {cursor: lastEvaluatedKey, append: [items], sum: [scannedCount]}`
+  on the action.
+  - The output carries the cursor, and the component shows **Load more** while it is
+    set.
+  - Load more re-runs the action with the cursor and appends.
+  - It doesn't bump `resultsVersion`, so the selection survives (as today).
+- **The restored-results note** with "Run again", for any pane with a server run.
+
+#### 16.3.3 The file browser (S3)
+
+- **Breadcrumbs from a prefix input:** clicking one sets `prefix` and re-runs (the
+  `set_input` effect of §4.3).
+- **Folder rows navigate** and can't be selected. **File rows** are a list (size and
+  time formats).
+- **Row copy is a templated `copy` effect.** "Copy S3 URI" is `s3://{{ in.bucket }}/{{
+  row.key }}`, and "Copy object URL" uses an `encode_path` filter. This is the first
+  use of §4.3's effects, and it works on any list.
+- **Search** is an input that switches the run to recursive, with a "Clear search"
+  that resets it.
+
+#### 16.3.4 Saved inputs, one store for every pane
+
+- **"Save as…" and "Load…" on every manifest pane** save the pane's inputs under a
+  name, by pane type, in one table (`saved_inputs`).
+  - Sensitive inputs are never saved.
+  - Loading writes the inputs and, for a pane that runs on a pick, runs.
+- **The old stores migrate into it** as each pane is ported. In 3b-1 that is
+  `saved_sessions` pages `tables` and `buckets`; IoT's searches, saved queries, HTTP
+  requests and MQTT topics follow in their PRs.
+- Each migration is once-only, keyed by a `Settings` marker, as Phase 2's was.
+- **Settings → Library** (D50, formerly "Saved") has two views, as Credentials has:
+  *Templates* and *Saved inputs*. Saved inputs are listed in one table with a pane-type
+  column and filter, rather than one tab per store; the per-store tabs go as each is
+  migrated.
+- **How it differs from a template:** a template starts a new session; saved inputs
+  fill the pane you're in. Both stay (Q2).
+
+#### 16.3.5 The three panes
+
+- **DynamoDB:**
+  - a connection; a table from `list_tables`, which runs `describe` on pick and
+    shows its info tags;
+  - `queryString` and `limit`, then Scan;
+  - the list with JSON expansion and Load more.
+- **Cognito:**
+  - a connection; a user pool from `list_user_pools`, with the label
+    `{{ name ?? id }} ({{ id }})`;
+  - `queryString` (Enter runs it), then Search;
+  - the list with status tags and a fields expansion, and Load more.
+  - The help text drops the group memberships it never fetched (§4.7).
+- **S3:**
+  - a connection; a bucket from `list_buckets`, which browses on pick;
+  - the file browser, search, and Load more.
+
+All three look and behave as today, checked by:
+- the same pixel comparison as PR 1;
+- smoke13, smoke22 and smoke23, unchanged.
+
+#### 16.3.6 `environment` → `connection` (D40), for these three
+
+- **Inputs:** `environmentId` becomes `in.connection`, through each manifest's
+  `legacy_key`.
+- **Payloads:** they accept both `environment_id` and `connection_id` for one release.
+- **The agent:** it already names connections by id or label. The manifest now says
+  "connection".
+- **Saved shortcuts:** their `environment_id` becomes `connection` on migration.
+- **Untouched:** IoT, logs and MQTT keep `environment(s)` until their PRs.
+
+#### 16.3.7 Tests
+
+- **Backend:**
+  - each handler, through the endpoint and through `run_pane`, giving the same
+    outputs;
+  - loaders;
+  - paging (append, sum, the cursor);
+  - the saved-inputs store and the once-only migration of `tables` / `buckets`;
+  - both payload names accepted;
+  - the legacy-key migration including `ranAt` / `resultsVersion` / `expanded`.
+  - `test_platform_tools.py`'s pinned keys for these panes move to the v2 shape.
+- **Browser:**
+  - smoke13, 22 and 23 pass unchanged;
+  - a new suite for saved inputs: save, load, and an old saved table / bucket opening
+    after migration, on DynamoDB, S3, Cognito and Base64;
+  - a new suite for row copy and breadcrumbs;
+  - both new suites fail against the old frontend.
+
+#### 16.3.8 Old routes
+
+- `/api/tables/*`, `/api/cognito/*` and `/api/buckets/*` stay for one release, for a
+  tab that hasn't reloaded yet (PR 1's stale-tab reload covers the rest).
+- They are removed in 3b-2, along with the old pages' components.
+
+#### 16.3.9 Settings: Users and groups in one tab
+
+- **Users** and **User groups** become one tab, **Users**, with a *Users | Groups*
+  switch in the Credentials layout (`settingsLayout.tsx`). Each view keeps today's
+  screens and behaviour.
+- With "Saved" renamed **Library**, Settings goes from nine tabs to eight and stops
+  wrapping.
+- Suites that open these tabs by name (smoke13, 16, 17, 20, 22, 23, 36, 60, 61)
+  change only their navigation steps.
+
+### 16.4 PR 3b-2, outlined: IoT and the HTTP client
+
+- **`connections`** (a checkbox list), and actions that fan out across connections and
+  return per-connection errors (the "Target errors" box).
+- **A detail action per row:**
+  - `detail: {action: thing_detail, key: [connection, thingName]}`;
+  - expand-to-fetch, cached in the tab;
+  - "Include detail" fetches the checked rows, five at a time, into export and attach.
+  - The agent's `inspect_row` uses the same action, so it gains certificates.
+- **IoT's mode** switches which output, detail action and selection domain apply:
+  `when` on outputs, as in PR 1.
+- **The HTTP client:**
+  - the request/response viewer (status badge by range, headers table, pretty
+    body);
+  - Send is an `effects: external` action: a person may run it, the agent may not;
+  - its last exchange is always attached (`attach: always`).
+  - `targetId` joins the manifest, so the agent can set it.
+
+### 16.5 PRs 3b-3 to 3b-5, outlined
+
+- **3b-3 Logs:**
+  - the log list (merged targets, numeric-aware sort, the "most recent N of M" cap,
+    group by);
+  - `log_groups` and `opensearch_indices` drawn generically, as two-level lazy
+    pickers;
+  - a `time_range` input type;
+  - sort options from the output's fields;
+  - async actions: start returns handles kept in `out.`, poll every 2 s, Stop as an
+    action. A reload resumes polling instead of losing the run, and the agent can
+    Stop.
+- **3b-4 Charts:**
+  - outputs as data frames;
+  - the chart spec of §4.3 (timeseries, bar, pie, stat) drawn by ECharts, loaded
+    only when a chart is on screen;
+  - chart outputs on the API table and over the log list.
+- **3b-5 MQTT:** the subscription action and stream output of §4.4, over the existing
+  event stream, with subscriptions closed after the last viewer leaves.
+
+### 16.6 Settled for 3b-1
+
+Asked 2026-10-11, all settled the same day:
+- Split into five PRs (D45).
+- Saved inputs as one store, separate from templates (D46), in a Settings section
+  called **Library** (D50).
+- Picker options in the tab's memory (D47).
+- **View state stays in the session, synced (D48).** This reverses the draft's
+  proposal: how a pane looks is something the agent and other members set to show
+  you something.
+- Old routes kept for one release (D49).
+- Users and User groups become one tab (D50, §16.3.9).
+
+### 16.7 3b-1 as built
+
+Where the build departed from §16.2–16.3, and why:
+
+- **Manifest additions, as named in the code:**
+  - **On an input:** `options` (a loader action, its button text, its select's
+    placeholder), `resets`, and `submit` (Enter runs an action).
+  - **On an action:** `on_change`, `requires` (the sentence shown when an input is
+    missing, the same for the pane and the agent), `page`, `resets`, and `main`.
+  - **On the manifest:** `views` (view keys with their legacy key) and
+    `legacy_drop` (what the migration drops: picker options).
+  - **Layout items:** `error`, `restored`, `crumbs`, `button` + `sets` + `runs`
+    (Clear search), `busy`, `flash`, `more`, and `secondary` on an action's
+    button.
+  - The bookkeeping keys `ranAt` and `resultsVersion` move to `out.` for every v2
+    pane.
+- **A template language for text from data** (`panes/template.ts`). Paths,
+  `??`, `a ? b : c`, and the filters `bytes`, `time` and `encode_path`. It has no
+  calls, so a manifest can only read what it's given. §16.3.2 assumed one without
+  saying what it was; CEL replaces it with the builder.
+- **The list's details are declared:** `detail: json`, or sections of `fields`
+  and `entries`. DynamoDB's summary is a `keys` part: the row's values at the
+  table's key fields, which are read from another output.
+- **Where errors are shown is part of the layout.** A loader's error, and a
+  table's describe error, go under the card's toolbar as before (`error:`).
+  Otherwise an error sits beside its button.
+- **Saved inputs sit at the top right of every manifest pane's body.** This is
+  the only place that works in every layout, because tabs have no per-pane
+  header. The old "Saved tables" and "Saved buckets" cards are gone.
+- **"Templates" and "Saved inputs"** are the Library's first two tabs. The other
+  per-pane stores follow until their panes are ported.
+- **Settings → Users:** the add form opens from the list's head ("Add user"), as
+  New group and New credential do. With the list now first, it would otherwise
+  have been below every user.
+- **Payloads:** the new endpoint takes `connection`, and the old routes keep
+  `environment_id` for the one release they remain (D49). So D40's "both names"
+  needed nothing more for these panes.
+- **Not built:** the generic "list a picker's options" agent tool. The agent keeps
+  `list_dynamodb_tables`, `list_s3_buckets` and `list_cognito_user_pools`. It
+  comes with 3b-2, when the routes and the old tools go.
+- **New for the agent:** `inspect_row` works on these three panes (`rows.tables`,
+  `rows.cognito`, `rows.buckets`). Its run summary includes what describing the
+  table found.
+- **Fixed in passing:**
+  - The old S3 page called a browse it had just made "restored with this
+    session". Its card mounted at the same moment the run's time landed.
+  - Changing the table now clears the old table's scanned count too.
+- **Checked:**
+  - **Pixels:** every card of the three panes, across 24 states (empty, loaded,
+    picked, run, expanded, Load more, a folder, a search), matches the old pages
+    apart from anti-aliasing. The one exception is the S3 fix above.
+  - **Suite changes:**
+    - smoke13, 22 and 23 now mock the action endpoint (harness
+      `mockPaneActions`) instead of the old routes;
+    - smoke13's waits for the "Saved …" cards became waits for each pane's first
+      card;
+    - smoke23 addresses the environment select as the first one, because a
+      restored table now shows as a second select before its list reloads (D47);
+    - smoke35, 36 and 61 follow the renamed Settings tabs.
+  - **New suites:** smoke65 (saved inputs, the Library, Users and Groups) and
+    smoke66 (the file browser, row copy, Load more and the selection, an expanded
+    row reaching another tab, tag tones). Both fail against the old frontend.
 
 ## 12. Research sources
 

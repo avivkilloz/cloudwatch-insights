@@ -37,7 +37,7 @@ from .. import connections, models, schemas
 from ..panes import live
 from ..panes import manifest as pane_manifest
 from ..live_store import tag_set, untag
-from ..routers import buckets, cognito, iot, opensearch, queries, tables
+from ..routers import iot, opensearch, queries
 
 
 class InputError(Exception):
@@ -69,7 +69,10 @@ class Input:
     connection_type: Optional[str] = None
 
     def describe(self) -> dict:
-        out: dict[str, Any] = {"key": self.key, "type": _TYPE_NAMES[self.kind], "help": self.help}
+        type_name = _TYPE_NAMES[self.kind]
+        if self.kind == "connection" and self.connection_type == "aws":
+            type_name = _TYPE_NAMES["environment"]
+        out: dict[str, Any] = {"key": self.key, "type": type_name, "help": self.help}
         if self.choices:
             out["choices"] = list(self.choices)
         if self.minimum is not None:
@@ -222,6 +225,11 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
     if kind == "credential":
         return _usable_credential(rc, value)
     if kind == "connection":
+        # An AWS connection is named the way environments always were (by id,
+        # label, or an environment with one AWS connection), so the agent
+        # needs nothing new for a pane renamed from environment (D40).
+        if spec.connection_type == "aws":
+            return _visible_environment(rc, value)
         return _visible_connection(rc, value, spec.connection_type or "")
     if kind == "headers":
         if not isinstance(value, dict):
@@ -275,6 +283,10 @@ class PaneKind:
     detail_help: str = ""
     # Stores in./out. keys (the v2 state shape, PLATFORM_PLAN.md §15.4).
     v2: bool = False
+    # What a change to each input clears (its manifest `resets`), as keys
+    # relative to the pane, and each view key's default.
+    resets: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    view_defaults: dict[str, Any] = field(default_factory=dict)
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -566,13 +578,6 @@ async def _iot_detail(rc: RunContext, values: dict, row: dict) -> dict:
     return {"environment": row.get("environment"), **detail.model_dump()}
 
 
-def _environment_id(values: dict) -> int:
-    environment_id = values.get("environmentId")
-    if environment_id in (None, ""):
-        raise InputError("Choose an environment first (set environmentId).")
-    return int(environment_id)
-
-
 def _call(fn, **kwargs):
     """A router function that reports failure with an HTTPException (the
     single-environment ones), with its message passed on as-is."""
@@ -580,135 +585,6 @@ def _call(fn, **kwargs):
         return fn(**kwargs)
     except HTTPException as e:
         raise _http_error(e) from None
-
-
-async def run_tables(rc: RunContext, values: dict) -> RunResult:
-    environment_id = _environment_id(values)
-    listed = await asyncio.to_thread(
-        _call, tables.list_tables, environment_id=environment_id, db=rc.db, current_user=rc.user
-    )
-    writes: dict[str, Any] = {"tables": list(listed.tables)}
-    table_name = values.get("tableName") or ""
-    if not table_name:
-        return RunResult(writes=writes, summary={"tables": list(listed.tables)})
-    info = await asyncio.to_thread(
-        _call,
-        tables.describe_table,
-        payload=schemas.DynamoTableDescribeRequest(environment_id=environment_id, table_name=table_name),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    scanned = await asyncio.to_thread(
-        _call,
-        tables.scan_table,
-        payload=schemas.DynamoScanRequest(
-            environment_id=environment_id,
-            table_name=table_name,
-            query_string=values.get("queryString") or "",
-            limit=min(max(int(values.get("limit") or 25), 1), 200),
-        ),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    writes.update(
-        {
-            "tableInfo": info.model_dump(),
-            "items": scanned.items,
-            "lastEvaluatedKey": scanned.last_evaluated_key,
-            "scannedCount": scanned.scanned_count,
-            "expanded": tag_set([]),
-            **_ran(values),
-        }
-    )
-    return RunResult(
-        writes=writes,
-        summary={
-            "table": info.model_dump(),
-            "items": len(scanned.items),
-            "scanned": scanned.scanned_count,
-            "more": scanned.last_evaluated_key is not None,
-            "sample": _sample(scanned.items),
-        },
-    )
-
-
-async def run_buckets(rc: RunContext, values: dict) -> RunResult:
-    environment_id = _environment_id(values)
-    listed = await asyncio.to_thread(
-        _call, buckets.list_buckets, environment_id=environment_id, db=rc.db, current_user=rc.user
-    )
-    writes: dict[str, Any] = {"buckets": [b.model_dump() for b in listed.buckets]}
-    bucket = values.get("bucket") or ""
-    if not bucket:
-        return RunResult(writes=writes, summary={"buckets": [b.name for b in listed.buckets]})
-    browsed = await asyncio.to_thread(
-        _call,
-        buckets.browse_bucket,
-        payload=schemas.S3BrowseRequest(
-            environment_id=environment_id,
-            bucket=bucket,
-            prefix=values.get("prefix") or "",
-            search=values.get("search") or "",
-        ),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    writes.update(
-        {
-            "bucket": browsed.bucket,
-            "bucketRegion": browsed.bucket_region,
-            "prefix": browsed.prefix,
-            "activeSearch": values.get("search") or "",
-            "folders": [f.model_dump() for f in browsed.folders],
-            "files": [f.model_dump() for f in browsed.files],
-            "continuationToken": browsed.continuation_token,
-            **_ran(values),
-        }
-    )
-    return RunResult(
-        writes=writes,
-        summary={
-            "bucket": browsed.bucket,
-            "prefix": browsed.prefix,
-            "folders": [f.prefix for f in browsed.folders][:SAMPLE_ROWS],
-            "files": len(browsed.files),
-            "more": browsed.continuation_token is not None,
-            "sample": _sample([f.model_dump() for f in browsed.files]),
-        },
-    )
-
-
-async def run_cognito(rc: RunContext, values: dict) -> RunResult:
-    environment_id = _environment_id(values)
-    pools = await asyncio.to_thread(
-        _call, cognito.list_user_pools, environment_id=environment_id, db=rc.db, current_user=rc.user
-    )
-    writes: dict[str, Any] = {"userPools": [p.model_dump() for p in pools.user_pools]}
-    pool_id = values.get("userPoolId") or ""
-    if not pool_id:
-        return RunResult(writes=writes, summary={"user_pools": [p.model_dump() for p in pools.user_pools]})
-    found = await asyncio.to_thread(
-        _call,
-        cognito.search_users,
-        payload=schemas.CognitoUserSearchRequest(
-            environment_id=environment_id, user_pool_id=pool_id, query_string=values.get("queryString") or ""
-        ),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    users = [u.model_dump() for u in found.users]
-    writes.update(
-        {
-            "users": users,
-            "paginationToken": found.pagination_token,
-            "expanded": tag_set([]),
-            **_ran(values),
-        }
-    )
-    return RunResult(
-        writes=writes,
-        summary={"users": len(users), "more": found.pagination_token is not None, "sample": _sample(users)},
-    )
 
 
 def _with_log_group_environments(values: dict) -> dict:
@@ -810,6 +686,67 @@ def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     return run
 
 
+def _summary(outputs: dict[str, Any], page: Optional[pane_manifest.Page]) -> dict[str, Any]:
+    """What a handler run tells the model: each list's length, a sample of
+    the paged one (or the first list), whether there is more, and anything
+    small as it is."""
+    out: dict[str, Any] = {}
+    lists = {k: v for k, v in outputs.items() if isinstance(v, list)}
+    for key, value in outputs.items():
+        if key in lists:
+            out[key] = len(value)
+        elif page is None or key != page.cursor:
+            out[key] = value
+    sampled = next((k for k in (page.append if page else []) if k in lists), next(iter(lists), None))
+    if sampled is not None:
+        out["sample"] = _sample([r for r in lists[sampled] if isinstance(r, dict)])
+    if page is not None:
+        out["more"] = outputs.get(page.cursor) is not None
+    return out
+
+
+def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+    """A ported pane's run, for the agent (§16.3.1): what picking its inputs
+    in the pane would have run (the on_change actions whose inputs are set --
+    DynamoDB's describe), then its main action, through the very function the
+    browser's action endpoint calls. A fresh run, never Load more."""
+    main = manifest.main_action()
+    if manifest.state != "v2" or main is None or main.handler is None:
+        return None
+    from ..routers import panes as panes_router  # the router imports this module
+
+    before = [
+        a for a in manifest.actions if a.handler and a.on_change and a is not main and not _is_loader(manifest, a)
+    ]
+
+    async def run(rc: RunContext, values: dict) -> RunResult:
+        outputs: dict[str, Any] = {}
+        try:
+            for action in before:
+                if all(values.get(k) not in (None, "", []) for k in action.on_change):
+                    outputs.update(
+                        await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, action, values)
+                    )
+            found = await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, main, values)
+        except HTTPException as e:
+            raise _http_error(e) from None
+        outputs.update(found)
+        writes = {**outputs, **_ran(values)}
+        for ref in main.resets:
+            part, _, key = ref.partition(".")
+            if part == "view":
+                writes[ref] = next((v.default for v in manifest.views if v.key == key), None)
+        # Everything it ran, so the model sees what describing found too (the
+        # table's keys) beside the rows.
+        return RunResult(writes=writes, summary=_summary(outputs, main.page))
+
+    return run
+
+
+def _is_loader(manifest: pane_manifest.Manifest, action: pane_manifest.ManifestAction) -> bool:
+    return any(i.options is not None and i.options.action == action.id for i in manifest.inputs)
+
+
 def _api_rows(values: dict) -> list[dict]:
     return [r for r in values.get("rows") or [] if isinstance(r, dict)]
 
@@ -818,15 +755,24 @@ HANDLERS: dict[str, Runner] = {
     "cloudwatch.run": run_cloudwatch,
     "opensearch.run": run_opensearch,
     "iot.run": run_iot,
-    "tables.run": run_tables,
-    "buckets.run": run_buckets,
-    "cognito.run": run_cognito,
 }
 IMPLIES: dict[str, Callable[[dict], dict]] = {
     "log_group_environments": _with_log_group_environments,
     "opensearch_environments": _with_opensearch_environments,
 }
+def _rows_of(key: str) -> RowLister:
+    """A ported pane's rows as its list output holds them."""
+
+    def rows(values: dict) -> list[dict]:
+        return [r for r in values.get(key) or [] if isinstance(r, dict)]
+
+    return rows
+
+
 ROW_LISTERS: dict[str, RowLister] = {
+    "rows.tables": _rows_of("items"),
+    "rows.cognito": _rows_of("users"),
+    "rows.buckets": _rows_of("files"),
     "rows.results": _query_rows("results"),
     "rows.osResults": _query_rows("osResults"),
     "rows.iot": _iot_rows,
@@ -837,11 +783,14 @@ DETAILERS: dict[str, Detailer] = {"detail.iot": _iot_detail}
 
 def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
     run: Optional[Runner] = None
-    for action in manifest.actions:
-        if action.handler:
-            run = HANDLERS[action.handler]
-            break
-    run = run or _live_runner(manifest) or _request_runner(manifest)
+    # A pane still drawn by hand names its agent runner (HANDLERS); a ported
+    # one names server actions (panes/handlers.ACTIONS) the browser runs too.
+    if manifest.state != "v2":
+        for action in manifest.actions:
+            if action.handler:
+                run = HANDLERS[action.handler]
+                break
+    run = run or _handler_runner(manifest) or _live_runner(manifest) or _request_runner(manifest)
     inspect = manifest.inspect
     return PaneKind(
         type=manifest.id,
@@ -867,6 +816,8 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
         detail=DETAILERS[inspect.detail] if inspect and inspect.detail else None,
         detail_help=inspect.help.strip() if inspect else "",
         v2=manifest.state == "v2",
+        resets={i.key: tuple(i.resets) for i in manifest.inputs if i.resets},
+        view_defaults={v.key: v.default for v in manifest.views},
     )
 
 
@@ -880,7 +831,10 @@ def input_key(kind: PaneKind, pane_id: str, key: str) -> str:
 
 
 def output_key(kind: PaneKind, pane_id: str, key: str) -> str:
-    """Where a run's result is stored: under `out.` for a v2 pane."""
+    """Where a run's result is stored: under `out.` for a v2 pane. A write
+    already naming its part (`view.expanded`, reset by a run) goes there."""
+    if kind.v2 and key.startswith(("view.", "in.", "out.")):
+        return f"{pane_id}.{key}"
     return f"{pane_id}.out.{key}" if kind.v2 else f"{pane_id}.{key}"
 
 

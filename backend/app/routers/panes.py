@@ -3,9 +3,10 @@
 `GET /api/pane-types` hands the browser every manifest the caller's group
 may use: the renderer draws a manifest pane from it alone. `POST
 /api/panes/{type}/actions/{action}` runs a manifest action that has to run
-on the server -- in PR 1, a declarative HTTP request (the API table's
-Fetch). Live actions run in the browser; the agent runs their Python twins
-(`app/panes/live.py`).
+on the server: a declarative HTTP request (the API table's Fetch), or a
+handler registered by name (`app/panes/handlers.py`: DynamoDB's scan, a
+picker's loader). Live actions run in the browser; the agent runs their
+Python twins (`app/panes/live.py`).
 """
 
 import json
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, connections, credential_types, masking, models, tools_http_client
 from ..db import get_db
+from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
 from ..resolve import ResolveError, require_flag, resolve_identity_values, resolve_target
 
@@ -41,6 +43,28 @@ def list_pane_types(current_user: models.User = Depends(auth.get_current_user)) 
 
 class ActionRun(BaseModel):
     inputs: dict[str, Any] = {}
+    # A paged action's cursor from its last run: Load more.
+    cursor: Any = None
+
+
+def run_handler(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    inputs: dict[str, Any],
+    cursor: Any = None,
+) -> dict[str, Any]:
+    """A handler action (§16.3.1), for the browser and the agent alike: the
+    manifest's `requires` first, then the handler, whose own checks (flag,
+    connection, identity) answer with the routes' sentences."""
+    message = pane_handlers.missing(action.requires, inputs)
+    if message:
+        raise HTTPException(status_code=400, detail=message)
+    handler = pane_handlers.ACTIONS.get(action.handler or "")
+    if handler is None:  # a manifest naming a handler that doesn't exist fails its tests
+        raise HTTPException(status_code=500, detail=f"{manifest.label}'s {action.id} has no handler.")
+    return handler(db, user, inputs, cursor)
 
 
 def _query(value: Any) -> dict[str, str]:
@@ -134,6 +158,8 @@ def run_action(
     if manifest is None or not _allowed(current_user, manifest):
         raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
     action = next((a for a in manifest.actions if a.id == action_id), None)
-    if action is None or action.request is None:
-        raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")
-    return run_request(db, current_user, manifest, action, payload.inputs)
+    if action is not None and action.request is not None:
+        return run_request(db, current_user, manifest, action, payload.inputs)
+    if action is not None and action.handler is not None and manifest.state == "v2":
+        return run_handler(db, current_user, manifest, action, payload.inputs, payload.cursor)
+    raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")

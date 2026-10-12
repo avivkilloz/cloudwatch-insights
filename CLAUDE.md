@@ -93,11 +93,41 @@ per pane type in `backend/app/panes/manifests/`, validated by a strict Pydantic
 model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
 and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
-  JWT, the API table) means the generic renderer (`frontend/src/panes/
-  ManifestPane.tsx`) draws it from the manifest's `layout` alone, and its keys
-  are `<pane>.in.<input>` / `.out.<output>` / `.view.<key>`. Every other
-  manifest only describes its pane to the agent and the catalogue until its PR
-  ports it; its page still reads its legacy keys.
+  JWT, the API table, DynamoDB, Cognito, S3) means the generic renderer
+  (`frontend/src/panes/ManifestPane.tsx`) draws it from the manifest's
+  `layout` alone, and its keys are `<pane>.in.<input>` / `.out.<output>` /
+  `.view.<key>`. Every other manifest only describes its pane to the agent
+  and the catalogue until its PR ports it; its page still reads its legacy
+  keys.
+- **One action endpoint for the browser and the agent** (§16.3.1):
+  `POST /api/panes/{type}/actions/{action}` runs a `request` action or a
+  `handler` registered by name in `panes/handlers.py` (`aws.dynamodb.scan`),
+  and `run_pane` calls the very same function (`routers/panes.run_handler`)
+  -- the manifest's `on_change` actions whose inputs are set, then its `main`
+  one. Never give a ported pane a route of its own or the agent a runner of
+  its own: that is the drift this exists to end. (For a pane still drawn by
+  hand, `handler` names its legacy agent runner in `platform_tools/panes.
+  HANDLERS`.) The handlers wrap the old per-service routes for now; those
+  routes stay one release for tabs that haven't reloaded (D49).
+- **What a ported pane's state means.** Inputs are the source of truth -- a
+  run never writes them back (S3's browse used to write `bucket`/`prefix`).
+  A person's change to an input goes through the renderer's `changeInputs`:
+  it clears what the input `resets` and runs the actions whose `on_change`
+  names it, once each, with the new values; the agent's `set_pane_inputs`
+  applies the same `resets`. Picker options (a loader's `{options}`) live in
+  the tab only, never the session (D47). `view.` keys -- expanded rows -- are
+  session state, synced and agent-settable like inputs (D48): how a pane
+  looks is what the agent and other members change to show you something.
+  Load more (`page`) appends and sums without bumping `resultsVersion`, so
+  the selection survives.
+- **Text from data uses `panes/template.ts`**: `{{ path ?? 'default' }}`,
+  `{{ a ? b : c }}`, `| bytes | time | encode_path`. Nothing else -- no calls
+  -- so a manifest from anywhere can only read what it's given.
+- **Saved inputs** (D46): "Load saved… / Save as…" on every manifest pane,
+  one table (`saved_inputs`) by pane type, the user's own; the server keeps
+  only the manifest's non-sensitive inputs whatever the browser sends. The
+  per-pane stores move into it once each, as their pane is ported
+  (`panes/saved.py`, a `Settings` marker per move).
 - **The browser loads manifests before any session mounts** (`PaneTypesGate`,
   App.tsx): the catalogue (`registerManifestPanes`), the renderer and the
   key migration all need them.
@@ -451,11 +481,13 @@ URL); a group's identity says *who* (D31).
   (`name` is the label) and a pane input may name a connection by id or
   label, or an environment when it has exactly one AWS connection --
   several, and it is told to choose (`panes._visible_environment`).
-- **Settings → Environments / User groups** use the Credentials layout
+- **Settings → Environments / Users → Groups** use the Credentials layout
   (`settingsLayout.tsx`): connections are saved one by one (each is its own
   record panes point at), with "Test as…" a group; the group's Identities
   replace the IAM role field ("A new AWS role…" creates the group's own
-  `aws_role` credential on Save).
+  `aws_role` credential on Save). Users and their groups are one tab with a
+  `ViewSwitch` (D50), as Credentials and Types are; "Saved" is **Library**
+  (Templates, Saved inputs, and the per-pane stores not yet migrated).
 
 **Sharing a session with other users is being built in phases** (`models.SessionMember`,
 `routers/live_sessions.py`'s `/members` routes and its own `_reachable`,

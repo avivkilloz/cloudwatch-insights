@@ -14,7 +14,7 @@ import {
   UserGroup,
 } from "../../api";
 import { CardRow, CardSection } from "../SessionCard";
-import { rowProps, Section, ViewHead } from "./settingsLayout";
+import { rowProps, Section, ViewHead, ViewSwitch } from "./settingsLayout";
 
 /*
  * Settings → Credentials (PLATFORM_PLAN.md §13.6): one tab, switching between
@@ -56,35 +56,19 @@ function OffNotice({ status }: { status: CredentialsStatus | null }) {
 
 type View = "credentials" | "types";
 
-/** Credentials | Types, at the head of either list. */
-function ViewSwitch({ view, onChange }: { view: View; onChange: (v: View) => void }) {
-  return (
-    <div className="segmented" role="group" aria-label="Show">
-      {(
-        [
-          ["credentials", "Credentials"],
-          ["types", "Types"],
-        ] as const
-      ).map(([value, label]) => (
-        <button
-          key={value}
-          className={view === value ? "" : "secondary"}
-          aria-pressed={view === value}
-          onClick={() => onChange(value)}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
+const VIEWS = [
+  ["credentials", "Credentials"],
+  ["types", "Types"],
+] as const;
 
 export default function CredentialsSettings() {
   const [view, setView] = useState<View>("credentials");
   return (
     <div className="credentials-settings">
-      {view === "credentials" ? <CredentialsView switcher={<ViewSwitch view={view} onChange={setView} />} /> : null}
-      {view === "types" ? <TypesView switcher={<ViewSwitch view={view} onChange={setView} />} /> : null}
+      {view === "credentials" ? (
+        <CredentialsView switcher={<ViewSwitch views={VIEWS} view={view} onChange={setView} />} />
+      ) : null}
+      {view === "types" ? <TypesView switcher={<ViewSwitch views={VIEWS} view={view} onChange={setView} />} /> : null}
     </div>
   );
 }

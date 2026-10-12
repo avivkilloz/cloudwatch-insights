@@ -117,6 +117,15 @@ export interface User {
   agent_enabled: boolean;
 }
 
+/** One pane's inputs under a name (PLATFORM_PLAN.md D46). Never a sensitive input. */
+export interface SavedInput {
+  id: number;
+  pane_type: string;
+  name: string;
+  inputs: Record<string, unknown>;
+  created_at?: string | null;
+}
+
 export interface SavedSession<T = Record<string, unknown>> {
   id: number;
   page: string;
@@ -790,11 +799,21 @@ export const api = {
   /** Every pane type the user's group may use, as its manifest describes it (PLATFORM_PLAN.md §15). */
   listPaneTypes: () => req<PaneManifest[]>("/pane-types"),
   /** Runs a manifest action that needs the server (the API table's Fetch); returns its outputs by key. */
-  runPaneAction: (type: string, action: string, inputs: Record<string, unknown>) =>
+  runPaneAction: (type: string, action: string, inputs: Record<string, unknown>, cursor?: unknown) =>
     req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
       method: "POST",
-      body: JSON.stringify({ inputs }),
+      // A cursor only for Load more: a first run's request is just its inputs.
+      body: JSON.stringify(cursor === undefined || cursor === null ? { inputs } : { inputs, cursor }),
     }),
+
+  /** A pane's inputs saved under a name (D46), by pane type; the user's own. */
+  listSavedInputs: (paneType?: string) =>
+    req<SavedInput[]>(`/saved-inputs${paneType ? `?pane_type=${encodeURIComponent(paneType)}` : ""}`),
+  createSavedInputs: (payload: { pane_type: string; name: string; inputs: Record<string, unknown> }) =>
+    req<SavedInput>("/saved-inputs", { method: "POST", body: JSON.stringify(payload) }),
+  updateSavedInputs: (id: number, payload: { name?: string; inputs?: Record<string, unknown> }) =>
+    req<SavedInput>(`/saved-inputs/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteSavedInputs: (id: number) => req<void>(`/saved-inputs/${id}`, { method: "DELETE" }),
   listEnvironmentRecords: () => req<EnvironmentRecord[]>("/environments"),
   createEnvironment: (payload: { name: string; description?: string | null; account_id?: string; region?: string }) =>
     req<EnvironmentRecord>("/environments", { method: "POST", body: JSON.stringify(payload) }),

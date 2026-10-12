@@ -232,6 +232,23 @@ class IotSavedSearch(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class SavedInput(Base):
+    """A pane's inputs under a name (PLATFORM_PLAN.md D46): "Load…" fills the
+    pane you're in, where a template (SavedSession) starts a new session. One
+    store for every pane type, replacing the per-pane saved tables, buckets,
+    searches and queries as each pane is ported. Never holds a `sensitive`
+    input (routers/saved_inputs.py keeps only the manifest's others)."""
+
+    __tablename__ = "saved_inputs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pane_type = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    inputs = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class SavedSession(Base):
     """A snapshot of an entire page's working state (selected environments,
     filters, query text, etc.) -- distinct from a SavedQuery/IotSavedSearch,

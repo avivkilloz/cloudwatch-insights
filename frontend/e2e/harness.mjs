@@ -244,3 +244,21 @@ export const RAIL_TYPE = (label) => `.rail-row-type:has(.rail-row-label:text-is(
 
 /** The way to the home page's new-session card, at the top of Add. */
 export const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
+
+/**
+ * Stands in for AWS behind a manifest pane's server actions
+ * (POST /api/panes/{type}/actions/{action}): `replies` maps an action id to
+ * its outputs, or to a function of the request body ({inputs, cursor})
+ * returning them. Ported panes call this one endpoint, where they used to
+ * call their own routes (/api/tables/scan…).
+ */
+export async function mockPaneActions(page, type, replies) {
+  await page.route(`**/api/panes/${type}/actions/*`, async (route) => {
+    const action = route.request().url().split("/actions/")[1].split("?")[0];
+    const reply = replies[action];
+    if (reply === undefined) return route.continue();
+    const body = JSON.parse(route.request().postData() || "{}");
+    const json = typeof reply === "function" ? await reply(body) : reply;
+    return route.fulfill({ json });
+  });
+}

@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 
 const V = ".session-body:not([hidden])";
 
@@ -18,9 +18,11 @@ async function saveActiveAsTemplate(page) {
       console.log("SAVEDEBUG", body.page, JSON.stringify(Object.keys(body.state || {})));
     }
   });
-  await page.route("**/api/tables/list*", (r) => r.fulfill({ json: { tables: ["DemoTable"] } }));
-  await page.route("**/api/tables/describe", (r) => r.fulfill({ json: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } }));
-  await page.route("**/api/tables/scan", (r) => r.fulfill({ json: { items: [{ id: "1", name: "Alice" }], scanned_count: 1, count: 1, last_evaluated_key: null } }));
+  await mockPaneActions(page, "tables", {
+    list_tables: { options: [{ value: "DemoTable", label: "DemoTable" }] },
+    describe: { tableInfo: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } },
+    scan: { items: [{ id: "1", name: "Alice" }], scannedCount: 1, lastEvaluatedKey: null },
+  });
   // The rail's catalogue folds shut by default now (smoke28 covers that);
   // these suites are about what it offers, so open it before the first paint.
   await page.addInitScript(() => {
@@ -195,13 +197,14 @@ async function saveActiveAsTemplate(page) {
     "A saved session restores the filter that was typed"
   );
   // The environment list is refetched on mount, so the restored id only shows
-  // as the select's value once its options exist.
-  const envSelect = `${V} .panel:has-text("Choose environment and table") select`;
+  // as the select's value once its options exist. The first select: the
+  // restored table shows as a second one, before its list is loaded (D47).
+  const envSelect = `${V} .panel:has-text("Choose environment and table") select >> nth=0`;
   for (let i = 0; i < 60 && (await page.locator(envSelect).inputValue()) === ""; i++) {
     await page.waitForTimeout(100);
   }
   check(
-    (await page.locator(`${V} .panel:has-text("Choose environment and table") select`).inputValue()) !== "",
+    (await page.locator(envSelect).inputValue()) !== "",
     "...and the environment that was chosen"
   );
   check(

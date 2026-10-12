@@ -1,13 +1,13 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 
 const TABLE_ITEMS = [{ id: "1", name: "Alice" }, { id: "2", name: "Bob" }];
 
 async function mock(page) {
-  await page.route("**/api/tables/list*", (r) => r.fulfill({ json: { tables: ["DemoTable"] } }));
-  await page.route("**/api/tables/describe", (r) =>
-    r.fulfill({ json: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } }));
-  await page.route("**/api/tables/scan", (r) =>
-    r.fulfill({ json: { items: TABLE_ITEMS, scanned_count: 2, count: 2, last_evaluated_key: null } }));
+  await mockPaneActions(page, "tables", {
+    list_tables: { options: [{ value: "DemoTable", label: "DemoTable" }] },
+    describe: { tableInfo: { table_name: "DemoTable", status: "ACTIVE", item_count: 2, size_bytes: 1, partition_key: "id", sort_key: null } },
+    scan: { items: TABLE_ITEMS, scannedCount: 2, lastEvaluatedKey: null },
+  });
 }
 
 async function login(page) {
