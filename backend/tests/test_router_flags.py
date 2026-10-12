@@ -112,8 +112,11 @@ def test_cognito_disabled_refuses_user_pools():
 
 
 def test_the_old_per_service_routes_are_gone():
-    # Kept one release for tabs that hadn't reloaded (D49), then removed in 3b-2.
+    # Kept one release for tabs that hadn't reloaded (D49): DynamoDB's,
+    # Cognito's and S3's removed in 3b-2, IoT's and the HTTP client's in 3b-3.
     env_id = _environment()
+    assert client.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": "x"}).status_code == 404
+    assert client.post("/api/tools/http-request", json={"method": "GET", "url": "https://example.com"}).status_code in (404, 405)
     assert client.get("/api/tables/list", params={"environment_id": env_id}).status_code == 404
     assert client.get("/api/buckets/list", params={"environment_id": env_id}).status_code == 404
     assert client.get("/api/cognito/user-pools", params={"environment_id": env_id}).status_code == 404
@@ -132,12 +135,7 @@ def test_opensearch_disabled_refuses_domains():
 def test_iot_disabled_refuses_search():
     env_id = _environment()
     off = _user(env_id, iot_enabled=False)
-    _refused(off.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": ""}))
     on = _user(env_id, iot_enabled=True)
-    resp = on.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": ""})
-    assert resp.status_code == 200
-    assert resp.json()["results"][0].get("error")
-    # And the ported pane's own action, the one the browser and agent use now.
     _no_pane(_action(off, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"}))
     resp = _action(on, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"})
     assert resp.status_code == 200, resp.text
@@ -147,7 +145,7 @@ def test_iot_disabled_refuses_search():
 def test_tools_disabled_refuses_http_client_and_mqtt():
     env_id = _environment()
     off = _user(env_id, tools_enabled=False)
-    _refused(off.post("/api/tools/http-request", json={"method": "GET", "url": "http://example.com", "headers": []}))
+    _no_pane(_action(off, "tool-http", "send", {"method": "GET", "url": "http://example.com"}))
     _refused(off.post("/api/tools/mqtt/presigned-url", json={"environment_id": env_id}))
 
     on = _user(env_id, tools_enabled=True)

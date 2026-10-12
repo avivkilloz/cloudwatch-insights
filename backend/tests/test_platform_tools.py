@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app import aws_client, iot_client, live_store, models
 from app.db import SessionLocal
 from app.main import app
+from app.panes import runs as pane_runs
 from app.platform_tools import panes, tokens
 from tests.conftest import client
 from tests.test_live_sessions import _drain, _listen
@@ -378,10 +379,10 @@ def test_inputs_are_stored_as_the_browser_expects_and_checked(mcp):
     )
     state = _row(session).state
     # Sets are tagged, or the browser's first .has() takes the page down.
-    assert state["logs-cloudwatch.logGroupSelection"] == {str(env): {"__cwiSet": ["/aws/lambda/checkout"]}}
+    assert state["logs-cloudwatch.in.logGroupSelection"] == {str(env): {"__cwiSet": ["/aws/lambda/checkout"]}}
     # Picking log groups ticks their environment, as it does by hand.
-    assert state["logs-cloudwatch.selectedEnvironmentIds"] == {"__cwiSet": [env]}
-    assert state["logs-cloudwatch.preset"] == 3600
+    assert state["logs-cloudwatch.in.connections"] == [env]
+    assert state["logs-cloudwatch.in.preset"] == 3600
 
     assert "no input" in call_error(
         mcp, token, "set_pane_inputs", session_id=session, pane_id="logs-cloudwatch", inputs={"nonsense": 1}
@@ -626,15 +627,17 @@ def test_inspect_row_gives_a_log_row_uncut(mcp, monkeypatch):
             _admin().id,
             session,
             lambda s, _r, _m: s.__setitem__(
-                "logs-cloudwatch.results",
-                [{"environment_id": 1, "rows": [[{"field": "@message", "value": long_message}, {"field": "@ptr", "value": "p"}]]}],
+                "logs-cloudwatch.out.results",
+                [{"environment_id": 1, "environment_name": "Prod",
+                  "rows": [[{"field": "@message", "value": long_message}, {"field": "@ptr", "value": "p"}]]}],
             ),
             None,
         )
     finally:
         db.close()
     out = call(mcp, token, "inspect_row", session_id=session, pane_id="logs-cloudwatch", row=0)
-    assert out["detail"] == {"@message": long_message}
+    # The row as the pane lists it: its environment, every field but CloudWatch's opaque @ptr.
+    assert out["detail"] == {"environment": "Prod", "@message": long_message}
     base64 = call(mcp, token, "add_pane", session_id=session, kind="tool-base64")["pane_id"]
     assert "no rows to inspect" in call_error(mcp, token, "inspect_row", session_id=session, pane_id=base64, row=0)
 
@@ -701,7 +704,7 @@ def _fake_cloudwatch(monkeypatch, rows: int = 3, polls_before_done: int = 0):
 
     monkeypatch.setattr(aws_client, "start_query", start_query)
     monkeypatch.setattr(aws_client, "get_query_results", get_query_results)
-    monkeypatch.setattr(panes, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(pane_runs, "POLL_SECONDS", 0.01)
     return calls
 
 
@@ -726,17 +729,19 @@ def test_run_pane_runs_on_the_server_and_puts_the_rows_in_the_pane(mcp, monkeypa
 
     assert calls["start"] == (["/app"], "fields @message", 900, 50)
     assert calls["polls"] == 3
-    assert out["total_rows"] == 3 and out["targets"][0]["status"] == "Complete"
+    assert out["status"] == "done" and out["results"]["total"] == 3
     # The sample the model reads leaves out CloudWatch's opaque @ptr.
-    assert out["sample"][0] == {"@timestamp": "2024-01-01 00:00:00", "@message": "m0"}
+    assert out["sample"][0] == {"environment": "Prod", "@timestamp": "2024-01-01 00:00:00", "@message": "m0"}
 
     state = _row(session).state
-    results = state["logs-cloudwatch.results"]
+    results = state["logs-cloudwatch.out.results"]
     assert results[0]["status"] == "Complete" and len(results[0]["rows"]) == 3
-    assert state["logs-cloudwatch.osResults"] == []
-    assert state["logs-cloudwatch.resultsVersion"] == 1 and state["logs-cloudwatch.ranAt"] > 0
-    # Two announced writes: the inputs as the run started, then its results.
-    assert [e["origin"] for e in events] == ["agent", "agent"]
+    assert state["logs-cloudwatch.out.run"]["status"] == "done"
+    assert state["logs-cloudwatch.out.resultsVersion"] == 1 and state["logs-cloudwatch.out.ranAt"] > 0
+    # The agent's write of the inputs, then the run's own: started, and each
+    # poll that changed something -- the results stream into the pane.
+    origins = [e["origin"] for e in events]
+    assert origins[0] == "agent" and set(origins[1:]) == {"run"} and len(origins) >= 3
 
 
 def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch):
@@ -757,7 +762,7 @@ def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch)
     )
     assert "cut down" in out["note"]
     state = _row(session).state
-    assert 0 < len(state["logs-cloudwatch.results"][0]["rows"]) < 4
+    assert 0 < len(state["logs-cloudwatch.out.results"][0]["rows"]) < 4
     assert live_store.state_bytes(state) <= 3000
 
 
@@ -811,3 +816,31 @@ def test_get_session_reports_inputs_and_result_counts(mcp, monkeypatch):
     pane = described["panes"][0]
     assert pane["inputs"]["logGroupSelection"] == {str(env): ["/app"]}
     assert pane["results"]["results"] == 1 and "last_run" in pane
+
+
+def test_a_query_still_running_is_left_running_and_the_agent_can_stop_it(mcp, monkeypatch):
+    # It used to be stopped at the agent's 90 s; now it keeps running in the
+    # pane, results arriving, and stop_pane is the agent's Stop button.
+    calls = _fake_cloudwatch(monkeypatch, rows=2, polls_before_done=10_000)
+    stopped: list[str] = []
+    monkeypatch.setattr(aws_client, "stop_query", lambda a, r, i, q: stopped.append(q))
+    from app.platform_tools import server
+
+    monkeypatch.setattr(server, "BACKGROUND_WAIT_SECONDS", 1.5)
+    token = _token()
+    env = _environment()
+    session = call(mcp, token, "create_session", title="s", panes=[{"kind": "logs-cloudwatch"}])["session_id"]
+    out = call(
+        mcp, token, "run_pane", session_id=session, pane_id="logs-cloudwatch",
+        inputs={"logGroupSelection": {str(env): ["/app"]}},
+    )
+    assert out["status"] == "running" and "keeps running" in out["note"] and calls["polls"] >= 1
+    assert out["results"]["total"] == 2 and stopped == []
+
+    kinds = {k["kind"]: k for k in call(mcp, token, "get_context")["pane_kinds"]}
+    assert "stop_pane" in kinds["logs-cloudwatch"] and "stop_pane" not in kinds["logs-opensearch"]
+    assert call(mcp, token, "stop_pane", session_id=session, pane_id="logs-cloudwatch")["stopped"] is True
+    assert stopped == ["q-1"]
+    assert _row(session).state["logs-cloudwatch.out.run"]["status"] == "stopped"
+    again = call(mcp, token, "stop_pane", session_id=session, pane_id="logs-cloudwatch")
+    assert again["stopped"] is False and "Nothing was running" in again["note"]

@@ -28,9 +28,10 @@ from typing import Any, Callable, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .. import aws_client, cognito_client, connections, dynamodb_client, iot_client, models, s3_client, schemas
+from .. import aws_client, cognito_client, connections, dynamodb_client, iot_client, models, opensearch_client, s3_client, schemas
 from ..live_store import untag
 from ..resolve import ResolveError, Target, resolve_identity, resolve_target
+from . import timewindow
 
 Handler = Callable[[Session, models.User, dict[str, Any], Any], dict[str, Any]]
 
@@ -248,6 +249,245 @@ def fan_out(
     return groups
 
 
+def _resolve_each(db: Session, user: models.User, ids: list[int]) -> list[tuple[dict[str, Any], Optional[aws_client.Identity]]]:
+    """Each connection as the caller, in this thread: its group's labels, and
+    who the caller is there (None, with the group's error, where they can't
+    be anyone). What `fan_out` does first, for a handler whose call differs
+    per connection (a CloudWatch query's log groups)."""
+    out = []
+    for connection_id in ids:
+        group: dict[str, Any] = {
+            "environment_id": connection_id,
+            "environment_name": str(connection_id),
+            "account_id": "",
+            "region": "",
+            "error": None,
+        }
+        identity = None
+        try:
+            target = resolve_target(db, connection_id, user)
+            group.update(environment_name=target.name, account_id=target.account_id, region=target.region)
+            identity = resolve_identity(db, target, user)
+        except ResolveError as e:
+            group["error"] = str(e)
+        out.append((group, identity))
+    return out
+
+
+def _parallel(jobs: list[tuple[dict[str, Any], Callable[[], Any]]], key: str) -> None:
+    """Runs each job's call in the pool and stores its result in its group
+    under `key`, or the group's error -- one environment's failure is its own."""
+    pending = [(group, _executor.submit(call)) for group, call in jobs]
+    for group, future in pending:
+        try:
+            group[key] = future.result()
+        except Exception as e:  # noqa: BLE001
+            group["error"] = str(e)
+
+
+# ---------------------------------------------------------------- logs (CloudWatch, OpenSearch)
+
+CLOUDWATCH_DONE = {"Complete", "Failed", "Cancelled", "Timeout"}
+
+
+def _range(inputs: dict[str, Any]) -> tuple[int, int]:
+    try:
+        return timewindow.window(inputs, inputs.get("_tz"))
+    except timewindow.TimeRangeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+
+def _names(value: Any) -> list[str]:
+    value = untag(value)
+    if isinstance(value, dict):
+        value = list(value)
+    return [str(v) for v in value] if isinstance(value, (list, tuple, set)) else []
+
+
+def _log_group_targets(inputs: dict[str, Any]) -> dict[int, list[str]]:
+    selection = untag(inputs.get("logGroupSelection")) or {}
+    out: dict[int, list[str]] = {}
+    for env, names in (selection.items() if isinstance(selection, dict) else []):
+        listed = _names(names)
+        if listed:
+            try:
+                out[int(env)] = listed
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _limit_of(inputs: dict[str, Any], high: int) -> int:
+    return _limit(inputs.get("limit"), 100, high)
+
+
+def logs_list_log_groups(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """Every log group in each chosen environment: a two-level picker's
+    options (D47, in the tab), one group per environment with its own error."""
+    groups = fan_out(
+        db,
+        user,
+        connection_ids(inputs.get("connections")),
+        "items",
+        lambda account, region, identity: [lg["name"] for lg in aws_client.list_log_groups(account, region, identity)],
+    )
+    return {"groups": groups}
+
+
+def cloudwatch_start(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """Starts one Logs Insights query per environment with log groups chosen.
+    Returns the handles a background run polls (D51), and a result for every
+    environment that couldn't start, so the pane says why at once."""
+    targets = _log_group_targets(inputs)
+    if not targets:
+        raise HTTPException(status_code=400, detail="Select at least one log group to query.")
+    start, end = _range(inputs)
+    query = str(inputs.get("queryString") or "")
+    limit = _limit_of(inputs, 10000)
+    resolved = _resolve_each(db, user, sorted(targets))
+    jobs = []
+    for group, identity in resolved:
+        if identity is None:
+            continue
+        names = targets[group["environment_id"]]
+        jobs.append(
+            (
+                group,
+                lambda g=group, i=identity, n=names: aws_client.start_query(
+                    g["account_id"], g["region"], i, n, query, start, end, limit
+                ),
+            )
+        )
+    _parallel(jobs, "query_id")
+    handles = [{**g, "query_id": g.get("query_id")} for g, _ in resolved]
+    failed = [
+        {**{k: h[k] for k in ("environment_id", "environment_name", "account_id", "region")},
+         "query_id": "", "status": "Failed", "rows": [], "statistics": None, "error": h["error"]}
+        for h in handles
+        if h.get("error") or not h.get("query_id")
+    ]
+    return {"handles": handles, "results": failed}
+
+
+def _rows(data: dict[str, Any]) -> list[list[dict[str, str]]]:
+    return [[{"field": f["field"], "value": f["value"]} for f in row] for row in data.get("results") or []]
+
+
+def cloudwatch_poll(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """Each running query's results so far, and whether all are finished.
+    Run as whoever started the queries (the background run knows who)."""
+    handles = [h for h in inputs.get("handles") or [] if isinstance(h, dict)]
+    live = [h for h in handles if h.get("query_id") and not h.get("error")]
+    resolved = dict(
+        (g["environment_id"], (g, i)) for g, i in _resolve_each(db, user, sorted({int(h["environment_id"]) for h in live}))
+    )
+    results: list[dict[str, Any]] = []
+    jobs = []
+    for h in handles:
+        base = {k: h.get(k) for k in ("environment_id", "environment_name", "account_id", "region")}
+        if not (h.get("query_id") and not h.get("error")):
+            results.append({**base, "query_id": "", "status": "Failed", "rows": [], "statistics": None,
+                            "error": h.get("error") or "The query didn't start."})
+            continue
+        group, identity = resolved.get(int(h["environment_id"]), ({}, None))
+        item = {**base, "query_id": h["query_id"], "status": "Running", "rows": [], "statistics": None, "error": None}
+        results.append(item)
+        if identity is None:
+            item.update(status="Failed", error=group.get("error") or "You can't reach this environment any more.")
+            continue
+        jobs.append((item, lambda h=h, i=identity: aws_client.get_query_results(h["account_id"], h["region"], i, h["query_id"])))
+    _parallel(jobs, "_data")
+    for item in results:
+        data = item.pop("_data", None)
+        if item.get("error") and data is None:
+            item["status"] = "Failed"
+        elif data is not None:
+            item.update(status=data["status"], rows=_rows(data), statistics=data.get("statistics"))
+    return {"results": results, "done": all(r["status"] in CLOUDWATCH_DONE for r in results)}
+
+
+def cloudwatch_stop(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """Stops each query still running; best-effort, as stopping always was."""
+    handles = [h for h in inputs.get("handles") or [] if isinstance(h, dict) and h.get("query_id")]
+    resolved = dict(
+        (g["environment_id"], i) for g, i in _resolve_each(db, user, sorted({int(h["environment_id"]) for h in handles}))
+    )
+    jobs = []
+    for h in handles:
+        identity = resolved.get(int(h["environment_id"]))
+        if identity is not None:
+            jobs.append(({}, lambda h=h, i=identity: aws_client.stop_query(h["account_id"], h["region"], i, h["query_id"])))
+    _parallel(jobs, "_stopped")
+    return {}
+
+
+def opensearch_list_domains(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    groups = fan_out(
+        db,
+        user,
+        connection_ids(inputs.get("connections")),
+        "items",
+        lambda account, region, identity: opensearch_client.list_domains(account, region, identity),
+    )
+    return {"groups": groups}
+
+
+def opensearch_list_indices(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """One domain's indices, for its level of the picker."""
+    t, identity = _one(db, user, inputs)
+    endpoint = str(inputs.get("domainEndpoint") or "")
+    listed = _aws("Failed to list indices", lambda: opensearch_client.list_indices(t.account_id, t.region, identity, endpoint))
+    return {"options": [{"value": i["index"], "label": i["index"], "docs_count": i.get("docs_count")} for i in listed]}
+
+
+def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """One Lucene search per chosen domain, its hits as the rows the log list
+    draws. A single request each: no start, poll or stop."""
+    from ..routers.opensearch import _hits_to_rows  # the hit flattening the old route had
+
+    selection = untag(inputs.get("openSearchSelection")) or {}
+    targets: list[tuple[int, str, str, list[str]]] = []
+    for env, domains in (selection.items() if isinstance(selection, dict) else []):
+        for domain, chosen in (domains or {}).items():
+            indices = _names((chosen or {}).get("indices"))
+            if indices:
+                targets.append((int(env), domain, str(chosen.get("domain_endpoint") or ""), indices))
+    if not targets:
+        raise HTTPException(status_code=400, detail="Select at least one index to search.")
+    start, end = _range(inputs)
+    query = str(inputs.get("queryString") or "")
+    field = str(inputs.get("timestampField") or "@timestamp")
+    # 1000: the most the search asks OpenSearch for (§4.7 found the page offering 10000).
+    limit = _limit_of(inputs, 1000)
+    by_env = {g["environment_id"]: (g, i) for g, i in _resolve_each(db, user, sorted({t[0] for t in targets}))}
+    results = []
+    jobs = []
+    for env, domain, endpoint, indices in targets:
+        group, identity = by_env[env]
+        item = {
+            **{k: group[k] for k in ("environment_id", "environment_name", "account_id", "region")},
+            "domain_name": domain, "indices": indices, "status": "Complete", "rows": [], "total_hits": None,
+            "error": group["error"],
+        }
+        results.append(item)
+        if identity is None:
+            item["status"] = "Failed"
+            continue
+        jobs.append(
+            (item, lambda i=identity, g=group, e=endpoint, x=indices: opensearch_client.search(
+                g["account_id"], g["region"], i, e, x, query, start, end, field, limit))
+        )
+    _parallel(jobs, "_data")
+    for item in results:
+        data = item.pop("_data", None)
+        if data is None:
+            item["status"] = "Failed" if item["error"] else item["status"]
+            continue
+        item["rows"] = [[f.model_dump() for f in row] for row in _hits_to_rows(data["hits"], item["domain_name"])]
+        item["total_hits"] = data.get("total")
+    return {"results": results}
+
+
 # ---------------------------------------------------------------- IoT
 
 IOT_DEFAULT_QUERY = {"things": "thingName:*", "certificates": "status:ACTIVE"}
@@ -387,6 +627,13 @@ ACTIONS: dict[str, Handler] = {
     "aws.iot.thing_detail": iot_thing_detail,
     "aws.iot.cert_detail": iot_cert_detail,
     "http.send": http_send,
+    "aws.logs.list_log_groups": logs_list_log_groups,
+    "aws.cloudwatch.start": cloudwatch_start,
+    "aws.cloudwatch.poll": cloudwatch_poll,
+    "aws.cloudwatch.stop": cloudwatch_stop,
+    "aws.opensearch.list_domains": opensearch_list_domains,
+    "aws.opensearch.list_indices": opensearch_list_indices,
+    "aws.opensearch.search": opensearch_search,
 }
 
 

@@ -10,17 +10,18 @@ Python twins (`app/panes/live.py`).
 """
 
 import json
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, connections, credential_types, masking, models, tools_http_client
+from .. import auth, connections, credential_types, live_store, masking, models, tools_http_client
 from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
+from ..panes import runs
 from ..resolve import ResolveError, require_flag, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api", tags=["panes"])
@@ -45,6 +46,17 @@ class ActionRun(BaseModel):
     inputs: dict[str, Any] = {}
     # A paged action's cursor from its last run: Load more.
     cursor: Any = None
+    # A background action (§16.9.1) writes its run into a session's pane, so
+    # it needs to know which: the session's client id and the pane's id.
+    session: Optional[str] = None
+    pane: Optional[str] = None
+    # The browser's own time zone, for a custom time range typed in it.
+    timezone: Optional[str] = None
+
+
+class RunStop(BaseModel):
+    session: str
+    pane: str
 
 
 def run_handler(
@@ -168,8 +180,65 @@ def run_action(
     if manifest is None or not _allowed(current_user, manifest):
         raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
     action = next((a for a in manifest.actions if a.id == action_id), None)
+    inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
+    if action is not None and action.poll is not None and manifest.state == "v2":
+        return _start_run(db, current_user, manifest, action, payload, inputs)
     if action is not None and action.request is not None:
         return run_request(db, current_user, manifest, action, payload.inputs)
     if action is not None and action.handler is not None and manifest.state == "v2":
-        return run_handler(db, current_user, manifest, action, payload.inputs, payload.cursor)
+        return run_handler(db, current_user, manifest, action, inputs, payload.cursor)
     raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")
+
+
+def _pane_of(db: Session, user: models.User, manifest: pane_manifest.Manifest, session: Optional[str], pane: Optional[str]):
+    """The session and pane a background run writes into, as the caller can
+    reach them (their own, or one shared with them)."""
+    if not session or not pane:
+        raise HTTPException(status_code=400, detail=f"{manifest.label} runs in a session's pane: say which.")
+    row, member = live_store.reachable(db, user.id, session)
+    if row is None:
+        raise HTTPException(status_code=404, detail="There is no such session for you.")
+    state = row.state or {}
+    types = state.get("paneTypes") or {}
+    if pane not in (state.get("services") or []) or (types.get(pane) or pane.split("~")[0]) != manifest.id:
+        raise HTTPException(status_code=404, detail=f"That session has no {manifest.label} pane '{pane}'.")
+    return row, member
+
+
+def _start_run(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    payload: ActionRun,
+    inputs: dict[str, Any],
+) -> dict[str, Any]:
+    """Starts a background action (D51): the server polls it into the
+    session, so all the browser gets back is the run; its results arrive the
+    way any other write to the session does."""
+    row, member = _pane_of(db, user, manifest, payload.session, payload.pane)
+    try:
+        run = runs.start(db, user, row, member, manifest, action, payload.pane, inputs)
+    except runs.RunError as e:
+        raise HTTPException(status_code=403 if "read-only" in str(e) else 400, detail=str(e)) from None
+    return {"run": {"id": run.id, "status": run.status}}
+
+
+@router.post("/panes/{type_id}/stop")
+def stop_run(
+    type_id: str,
+    payload: RunStop,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+) -> dict[str, Any]:
+    """Stops a pane's running background action -- anyone who can edit the
+    session may, as the pane's own Stop button and the agent's stop_pane do."""
+    manifest = pane_manifest.get(type_id)
+    if manifest is None or not _allowed(current_user, manifest):
+        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
+    row, member = _pane_of(db, current_user, manifest, payload.session, payload.pane)
+    try:
+        stopped = runs.stop(db, current_user, row, member, payload.pane)
+    except runs.RunError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
+    return {"stopped": stopped}

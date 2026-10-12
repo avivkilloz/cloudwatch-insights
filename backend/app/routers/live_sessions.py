@@ -41,8 +41,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import auth, live_store, models, schemas
-from ..db import get_db
+from .. import auth, live_store, models, presence, schemas
+from ..db import SessionLocal, get_db
 from ..panes import state as pane_state
 from ..live_events import listener, notify
 from ..live_store import MAX_STATE_BYTES, commit_write
@@ -189,6 +189,11 @@ OriginHeader = Header(default=None, alias="X-Sync-Origin", max_length=64)
 HEARTBEAT_SECONDS = 20.0
 
 
+def _presence(fn, *args):
+    with SessionLocal() as db:
+        return fn(db, *args)
+
+
 @router.get("/events")
 async def live_session_events(
     request: Request,
@@ -210,6 +215,11 @@ async def live_session_events(
 
     async def stream():
         sub = listener.subscribe(user_id)
+        # This tab is here while its stream is: what makes the sessions it has
+        # open "watched", so a long-running query in one is polled (D51).
+        # Short sessions of its own, for the same reason the request's was
+        # closed above.
+        tab_id = await asyncio.to_thread(_presence, presence.open_tab, user_id)
         try:
             # How long a browser waits before reconnecting after a drop.
             yield "retry: 3000\n\n"
@@ -217,12 +227,14 @@ async def live_session_events(
                 try:
                     event = await asyncio.wait_for(sub.queue.get(), timeout=HEARTBEAT_SECONDS)
                 except asyncio.TimeoutError:
+                    await asyncio.to_thread(_presence, presence.touch, tab_id, user_id)
                     yield ": heartbeat\n\n"
                     continue
                 event.pop("user_id", None)
                 yield f"data: {json.dumps(event)}\n\n"
         finally:
             listener.unsubscribe(sub)
+            await asyncio.to_thread(_presence, presence.close_tab, tab_id)
 
     # X-Accel-Buffering: nginx (the frontend container's proxy, and
     # ingress-nginx) would otherwise buffer the stream and deliver it in lumps.

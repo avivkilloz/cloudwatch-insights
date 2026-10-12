@@ -1208,6 +1208,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D48 | 2026-10-11 | **How a pane looks is session state, synced like its inputs**: `view.` keys (expanded rows, group-by, sort, the diff's view) go to the server and every viewer, for every pane, including IoT and the logs, which keep them in memory today. | Arranging what is on screen is exactly what the agent will do to show users something, and what one member does to show another; per-browser view state would hide it. |
 | D49 | 2026-10-11 | **Old per-pane routes are kept for one release after their pane is ported**, then removed (§16.3.8). | A tab that hasn't reloaded yet keeps working; PR 1's stale-tab reload covers the rest. |
 | D50 | 2026-10-11 | **Settings → "Saved" becomes "Library"** (Templates and Saved inputs; the user asked for "Storage or similar", "Library" was proposed back for the reason given, and changing it is one word), and **Users and User groups become one tab** with a Users / Groups switch, as Credentials / Types (§16.3.4, §16.3.9). | "Library" says reusable things you start from or load; "Storage" is kept for files and blobs (D7), which will need a section of their own. One tab for people and their groups, as for credentials and their types. |
+| D51 | 2026-10-12 | **A long-running action (a CloudWatch query) is polled by the server, and only while someone is looking** (§16.9). The server keeps the run in a `pane_runs` row and writes each poll's results into the session through the same versioned, announced path as the agent. It polls as whoever started the run, and only while the session is open in at least one connected browser (any participant's, with the session open in their workspace) or an agent turn is waiting on it. Unwatched, it pauses; still unwatched after 10 minutes, it stops the queries in AWS. A run whose replica died is picked up by another. | The user chose server polling so a shared session sees one stream, and asked that it not run all the time. Browser polling would have had every open tab poll, each as its own user, so a member without that environment's access would write errors into the shared results. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -2638,6 +2639,117 @@ The few choices made along the way are noted where they apply._
   - chart outputs on the API table and over the log list.
 - **3b-5 MQTT:** the subscription action and stream output of §4.4, over the existing
   event stream, with subscriptions closed after the last viewer leaves.
+
+### 16.9 PR 3b-3 in detail: the logs (CloudWatch and OpenSearch)
+
+_Detailed 2026-10-12, after 3b-2 merged, from an inventory of `InsightsPage.tsx`,
+`ResultsView.tsx`, the log-group and index pickers, and the routes and agent runners
+behind them. One question was asked: who polls a running query. Settled as D51._
+
+#### 16.9.1 Runs the server polls (D51)
+
+- **Presence.** Each browser's event stream (`/api/live-sessions/events`) records its
+  tab in `tab_presence` (user, last seen), refreshed with its 20 s heartbeat and
+  removed when it closes.
+  - A session is **watched** while any participant has a tab seen in the last 50 s
+    and the session open in their workspace, or while an agent turn waits on it.
+  - The streams are spread over replicas, so this lives in the database.
+- **A run** is a `pane_runs` row: the session, the pane, who started it, the handles,
+  a status, and the replica holding it with a heartbeat.
+  - The session's copy, `out.run` (`{id, status, startedAt, polledAt, by}`), is what
+    the pane shows.
+  - The results go where the pane draws them from (`out.results`).
+- **Starting.** The manifest's async action (`run: {poll, stop}`) is called with the
+  session and pane. It starts the queries as the caller, stores the run, and writes
+  `out.run` and any target that failed at once.
+  - A task on that replica then polls every 2 s while the session is watched. It
+    writes only when something changed.
+  - Unwatched, it checks every 10 s without calling AWS. After 10 minutes unwatched
+    it stops the queries and ends as "stopped (no one had the session open)".
+- **Stop** is an action anyone who can edit the session may run: the person, another
+  member, or the agent (`stop_pane`).
+  - It stops the queries and marks the run stopped.
+  - The polling task, on whichever replica, sees that on its next tick and ends.
+- **Replicas.** Every replica sweeps every 10 s for running runs whose heartbeat is
+  older than 30 s, and claims one with a conditional update. A redeploy mid-query
+  carries on.
+- **Writes don't reopen a closed session** (`live_store.mutate(..., reopen=False)`):
+  results arriving for a session someone closed must not put it back in their rail.
+- **The agent** starts a run the same way, counts as watching while it waits (up to
+  90 s), and answers from what has arrived.
+  - A query still running is left running, and its results keep arriving in the
+    pane. It used to be stopped at 90 s.
+- **A viewer** can't start or stop a run: both write the shared session.
+
+#### 16.9.2 The log list
+
+- **A `logs` render.** Today's `ResultsView`, drawn from the output's groups (one per
+  target, rows as `{field, value}` lists). It keeps:
+  - the merged "most recent N of M" cap (`limit` from an input);
+  - the numeric-aware sort;
+  - group by environment or log group;
+  - the timestamp, environment and log-group tags;
+  - Target errors;
+  - select, hide, export and attach.
+- **Sort field, direction and group by are view keys** (D48). They stay where they
+  are on screen: the sort in the Query card's toolbar, group by in the results
+  toolbar. The sort field's choices come from the output's fields.
+- **Expanded rows** become a view key too (D48).
+
+#### 16.9.3 Pickers and the time range
+
+- **Two-level pickers drawn generically:**
+  - `log_groups`: per environment, after "Load log groups", with a filter and select
+    all;
+  - `opensearch_indices`: per environment its domains, per domain "Load indices",
+    with doc counts.
+- Their loaders are actions (`list_log_groups`, `list_domains`, `list_indices`), and
+  their options live in the tab (D47). The agent's `list_log_groups` and
+  `list_opensearch_*` tools become `list_options` on these inputs.
+- **A `time_range` layout item** draws `preset`, `customStart` and `customEnd` as
+  today's control. The three inputs keep their names, so the agent's and templates'
+  keys are unchanged.
+
+#### 16.9.4 The two panes
+
+- **CloudWatch:**
+  - `selectedEnvironmentIds` becomes `in.connections` (D40, alias kept for the
+    agent);
+  - `logGroupSelection`, `queryString`, `limit` and the time inputs move under
+    `in.`;
+  - `results` moves to `out.results`;
+  - Run is the async action, with Stop beside it.
+- **OpenSearch:** the same layout. Its search stays one request; the async machinery
+  is CloudWatch's alone.
+  - `osResults` moves to `out.results`.
+  - **The limit is capped at 1000**, the backend's own maximum (§4.7).
+- **Saved queries move into saved inputs** (`{queryString}` by pane type, once). The
+  Library's Log Queries tab goes.
+- **Removed:** `InsightsPage.tsx`, `ResultsView.tsx`, both pickers,
+  `EnvironmentSelector.tsx`, and `rows.results` / `rows.osResults`. IoT's and the
+  HTTP client's old routes go (D49). The logs routes stay one release.
+
+#### 16.9.5 Tests
+
+- **Backend:**
+  - presence and watched;
+  - a run polled while watched and paused while not;
+  - stopped after 10 minutes unwatched;
+  - claimed after its replica's heartbeat lapses;
+  - Stop from another member and from the agent;
+  - a viewer refused;
+  - no reopening;
+  - the agent leaving a long query running;
+  - both migrations.
+- **Browser:**
+  - Run, results streaming in;
+  - Stop;
+  - a reload mid-run carrying on;
+  - a second tab seeing the same stream;
+  - sort, group by and the cap;
+  - both pickers, and the time range;
+  - each failing against the old frontend;
+  - pixel comparison, card by card.
 
 ### 16.6 Settled for 3b-1
 

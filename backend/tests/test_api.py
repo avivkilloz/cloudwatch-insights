@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.conftest import TEST_ROLE_NAME, client
+from tests.conftest import send_http, TEST_ROLE_NAME, client
 
 
 def _client_without_cookies() -> TestClient:
@@ -94,40 +94,6 @@ def test_start_query_rejects_out_of_range_limit():
     assert resp.status_code == 422
 
 
-def test_iot_saved_search_crud():
-    resp = client.post(
-        "/api/iot/saved-searches",
-        json={"name": "Disconnected prod devices", "query_string": "connectivity.connected:false"},
-    )
-    assert resp.status_code == 201
-    saved = resp.json()
-    assert saved["query_string"] == "connectivity.connected:false"
-    assert saved["search_mode"] == "things"  # default when not specified
-
-    resp = client.put(
-        f"/api/iot/saved-searches/{saved['id']}",
-        json={"query_string": "status:ACTIVE", "search_mode": "certificates"},
-    )
-    assert resp.status_code == 200
-    updated = resp.json()
-    assert updated["query_string"] == "status:ACTIVE"
-    assert updated["search_mode"] == "certificates"
-    assert updated["name"] == "Disconnected prod devices"  # untouched field preserved
-
-    resp = client.get("/api/iot/saved-searches")
-    assert resp.status_code == 200
-    assert any(s["id"] == saved["id"] for s in resp.json())
-
-    resp = client.delete(f"/api/iot/saved-searches/{saved['id']}")
-    assert resp.status_code == 204
-
-    resp = client.delete(f"/api/iot/saved-searches/{saved['id']}")
-    assert resp.status_code == 404
-
-    resp = client.put(f"/api/iot/saved-searches/{saved['id']}", json={"name": "x"})
-    assert resp.status_code == 404
-
-
 def test_saved_query_update():
     resp = client.post("/api/saved-queries", json={"name": "Errors", "query_string": "fields @message"})
     assert resp.status_code == 201
@@ -169,43 +135,29 @@ def test_saved_query_backend_field_persists_and_filters():
 
 
 def test_iot_search_reports_error_for_unconfigured_environment():
-    resp = client.post(
-        "/api/iot/search",
-        json={"environment_ids": [999999], "query_string": "connectivity.connected:true"},
-    )
+    resp = _action("iot", "search", {"connections": [999999], "queryString": "thingName:*"})
     assert resp.status_code == 200
-    results = resp.json()["results"]
+    results = resp.json()["thingResults"]
     assert len(results) == 1
     assert results[0]["error"] is not None
     assert results[0]["things"] == []
 
 
 def test_iot_thing_detail_rejects_unconfigured_environment():
-    resp = client.post(
-        "/api/iot/things/detail",
-        json={"environment_id": 999999, "thing_name": "my-thing"},
-    )
-    assert resp.status_code == 400
+    assert _action("iot", "thing_detail", {"connection": 999999, "thingName": "t"}).status_code == 400
 
 
 def test_iot_certificate_search_reports_error_for_unconfigured_environment():
-    resp = client.post(
-        "/api/iot/certificates/search",
-        json={"environment_ids": [999999], "query_string": "status:ACTIVE"},
-    )
+    resp = _action("iot", "search", {"connections": [999999], "searchMode": "certificates", "queryString": "status:ACTIVE"})
     assert resp.status_code == 200
-    results = resp.json()["results"]
+    results = resp.json()["certResults"]
     assert len(results) == 1
     assert results[0]["error"] is not None
     assert results[0]["certificates"] == []
 
 
 def test_iot_certificate_detail_rejects_unconfigured_environment():
-    resp = client.post(
-        "/api/iot/certificates/detail",
-        json={"environment_id": 999999, "certificate_id": "abc123"},
-    )
-    assert resp.status_code == 400
+    assert _action("iot", "cert_detail", {"connection": 999999, "certificateId": "c"}).status_code == 400
 
 
 def test_saved_session_crud():
@@ -379,13 +331,13 @@ def test_opensearch_search_rejects_out_of_range_limit():
 
 
 def test_tools_http_request_rejects_blocked_address():
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "http://169.254.169.254/latest/meta-data/"})
+    resp = send_http(client, {"method": "GET", "url": "http://169.254.169.254/latest/meta-data/"})
     assert resp.status_code == 400
     assert "169.254.169.254" in resp.json()["detail"]
 
 
 def test_tools_http_request_rejects_non_http_scheme():
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "ftp://example.com/file"})
+    resp = send_http(client, {"method": "GET", "url": "ftp://example.com/file"})
     assert resp.status_code == 400
 
 

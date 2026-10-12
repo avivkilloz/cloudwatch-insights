@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from app import credential_store, credential_types, crypto, keys, masking, models
 from app.db import SessionLocal
 from app.main import app
-from tests.conftest import client
+from tests.conftest import send_http, client
 
 K1 = base64.b64encode(b"1" * 32).decode()
 K2 = base64.b64encode(b"2" * 32).decode()
@@ -487,7 +487,7 @@ def test_the_http_client_authenticates_with_a_credential_server_side(monkeypatch
 
     monkeypatch.setattr(tools_http_client, "send_request", echo)
     cred = _create(name="api", type_id="api_token", values={"token": SECRET})
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/me",
+    resp = send_http(client, {"method": "GET", "url": "https://api.example.com/me",
                                                         "headers": [{"key": "Accept", "value": "application/json"}],
                                                         "credential_id": cred["id"]})
     assert resp.status_code == 200, resp.text
@@ -498,7 +498,7 @@ def test_the_http_client_authenticates_with_a_credential_server_side(monkeypatch
 
     # A credential whose type doesn't say how to authenticate is refused, readably.
     plain = _create(name="plain", type_id="secret_text", values={"value": SECRET})
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/", "credential_id": plain["id"]})
+    resp = send_http(client, {"method": "GET", "url": "https://api.example.com/", "credential_id": plain["id"]})
     assert resp.status_code == 400 and "don't say how to authenticate" in resp.json()["detail"]
 
 
@@ -514,7 +514,7 @@ def test_an_echoed_value_computed_from_a_secret_is_masked_too(monkeypatch):
 
     monkeypatch.setattr(tools_http_client, "send_request", echo)
     login = _create(name="login", type_id="username_password", values={"username": "demo-user", "password": SECRET})
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/get",
+    resp = send_http(client, {"method": "GET", "url": "https://api.example.com/get",
                                                         "credential_id": login["id"]})
     assert resp.status_code == 200, resp.text
     encoded = base64.b64encode(f"demo-user:{SECRET}".encode()).decode()
@@ -525,7 +525,7 @@ def test_an_echoed_value_computed_from_a_secret_is_masked_too(monkeypatch):
                                                "inject": {"kind": "query", "name": "api_key", "value": "key"}})
     key = "a key/with+specials=" + SECRET
     cred = _create(name="query", type_id="query_key", values={"key": key})
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/get",
+    resp = send_http(client, {"method": "GET", "url": "https://api.example.com/get",
                                                         "credential_id": cred["id"]})
     assert resp.status_code == 200, resp.text
     assert SECRET not in resp.text and "api_key=****" in resp.text
@@ -541,7 +541,7 @@ def test_the_http_client_can_not_use_another_groups_credential(monkeypatch):
     alpha = resp.json()["id"]
     client.post("/api/users", json={"username": "ann", "password": "pw-123456", "group_id": alpha})
     as_ann = _login_as("ann", "pw-123456")
-    resp = as_ann.post("/api/tools/http-request", json={"method": "GET", "url": "https://api.example.com/", "credential_id": theirs["id"]})
+    resp = send_http(as_ann, {"method": "GET", "url": "https://api.example.com/", "credential_id": theirs["id"]})
     assert resp.status_code == 404 and "isn't available to your group" in resp.json()["detail"]
     assert [c for c in as_ann.get("/api/credentials").json() if c["type_id"] != "aws_role"] == []
 

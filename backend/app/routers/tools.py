@@ -10,7 +10,8 @@ from ..resolve import ResolveError, require_flag, resolve_identity, resolve_iden
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
 
-@router.post("/http-request", response_model=schemas.HttpToolResponse)
+# No route of its own any more (D49): the HTTP client's Send is the
+# `http.send` handler, which calls this.
 def send_http_request(
     payload: schemas.HttpToolRequest,
     db: Session = Depends(get_db),

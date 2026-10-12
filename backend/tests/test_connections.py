@@ -15,7 +15,7 @@ from app import audit, connections, credential_store, crypto, dynamodb_client, m
 from app.db import SessionLocal
 from app.main import app
 from app.platform_tools import panes
-from tests.conftest import TEST_ROLE_NAME, client
+from tests.conftest import send_http, TEST_ROLE_NAME, client
 
 K1 = base64.b64encode(b"1" * 32).decode()
 
@@ -376,7 +376,7 @@ def test_the_http_client_sends_to_a_connection_with_the_groups_identity(master_k
     assert conn["id"] == conn["environment_id"]  # its environment's first connection
 
     # No identity anywhere: a public API, sent as it is.
-    resp = as_g.post("/api/tools/http-request", json={"method": "GET", "url": "/status", "target_id": conn["id"]})
+    resp = send_http(as_g, {"method": "GET", "url": "/status", "target_id": conn["id"]})
     assert resp.status_code == 200, resp.text
     assert sent["url"] == "https://api.example.com/v1/status" and "Authorization" not in sent["headers"]
 
@@ -385,7 +385,7 @@ def test_the_http_client_sends_to_a_connection_with_the_groups_identity(master_k
         "name": "partner-shared", "type_id": "api_token", "scope": "global", "values": {"token": "shared-token-1"}}).json()
     client.post(f"/api/credentials/{shared['id']}/grants/{group_id}")
     client.patch(f"/api/connections/{conn['id']}", json={"credential_id": shared["id"]})
-    resp = as_g.post("/api/tools/http-request", json={"method": "GET", "url": "status", "target_id": conn["id"]})
+    resp = send_http(as_g, {"method": "GET", "url": "status", "target_id": conn["id"]})
     assert sent["headers"]["Authorization"] == "Bearer shared-token-1"
     assert "shared-token-1" not in resp.text  # echoed back, masked
 
@@ -395,11 +395,11 @@ def test_the_http_client_sends_to_a_connection_with_the_groups_identity(master_k
         "values": {"token": "group-token-2"}}).json()
     client.put(f"/api/user-groups/{group_id}/identities",
                json={"identities": [{"connection_type_id": "http_api", "credential_id": own["id"]}]})
-    as_g.post("/api/tools/http-request", json={"method": "GET", "url": "/status", "target_id": conn["id"]})
+    send_http(as_g, {"method": "GET", "url": "/status", "target_id": conn["id"]})
     assert sent["headers"]["Authorization"] == "Bearer group-token-2"
 
     # A whole URL with a target picked is refused, saying where the path goes.
-    resp = as_g.post("/api/tools/http-request", json={"method": "GET", "url": "https://evil.example/x", "target_id": conn["id"]})
+    resp = send_http(as_g, {"method": "GET", "url": "https://evil.example/x", "target_id": conn["id"]})
     assert resp.status_code == 400 and "give a path" in resp.json()["detail"]
 
 
@@ -409,11 +409,11 @@ def test_an_http_api_connection_pointing_inward_is_still_refused_by_the_ssrf_gua
     conn = client.post(f"/api/environments/{env['id']}/connections", json={
         "type_id": "http_api", "name": "api", "config": {"base_url": "http://127.0.0.1:8000"}}).json()
     client.put(f"/api/environments/{env['id']}/groups", json={"group_ids": [group_id]})
-    resp = as_g.post("/api/tools/http-request", json={"method": "GET", "url": "/api/auth/me", "target_id": conn["id"]})
+    resp = send_http(as_g, {"method": "GET", "url": "/api/auth/me", "target_id": conn["id"]})
     assert resp.status_code == 400 and "127.0.0.1" in resp.json()["detail"]
 
 
 def test_an_aws_target_is_not_an_http_target():
     env = _env()
-    resp = client.post("/api/tools/http-request", json={"method": "GET", "url": "/x", "target_id": env["id"]})
+    resp = send_http(client, {"method": "GET", "url": "/x", "target_id": env["id"]})
     assert resp.status_code == 400 and "is not configured" in resp.json()["detail"]

@@ -34,7 +34,8 @@ InputType = Literal[
 ]
 
 Render = Literal[
-    "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach"
+    "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach",
+    "logs", "run",
 ]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
@@ -88,6 +89,12 @@ class Options(_Strict):
     busy_label: Optional[str] = None
     # The select's empty option ("Choose table…").
     placeholder: Optional[str] = None
+    # A two-level picker (`log_groups`, `opensearch_indices`): the loader
+    # returns `{"groups": [...]}`, one per connection; `children` is the
+    # action that lists one item's own options (a domain's indices), and
+    # `filter` the filter box's placeholder.
+    children: Optional[str] = None
+    filter: Optional[str] = None
 
 
 class ManifestInput(_Strict):
@@ -159,6 +166,15 @@ class Page(_Strict):
     busy_label: str = "Loading…"
 
 
+class Poll(_Strict):
+    """A long-running action (D51): its handler starts the work and returns
+    `handles`; the server polls them with `handler` (returning outputs and
+    `done`) while the session is watched, and `stop` ends them early."""
+
+    handler: str
+    stop: str
+
+
 class ManifestView(_Strict):
     """A key for how the pane looks (expanded rows, the diff's view): session
     state, synced to every viewer and settable by the agent (D48)."""
@@ -195,6 +211,9 @@ class ManifestAction(_Strict):
     # The action run_pane runs for the agent. A pane's on_change actions whose
     # inputs are set run first, as picking them in the pane would have.
     main: bool = False
+    # Run in the background and polled by the server (§16.9.1): the run is
+    # written into the session as `out.run`, its results as it goes.
+    poll: Optional[Poll] = None
     # An action for one row of a list (§16.4.2): its inputs are these paths
     # into the row and its group (`row.thing_name`, `group.environment_id`),
     # not the pane's inputs. Paths, not templates, so the server works out
@@ -273,6 +292,13 @@ class LayoutItem(_Strict):
     flash: bool = False
     # The Show/Hide examples button of this input's `examples`, and the list.
     examples: Optional[str] = None
+    # The Stop button of a background action's run (§16.9.1).
+    stop: Optional[str] = None
+    # A logs pane's time range: its preset, start and end inputs as one control.
+    time_range: Optional[dict[str, str]] = None
+    # "Sort by" a field of this output's rows, and the direction: the
+    # output's `sort` view keys, its fields the choices.
+    sort: Optional[str] = None
 
 
 class Card(_Strict):
@@ -357,12 +383,14 @@ class Manifest(_Strict):
                 raise ValueError(f"the layout names an output {item.output} that isn't declared")
             if item.action is not None and item.action not in actions:
                 raise ValueError(f"the layout names an action {item.action} that isn't declared")
+            if item.sort is not None and item.sort not in outputs:
+                raise ValueError(f"the layout sorts an output {item.sort} that isn't declared")
             if item.copy_of is not None and item.copy_of not in outputs:
                 raise ValueError(f"the layout copies an output {item.copy_of} that isn't declared")
-            for ref in (item.error, item.restored, item.runs, item.more, item.busy):
+            for ref in (item.error, item.restored, item.runs, item.more, item.busy, item.stop):
                 if ref is not None and ref not in actions:
                     raise ValueError(f"the layout names an action {ref} that isn't declared")
-            for ref in [item.crumbs, item.crumbs_root, item.examples, *item.sets]:
+            for ref in [item.crumbs, item.crumbs_root, item.examples, *item.sets, *(item.time_range or {}).values()]:
                 if ref is not None and ref not in inputs:
                     raise ValueError(f"the layout names an input {ref} that isn't declared")
             check_when(item.when)
@@ -403,6 +431,8 @@ class Manifest(_Strict):
                 check_key(ref)
             if i.options is not None and i.options.action not in actions:
                 raise ValueError(f"input {i.key}'s options come from an action {i.options.action} that isn't declared")
+            if i.options is not None and i.options.children is not None and i.options.children not in actions:
+                raise ValueError(f"input {i.key}'s children come from an action {i.options.children} that isn't declared")
             if i.type == "choice" and not i.choices:
                 raise ValueError(f"choice input {i.key} has no choices")
             if i.type in ("connection", "connections") and not i.connection_type:
