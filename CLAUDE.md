@@ -93,7 +93,7 @@ per pane type in `backend/app/panes/manifests/`, validated by a strict Pydantic
 model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
 and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
-  JWT, the API table, DynamoDB, Cognito, S3) means the generic renderer
+  JWT, the API table, DynamoDB, Cognito, S3, IoT, the HTTP client) means the generic renderer
   (`frontend/src/panes/ManifestPane.tsx`) draws it from the manifest's
   `layout` alone, and its keys are `<pane>.in.<input>` / `.out.<output>` /
   `.view.<key>`. Every other manifest only describes its pane to the agent
@@ -107,8 +107,31 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   one. Never give a ported pane a route of its own or the agent a runner of
   its own: that is the drift this exists to end. (For a pane still drawn by
   hand, `handler` names its legacy agent runner in `platform_tools/panes.
-  HANDLERS`.) The handlers wrap the old per-service routes for now; those
-  routes stay one release for tabs that haven't reloaded (D49).
+  HANDLERS`.) `run_handler` checks the group's flag itself and fills an
+  unset input with its default. DynamoDB's, Cognito's and S3's old routes
+  are gone (D49; their bodies are the handlers); IoT's stay one release, as
+  theirs did. The agent's per-service list tools went with them:
+  `list_options` runs any input's loader.
+- **Several connections** (`type: connections`, IoT): the handler fans out
+  itself through `handlers.fan_out`, one group per connection
+  (`{environment_id, environment_name, <rows>, error}`, the shape every
+  fan-out pane always stored), and a list's `groups` config flattens them,
+  stamping each row with its environment and putting failed ones in Target
+  errors. The agent's `flatten` and the browser's are twins: row numbers
+  agree.
+- **A row action** (`args: {connection: group.environment_id, thingName:
+  row.thing_name}`, paths only) is what expanding a row fetches (cached in
+  the tab, D47; fetched in every tab that has the row open, D48), what
+  "Include detail" fetches for export and attach, and what `inspect_row`
+  runs for the agent. Its detail is drawn by `panes/DetailSections.tsx` from
+  the list's `detail.sections`, so a plugin's rows can be as rich as IoT's.
+- **Send is `effects: external`**: the agent can fill the HTTP client in
+  (`targetId` included) but `_handler_runner` never runs it. The exchange
+  (request beside response, auth said by name) is built server-side and
+  always offered to the agent's chat (`render: attach`).
+- **Layout items are keyed by their place in the manifest**, not among those
+  shown: two outputs that take turns by `when` (IoT's things and
+  certificates) were otherwise one component sharing a selection.
 - **What a ported pane's state means.** Inputs are the source of truth -- a
   run never writes them back (S3's browse used to write `bucket`/`prefix`).
   A person's change to an input goes through the renderer's `changeInputs`:
@@ -326,10 +349,12 @@ boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
 The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
 `_flagged`), since the agent must never reach further than its user's UI
 would -- **and so do the per-service routes now** (`resolve.require_flag`,
-called at the top of every AWS-calling endpoint in `queries.py`, `tables.py`,
-`buckets.py`, `cognito.py`, `opensearch.py`, `iot.py`, `log_groups.py`,
-`tools.py`, right where `resolve_environment`/`resolve_role_name` already
-were). This used to be a real, if not agent-reachable, gap: a group with an
+called at the top of every AWS-calling endpoint in `queries.py`,
+`opensearch.py`, `iot.py`, `log_groups.py`, `tools.py`, right where
+`resolve_environment`/`resolve_role_name` already were; a ported pane's
+actions get it from `routers/panes.run_handler`, and the action endpoint
+answers a group without the pane's flag with the 404 of a pane that doesn't
+exist). This used to be a real, if not agent-reachable, gap: a group with an
 environment and a role but a page's flag off could still reach that page's
 API by a raw request, since only the frontend's own offer of the button (and
 the agent's tools) ever checked the flag -- environment and role were the
@@ -419,9 +444,10 @@ change it (no reveal, D25).
   `readableError()` (`api.ts`) shows the backend's `detail`, not
   "400 Bad Request: {…}".
 - **The HTTP client's Auth** (`credentialId` in the pane's state, an id
-  only). `/api/tools/http-request` takes `credential_id`, resolves it and
-  applies its type's `inject` server-side, and masks the response -- an
-  echoing server would hand the token straight back otherwise. The agent
+  only). Send (`http.send`) goes through `/api/tools/http-request`'s own
+  function, which resolves it and applies its type's `inject` server-side,
+  and masks the response -- an echoing server would hand the token straight
+  back otherwise. The agent
   can set it by name (input kind `credential` in `panes.py`, which stores
   the id of one the user's group can use) and `get_context` lists
   credential names and types, never values; it still can't Send.
@@ -866,10 +892,11 @@ fixed where it happens:
   it, as before.
 - **A row can be looked at in full** (`inspect_row`): the run's sample cuts
   values down, and a search can't show what only a row's own detail holds.
-  A kind opts in from its registry entry (`PaneKind.rows`, the last run as
-  rows in sample order; `detail`, a second look-up, acting as the caller
-  and refused for an environment they can't reach), and `get_context` says
-  which kinds can. IoT's detail is the thing's shadows, certificates and
+  A kind opts in from its manifest (`inspect`): a ported pane's rows are
+  its list outputs as the pane draws them, and its detail is the list's row
+  action (a second look-up, acting as the caller and refused for an
+  environment they can't reach); a pane still drawn by hand names a row
+  lister in `PaneKind.rows`. `get_context` says which kinds can. IoT's detail is the thing's shadows, certificates and
   jobs -- a model asked about "deviceType in the Search shadow" had written
   a filter on a shape it never saw, misread the error, and said shadow
   indexing was off. The prompt's matching rule is generic: an error or an

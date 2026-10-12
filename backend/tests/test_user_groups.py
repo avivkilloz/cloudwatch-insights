@@ -93,8 +93,8 @@ def test_group_role_name_is_used_to_resolve_aws_calls():
     # The role resolves fine (no ResolveError -> 400) -- it fails later, for
     # an unrelated reason (no real AWS credentials in this test), proving
     # role resolution itself succeeded using the group's role_name.
-    resp = erin.get("/api/tables/list", params={"environment_id": env["id"]})
-    assert resp.status_code != 400
+    resp = erin.post("/api/panes/tables/actions/list_tables", json={"inputs": {"connection": env["id"]}})
+    assert resp.status_code == 502, resp.text
 
 
 def test_group_with_no_role_name_rejects_aws_calls():

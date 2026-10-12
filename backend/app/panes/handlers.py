@@ -206,7 +206,7 @@ def fan_out(
     user: models.User,
     ids: list[int],
     rows: str,
-    run: Callable[[Target, aws_client.Identity], list[dict]],
+    run: Callable[[str, str, aws_client.Identity], list[dict]],
 ) -> list[dict[str, Any]]:
     """One group per AWS connection, `{environment_id, environment_name,
     account_id, region, <rows>: [...], error}` -- the shape every pane that
@@ -214,9 +214,12 @@ def fan_out(
     that can't be reached or whose call fails is that group's `error`, never
     the whole run's: partial failures are reported per account.
 
-    Each connection and identity is resolved here, in the request's thread
-    (the database session isn't shared across threads); only the AWS calls
-    run in parallel."""
+    Each connection and identity is resolved here, in the request's thread,
+    and `run` gets plain strings (account, region) and the identity: the
+    database session isn't shared across threads, and a commit while
+    resolving (an identity's use is audited) expires the connection row, so
+    reading it from a worker would load it there.
+    Only the AWS calls run in parallel."""
     groups: list[dict[str, Any]] = []
     pending = []
     for connection_id in ids:
@@ -236,7 +239,7 @@ def fan_out(
         except ResolveError as e:
             group["error"] = str(e)
             continue
-        pending.append((group, _executor.submit(run, target, identity)))
+        pending.append((group, _executor.submit(run, group["account_id"], group["region"], identity)))
     for group, future in pending:
         try:
             group[rows] = future.result()
@@ -266,9 +269,9 @@ def iot_search(db: Session, user: models.User, inputs: dict[str, Any], _cursor: 
             user,
             ids,
             "certificates",
-            lambda t, identity: [
+            lambda account, region, identity: [
                 schemas.IotCertificateInfo(**c).model_dump()
-                for c in iot_client.search_certificates(t.account_id, t.region, identity, query, most)
+                for c in iot_client.search_certificates(account, region, identity, query, most)
             ],
         )
         return {"certResults": found, "thingResults": []}
@@ -277,9 +280,9 @@ def iot_search(db: Session, user: models.User, inputs: dict[str, Any], _cursor: 
         user,
         ids,
         "things",
-        lambda t, identity: [
+        lambda account, region, identity: [
             schemas.IotThingSummary(**c).model_dump()
-            for c in iot_client.search_things(t.account_id, t.region, identity, query, most)
+            for c in iot_client.search_things(account, region, identity, query, most)
         ],
     )
     return {"thingResults": found, "certResults": []}

@@ -106,8 +106,8 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   you then do changes the saved copy. Manage them under **Library →
   Templates** in Settings.
 - **Saved inputs** are smaller: one pane's inputs under a name. Every pane
-  drawn from a manifest (DynamoDB, S3, Cognito, Base64, Diff, JWT, the API
-  table) has a **Saved ▾** menu at the right of its first card's title:
+  drawn from a manifest (DynamoDB, S3, Cognito, IoT, the HTTP client,
+  Base64, Diff, JWT, the API table) has a **Saved ▾** menu at the right of its first card's title:
   your saved inputs for that kind of pane, then **Save as…**. Picking one
   fills the pane you're in — and runs what picking those inputs by hand
   would, so a saved table is described and a saved bucket opened. A pasted
@@ -138,7 +138,12 @@ from your picture's menu and is not a session; the strip stays above it.
   policies, document included), and job execution history (with status).
   Expand a certificate to see its attached policies (document included) and
   which things use it. Read-only — nothing in this tab creates, updates, or
-  deletes anything in your AWS accounts.
+  deletes anything in your AWS accounts. **Show examples** lists sample
+  queries for the mode, each with **Use**; **Saved ▾** keeps a search (its
+  mode and query) under a name. An environment whose search failed is its
+  own line under **Target errors**, above the others' results. Which rows
+  are expanded is part of the session, so another member (or the agent)
+  opening one opens it for you too.
 
   That detail normally only exists for rows you've expanded, because it costs
   one AWS call each. Once you check some rows, an **Include shadows,
@@ -255,13 +260,13 @@ from your picture's menu and is not a session; the strip stays above it.
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
 - Everything saved anywhere in the app — session templates, saved inputs,
-  log/IoT saved queries and searches, saved HTTP requests, and saved MQTT
-  topics — is **per user** (each user only ever sees and manages their own)
-  and is managed from the **Library** section of Settings, with a tab for
-  each kind (Templates first, then Saved inputs, Log Queries, IoT Searches,
-  HTTP Requests, MQTT Topics). Saved tables and buckets became saved inputs,
-  once, when DynamoDB and S3 moved to manifests; the other kinds follow as
-  their panes do. The per-service session tabs
+  saved log queries, and saved MQTT topics — is **per user** (each user only
+  ever sees and manages their own) and is managed from the **Library**
+  section of Settings, with a tab for each kind (Templates first, then Saved
+  inputs, Log Queries, MQTT Topics). Saved tables and buckets became saved
+  inputs, once, when DynamoDB and S3 moved to manifests, and IoT's saved
+  searches and the HTTP client's saved requests did when they moved; the
+  other kinds follow as their panes do. The per-service session tabs
   (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
   than a session now, so nothing writes one, and the ones saved back then are
   listed under Templates — which is also where Add offers them.
@@ -761,9 +766,12 @@ inputs and its output stay visibly separate.
   its own.
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
-  Requests can be saved and reloaded by name (**Save request** / **Load
-  saved request…**) — manageable, including full editing, from the
-  "HTTP Requests" tab of Settings' **Library**. Requests are
+  Requests can be saved and reloaded by name from **Saved ▾** (headers and
+  body included), and renamed or deleted under **Library → Saved inputs**.
+  The last request and its response are always offered to the agent's
+  session chat, to ask why it came back the way it did; the agent can fill a
+  request in (target and auth included) but only you can press **Send**.
+  Requests are
   sent **from the backend**, not the
   browser, so they aren't
   subject to CORS — but for that same reason, the backend refuses to reach

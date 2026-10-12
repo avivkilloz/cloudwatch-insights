@@ -2717,6 +2717,68 @@ Where the build departed from §16.2–16.3, and why:
     smoke66 (the file browser, row copy, Load more and the selection, an expanded
     row reaching another tab, tag tones). Both fail against the old frontend.
 
+### 16.8 3b-2 as built
+
+Where the build departed from §16.4, and why:
+
+- **Schema additions, as named in the code:**
+  - **On an input:** `choice_sets`, `optional`, `examples`, `grow`, `hint`, and `pairs`.
+    `pairs` is the wording of a `headers` editor.
+  - **On an action:** `args`, which makes it a row action.
+  - **`when`:** `not_in` and `error`.
+  - **Layout:** `line` and `examples`.
+  - **Cards:** may be untitled. Such a card holds one output or error, which draws
+    its own title or none.
+  - **Renders:** `http_response` and `attach`.
+- **The fan-out is a helper, not an endpoint feature.** `handlers.fan_out`
+  returns the group shape every fan-out pane already stored. So IoT's migration
+  is a key move, and an IoT session keeps its results.
+- **The agent's rows and detail come from the manifest.** `_manifest_rows` and
+  `_manifest_detail` read each list's `groups` and `detail`.
+  - The registered `rows.tables`, `rows.cognito`, `rows.buckets`, `rows.iot` and
+    `detail.iot` are gone.
+  - Certificates gained their detail.
+  - The run summary of a grouped list keeps its per-environment counts and errors.
+    It leaves out the other mode's emptied list.
+- **The agent accepts an input's old name.** `PaneKind.aliases` maps
+  `selectedEnvironmentIds` to `connections`, because an earlier turn in the
+  history may still use it.
+- **Unset inputs take their defaults in `run_handler`.** A pane the agent made
+  holds only what it was given, and IoT's search would otherwise refuse an empty
+  query that the pane shows as `thingName:*`.
+- **`run_handler` checks the group's flag itself.** The action endpoint already
+  did, and so did the agent. With the per-service routes gone, the handlers have
+  no other place that would.
+- **Expanded IoT rows became session state.** IoT's old lists kept them in the
+  tab. Under D48 they are a view key now, by row index. The mode and a fresh
+  search reset it.
+- **Layout items are keyed by their place in the manifest.** Keyed among those
+  shown, IoT's things and certificates lists were one component, so a thing
+  checked in one mode stayed checked in the other.
+- **The detail cache resets only on a real change.** React's development mode
+  runs mount effects twice, and the reset cleared what an expanded row had just
+  requested, so the row was fetched twice.
+- **Fixed in passing:**
+  - smoke25 and smoke26 had timed out on main since the Members row arrived. Each
+    picked the first select on screen, which is now the session card's member
+    role. Both now address their select by name and pass.
+  - Each inline label (Target, Auth) is now tied to its select.
+- **Checked:**
+  - **Pixels:** every IoT and HTTP client card, old page against ported, in 16
+    states. They match apart from text sub-pixel rendering and one intended
+    change: **the Saved ▾ menu**. It sits in IoT's first card and in Request,
+    replacing "Load saved search…" and "Save search", and "Load saved request…"
+    and "Save request". (The comparison caught one real difference, now fixed:
+    the help paragraph between IoT's two toolbars had lost its bottom margin.)
+  - **New suites:**
+    - smoke67, for IoT: mode and examples, what Search sends, Target errors,
+      expand-to-fetch, another tab opening the same row, Saved ▾ keeping mode and
+      query, and an old session.
+    - smoke68, for the HTTP client: Body by method, headers, what Send sends, the
+      response, the exchange always attached, the error card, Saved ▾, and an old
+      session.
+    - Both fail against the old frontend.
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):
