@@ -2704,8 +2704,9 @@ behind them. One question was asked: who polls a running query. Settled as D51._
   - `opensearch_indices`: per environment its domains, per domain "Load indices",
     with doc counts.
 - Their loaders are actions (`list_log_groups`, `list_domains`, `list_indices`), and
-  their options live in the tab (D47). The agent's `list_log_groups` and
-  `list_opensearch_*` tools become `list_options` on these inputs.
+  their options live in the tab (D47). `list_options` runs them for the agent; its
+  own `list_log_groups` and `list_opensearch_*` tools stay one release beside it, as
+  the logs routes do (§16.10).
 - **A `time_range` layout item** draws `preset`, `customStart` and `customEnd` as
   today's control. The three inputs keep their names, so the agent's and templates'
   keys are unchanged.
@@ -2890,6 +2891,59 @@ Where the build departed from §16.4, and why:
       response, the exchange always attached, the error card, Saved ▾, and an old
       session.
     - Both fail against the old frontend.
+
+### 16.10 3b-3 as built
+
+Where the build departed from §16.9, and what it added:
+
+- **Schema additions, as named in the code:**
+  - **On an action:** `poll: {handler, stop}`, which makes it a background run.
+  - **On an input's options:** `children` (a two-level picker's second loader) and
+    `filter` (its filter box).
+  - **Layout:** `stop` (a run's Stop button), `time_range` (`{preset, start, end}`)
+    and `sort` (Sort by an output's fields, into its sort view keys).
+  - **Renders:** `logs` and `run`.
+- **What a run writes.** `out.run` is `{id, status, startedAt, by, polledAt,
+  fingerprint, stoppedBy, note, error, trimmed}`; status is running, done, stopped or
+  failed. A run writes only when its results' fingerprint changes, and a second Run
+  stops and replaces the first. `run` renders what became of a run that didn't
+  just finish: "Stopped by …", the unwatched note, or the error.
+- **Run in the browser.** `ManifestPane` pushes the session first (`flushAll`), so a
+  pane added a moment ago exists on the server, then posts the action with its
+  session and pane. Nothing comes back but the run: the button stays busy from the
+  click until the server's `out.run` arrives over the event stream (with a 10 s
+  fallback), and from then on for as long as it says running, in every tab.
+- **The time zone** is sent only by a pane whose layout has a `time_range`, and
+  becomes the `_tz` input on the server. `panes/timewindow.py` turns the three
+  time inputs into a window for the handlers and the agent alike.
+- **The agent's `list_log_groups` and `list_opensearch_*` stay** one release beside
+  `list_options`, like the logs routes and saved queries' routes. A model that
+  learned them in an earlier turn still finds them.
+- **The browser suites fake AWS on the server.** A run is polled by the backend, so a
+  suite can't answer it in the page any more. `backend/dev/fake_aws.py` serves the
+  app with Logs Insights and OpenSearch answered in place for any account starting
+  "0000" (`#slow` keeps a query running, `#fail` fails it); every other account goes
+  to AWS as before. It is never shipped: the image copies `app/` only.
+- **Removed:** `InsightsPage.tsx`, `ResultsView.tsx`, `LogGroupSelector.tsx`,
+  `OpenSearchIndexSelector.tsx`, `EnvironmentSelector.tsx`, `SavedItemsPanel.tsx`
+  (the Library's Log Queries tab), and the API client's query, OpenSearch and saved
+  query methods. On the server, IoT's router and `/api/tools/http-request`'s route
+  went (D49); the function behind the latter is the HTTP client's handler.
+- **Fixed in passing:** smoke44's "agent" write used the old `queryString` key. A
+  legacy key never overrides a new one already present, so once the pane was ported
+  it wrote nothing anyone saw; it writes `in.queryString` now.
+- **Checked:**
+  - **Pixels:** every CloudWatch and OpenSearch card, old page against ported, in 11
+    states (fresh, picked and filtered, custom range, running, stopped, finished,
+    grouped with a row open, capped; OpenSearch fresh, indices, results). The
+    results and pickers match apart from sub-pixel text rendering. Two changes are
+    intended: **the Saved ▾ menu** in the first card, replacing "Load saved query…"
+    and "Save query", and **"Stopped by …"** beside a stopped run.
+  - **New suite:** smoke69 covers the pickers and the filter's select-all, the
+    custom range's default, what Run sends, rows streaming in, a second tab, a
+    reload mid-run, Stop from the other tab, sort, group by, the cap, an expanded
+    row in both tabs, Target errors, OpenSearch's domains, indices and search, and
+    an old session. It fails against the old frontend.
 
 ## 12. Research sources
 

@@ -67,7 +67,7 @@ const run = async () => {
   const written = await a.evaluate(async () => {
     const list = await (await fetch("/api/live-sessions", { credentials: "same-origin" })).json();
     const row = list.find((s) => s.title === "CloudWatch +1");
-    const state = { ...row.state, "logs-cloudwatch.queryString": "fields @agent | limit 46" };
+    const state = { ...row.state, "logs-cloudwatch.in.queryString": "fields @agent | limit 46" };
     const res = await fetch(`/api/live-sessions/${row.client_id}`, {
       method: "PUT",
       credentials: "same-origin",

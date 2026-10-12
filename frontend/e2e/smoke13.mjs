@@ -31,62 +31,35 @@ async function openSession(page, label) {
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
 
-  await page.route("**/api/log-groups", (route) =>
-    route.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            log_groups: [{ name: "/demo/log-group", stored_bytes: 1024, creation_time: null }],
-            error: null,
-          },
+  // CloudWatch is a manifest pane (3b-3): its log groups come from a loader
+  // action, and a query's rows are written into the session by the server
+  // as it polls (D51) -- below, a write of the rows a finished run leaves.
+  const logRows = [
+    {
+      environment_id: 1,
+      environment_name: "Demo Env",
+      rows: [
+        [
+          { field: "@ptr", value: "ptr-1" },
+          { field: "@timestamp", value: "2024-01-01 00:00:01.000" },
+          { field: "@message", value: "alpha event" },
         ],
-      },
-    })
-  );
-  await page.route("**/api/queries/start", (route) =>
-    route.fulfill({
-      json: {
-        queries: [
-          { environment_id: 1, environment_name: "Demo Env", account_id: "111122223333", region: "us-east-1", query_id: "q1", error: null },
+        [
+          { field: "@ptr", value: "ptr-2" },
+          { field: "@timestamp", value: "2024-01-01 00:00:02.000" },
+          { field: "@message", value: "bravo event" },
         ],
-      },
-    })
-  );
-  await page.route("**/api/queries/results", (route) =>
-    route.fulfill({
-      json: {
-        results: [
-          {
-            environment_id: 1,
-            environment_name: "Demo Env",
-            account_id: "111122223333",
-            region: "us-east-1",
-            query_id: "q1",
-            status: "Complete",
-            rows: [
-              [
-                { field: "@ptr", value: "ptr-1" },
-                { field: "@timestamp", value: "2024-01-01 00:00:01.000" },
-                { field: "@message", value: "alpha event" },
-              ],
-              [
-                { field: "@ptr", value: "ptr-2" },
-                { field: "@timestamp", value: "2024-01-01 00:00:02.000" },
-                { field: "@message", value: "bravo event" },
-              ],
-            ],
-            statistics: null,
-            error: null,
-          },
-        ],
-        all_done: true,
-      },
-    })
-  );
+      ],
+      error: null,
+    },
+  ];
+  await mockPaneActions(page, "logs-cloudwatch", {
+    list_log_groups: {
+      groups: [
+        { environment_id: 1, environment_name: "Demo Env", account_id: "111122223333", region: "us-east-1", items: ["/demo/log-group"], error: null },
+      ],
+    },
+  });
   // DynamoDB, Cognito and S3 are manifest panes: one action endpoint each.
   await mockPaneActions(page, "buckets", {
     list_buckets: { options: [{ value: "demo-bucket", label: "demo-bucket" }] },
@@ -292,7 +265,17 @@ async function openSession(page, label) {
   await page.click('button:has-text("Load log groups")');
   await page.waitForSelector('label:has-text("/demo/log-group")', { timeout: 10000 });
   await page.click('label:has-text("/demo/log-group") input[type="checkbox"]');
-  await page.click('button:has-text("Run query")');
+  await page.waitForTimeout(1500);
+  await page.evaluate(async (results) => {
+    const [row] = await (await fetch("/api/live-sessions", { credentials: "same-origin" })).json();
+    const state = { ...row.state, "logs-cloudwatch.out.results": results, "logs-cloudwatch.out.resultsVersion": 1 };
+    await fetch(`/api/live-sessions/${row.client_id}`, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Sync-Origin": "run" },
+      body: JSON.stringify({ ...row, state, base_version: row.version }),
+    });
+  }, logRows);
   await page.waitForSelector("text=alpha event", { timeout: 10000 });
 
   const logsPanel = '.panel:has-text("4. Results")';

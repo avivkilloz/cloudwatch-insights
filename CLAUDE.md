@@ -61,11 +61,14 @@ backend/app/
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
+  presence.py        which tabs are connected (tab_presence), so which sessions are watched
   platform_tools/    what the platform agent can do, over MCP at /mcp (see below)
   panes/             pane manifests: manifests/*.yaml, manifest.py (the schema), state.py
-                     (v2 key migration), live.py (live functions' Python twins)
+                     (v2 key migration), live.py (live functions' Python twins),
+                     handlers.py, runs.py (background runs, D51), timewindow.py
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
+backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch faked, for e2e
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
                      streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
@@ -93,7 +96,8 @@ per pane type in `backend/app/panes/manifests/`, validated by a strict Pydantic
 model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
 and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
-  JWT, the API table, DynamoDB, Cognito, S3, IoT, the HTTP client) means the generic renderer
+  JWT, the API table, DynamoDB, Cognito, S3, IoT, the HTTP client, CloudWatch,
+  OpenSearch -- every pane but MQTT) means the generic renderer
   (`frontend/src/panes/ManifestPane.tsx`) draws it from the manifest's
   `layout` alone, and its keys are `<pane>.in.<input>` / `.out.<output>` /
   `.view.<key>`. Every other manifest only describes its pane to the agent
@@ -108,10 +112,25 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   its own: that is the drift this exists to end. (For a pane still drawn by
   hand, `handler` names its legacy agent runner in `platform_tools/panes.
   HANDLERS`.) `run_handler` checks the group's flag itself and fills an
-  unset input with its default. DynamoDB's, Cognito's and S3's old routes
-  are gone (D49; their bodies are the handlers); IoT's stay one release, as
-  theirs did. The agent's per-service list tools went with them:
-  `list_options` runs any input's loader.
+  unset input with its default. DynamoDB's, Cognito's, S3's and IoT's old
+  routes are gone (D49; their bodies are the handlers); the logs routes,
+  saved queries' and the agent's `list_log_groups`/`list_opensearch_*` stay
+  one release, as theirs did. `list_options` runs any input's loader.
+- **A background run** (`poll: {handler, stop}`, CloudWatch's Run; D51,
+  §16.9.1) isn't the browser's to poll: the action starts the queries,
+  stores a `pane_runs` row and writes `out.run`, and a task on the server
+  polls them into the session through `live_store.mutate(..., reopen=False)`
+  (origin `"run"`) -- so every tab, member and the agent see one stream, and
+  a reload carries on. It polls **only while the session is watched**
+  (`presence.watched`: a participant's connected tab, recorded from the
+  event stream, with the session open in their workspace -- or an agent
+  turn waiting); unwatched it pauses, and after 10 minutes it stops the
+  queries. Any replica claims a run whose heartbeat lapsed. Stop
+  (`POST /api/panes/{type}/stop`, the agent's `stop_pane`) is anyone's who
+  can edit; a viewer can do neither. The browser's Run pushes the session
+  first (`flushAll`: a pane added a second ago must exist on the server)
+  and gets back only the run; its button is busy until `out.run` says
+  otherwise. A pane with a `time_range` sends the browser's zone (`_tz`).
 - **Several connections** (`type: connections`, IoT): the handler fans out
   itself through `handlers.fan_out`, one group per connection
   (`{environment_id, environment_name, <rows>, error}`, the shape every
@@ -955,7 +974,10 @@ fixed where it happens:
 - **The agent's tests** (`platform-agent/tests`) run the real LangChain agent
   and MCP adapter against a stub MCP server and `dev/fake_llm.py`, both served
   over HTTP in-process. Browser suite `smoke45` drives the whole path and needs
-  the agent and the fake model running (`frontend/e2e/README.md`).
+  the agent and the fake model running (`frontend/e2e/README.md`). A run the
+  server polls can't be faked in the page, so the suites serve the backend as
+  `uvicorn dev.fake_aws:app`: accounts starting "0000" are answered there
+  (smoke69), every other account goes to AWS as before.
 - **Testing:** backend is pytest against a **real Postgres** (`backend/tests`,
   one file per area; `conftest.py` resets the schema and logs in as admin before
   each test) — so give it its **own database** (`cloudwatch_insights_test`),
