@@ -88,7 +88,9 @@ edit, the agent's `stop_pane` included. Saved queries moved into saved
 inputs and the Library's Log Queries tab went; IoT's router and the HTTP
 client's old route went (D49). Backend 346 tests (`test_pane_runs.py`
 new); agent 25; browser smoke69, failing against the old frontend, served by
-`backend/dev/fake_aws.py` (AWS faked for accounts starting "0000").
+`backend/dev/fake_aws.py` (AWS faked for accounts starting "0000"). The full
+browser run is 52 of 53 green, smoke31's two styling checks failing as they
+do on main (smoke35's Library check updated for the removed Log Queries tab).
 
 ## Where things stand
 
