@@ -1,8 +1,9 @@
 // Saved inputs on every pane (PLATFORM_PLAN.md D46), Settings → Library and
 // Users | Groups (D50), driven the way a user would:
-//   - DynamoDB's "Save as…" keeps the pane's inputs under a name; "Load
-//     saved…" fills them back in and, as picking the table by hand does,
-//     describes it;
+//   - DynamoDB's Saved ▾ → "Save as…" keeps the pane's inputs under a name;
+//     picking it from the menu fills them back in and, as picking the table
+//     by hand does, describes it;
+//   - the menu sits in the first card's title row, not a row of its own;
 //   - a pane that never had saved items (Cognito, Base64) has them now;
 //   - nothing sensitive is kept: JWT's inputs never reach the store;
 //   - Settings → Library lists them by pane, renames and deletes;
@@ -32,8 +33,14 @@ async function cleanUp(page) {
 
 async function saveAs(page, name) {
   page.once("dialog", (d) => d.accept(name));
-  await page.click(`${SHOWN} .pane-saved button:text-is("Save as…")`);
+  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
+  await page.click('.pane-saved-menu button:text-is("Save as…")');
   await page.waitForTimeout(600);
+}
+
+async function loadSaved(page, name) {
+  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
+  await page.click(`.pane-saved-menu [data-saved-input-item="${name}"]`);
 }
 
 const run = async () => {
@@ -55,6 +62,20 @@ const run = async () => {
   // ---- 1. DynamoDB: save, then load into a fresh pane
   await newSession(page, "DynamoDB");
   const card = `${SHOWN} .panel:has-text("Choose environment and table")`;
+  await page.waitForSelector(`${card} .pane-saved`);
+  const placed = await page.locator(`${card} .pane-saved`).evaluate((el) => {
+    const h2 = el.closest(".panel").querySelector("h2");
+    const a = el.getBoundingClientRect();
+    const b = h2.getBoundingClientRect();
+    return { sameRow: Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 6, right: a.left > b.right };
+  });
+  check(placed.sameRow && placed.right, "Saved ▾ sits at the right of the first card's title, not in a row of its own",
+    JSON.stringify(placed));
+  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
+  const empty = await page.waitForSelector('.pane-saved-menu .pane-saved-note:text-is("Nothing saved yet")', { timeout: 5000 })
+    .then(() => true, () => false);
+  check(empty, "With nothing saved, the menu says so");
+  await page.keyboard.press("Escape");
   await page.selectOption(`${card} select >> nth=0`, { index: 1 });
   await page.click(`${SHOWN} button:has-text("Load tables")`);
   await page.waitForSelector(`${SHOWN} option[value="${TABLE}"]`, { state: "attached" });
@@ -67,10 +88,10 @@ const run = async () => {
 
   await newSession(page, "DynamoDB");
   described.length = 0;
-  await page.selectOption(`${SHOWN} .pane-saved select`, { label: "e2e-orders" });
+  await loadSaved(page, "e2e-orders");
   await page.waitForSelector(`${SHOWN} >> text=partition key: id`);
   check((await page.inputValue(`${SHOWN} input[placeholder="field:value field2:value2"]`)) === "status:ACTIVE",
-    "Load saved… fills the inputs back in");
+    "Picking it fills the inputs back in");
   check(JSON.stringify(described) === JSON.stringify([TABLE]), "…and describes the table, as picking it by hand does",
     JSON.stringify(described));
 
@@ -79,7 +100,7 @@ const run = async () => {
   await page.locator(`${SHOWN} textarea`).first().fill("e2e saved text");
   await saveAs(page, "e2e-greeting");
   await page.locator(`${SHOWN} textarea`).first().fill("");
-  await page.selectOption(`${SHOWN} .pane-saved select`, { label: "e2e-greeting" });
+  await loadSaved(page, "e2e-greeting");
   check((await page.locator(`${SHOWN} textarea`).first().inputValue()) === "e2e saved text", "Base64 can save and load its inputs too");
 
   await newSession(page, "JWT");

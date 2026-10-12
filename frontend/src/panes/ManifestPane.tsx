@@ -48,7 +48,7 @@ import {
   When,
 } from "./manifest";
 import { actionById, Option, PaneApi, RunOptions, Values } from "./paneApi";
-import SavedInputsBar from "./SavedInputsBar";
+import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
 /** Where an item is drawn, which decides its markup: a card's own column, a
@@ -282,11 +282,13 @@ function Rendered({ m }: { m: PaneManifest }) {
     options,
     errorsPlaced,
   };
+  const first = m.layout.findIndex((card) => shown(card.when, pane));
   return (
     <div>
-      <SavedInputsBar pane={pane} />
       {m.layout.map((card, i) =>
-        shown(card.when, pane) ? <CardView key={i} card={card} pane={pane} /> : null,
+        shown(card.when, pane) ? (
+          <CardView key={i} card={card} pane={pane} saved={i === first ? <SavedInputsMenu pane={pane} /> : null} />
+        ) : null,
       )}
     </div>
   );
@@ -348,19 +350,28 @@ function rich(source: string): ReactNode {
   return parts.map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
 }
 
-function CardView({ card, pane }: { card: Card; pane: Pane }) {
+/** `saved` is the Saved ▾ menu, given to the pane's first card only: it sits
+ * at the right of that card's title, after anything the manifest put there. */
+function CardView({ card, pane, saved }: { card: Card; pane: Pane; saved: ReactNode }) {
   const title = textOf(card.title, pane.inputs);
   const aside = card.aside.filter((item) => shown(item.when, pane));
   return (
     <div className="panel">
       {/* By whether the card has an aside at all, not whether it's showing:
           the title keeps one place as the aside comes and goes. */}
-      {card.aside.length > 0 ? (
+      {card.aside.length > 0 || saved ? (
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          {aside.map((item, i) => (
-            <Item key={i} item={item} pane={pane} place="aside" />
-          ))}
+          {saved ? (
+            <span className="row" style={{ gap: 8 }}>
+              {aside.map((item, i) => (
+                <Item key={i} item={item} pane={pane} place="aside" />
+              ))}
+              {saved}
+            </span>
+          ) : (
+            aside.map((item, i) => <Item key={i} item={item} pane={pane} place="aside" />)
+          )}
         </div>
       ) : (
         <h2>{title}</h2>

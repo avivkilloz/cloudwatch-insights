@@ -107,7 +107,8 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   Templates** in Settings.
 - **Saved inputs** are smaller: one pane's inputs under a name. Every pane
   drawn from a manifest (DynamoDB, S3, Cognito, Base64, Diff, JWT, the API
-  table) has **Load saved…** and **Save as…** at its top right. Loading
+  table) has a **Saved ▾** menu at the right of its first card's title:
+  your saved inputs for that kind of pane, then **Save as…**. Picking one
   fills the pane you're in — and runs what picking those inputs by hand
   would, so a saved table is described and a saved bucket opened. A pasted
   token or secret is never saved. They are listed, renamed and deleted under
@@ -159,8 +160,8 @@ from your picture's menu and is not a session; the strip stays above it.
   schemaless table other than scanning; leave the query blank to browse
   it unfiltered. Expand an item to see its full attributes as JSON. "Load
   more" pages through the table via DynamoDB's own `LastEvaluatedKey`.
-  **Save as…** at the top of the pane bookmarks the environment, table and
-  filter; **Load saved…** jumps straight back (see Saved inputs above).
+  **Saved ▾ → Save as…** bookmarks the environment, table and filter, and
+  the same menu jumps straight back (see Saved inputs above).
 - **S3 page**: pick one environment and a bucket (its actual region is
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
@@ -169,8 +170,8 @@ from your picture's menu and is not a session; the strip stays above it.
   instead. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
-  HTTPS URL) buttons. **Save as…** / **Load saved…** bookmark an
-  environment, bucket and folder, as on DynamoDB.
+  HTTPS URL) buttons. **Saved ▾** bookmarks an environment, bucket and
+  folder, as on DynamoDB.
 - **Cognito tab**: pick one environment and a user pool, then search users
   with a single `attribute:value` token (starts-with match, e.g.
   `email:john`) — Cognito's `ListUsers` only supports filtering by one

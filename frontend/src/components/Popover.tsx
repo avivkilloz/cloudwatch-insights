@@ -21,6 +21,7 @@ export default function Popover({
   buttonClass,
   menuClass,
   width = 160,
+  onOpen,
   children,
 }: {
   glyph: ReactNode;
@@ -31,6 +32,8 @@ export default function Popover({
   menuClass: string;
   /** Used to keep the menu on screen before it has been measured. */
   width?: number;
+  /** Called each time the menu opens, for a menu whose items are fetched. */
+  onOpen?: () => void;
   /** Given a function that closes the menu, so items can act and dismiss. */
   children: (close: () => void) => ReactNode;
 }) {
@@ -81,7 +84,10 @@ export default function Popover({
       <button
         ref={buttonRef}
         className={buttonClass}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen((v) => !v);
+        }}
         aria-label={label}
         aria-expanded={open}
         title={title ?? label}

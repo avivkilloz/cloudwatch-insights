@@ -2394,6 +2394,9 @@ The rows of DynamoDB, Cognito and the API table, generalised from today's
 
 - **"Save as…" and "Load…" on every manifest pane** save the pane's inputs under a
   name, by pane type, in one table (`saved_inputs`).
+  - Both are one **Saved ▾** menu at the right of the pane's first card title.
+    3b-1 shipped them as a row of their own above the cards, which left an almost
+    empty row between two full ones; the user found that odd.
   - Sensitive inputs are never saved.
   - Loading writes the inputs and, for a pane that runs on a pick, runs.
 - **The old stores migrate into it** as each pane is ported. In 3b-1 that is

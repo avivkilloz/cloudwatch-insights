@@ -212,7 +212,7 @@ async function openSession(page, label) {
 
   // ---------- Tables ----------
   await openSession(page, "DynamoDB");
-  // Its "Saved tables" card is now the "Load saved…" every pane has (D46).
+  // Its "Saved tables" card is now the Saved ▾ menu every pane has (D46).
   await page.waitForSelector("text=1. Choose environment and table");
   await page.selectOption('.panel:has-text("Choose environment and table") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load tables")');

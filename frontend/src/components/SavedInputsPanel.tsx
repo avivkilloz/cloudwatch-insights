@@ -54,7 +54,7 @@ export default function SavedInputsPanel() {
   return (
     <div>
       <p className="muted">
-        A pane's inputs under a name, saved with "Save as…" at the top of the pane and loaded there with "Load saved…".
+        A pane's inputs under a name, saved and loaded from the Saved ▾ menu on the pane's first card.
         Loading fills the pane you're in; a template starts a new session.
       </p>
       {error && <p className="error-text">{error}</p>}

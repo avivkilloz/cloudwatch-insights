@@ -123,8 +123,9 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Text from data uses `panes/template.ts`**: `{{ path ?? 'default' }}`,
   `{{ a ? b : c }}`, `| bytes | time | encode_path`. Nothing else -- no calls
   -- so a manifest from anywhere can only read what it's given.
-- **Saved inputs** (D46): "Load saved… / Save as…" on every manifest pane,
-  one table (`saved_inputs`) by pane type, the user's own; the server keeps
+- **Saved inputs** (D46): a "Saved ▾" menu (the items, then "Save as…") at
+  the right of every manifest pane's first card title -- not a row of its
+  own, which left an almost empty row between full ones; one table (`saved_inputs`) by pane type, the user's own; the server keeps
   only the manifest's non-sensitive inputs whatever the browser sends. The
   per-pane stores move into it once each, as their pane is ported
   (`panes/saved.py`, a `Settings` marker per move).

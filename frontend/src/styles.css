@@ -3757,12 +3757,30 @@ th {
    (panes/SavedInputsBar.tsx): one line above its cards, the 16px gap below
    it that the cards keep between themselves. */
 .pane-saved {
-  display: flex;
-  justify-content: flex-end;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
+}
+
+.pane-saved-menu {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pane-saved-menu button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-saved-note {
+  padding: 6px 8px;
+  font-size: 12.5px;
+}
+
+.pane-saved-sep {
+  margin: 4px 0;
+  border-top: 1px solid var(--border);
 }
 
 /* Settings → Users: the add form, opened from the list's head above the list. */
