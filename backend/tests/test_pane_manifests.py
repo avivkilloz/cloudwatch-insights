@@ -91,7 +91,7 @@ def test_pane_types_are_only_those_the_group_may_use():
 
 def _legacy_state() -> dict:
     return {
-        "services": ["tool-base64", "tool-diff~2", "logs-cloudwatch"],
+        "services": ["tool-base64", "tool-diff~2", "tool-mqtt"],
         "paneTypes": {"tool-diff~2": "tool-diff"},
         "tool-base64.mode": "decode",
         "tool-base64.input": "aGk=",
@@ -100,7 +100,7 @@ def _legacy_state() -> dict:
         "tool-diff~2.right": "b",
         "tool-diff~2.viewMode": "split",
         # Not ported yet: its keys stay where its page reads them.
-        "logs-cloudwatch.queryString": "fields @message",
+        "tool-mqtt.subscribeFilter": "devices/#",
         # A closed pane's leftovers aren't anyone's to move.
         "tool-diff.left": "old",
     }
@@ -113,7 +113,7 @@ def test_the_migration_moves_a_ported_panes_keys_and_nothing_else():
     assert migrated["tool-base64.in.urlSafe"] is True
     assert migrated["tool-diff~2.in.left"] == "a" and migrated["tool-diff~2.in.viewMode"] == "split"
     assert "tool-base64.input" not in migrated and "tool-diff~2.left" not in migrated
-    assert migrated["logs-cloudwatch.queryString"] == "fields @message"
+    assert migrated["tool-mqtt.subscribeFilter"] == "devices/#"
     assert migrated["tool-diff.left"] == "old"
     # Idempotent, and a state already migrated is handed back as it is.
     assert pane_state.migrate(migrated) is migrated

@@ -50,6 +50,20 @@ only check that a question asked in the agent panel's Global tab reaches it).
 e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
+`smoke69` (CloudWatch and OpenSearch) needs the backend served with AWS faked:
+a CloudWatch query runs on the server and is polled into the session there
+(PLATFORM_PLAN.md D51), so the page has nothing to stand in for. Start it as
+
+```bash
+cd backend
+uvicorn dev.fake_aws:app --port 8000   # instead of app.main:app, same environment
+```
+
+and an environment whose account id starts `0000` is answered by
+`backend/dev/fake_aws.py` (the suite creates one, `e2e-fake-aws`, and a user whose
+group reaches it); every other account still goes to AWS, so no other suite
+notices. Served as `app.main:app`, smoke69 fails its second precondition.
+
 `smoke62` (the API table) stands in for its Fetch reply with `page.route`: an HTTP
 API connection has to be a public host (the SSRF guard), which a sandbox without
 DNS can't reach. What the backend does with the request is pinned by

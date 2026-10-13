@@ -846,6 +846,14 @@ export function SessionScopeProvider({
   return <SessionScopeContext.Provider value={scope}>{children}</SessionScopeContext.Provider>;
 }
 
+/** The pane a component is drawn in: its session's client id and the pane's id
+ * (a background run is started in, and writes into, exactly that pane). */
+export function usePaneAddress(): { session: string | null; pane: string } {
+  const scope = useContext(SessionScopeContext);
+  const prefix = useContext(KeyPrefixContext);
+  return { session: scope?.id ?? null, pane: prefix.replace(/\.$/, "") };
+}
+
 export function useSessionScope(): SessionScope | null {
   return useContext(SessionScopeContext);
 }

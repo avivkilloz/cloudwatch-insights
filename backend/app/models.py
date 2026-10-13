@@ -522,3 +522,48 @@ class AuditEvent(Base):
     object_id = Column(String(64), nullable=False)
     group_id = Column(Integer, nullable=True)
     detail = Column(JSON, nullable=False, default=dict)
+
+
+class TabPresence(Base):
+    """A browser tab holding the live-session event stream open: what makes a
+    session "watched" (PLATFORM_PLAN.md D51). Written by whichever replica
+    holds the stream -- streams are spread over replicas, so this can't be a
+    process's own memory -- on connect, on each heartbeat, and deleted when
+    the stream ends. A row a dead replica left behind ages out by `seen_at`.
+    """
+
+    __tablename__ = "tab_presence"
+
+    tab_id = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    seen_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class PaneRun(Base):
+    """A long-running action of one pane, polled by the server (D51): a
+    CloudWatch query's handles, who started it (it is polled as them), and
+    which replica holds it, by heartbeat -- a replica that dies mid-run lets
+    another claim it. The session carries the copy the pane draws
+    (`<pane>.out.run`); this is the server's own bookkeeping.
+
+    `status` is "running", "done", "stopped" or "failed". `unwatched_since`
+    is when the session was last seen with nobody looking, for stopping a run
+    nobody ever comes back to; `agent_until` keeps it watched while an agent
+    turn waits on it.
+    """
+
+    __tablename__ = "pane_runs"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    pane_id = Column(String, nullable=False)
+    pane_type = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String, nullable=False, default="running", index=True)
+    handles = Column(JSON, nullable=False, default=list)
+    replica = Column(String, nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    unwatched_since = Column(DateTime, nullable=True)
+    agent_until = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)

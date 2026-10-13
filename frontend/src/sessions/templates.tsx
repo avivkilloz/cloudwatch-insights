@@ -136,6 +136,7 @@ export const TEMPLATE_PAGES = [
   // IoT's own page saved its whole-session templates here; drawn from its
   // manifest now, it isn't in PANE_TYPES yet when this list is made.
   "iot",
+  "logs-opensearch",
   ...PANE_TYPES.map((t) => t.savedPage),
 ].filter(
   (p, i, all): p is string => !!p && all.indexOf(p) === i,

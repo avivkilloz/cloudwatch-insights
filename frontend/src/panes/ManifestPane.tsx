@@ -30,8 +30,9 @@ import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
-import { useSessionState } from "../sessions/SessionContext";
+import { usePaneAddress, useSessions, useSessionState } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
+import { IndicesPicker, LogGroupsPicker, TimeRange } from "./GroupedPicker";
 import { FilesView, ListView, TagsView } from "./ListView";
 import { DiffRow, LIVE_FUNCTIONS, Outputs } from "./live";
 import {
@@ -49,6 +50,7 @@ import {
 } from "./manifest";
 import { actionById, Option, PaneApi, plain, RunOptions, Values } from "./paneApi";
 import HttpResponseView from "./HttpResponseView";
+import { LogsView, RunNote, SortControl } from "./LogsView";
 import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
@@ -68,6 +70,23 @@ interface Pane extends PaneApi {
   /** Which inputs' examples are shown: the tab's own business. */
   examplesOpen: Record<string, boolean>;
   toggleExamples: (key: string) => void;
+  /** Whether a background action (D51) is running on the server: it is
+   * from its Run until the run the server wrote says otherwise. */
+  running: (action: ManifestAction) => boolean;
+  stopRun: (action: ManifestAction) => void;
+}
+
+/** A background run as the server writes it into `out.run` (D51). */
+interface RunState {
+  id?: string;
+  status?: "running" | "done" | "stopped" | "failed";
+}
+
+/** Whether a layout draws a time range, so a run says the browser's time zone. */
+function hasTimeRange(m: PaneManifest): boolean {
+  const walk = (items: LayoutItem[]): boolean =>
+    items.some((item) => !!item.time_range || walk(item.toolbar ?? []) || walk(item.row ?? []) || walk(item.line ?? []));
+  return m.layout.some((card) => walk([...card.aside, ...card.items]));
 }
 
 /** A manifest text that may be a template over the inputs and the chosen
@@ -171,12 +190,44 @@ function Rendered({ m }: { m: PaneManifest }) {
   const errorsPlaced = useMemo(() => placedErrors(m), [m]);
   const targets = useTargets(m);
   const [examplesOpen, setExamplesOpen] = useState<Record<string, boolean>>({});
+  const address = usePaneAddress();
+  const { flushAll } = useSessions();
+  // A background run's id from its Run's reply until the server's write of
+  // it arrives (a moment later, through the event stream): the button stays
+  // busy across that gap instead of flickering back to "Run query".
+  const [awaiting, setAwaiting] = useState<string | null>(null);
 
   const outputs: Values = {};
   for (const [o, [value]] of storedOutputs) if (value !== undefined) outputs[o.key] = value;
   Object.assign(outputs, live, clicked);
   const views: Values = {};
   for (const [v, [value]] of storedViews) views[v.key] = value;
+
+  const run_ = (outputs.run ?? null) as RunState | null;
+  useEffect(() => {
+    if (awaiting && run_?.id === awaiting) setAwaiting(null);
+  }, [awaiting, run_?.id]);
+  useEffect(() => {
+    // Never busy for good if that write never comes (the event stream down).
+    if (!awaiting) return;
+    const timer = window.setTimeout(() => setAwaiting(null), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [awaiting]);
+
+  function running(action: ManifestAction): boolean {
+    return !!action.poll && (awaiting !== null || run_?.status === "running");
+  }
+
+  async function stopRun(action: ManifestAction) {
+    if (!address.session) return;
+    setErrors((e) => ({ ...e, [action.id]: null }));
+    try {
+      await api.stopPaneRun(m.id, address.session, address.pane);
+      setAwaiting(null);
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, [action.id]: readableError(e) }));
+    }
+  }
 
   function setOutput(key: string, value: SetStateAction<unknown>) {
     storedOutputs.find(([o]) => o.key === key)?.[1][1](value);
@@ -266,6 +317,23 @@ function Rendered({ m }: { m: PaneManifest }) {
       if (action.live) {
         const result = await LIVE_FUNCTIONS[action.live]?.(current);
         setClicked(result ?? {});
+      } else if (action.poll) {
+        // A background run (D51): the server starts it and polls it into the
+        // session, so its results arrive the way any other write to the
+        // session does -- here, in every other tab and member's browser
+        // looking at it, and for the agent. All this gets back is the run.
+        if (!address.session) throw new Error("This pane isn't in a session, so there's nowhere for its run to write.");
+        // The pane must exist on the server before a run can write into it
+        // (one added a moment ago is still in the debounced save).
+        await flushAll();
+        const timezone = hasTimeRange(m) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+        const result = await api.runPaneAction(m.id, action.id, sent, undefined, {
+          session: address.session,
+          pane: address.pane,
+          ...(timezone ? { timezone } : {}),
+        });
+        const started = (result.run as RunState | undefined)?.id;
+        if (started && run_?.id !== started) setAwaiting(started);
       } else if (action.request) {
         const result = await api.runPaneAction(m.id, action.id, sent);
         for (const [o, [, set]] of storedOutputs) set(result[o.key]);
@@ -326,6 +394,8 @@ function Rendered({ m }: { m: PaneManifest }) {
     targets,
     examplesOpen,
     toggleExamples: (key) => setExamplesOpen((prev) => ({ ...prev, [key]: !prev[key] })),
+    running,
+    stopRun,
   };
   // The Saved ▾ menu goes in the first title shown (an untitled card -- the
   // HTTP client's error -- has none to hold it).
@@ -550,6 +620,19 @@ function Item({
   if (item.busy) return pane.busy[item.busy] ? <span className="muted">Loading…</span> : null;
   if (item.flash) return pane.flashed ? <span className="muted">{pane.flashed}</span> : null;
   if (item.more) return <LoadMore action={actionById(pane, item.more)!} pane={pane} />;
+  if (item.stop) {
+    const action = actionById(pane, item.stop)!;
+    return (
+      <button className="secondary" onClick={() => pane.stopRun(action)} disabled={!pane.running(action)}>
+        Stop
+      </button>
+    );
+  }
+  if (item.time_range) return <TimeRange spec={item.time_range} pane={pane} />;
+  if (item.sort) {
+    const output = pane.m.outputs.find((o) => o.key === item.sort);
+    return output ? <SortControl output={output} pane={pane} /> : null;
+  }
   if (item.action) {
     const action = pane.m.actions.find((a) => a.id === item.action)!;
     return <ActionButton action={action} pane={pane} place={place} secondary={item.secondary} />;
@@ -681,7 +764,7 @@ function ActionButton({
   place: Place;
   secondary?: boolean;
 }) {
-  const busy = !!pane.busy[action.id];
+  const busy = !!pane.busy[action.id] || pane.running(action);
   const error = pane.errorsPlaced.has(action.id) ? null : pane.errors[action.id];
   const button = (
     <button className={secondary ? "secondary" : undefined} onClick={() => pane.run(action)} disabled={busy}>
@@ -752,6 +835,9 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   const grow = (min: number): number | false => (bare ? -1 : inRow ? min : false);
   const spaced = place === "card" && !input.rows;
 
+  // Two-level pickers: their options are a loader's groups, not a select's.
+  if (input.type === "log_groups") return <LogGroupsPicker input={input} pane={pane} />;
+  if (input.type === "opensearch_indices") return <IndicesPicker input={input} pane={pane} />;
   if (input.options) {
     const picker = <OptionsPicker input={input} pane={pane} value={value} onChange={set} />;
     return inline ? picker : <Labelled label={label} grow={grow(200)} spaced={spaced}>{picker}</Labelled>;
@@ -939,8 +1025,6 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
       </Labelled>
     );
   }
-  // Environment and log-group pickers are drawn by their services' own pages
-  // until those are ported (Phase 3's later PRs).
   return <p className="muted">{label || input.key}: not drawn by manifests yet.</p>;
 }
 
@@ -1389,6 +1473,10 @@ function OutputView({
       return present(value) ? <TagsView output={output} value={value} pane={pane} /> : null;
     case "http_response":
       return value && typeof value === "object" ? <HttpResponseView response={value as Values} /> : null;
+    case "logs":
+      return <LogsView output={output} value={value} pane={pane} />;
+    case "run":
+      return <RunNote value={value} />;
     case "attach": {
       // Always offered to the agent's chat, no checkbox: the HTTP client's
       // last exchange, to ask why a request came back the way it did.

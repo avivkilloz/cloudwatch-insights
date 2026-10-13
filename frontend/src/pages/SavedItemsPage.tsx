@@ -1,37 +1,19 @@
 import { useEffect, useState } from "react";
-import { api, LogsBackend, SavedQuery, SavedSession } from "../api";
+import { api, SavedSession } from "../api";
 import SavedItemsHub from "../components/SavedItemsHub";
 
 export default function SavedItemsPage() {
-  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listSavedQueries(), api.listSavedSessions()])
-      .then(([queries, sessions]) => {
-        setSavedQueries(queries);
-        setSavedSessions(sessions);
-      })
+    api
+      .listSavedSessions()
+      .then(setSavedSessions)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
-
-  async function createSavedQuery(payload: { name: string; query_string: string; backend?: string }) {
-    const saved = await api.createSavedQuery({ ...payload, backend: payload.backend as LogsBackend | undefined });
-    setSavedQueries((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
-  }
-
-  async function updateSavedQueryItem(id: number, payload: { name: string; query_string: string; backend?: string }) {
-    const updated = await api.updateSavedQuery(id, { ...payload, backend: payload.backend as LogsBackend | undefined });
-    setSavedQueries((prev) => prev.map((q) => (q.id === id ? updated : q)));
-  }
-
-  async function deleteSavedQueryItem(id: number) {
-    await api.deleteSavedQuery(id);
-    setSavedQueries((prev) => prev.filter((q) => q.id !== id));
-  }
 
   async function createSavedSessionItem(page: string, name: string, state: Record<string, unknown>) {
     const saved = await api.createSavedSession({ page, name, state });
@@ -53,10 +35,6 @@ export default function SavedItemsPage() {
 
   return (
     <SavedItemsHub
-      savedQueries={savedQueries}
-      onCreateSavedQuery={createSavedQuery}
-      onUpdateSavedQuery={updateSavedQueryItem}
-      onDeleteSavedQuery={deleteSavedQueryItem}
       savedSessions={savedSessions}
       onCreateSession={createSavedSessionItem}
       onUpdateSession={updateSavedSessionItem}

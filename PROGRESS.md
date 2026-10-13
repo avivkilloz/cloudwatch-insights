@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-12, Phase 3b-2 (IoT and the HTTP client)._
+_Last updated: 2026-10-12, Phase 3b-3 (CloudWatch and OpenSearch)._
 
 ## Platform plan
 
@@ -74,7 +74,23 @@ requests moved into saved inputs. Backend 337 tests (11 new in
 `test_pane_actions.py`); agent 25; browser smoke67 (IoT) and smoke68 (the HTTP
 client), both failing against the old frontend; the full browser run is 51 of
 52 green, smoke31's two styling checks failing as they do on main (smoke25 and
-smoke26, which had been timing out on main, pass again).
+smoke26, which had been timing out on main, pass again). Merged as #107.
+3b-3 is built (PLATFORM_PLAN.md §16.9, as built in §16.10): CloudWatch and
+OpenSearch drawn from their manifests -- the two-level log group and index
+pickers, the time range, Sort by, and the logs results view (merged, capped,
+grouped, expandable; sort, group and expanded rows are view keys). A
+CloudWatch query is a **background run the server polls into the session**
+(D51, the user's choice): one stream every tab, member and the agent see,
+carrying on across a reload, polled only while someone has the session open
+(tab presence from the event stream, or an agent turn waiting), paused
+otherwise and stopped after 10 minutes unwatched; Stop from anywhere that can
+edit, the agent's `stop_pane` included. Saved queries moved into saved
+inputs and the Library's Log Queries tab went; IoT's router and the HTTP
+client's old route went (D49). Backend 346 tests (`test_pane_runs.py`
+new); agent 25; browser smoke69, failing against the old frontend, served by
+`backend/dev/fake_aws.py` (AWS faked for accounts starting "0000"). The full
+browser run is 52 of 53 green, smoke31's two styling checks failing as they
+do on main (smoke35's Library check updated for the removed Log Queries tab).
 
 ## Where things stand
 
@@ -1006,10 +1022,12 @@ Everything below is merged and verified against the running app.
 
 ## In progress / where I left off
 
-3b-2 (IoT and the HTTP client) is built and verified against the running stack
-and awaits its PR; nothing is half-written. After it merges, restart the branch
-from `main` (`git fetch origin main && git checkout -B <branch> origin/main`)
-and detail 3b-3 (the logs, PLATFORM_PLAN.md §16.5) before building it.
+3b-3 (CloudWatch and OpenSearch) is built and verified against the running
+stack and awaits its PR; nothing is half-written. After it merges, restart the
+branch from `main` (`git fetch origin main && git checkout -B <branch>
+origin/main`) and detail 3b-4 (charts, PLATFORM_PLAN.md §16.5) before building
+it. The logs routes, saved queries' routes and the agent's `list_log_groups`
+and `list_opensearch_*` tools stay one release and go in 3b-4.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1114,7 +1132,10 @@ python3 -m uvicorn app.main:app --port 8000
 cd frontend && npx vite --port 5179
 ```
 
-Log in as `admin` / the `ADMIN_PASSWORD` you started the backend with.
+Log in as `admin` / the `ADMIN_PASSWORD` you started the backend with. For the
+browser suites, serve the backend as `uvicorn dev.fake_aws:app` instead: the
+same app, with Logs Insights and OpenSearch faked for accounts starting "0000"
+(smoke69 needs it; see `frontend/e2e/README.md`).
 
 The agent needs Python 3.12 venvs (the system Python here is 3.11 and lacks
 `mcp`): the backend's `requirements.txt` in one, `platform-agent`'s in
@@ -1176,10 +1197,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Restart the branch from `main` once 3b-2's PR merges; then 3b-3 (CloudWatch
-   and OpenSearch), 3b-4 (charts), 3b-5 (MQTT on the server), each detailed in
-   PLATFORM_PLAN.md §16 before it is built. IoT's and the HTTP client's old
-   routes go in 3b-3 (D49).
+1. Restart the branch from `main` once 3b-3's PR merges; then 3b-4 (charts) and
+   3b-5 (MQTT on the server), each detailed in PLATFORM_PLAN.md §16 before it is
+   built. The logs' old routes, saved queries' and the agent's per-service list
+   tools go in 3b-4 (D49).
 2. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,

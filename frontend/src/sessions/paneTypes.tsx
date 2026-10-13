@@ -1,4 +1,3 @@
-import InsightsPage from "../pages/InsightsPage";
 import MqttTool from "../components/tools/MqttTool";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest } from "../panes/manifest";
@@ -33,39 +32,9 @@ export interface SessionTypeDef {
   paneable?: boolean;
 }
 
-/** The panes still drawn by their own components, until their PRs port them
- * to manifests (PLATFORM_PLAN.md §15). */
+/** The panes still drawn by their own components (PLATFORM_PLAN.md §15):
+ * only MQTT, whose state is a live connection in the browser. */
 const DRAWN: SessionTypeDef[] = [
-  {
-    type: "logs-cloudwatch",
-    label: "CloudWatch",
-    group: "Services",
-    description: "Query CloudWatch Logs Insights across environments.",
-    help:
-      "Run one CloudWatch Logs Insights query across several AWS accounts and regions at once and read the merged " +
-      "results newest-first. Pick the environments and log groups, write the query in Insights' pipe syntax or have " +
-      "the agent write it, then run it.",
-    render: () => <InsightsPage backend="cloudwatch" />,
-    enabledFor: (u) => !!u?.logs_enabled,
-    // Unchanged from when this was the only logs page, so sessions saved
-    // before the split still list and open here.
-    savedPage: "logs",
-    paneable: true,
-  },
-  {
-    type: "logs-opensearch",
-    label: "OpenSearch",
-    group: "Services",
-    description: "Query AWS-provisioned OpenSearch domains across environments.",
-    help:
-      "Search AWS-provisioned OpenSearch domains across environments using Lucene query_string syntax — the same as " +
-      "OpenSearch Dashboards' search bar — and read the merged results newest-first. Each domain's access policy has " +
-      "to allow the app's assumed role, and its endpoint has to be reachable from the backend.",
-    render: () => <InsightsPage backend="opensearch" />,
-    enabledFor: (u) => !!u?.opensearch_enabled,
-    savedPage: "logs-opensearch",
-    paneable: true,
-  },
   {
     type: "tool-mqtt",
     label: "MQTT tester",
@@ -97,6 +66,10 @@ const LEGACY_SAVED_PAGES: Record<string, string> = {
   buckets: "buckets-session",
   cognito: "cognito-session",
   iot: "iot",
+  // Unchanged from when CloudWatch was the only logs page, so sessions saved
+  // before the split still list and open here.
+  "logs-cloudwatch": "logs",
+  "logs-opensearch": "logs-opensearch",
 };
 
 function fromManifest(m: PaneManifest): SessionTypeDef {

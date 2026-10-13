@@ -24,11 +24,9 @@ tester that there was no such thing.
 """
 
 import asyncio
-import datetime
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -37,7 +35,6 @@ from .. import connections, models, schemas
 from ..panes import live
 from ..panes import manifest as pane_manifest
 from ..live_store import tag_set, untag
-from ..routers import opensearch, queries
 
 
 class InputError(Exception):
@@ -307,6 +304,9 @@ class PaneKind:
     choice_sets: dict[str, dict[Any, dict[str, Any]]] = field(default_factory=dict)
     # An input's name before its port, where that differs (D40): old -> new.
     aliases: dict[str, str] = field(default_factory=dict)
+    # Its main action runs in the background, polled by the server into the
+    # pane (D51): run_pane starts it there and waits on it.
+    background: bool = False
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -319,6 +319,7 @@ class PaneKind:
             "inputs": [i.describe() for i in self.inputs],
             "run": self.run_help,
             **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
+            **({"stop_pane": "Stops a run still going."} if self.background else {}),
         }
 
 
@@ -326,36 +327,6 @@ class PaneKind:
 # waiting minutes on one query is an agent the user has given up on.
 RUN_TIMEOUT_SECONDS = 90.0
 POLL_SECONDS = 2.0
-
-
-def _zone(rc: RunContext) -> datetime.tzinfo:
-    if rc.timezone:
-        try:
-            return ZoneInfo(rc.timezone)
-        except (ZoneInfoNotFoundError, ValueError):
-            pass
-    return datetime.timezone.utc
-
-
-def time_range(rc: RunContext, values: dict) -> tuple[int, int]:
-    """The run's window in epoch seconds, worked out the way the pane does
-    (computeTimeRange): a preset ends now; a custom range is local time in the
-    user's own zone, since that's the zone they typed it or read it in."""
-    preset = values.get("preset", 900)
-    if preset == "custom":
-        zone = _zone(rc)
-        try:
-            start = datetime.datetime.fromisoformat(values.get("customStart") or "").replace(tzinfo=zone)
-            end = datetime.datetime.fromisoformat(values.get("customEnd") or "").replace(tzinfo=zone)
-        except ValueError:
-            raise InputError('A custom range needs customStart and customEnd as "YYYY-MM-DDTHH:mm".') from None
-        start_s, end_s = int(start.timestamp()), int(end.timestamp())
-    else:
-        end_s = int(time.time())
-        start_s = end_s - int(preset)
-    if end_s <= start_s:
-        raise InputError("The end of the time range must be after its start.")
-    return start_s, end_s
 
 
 def _http_error(e: HTTPException) -> InputError:
@@ -385,151 +356,6 @@ def _sample(rows: list[dict]) -> list[dict]:
     return [{k: _cell(v) for k, v in row.items()} for row in rows[:SAMPLE_ROWS]]
 
 
-def _field_rows(rows: list[list[dict]]) -> list[dict]:
-    # CloudWatch's @ptr is an opaque handle, noise to anyone reading rows.
-    return [{f["field"]: f["value"] for f in row if f["field"] != "@ptr"} for row in rows]
-
-
-async def run_cloudwatch(rc: RunContext, values: dict) -> RunResult:
-    selection = values.get("logGroupSelection") or {}
-    targets = [
-        schemas.QueryTarget(environment_id=int(env), log_group_names=list(names))
-        for env, names in selection.items()
-        if names
-    ]
-    if not targets:
-        raise InputError("Choose at least one log group first (set logGroupSelection).")
-    start, end = time_range(rc, values)
-    limit = min(max(int(values.get("limit") or 100), 1), 10000)
-    started = await queries.start_queries(
-        payload=schemas.StartQueryRequest(
-            targets=targets,
-            query_string=values.get("queryString") or "",
-            start_time=start,
-            end_time=end,
-            limit=limit,
-        ),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    # A target that couldn't start is shown the way the pane shows one.
-    failed = [
-        schemas.QueryResultItem(
-            environment_id=q.environment_id,
-            environment_name=q.environment_name,
-            account_id=q.account_id,
-            region=q.region,
-            query_id="",
-            status="Failed",
-            rows=[],
-            error=q.error,
-        )
-        for q in started.queries
-        if q.error
-    ]
-    running = [
-        schemas.QueryStatusRequest(environment_id=q.environment_id, query_id=q.query_id)
-        for q in started.queries
-        if q.query_id
-    ]
-    items: list[schemas.QueryResultItem] = []
-    deadline = time.monotonic() + RUN_TIMEOUT_SECONDS
-    while running:
-        polled = await queries.get_results(
-            payload=schemas.QueryResultsRequest(queries=running), db=rc.db, current_user=rc.user
-        )
-        items = list(polled.results)
-        if polled.all_done:
-            break
-        if time.monotonic() > deadline:
-            await queries.stop_queries(
-                payload=schemas.StopQueryRequest(queries=running), db=rc.db, current_user=rc.user
-            )
-            for item in items:
-                if item.status not in queries.TERMINAL_STATUSES:
-                    item.status = "Timeout"
-                    item.error = (
-                        f"Still running after {int(RUN_TIMEOUT_SECONDS)}s, so it was stopped; "
-                        "these are the rows it had. Narrow the time range or the query."
-                    )
-            break
-        await asyncio.sleep(POLL_SECONDS)
-    results = [r.model_dump() for r in failed + items]
-    rows = [row for r in results for row in _field_rows(r["rows"])]
-    return RunResult(
-        writes={"results": results, "osResults": [], **_ran(values)},
-        summary={
-            "targets": [
-                {
-                    "environment": r["environment_name"],
-                    "status": r["status"],
-                    "rows": len(r["rows"]),
-                    **({"error": r["error"]} if r.get("error") else {}),
-                }
-                for r in results
-            ],
-            "total_rows": len(rows),
-            "sample": _sample(rows),
-        },
-    )
-
-
-async def run_opensearch(rc: RunContext, values: dict) -> RunResult:
-    selection = values.get("openSearchSelection") or {}
-    targets = [
-        schemas.OpenSearchTarget(
-            environment_id=int(env), domain_name=domain, domain_endpoint=sel["domain_endpoint"], indices=list(sel["indices"])
-        )
-        for env, domains in selection.items()
-        for domain, sel in domains.items()
-        if sel.get("indices")
-    ]
-    if not targets:
-        raise InputError("Choose at least one domain and index first (set openSearchSelection).")
-    start, end = time_range(rc, values)
-    response = await opensearch.search(
-        payload=schemas.OpenSearchSearchRequest(
-            targets=targets,
-            query_string=values.get("queryString") or "",
-            start_time=start,
-            end_time=end,
-            timestamp_field=values.get("timestampField") or "@timestamp",
-            limit=min(max(int(values.get("limit") or 100), 1), 1000),
-        ),
-        db=rc.db,
-        current_user=rc.user,
-    )
-    results = [r.model_dump() for r in response.results]
-    rows = [row for r in results for row in _field_rows(r["rows"])]
-    return RunResult(
-        writes={"osResults": results, "results": [], **_ran(values)},
-        summary={
-            "targets": [
-                {
-                    "environment": r["environment_name"],
-                    "domain": r["domain_name"],
-                    "status": r["status"],
-                    "rows": len(r["rows"]),
-                    "total_hits": r.get("total_hits"),
-                    **({"error": r["error"]} if r.get("error") else {}),
-                }
-                for r in results
-            ],
-            "total_rows": len(rows),
-            "sample": _sample(rows),
-        },
-    )
-
-
-def _query_rows(key: str) -> RowLister:
-    """CloudWatch's and OpenSearch's rows, as their runs sampled them."""
-
-    def rows(values: dict) -> list[dict]:
-        return [row for r in values.get(key) or [] if isinstance(r, dict) for row in _field_rows(r.get("rows") or [])]
-
-    return rows
-
-
 def _call(fn, **kwargs):
     """A router function that reports failure with an HTTPException (the
     single-environment ones), with its message passed on as-is."""
@@ -541,12 +367,12 @@ def _call(fn, **kwargs):
 
 def _with_log_group_environments(values: dict) -> dict:
     envs = [int(e) for e in (values.get("logGroupSelection") or {})]
-    return {"selectedEnvironmentIds": envs} if envs else {}
+    return {"connections": envs} if envs else {}
 
 
 def _with_opensearch_environments(values: dict) -> dict:
     envs = sorted({int(t["environment_id"]) for t in (values.get("openSearchSelection") or []) if isinstance(t, dict)})
-    return {"selectedEnvironmentIds": envs} if envs else {}
+    return {"connections": envs} if envs else {}
 
 
 # What a live run hands the agent is the pane's whole output, which a long
@@ -659,10 +485,18 @@ def flatten(value: Any, groups: Optional[dict]) -> list[tuple[dict, Optional[dic
         if not isinstance(group, dict):
             continue
         for row in group.get(groups.get("rows", "rows")) or []:
+            if groups.get("fields") and isinstance(row, list):
+                row = _field_row(row)
             if isinstance(row, dict):
                 stamped = {groups["as"]: group.get(groups.get("name", "name"))} if groups.get("as") else {}
                 out.append(({**stamped, **row}, group))
     return out
+
+
+def _field_row(fields: list) -> dict:
+    """A logs row -- `[{field, value}]` -- as one object. CloudWatch's @ptr is
+    an opaque handle, noise to anyone reading rows."""
+    return {f["field"]: f["value"] for f in fields if isinstance(f, dict) and f.get("field") != "@ptr"}
 
 
 def _summary(manifest: pane_manifest.Manifest, outputs: dict[str, Any], page: Optional[pane_manifest.Page]) -> dict[str, Any]:
@@ -715,8 +549,10 @@ def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     if manifest.state != "v2" or main is None or main.handler is None:
         return None
     # Reaching outside the platform (the HTTP client's Send) is a person's to
-    # do until the approval step exists: no run, and run_help says so.
-    if main.effects == "external":
+    # do until the approval step exists: no run, and run_help says so. A
+    # background action (a CloudWatch query) runs through the session's pane
+    # (server.run_pane), since its results are written there as they arrive.
+    if main.effects == "external" or main.poll is not None:
         return None
     from ..routers import panes as panes_router  # the router imports this module
 
@@ -733,7 +569,9 @@ def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
                     outputs.update(
                         await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, action, values)
                     )
-            found = await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, main, values)
+            found = await asyncio.to_thread(
+                panes_router.run_handler, rc.db, rc.user, manifest, main, {**values, "_tz": rc.timezone}
+            )
         except HTTPException as e:
             raise _http_error(e) from None
         outputs.update(found)
@@ -757,16 +595,15 @@ def _api_rows(values: dict) -> list[dict]:
     return [r for r in values.get("rows") or [] if isinstance(r, dict)]
 
 
-HANDLERS: dict[str, Runner] = {
-    "cloudwatch.run": run_cloudwatch,
-    "opensearch.run": run_opensearch,
-}
+# Every pane the agent runs is drawn from its manifest now; a pane still drawn
+# by hand would name its own runner here.
+HANDLERS: dict[str, Runner] = {}
 IMPLIES: dict[str, Callable[[dict], dict]] = {
     "log_group_environments": _with_log_group_environments,
     "opensearch_environments": _with_opensearch_environments,
 }
 def _list_outputs(manifest: pane_manifest.Manifest) -> list[pane_manifest.ManifestOutput]:
-    return [o for o in manifest.outputs if o.render in ("list", "files")]
+    return [o for o in manifest.outputs if o.render in ("list", "files", "logs")]
 
 
 def _shown_list(manifest: pane_manifest.Manifest, values: dict) -> Optional[pane_manifest.ManifestOutput]:
@@ -835,8 +672,6 @@ def _manifest_detail(manifest: pane_manifest.Manifest) -> Optional[Detailer]:
 
 
 ROW_LISTERS: dict[str, RowLister] = {
-    "rows.results": _query_rows("results"),
-    "rows.osResults": _query_rows("osResults"),
     "rows.api-table": _api_rows,
 }
 DETAILERS: dict[str, Detailer] = {}
@@ -886,6 +721,7 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
         view_defaults={v.key: v.default for v in manifest.views},
         choice_sets={i.key: i.choice_sets for i in manifest.inputs if i.choice_sets},
         aliases={i.legacy_key: i.key for i in manifest.agent_inputs() if i.legacy_key and i.legacy_key != i.key},
+        background=bool(manifest.main_action() and manifest.main_action().poll),
     )
 
 

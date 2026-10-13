@@ -219,6 +219,7 @@ def mutate(
     client_id: str,
     change: Callable[[dict, models.LiveSession, Optional[models.SessionMember]], T],
     origin: Optional[str],
+    reopen: bool = True,
 ) -> tuple[models.LiveSession, T]:
     """Read-modify-write one session under its row lock, so a browser save
     landing at the same moment is either before this (and this change is made
@@ -255,9 +256,12 @@ def mutate(
     # A new object, not the edited original: SQLAlchemy only notices a JSON
     # column changed when it is assigned.
     row.state = state
-    if member is None:
+    # A write someone asked for reopens their own view of a closed session;
+    # results a background run polled in (D51) must not put a session back
+    # in the rail of whoever closed it.
+    if reopen and member is None:
         row.closed_at = None
-    else:
+    elif reopen:
         member.closed_at = None
     commit_write(db, row, origin)
     return row, result

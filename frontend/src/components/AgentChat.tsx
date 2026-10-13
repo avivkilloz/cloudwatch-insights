@@ -62,6 +62,8 @@ function describe(step: AgentStep): string {
       return done ? "Filled in a pane" : "Filling in a pane…";
     case "run_pane":
       return done ? "Ran a pane" : "Running a pane…";
+    case "stop_pane":
+      return done ? "Stopped a pane's run" : "Stopping a pane's run…";
     case "inspect_row":
       return done ? "Looked at a row in full" : "Looking at a row…";
     case "unreadable_tool_call":

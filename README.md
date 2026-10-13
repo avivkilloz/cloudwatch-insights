@@ -126,9 +126,14 @@ from your picture's menu and is not a session; the strip stays above it.
 - **CloudWatch session**: pick one or more environments, browse/select their log
   groups, write a CloudWatch Logs Insights query (same syntax as the AWS
   console), and run it — the app fires one `StartQuery` per selected
-  environment in parallel and polls until every target finishes. Results
-  from all targets are merged into one list, shrunk to a single summary
-  line per row by default; click a row to expand every field.
+  environment in parallel and the **server** polls until every target
+  finishes, writing the rows into the session as they arrive. So everyone
+  with the session open (another tab, another member, the agent) watches the
+  same rows stream in, a reload mid-query carries on, and anyone who can edit
+  the session can Stop it. The server only polls while someone has the
+  session open; left unwatched for 10 minutes, the query is stopped in AWS.
+  Results from all targets are merged into one list, shrunk to a single
+  summary line per row by default; click a row to expand every field.
 - **IoT session**: pick one or more environments, then search either **Things**
   (the same "Advanced search" syntax as the AWS console — by name,
   attributes, connectivity, shadow values, group membership, and more) or
@@ -259,30 +264,22 @@ from your picture's menu and is not a session; the strip stays above it.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- Everything saved anywhere in the app — session templates, saved inputs,
-  saved log queries, and saved MQTT topics — is **per user** (each user only
+- Everything saved anywhere in the app — session templates, saved inputs
+  and saved MQTT topics — is **per user** (each user only
   ever sees and manages their own) and is managed from the **Library**
-  section of Settings, with a tab for each kind (Templates first, then Saved
-  inputs, Log Queries, MQTT Topics). Saved tables and buckets became saved
-  inputs, once, when DynamoDB and S3 moved to manifests, and IoT's saved
-  searches and the HTTP client's saved requests did when they moved; the
-  other kinds follow as their panes do. The per-service session tabs
+  section of Settings, with a tab for each kind (Templates, Saved inputs,
+  MQTT Topics). Saved tables and buckets became saved inputs, once, when
+  DynamoDB and S3 moved to manifests, IoT's saved searches and the HTTP
+  client's saved requests did when they moved, and saved log queries did
+  when CloudWatch and OpenSearch moved (each pane's **Saved ▾** menu); MQTT
+  topics follow when MQTT does. The per-service session tabs
   (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
   than a session now, so nothing writes one, and the ones saved back then are
   listed under Templates — which is also where Add offers them.
-  Every kind supports full editing there, not just
-  rename/delete: saved queries/searches edit their query text and extra
-  fields (backend, search mode) directly; saved HTTP requests edit
-  method/URL/headers/body through the same form the HTTP Client tool itself
-  uses; saved MQTT topics edit the topic string; session templates and
-  saved buckets/tables (see below) edit their underlying JSON state
-  directly, since their shape is page-defined and too open-ended for a
-  bespoke form. Only the query/search and HTTP-request/MQTT-topic tabs
-  support adding a new item directly from Settings — a session snapshot or
-  a saved bucket/table is still created from its own page's "Save"
-  button, since that's what captures the current state in the first place.
-  (Cognito has no saved-item concept of its own today.)
-- **Templates**, distinct from saved queries/searches: **⋮ → Save as
+  Saved inputs are renamed and deleted there, and saved and loaded from the
+  pane's own Saved ▾ menu; session templates edit their JSON state directly,
+  and MQTT topics their topic string (and can be added there too).
+- **Templates**, distinct from saved inputs: **⋮ → Save as
   template** on any session in the side panel keeps that session's *inputs* —
   selected environments, log groups, query text, time range, limit, sort,
   search mode, and so on, including each Aggregator pane's — but not its

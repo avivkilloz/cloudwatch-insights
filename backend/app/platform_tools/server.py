@@ -44,6 +44,7 @@ from .. import connections, credential_store, live_store, models, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
+from ..panes import runs as pane_runs
 from ..routers import log_groups, opensearch
 from . import tokens
 from .panes import (
@@ -52,6 +53,7 @@ from .panes import (
     PaneKind,
     RunContext,
     _call,
+    _summary,
     available_kinds,
     convert,
     input_key,
@@ -872,6 +874,9 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
             lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs or {}),
             ORIGIN,
         )
+        if kind.background:
+            _check_reachable(db, user, kind, pane_values(row.state, pane_id))
+            return await _run_background(db, user, caller, row, kind, pane_id)
         if kind.run is None:
             raise InputError(kind.run_help)
         _check_reachable(db, user, kind, pane_values(row.state, pane_id))
@@ -888,6 +893,95 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
         if trimmed:
             out["note"] = "The results were too big for a pane and were cut down; narrow the search to see them all."
         return out
+
+
+# How long run_pane waits on a background run before answering from what has
+# arrived; the run carries on in the pane after that.
+BACKGROUND_WAIT_SECONDS = 90.0
+
+
+async def _run_background(db: Session, user: models.User, caller, row: models.LiveSession, kind: PaneKind, pane_id: str) -> dict:
+    """A background action (a CloudWatch query, D51): started in the pane, as
+    the pane's own Run does, and waited on while the server polls it -- this
+    turn counts as watching, so it is polled even with no browser open. A
+    query still going after the wait is left running, its results arriving
+    in the pane; it used to be stopped at 90 s."""
+    manifest = pane_manifest.get(kind.type)
+    main = manifest.main_action()
+    if caller.session_scope_id is not None and row.id != caller.session_scope_id:
+        raise InputError(_OUT_OF_SCOPE)
+    _, member = live_store.reachable(db, user.id, row.client_id)
+    values = {**pane_values(row.state, pane_id), "_tz": caller.timezone}
+    try:
+        run = await asyncio.to_thread(
+            _start_run, user.id, row.id, member.id if member else None, manifest, main, pane_id, values
+        )
+    except HTTPException as e:
+        raise InputError(str(e.detail)) from None
+    except pane_runs.RunError as e:
+        raise InputError(str(e)) from None
+    deadline = asyncio.get_running_loop().time() + BACKGROUND_WAIT_SECONDS
+    status = run["status"]
+    while status == pane_runs.RUNNING and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(1.0)
+        status = await asyncio.to_thread(_run_status, run["id"])
+    db.expire_all()
+    fresh = db.get(models.LiveSession, row.id)
+    values = pane_values(fresh.state if fresh else {}, pane_id)
+    results = {"results": values.get("results") or []}
+    out = {
+        "session_id": row.client_id,
+        "pane_id": pane_id,
+        "shown_in": _shown_in(fresh or row, pane_id),
+        "status": status,
+        **_summary(manifest, results, None),
+    }
+    if (values.get("run") or {}).get("trimmed"):
+        out["note"] = "The results were too big for a pane and were cut down; narrow the search to see them all."
+    if status == pane_runs.RUNNING:
+        out["note"] = (
+            "Still running after 90 seconds: these are the rows so far. It keeps running in the pane, its results "
+            "arriving there; stop_pane stops it."
+        )
+    return out
+
+
+def _start_run(user_id: int, row_id: int, member_id, manifest, action, pane_id: str, values: dict) -> dict:
+    with SessionLocal() as db:
+        user = db.get(models.User, user_id)
+        row = db.get(models.LiveSession, row_id)
+        member = db.get(models.SessionMember, member_id) if member_id else None
+        run = pane_runs.start(
+            db, user, row, member, manifest, action, pane_id, values, agent_seconds=BACKGROUND_WAIT_SECONDS + 5
+        )
+        return {"id": run.id, "status": run.status}
+
+
+def _run_status(run_id: str) -> str:
+    with SessionLocal() as db:
+        run = db.get(models.PaneRun, run_id)
+        return run.status if run else pane_runs.FAILED
+
+
+@mcp.tool()
+async def stop_pane(session_id: str, pane_id: str) -> dict:
+    """Stops a pane's run that is still going (a CloudWatch query), the same as its Stop button. Changes nothing
+    else."""
+    with _acting() as (db, user, caller):
+        row, member = live_store.reachable(db, user.id, session_id)
+        if row is None:
+            raise InputError(f"There is no session with id '{session_id}'. list_sessions shows them.")
+        if caller.session_scope_id is not None and row.id != caller.session_scope_id:
+            raise InputError(_OUT_OF_SCOPE)
+        kind = kind_for(user, _pane(row.state, pane_id))
+        if not kind.background:
+            raise InputError(f"{kind.label} panes have nothing running in the background to stop.")
+        try:
+            stopped = pane_runs.stop(db, user, row, member, pane_id)
+        except pane_runs.RunError as e:
+            raise InputError(str(e)) from None
+        return {"session_id": session_id, "pane_id": pane_id, "stopped": stopped,
+                **({} if stopped else {"note": "Nothing was running in that pane."})}
 
 
 # ---------------------------------------------------------------- transport

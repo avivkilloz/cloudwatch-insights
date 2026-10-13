@@ -56,3 +56,31 @@ def _clean_database():
     assert login_resp.status_code == 200, login_resp.text
 
     yield
+
+
+class _SendReply:
+    """The HTTP client's Send through its action (`http.send`), answered the
+    way the retired `/api/tools/http-request` was: the response itself on
+    success, the error's detail otherwise -- so the tests written against
+    that route still say what they meant."""
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.status_code = resp.status_code
+        self.text = resp.text
+
+    def json(self):
+        body = self._resp.json()
+        return body["response"] if isinstance(body, dict) and "response" in body else body
+
+
+def send_http(c, payload: dict) -> _SendReply:
+    inputs = {
+        "method": payload.get("method", "GET"),
+        "url": payload.get("url", ""),
+        "body": payload.get("body"),
+        "headerRows": [{"id": i + 1, **h} for i, h in enumerate(payload.get("headers") or [])],
+        "credentialId": payload.get("credential_id"),
+        "targetId": payload.get("target_id"),
+    }
+    return _SendReply(c.post("/api/panes/tool-http/actions/send", json={"inputs": inputs}))

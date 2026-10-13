@@ -8,6 +8,7 @@ from starlette.routing import Route
 
 from . import bootstrap, connections, credential_store, credential_types, masking, models
 from .db import Base, SessionLocal, engine, ensure_columns
+from .panes import runs as pane_runs
 from .panes import saved as pane_saved
 from .platform_tools import server as platform_server
 from .routers import (
@@ -15,7 +16,6 @@ from .routers import (
     auth,
     credentials,
     environments,
-    iot,
     live_sessions,
     log_groups,
     opensearch,
@@ -85,9 +85,15 @@ finally:
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # The MCP endpoint's session manager lives as long as the app does.
+    # The MCP endpoint's session manager lives as long as the app does, and so
+    # does this replica's driver of background runs (D51), whose sweeper
+    # picks up runs a replica that went away was polling.
     async with platform_server.endpoint.lifespan():
-        yield
+        pane_runs.manager.start()
+        try:
+            yield
+        finally:
+            await pane_runs.manager.stop()
 
 
 app = FastAPI(title="CloudWatch Insights (Multi-Account)", lifespan=lifespan)
@@ -119,7 +125,6 @@ app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
 app.include_router(session_categories.router)
 app.include_router(live_sessions.router)
-app.include_router(iot.router)
 app.include_router(agent.router)
 app.include_router(tools.router)
 app.include_router(saved_inputs.router)

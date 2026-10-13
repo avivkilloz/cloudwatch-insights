@@ -10,39 +10,134 @@ help: >-
   Search AWS-provisioned OpenSearch domains across environments using Lucene query_string syntax — the same as
   OpenSearch Dashboards' search bar — and read the merged results newest-first. Each domain's access policy has to
   allow the app's assumed role, and its endpoint has to be reachable from the backend.
+state: v2
+rendered: true
 inputs:
-  - key: selectedEnvironmentIds
-    type: environments
+  - key: connections
+    type: connections
+    connection_type: aws
+    legacy_key: selectedEnvironmentIds
+    default: []
     help: Which environments to search.
   - key: openSearchSelection
     type: opensearch_indices
+    default: {}
     help: Which domains and indices to search (list_opensearch_domains and list_opensearch_indices).
+    options:
+      action: list_domains
+      children: list_indices
+      load_label: Load OpenSearch domains
+      busy_label: Loading domains…
+      placeholder: Select environments above, then load OpenSearch domains.
+      filter: Filter indices…
   - key: queryString
     type: text
+    rows: 5
+    default: ""
+    placeholder: "e.g. level:ERROR AND service:checkout (blank matches everything in the time range)"
     help: "Lucene query_string syntax, e.g. level:ERROR AND service:checkout."
   - key: timestampField
     type: text
-    help: The field the time range applies to (default @timestamp).
+    label: Timestamp field
+    default: "@timestamp"
+    width: 120
+    help: The date field to filter/sort by, e.g. @timestamp
   - key: limit
     type: int
-    help: Most hits to return per domain.
+    label: Limit
+    default: 100
     min: 1
+    # The backend never asked OpenSearch for more than 1000; the page offered
+    # 10000 (PLATFORM_PLAN.md §4.7).
     max: 1000
+    width: 90
+    help: Max rows per domain (also applied to the merged, most-recent-first total)
   - key: preset
     type: choice
+    default: 900
     help: How far back to search, in seconds, or "custom" to use customStart/customEnd.
     choices: [300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800, custom]
+    choice_labels:
+      "300": Last 5 minutes
+      "900": Last 15 minutes
+      "1800": Last 30 minutes
+      "3600": Last 1 hour
+      "10800": Last 3 hours
+      "21600": Last 6 hours
+      "43200": Last 12 hours
+      "86400": Last 1 day
+      "259200": Last 3 days
+      "604800": Last 7 days
+      custom: Custom range…
   - key: customStart
     type: text
+    default: ""
     help: 'Start of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
   - key: customEnd
     type: text
+    default: ""
     help: 'End of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
 actions:
+  - id: list_domains
+    handler: aws.opensearch.list_domains
+    requires: { connections: "Select environments above, then load OpenSearch domains." }
+  - id: list_indices
+    handler: aws.opensearch.list_indices
   - id: run
-    handler: opensearch.run
+    handler: aws.opensearch.search
+    main: true
+    run_label: Run query
+    busy_label: Running…
+    requires: { openSearchSelection: Select at least one index to search. }
+    resets: [view.expanded]
+outputs:
+  - key: results
+    render: logs
+    legacy_key: osResults
+    actions: [select, export, attach]
+    config:
+      groups: { rows: rows, name: environment_name, error: error, as: environment, fields: true }
+      domain: logs-opensearch
+      export: logs-results
+      limit: limit
+      sort: { field: sortField, direction: sortDirection }
+      group_by: groupBy
+      expand: expanded
+views:
+  - key: sortField
+    default: "@timestamp"
+    legacy_key: sortField
+  - key: sortDirection
+    default: desc
+    legacy_key: sortDirection
+  - key: groupBy
+    default: none
+  - key: expanded
+    default: []
+legacy_drop: [results, logGroupSelection]
+layout:
+  - title: 1. Choose environments
+    items:
+      - input: connections
+  - title: 2. Choose indices
+    items:
+      - input: openSearchSelection
+  - title: 3. Query
+    items:
+      - toolbar:
+          - time_range: { preset: preset, start: customStart, end: customEnd }
+          - input: limit
+          - input: timestampField
+          - sort: results
+      - input: queryString
+      - toolbar:
+          - action: run
+  - title: 4. Results
+    items:
+      - restored: run
+      - output: results
 implies: opensearch_environments
 inspect:
-  rows: rows.osResults
+  help: Shows one hit of the last search with all its fields.
 agent:
   run: Runs the search and shows the hits in the pane; you get the hit counts and a sample.

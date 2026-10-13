@@ -1,17 +1,11 @@
 import { useState } from "react";
-import { SavedQuery, SavedSession } from "../api";
+import { SavedSession } from "../api";
 import { SESSION_SAVED_PAGE } from "../sessions/registry";
 import { TEMPLATE_PAGES } from "../sessions/templates";
 import SavedInputsPanel from "./SavedInputsPanel";
-import SavedItemsPanel from "./SavedItemsPanel";
 import SavedSessionEditorPanel from "./SavedSessionEditorPanel";
 
 interface Props {
-  savedQueries: SavedQuery[];
-  onCreateSavedQuery: (payload: { name: string; query_string: string; backend?: string }) => Promise<void>;
-  onUpdateSavedQuery: (id: number, payload: { name: string; query_string: string; backend?: string }) => Promise<void>;
-  onDeleteSavedQuery: (id: number) => Promise<void>;
-
   /** All saved sessions, every page -- the tab content below filters by `page` itself. */
   savedSessions: SavedSession[];
   onCreateSession: (page: string, name: string, state: Record<string, unknown>) => Promise<void>;
@@ -19,7 +13,7 @@ interface Props {
   onDeleteSession: (id: number) => Promise<void>;
 }
 
-type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "mqtt-topics";
+type TabId = "session-templates" | "saved-inputs" | "mqtt-topics";
 
 /* Templates first: a whole session is the biggest thing you can save, and the
    rest are inputs you load inside one. The per-service "sessions" tabs that
@@ -28,11 +22,11 @@ type TabId = "session-templates" | "saved-inputs" | "logs-queries" | "mqtt-topic
    Session templates, which is also where Add offers them. */
 // Saved inputs are every ported pane's (D46); the stores after them go as
 // their panes are ported -- S3's and DynamoDB's (3b-1), IoT's searches and
-// the HTTP client's requests (3b-2) already have.
+// the HTTP client's requests (3b-2) and the logs panes' queries (3b-3)
+// already have, leaving MQTT's topics.
 const TABS: { id: TabId; label: string }[] = [
   { id: "session-templates", label: "Templates" },
   { id: "saved-inputs", label: "Saved inputs" },
-  { id: "logs-queries", label: "Log Queries" },
   { id: "mqtt-topics", label: "MQTT Topics" },
 ];
 
@@ -62,27 +56,6 @@ export default function SavedItemsHub(props: Props) {
       )}
 
       {tab === "saved-inputs" && <SavedInputsPanel />}
-
-      {tab === "logs-queries" && (
-        <SavedItemsPanel
-          description="Available from the Logs page's &quot;Load saved query&quot; dropdown. Each is tagged with the backend (CloudWatch or OpenSearch) it's written for, and the dropdown only offers queries matching whichever backend is currently selected."
-          queryLabel="Query"
-          items={props.savedQueries}
-          onCreate={props.onCreateSavedQuery}
-          onUpdate={props.onUpdateSavedQuery}
-          onDelete={props.onDeleteSavedQuery}
-          extra={{
-            key: "backend",
-            label: "Backend",
-            options: [
-              { value: "cloudwatch", label: "CloudWatch" },
-              { value: "opensearch", label: "OpenSearch (Lucene)" },
-            ],
-            defaultValue: "cloudwatch",
-            getValue: (item) => item.backend,
-          }}
-        />
-      )}
 
       {tab === "mqtt-topics" && (
         <SavedSessionEditorPanel
