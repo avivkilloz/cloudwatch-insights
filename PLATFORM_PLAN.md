@@ -1111,7 +1111,8 @@ foundation the next one needs.
     - `KINDS` and the agent's tools generated from the manifests.
     - The one state shape (D9), and outputs in their own store (§4.6).
     - No visible change.
-  - **3b, the generic renderer and components:**
+  - **3b, the generic renderer and components** (done 2026-10-14, five PRs, §16;
+    every pane is drawn from its manifest):
     - Input cards and dynamic options.
     - The output components and output actions (§4.3), extracted from today's panes,
       plus the visualizations (data frames, the chart spec, ECharts, KPI tiles).
@@ -3140,7 +3141,7 @@ holds something open for a session (D54)._
   Library's MQTT Topics tab goes.
 - **Removed:** `MqttTool.tsx` and the `mqtt` npm package. `paneTypes.tsx`'s list
   of panes drawn by hand is now empty: every pane is drawn from its manifest.
-  `/api/tools/mqtt/presigned-url` stays one release (D49).
+  `/api/tools/mqtt/presigned-url` stays one release (D49); see §16.14.
 
 #### 16.13.4 Tests
 
@@ -3161,6 +3162,83 @@ holds something open for a session (D54)._
   - disconnect;
   - a reload while connected;
   - Saved ▾.
+
+
+### 16.14 3b-5 as built, and two chart fixes
+
+Where the build departed from §16.13, and what came with it:
+
+- **A connection is a run with no query.** A handle without `query_id` is live
+  until it carries an error (`runs._live`); the poll never says done. Two
+  things the poll's write learnt for it:
+  - an `append` output with nothing new is dropped, and a poll that changed
+    nothing writes nothing, so a quiet second doesn't move the session's
+    version or wake every tab;
+  - a stop handler may return outputs, which are written. Disconnect returns
+    `status: null`, so "Connected to …" goes when it does.
+- **A stop on another replica.** The holder sees the run marked stopped on its
+  next tick and runs the stop handler there, closing the socket. Without that,
+  the socket outlived the run on whichever replica held it.
+- **The agent's summary.** `run_pane` on a connection answers after
+  `agent_wait` (8 s) with what came, a note that it keeps running, and
+  `stop_pane` to end it. The pane's own `status` output was renamed
+  `connection` in that summary: it overwrote the run's status.
+  `set_pane_inputs` on a running pane's `restart_on` input restarts it as the
+  agent's user and says so.
+- **A refused connect says what answered.** paho, like the browser, reports a
+  refused WebSocket upgrade as "not upgraded" and nothing more. The server
+  repeats the handshake with the probe the browser's pre-flight used
+  (`iot_mqtt_signer.probe_presigned_url`) and adds its status and body to the
+  error. No `x-amzn-` header means something other than AWS answered. The
+  signed URL is never part of the sentence: it carries the session token.
+- **`/api/tools/mqtt/presigned-url` stays one release** (D49) and goes with
+  3c's first PR, with `schemas.MqttPresigned*` and their tests.
+- **The fake.** `dev/fake_aws` answers accounts starting `0000` with an
+  in-process broker: telemetry on `fake/robot-1/telemetry` every second, and
+  what is published delivered to matching subscriptions.
+
+**Two chart fixes and zoom**, from the user's first use of 3b-4:
+
+- **Series offers few-valued columns only.** It is limited to string columns with
+  at most 20 distinct values (`frame.groupable`). `@message` as series drew one
+  series per log line and a legend of whole lines over the chart.
+- **Raw rows over time are bucketed.** A time x with more than 60 distinct times
+  is folded into bars of one width. The width is from a fixed ladder (1 s … 1 d),
+  about 60 across the range. Every empty bucket is filled, and the chart says
+  "Per 5m". Before, it drew a spike per row.
+- **Zoom by dragging.** It works on the histogram and on a time series over
+  time, in a pane with a `time_range` input. ECharts' `lineX` brush is armed
+  as the cursor.
+  - A drag sets the range to `custom` with what was dragged, to the second
+    and at least 1 s, through `changeInputs`, and runs the main action.
+  - "Undo zoom" pops a stack kept per pane in the tab only. The inputs are the
+    shared truth; how one tab got there isn't.
+  - A chart without a time range (the API table) doesn't offer it.
+- **Checked:**
+  - Backend: `test_mqtt.py`, 11 tests:
+    - streaming, append and cap;
+    - payload cut;
+    - restart keeping messages;
+    - disconnect, including from another replica;
+    - unwatched for 2 minutes;
+    - the cap of five;
+    - publish;
+    - the agent connecting, reading, restarting and stopping, but not
+      publishing;
+    - the saved-topics move;
+    - topic matching;
+    - a refused connect's diagnostic.
+
+    `test_router_flags` also covers MQTT's actions.
+  - Browser:
+    - smoke72 (13 checks): connect, topics restarting with messages kept,
+      publish echo, a second tab, reload, Disconnect from the other tab,
+      Saved ▾.
+    - smoke73 (10 checks): series without the per-row column, "Per 5m",
+      no zoom without a time range, the histogram drag to a custom range and
+      its re-run with narrower bars, Undo zoom.
+
+    Both fail against the frontend on main.
 
 ## 12. Research sources
 

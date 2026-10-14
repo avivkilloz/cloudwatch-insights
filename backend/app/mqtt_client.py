@@ -19,6 +19,7 @@ from __future__ import annotations
 import collections
 import itertools
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -138,7 +139,29 @@ def connect(account_id: str, region: str, identity: Any, client_id: str, deliver
     from . import iot_mqtt_signer
 
     signed = iot_mqtt_signer.build_presigned_ws_url(account_id, region, identity)
-    return _PahoConn(signed["url"], client_id, deliver), signed["endpoint"]
+    try:
+        return _PahoConn(signed["url"], client_id, deliver), signed["endpoint"]
+    except MqttError as e:
+        raise MqttError(f"{e}{_why(signed['url'])}") from None
+
+
+def _why(url: str) -> str:
+    """What IoT Core (or whatever answered in its place) said to the
+    handshake. paho reports a refused upgrade as "not upgraded" and nothing
+    more -- the browser hid it the same way, which is what the probe was
+    written for -- and a firewall answering instead of AWS looked exactly
+    like a missing permission. The URL carries the session token, so it is
+    never part of the sentence, even where an exception quotes it."""
+    from . import iot_mqtt_signer
+
+    probe = iot_mqtt_signer.probe_presigned_url(url)
+    if probe["status_code"] == 101:
+        return " (the WebSocket handshake itself was accepted, so it was MQTT that refused)"
+    body = re.sub(r"wss?://\S+", "the endpoint", probe["body"] or "")
+    said = f"HTTP {probe['status_code']}" if probe["status_code"] else "the handshake failed"
+    if probe["status_code"] and not any(h.lower().startswith("x-amzn-") for h in probe["headers"]):
+        said += " from something that isn't AWS (no x-amzn headers: a proxy or firewall?)"
+    return f" ({said}{': ' + body if body else ''})"
 
 
 @dataclass

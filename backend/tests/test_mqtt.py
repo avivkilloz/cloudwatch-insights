@@ -251,3 +251,28 @@ def test_topic_filters_match_as_mqtt_does():
     assert mqtt_client.matches("a/+/c", "a/b/c") and not mqtt_client.matches("a/+/c", "a/b/x/c")
     assert mqtt_client.matches("a/#", "a/b/c") and mqtt_client.matches("#", "x")
     assert not mqtt_client.matches("a/b", "a/b/c")
+
+
+def test_a_refused_connect_says_what_answered_the_handshake_never_the_signed_url(monkeypatch):
+    from app import iot_mqtt_signer
+
+    url = "wss://abc-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Security-Token=SECRETTOKEN"
+    monkeypatch.setattr(iot_mqtt_signer, "build_presigned_ws_url", lambda *a, **k: {"endpoint": "abc", "url": url})
+
+    def refused(*_a, **_k):
+        raise mqtt_client.MqttError("Couldn't reach abc: WebSocket handshake error, connection not upgraded")
+
+    monkeypatch.setattr(mqtt_client, "_PahoConn", refused)
+    probes = iter(
+        [
+            {"status_code": 403, "body": f"Forbidden for {url}", "headers": ["X-Amzn-RequestId: 1"]},
+            {"status_code": 403, "body": "Blocked", "headers": ["Server: corp-proxy"]},
+        ]
+    )
+    monkeypatch.setattr(iot_mqtt_signer, "probe_presigned_url", lambda _url: next(probes))
+    with pytest.raises(mqtt_client.MqttError) as aws:
+        mqtt_client.connect("1", "us-east-1", None, "c", lambda *_: None)
+    assert "HTTP 403: Forbidden for the endpoint" in str(aws.value) and "SECRETTOKEN" not in str(aws.value)
+    with pytest.raises(mqtt_client.MqttError) as proxy:
+        mqtt_client.connect("1", "us-east-1", None, "c", lambda *_: None)
+    assert "isn't AWS" in str(proxy.value)

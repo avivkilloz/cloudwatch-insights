@@ -59,6 +59,7 @@ backend/app/
   resolve.py         which connection a request targets and who it runs as there (resolve_target/_identity)
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
+  mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
   presence.py        which tabs are connected (tab_presence), so which sessions are watched
@@ -68,7 +69,7 @@ backend/app/
                      handlers.py, runs.py (background runs, D51), timewindow.py
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
-backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch faked, for e2e
+backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch/MQTT faked, for e2e
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
                      streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
@@ -84,7 +85,7 @@ frontend/src/
                      generic renderer), live.ts (live functions), DiffView.tsx
   appBuild.ts        is a newer build deployed (version.json), for the stale-tab reload
   pages/             one file per pane or page + pageTypes.tsx (non-session pages)
-  components/        shared UI; components/tools/ holds the self-contained tools
+  components/        shared UI (every pane is drawn from its manifest now; no page per tool)
   styles.css         all styling, theme tokens at the top
 helm/ argocd/ docker-compose.yml   deployment
 ```
@@ -97,12 +98,12 @@ model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
 and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
   JWT, the API table, DynamoDB, Cognito, S3, IoT, the HTTP client, CloudWatch,
-  OpenSearch -- every pane but MQTT) means the generic renderer
+  OpenSearch, MQTT -- every pane, since 3b-5) means the generic renderer
   (`frontend/src/panes/ManifestPane.tsx`) draws it from the manifest's
   `layout` alone, and its keys are `<pane>.in.<input>` / `.out.<output>` /
-  `.view.<key>`. Every other manifest only describes its pane to the agent
-  and the catalogue until its PR ports it; its page still reads its legacy
-  keys.
+  `.view.<key>`. `sessions/paneTypes.tsx`'s `DRAWN` (panes with a page of
+  their own) is empty; a manifest without `rendered` would only describe
+  its pane to the agent and the catalogue until a page drew it.
 - **One action endpoint for the browser and the agent** (§16.3.1):
   `POST /api/panes/{type}/actions/{action}` runs a `request` action or a
   `handler` registered by name in `panes/handlers.py` (`aws.dynamodb.scan`),
@@ -132,6 +133,23 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   first (`flushAll`: a pane added a second ago must exist on the server)
   and gets back only the run; its button is busy until `out.run` says
   otherwise. A pane with a `time_range` sends the browser's zone (`_tz`).
+- **A run can be a connection, not a query** (MQTT, D54, §16.13): its
+  handle holds no `query_id` (`runs._live`: live unless it has an error),
+  its poll never says done, and its `poll` says how: `every` (1 s),
+  `append: {messages: 200}` (each poll's rows go in front, capped -- a
+  quiet poll writes nothing, so the version doesn't move),
+  `unwatched_stop` (120 s: a socket nobody looks at is closed sooner than
+  a query) and `agent_wait` (how long `run_pane` waits before answering
+  with what came so far). The action's `restart_on: [topics]` restarts it
+  as whoever changed those inputs (the browser's `changeInputs` sends
+  `restart`, the agent's `set_pane_inputs` does it itself), keeping what
+  was received (`runs.start(keep=True)`); `max_running` caps one person's
+  runs of that action (5); `stop_label` names Stop ("Disconnect"). A stop
+  handler may return outputs, which are written (Disconnect clears
+  "Connected to…"). The connection lives in the replica that started it
+  (`mqtt_client.REGISTRY`); a run marked stopped elsewhere is closed by
+  its own replica on its next tick, and one another replica claims
+  reconnects there.
 - **Charts** (§16.11, D11/D53): a `chart:` layout item over an output whose
   config names a `kind: chart` view key. Beside a card title it is only the
   type picker (an unused chart adds no row -- the near-empty row the user
@@ -146,6 +164,19 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   that file. Colours are the dataviz reference palette's validated eight, its
   light or dark steps by the theme's `color-scheme` (`chart/palette.ts`);
   past eight series the rest fold into "Other", never a made-up hue.
+  Series offers only string columns with at most 20 distinct values
+  (`frame.groupable`): a column with a value per row (`@message`) drew one
+  series per log line and a legend of whole lines over the chart. A time x
+  with more than 60 distinct times is folded into buckets of one width
+  from `STEPS` (about 60 bars, "Per 5m" under the chart), every empty
+  bucket filled, so raw rows aren't a spike per row.
+- **Zoom by dragging** (`panes/chart/zoom.ts`): on the histogram and on a
+  time-series chart over time, in a pane with a `time_range` input,
+  ECharts' `lineX` brush is armed as the cursor; a drag sets the range to
+  `custom` with what was dragged (to the second, at least 1 s) through
+  `changeInputs` and runs the main action again. "Undo zoom" pops a stack
+  kept per pane in the tab only (the inputs are the shared truth; the
+  history of how you got there isn't).
 - **The log-volume histogram** (D52, output `volume`, render `histogram`):
   OpenSearch adds a `date_histogram` to the same search, always; CloudWatch
   starts a counting query (`timewindow.count_query`: the user's commands
@@ -339,13 +370,15 @@ cookie and the browser never sees the token; keep it that way.
   callback, the same way `rename` sets `row.title`; category_id isn't part
   of session `state`, so it isn't touched by the state dict the callback
   edits.
-- MQTT and JWT aren't agent-*drivable* on purpose: their state is
-  browser-only (a live connection; a pasted credential). They are still in
-  `KINDS`, with no inputs, so the agent can add, name and arrange them --
-  left out entirely, it told a user asking for an MQTT tester that none
-  existed. Every kind the user's group has belongs in `KINDS`. Anything with
-  side effects outside the platform (sending HTTP, publishing) isn't a tool
-  until the approval step exists.
+- JWT isn't agent-*drivable* on purpose: its state is browser-only (a
+  pasted credential). It is still in `KINDS`, with no inputs, so the agent
+  can add, name and arrange it -- left out entirely, the MQTT tester (then
+  browser-only too) was reported as not existing. Every kind the user's
+  group has belongs in `KINDS`. MQTT is drivable since 3b-5: the agent sets
+  the topics, connects (`run_pane` waits `agent_wait` and returns what came)
+  and disconnects (`stop_pane`), as itself. Anything with side effects
+  outside the platform (sending HTTP, publishing) is `effects: external`
+  and isn't a tool until the approval step exists.
 - The MCP endpoint owns a fresh SDK session manager per app lifespan
   (`McpEndpoint`), so tests that call `/mcp` need `with TestClient(app)`.
   `mcp` is pinned to 1.x on both sides: `langchain-mcp-adapters` requires it.
@@ -395,7 +428,7 @@ The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
 would -- **and so do the per-service routes now** (`resolve.require_flag`,
 called at the top of every AWS-calling endpoint left in `tools.py`, right
 where `resolve_environment`/`resolve_role_name` already were; a ported
-pane's actions -- every AWS call but MQTT's now -- get it from
+pane's actions -- every AWS call now, MQTT's included -- get it from
 `routers/panes.run_handler`, and the action endpoint
 answers a group without the pane's flag with the 404 of a pane that doesn't
 exist). This used to be a real, if not agent-reachable, gap: a group with an
