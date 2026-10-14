@@ -3789,3 +3789,42 @@ th {
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
+
+/* Charts (PLATFORM_PLAN.md §16.11): a chart, the log-volume histogram and a
+   stat tile sit in the card above the rows they draw, set off like a
+   toolbar. Their colours come from panes/chart/palette.ts, not tokens: the
+   palette is validated as a set for light and dark surfaces. */
+.chart-section {
+  margin-bottom: 12px;
+}
+
+.chart-section > .toolbar {
+  margin-bottom: 8px;
+}
+
+.chart-box {
+  width: 100%;
+  min-width: 0;
+}
+
+.stat-tile {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-alt);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-spark {
+  flex: 1;
+  min-width: 0;
+}

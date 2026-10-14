@@ -139,6 +139,8 @@ layout:
       - toolbar:
           - action: run
   - title: 4. Results
+    aside:
+      - chart: results
     items:
       - restored: run
       - output: volume

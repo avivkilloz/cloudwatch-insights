@@ -63,6 +63,8 @@ layout:
           - action: fetch
   - title: Rows
     when: { output: rows, present: true }
+    aside:
+      - chart: rows
     items:
       - chart: rows
       - output: rows
