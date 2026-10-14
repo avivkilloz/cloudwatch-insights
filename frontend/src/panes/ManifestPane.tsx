@@ -51,6 +51,7 @@ import {
 import { actionById, Option, PaneApi, plain, RunOptions, Values } from "./paneApi";
 import HttpResponseView from "./HttpResponseView";
 import { LogsView, RunNote, SortControl } from "./LogsView";
+import { ChartItem, HistogramView } from "./chart/ChartView";
 import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
@@ -629,6 +630,10 @@ function Item({
     );
   }
   if (item.time_range) return <TimeRange spec={item.time_range} pane={pane} />;
+  if (item.chart) {
+    const output = pane.m.outputs.find((o) => o.key === item.chart);
+    return output ? <ChartItem output={output} pane={pane} place={place} /> : null;
+  }
   if (item.sort) {
     const output = pane.m.outputs.find((o) => o.key === item.sort);
     return output ? <SortControl output={output} pane={pane} /> : null;
@@ -1477,6 +1482,8 @@ function OutputView({
       return <LogsView output={output} value={value} pane={pane} />;
     case "run":
       return <RunNote value={value} />;
+    case "histogram":
+      return <HistogramView value={value} />;
     case "attach": {
       // Always offered to the agent's chat, no checkbox: the HTTP client's
       // last exchange, to ask why a request came back the way it did.

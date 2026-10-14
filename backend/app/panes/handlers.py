@@ -22,6 +22,7 @@ on; a missing input is the manifest's `requires` message, checked before a
 handler runs.
 """
 
+import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
@@ -334,8 +335,31 @@ def logs_list_log_groups(db: Session, user: models.User, inputs: dict[str, Any],
     return {"groups": groups}
 
 
+def _histogram_group(group: dict[str, Any], buckets: list[dict[str, int]], error: Optional[str]) -> dict[str, Any]:
+    return {
+        **{k: group.get(k) for k in ("environment_id", "environment_name", "account_id", "region")},
+        "buckets": buckets,
+        "error": error,
+    }
+
+
+def _filled(counts: dict[int, int], start: int, end: int, step: int) -> list[dict[str, int]]:
+    """A bar for every step of the window, empty ones at 0: neither Logs
+    Insights' `bin()` nor a reader can tell a gap from a quiet spell
+    otherwise. Bars start on multiples of the step, as `bin()`'s do."""
+    first = start - start % step
+    return [{"t": t * 1000, "count": counts.get(t * 1000, 0)} for t in range(first, end + 1, step)]
+
+
+def _histogram(start: int, end: int, step_text: str, groups: list[dict[str, Any]], note: Optional[str] = None) -> dict[str, Any]:
+    """The log-volume histogram (D52): a group of bars per target, the
+    window and the step, so every target's bars share one time axis."""
+    return {"start": start * 1000, "end": end * 1000, "interval": step_text, "groups": groups, "note": note}
+
+
 def cloudwatch_start(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
-    """Starts one Logs Insights query per environment with log groups chosen.
+    """Starts one Logs Insights query per environment with log groups chosen,
+    and with Histogram on, a second one counting its matches per bar (D52).
     Returns the handles a background run polls (D51), and a result for every
     environment that couldn't start, so the pane says why at once."""
     targets = _log_group_targets(inputs)
@@ -344,8 +368,17 @@ def cloudwatch_start(db: Session, user: models.User, inputs: dict[str, Any], _cu
     start, end = _range(inputs)
     query = str(inputs.get("queryString") or "")
     limit = _limit_of(inputs, 10000)
+    step, step_text = timewindow.interval(start, end)
+    count: Optional[str] = None
+    note: Optional[str] = None
+    if inputs.get("histogram"):
+        try:
+            count = timewindow.count_query(query, step_text)
+        except timewindow.NoHistogram as e:
+            note = str(e)
     resolved = _resolve_each(db, user, sorted(targets))
     jobs = []
+    counting: list[dict[str, Any]] = []
     for group, identity in resolved:
         if identity is None:
             continue
@@ -358,52 +391,113 @@ def cloudwatch_start(db: Session, user: models.User, inputs: dict[str, Any], _cu
                 ),
             )
         )
+        if count is not None:
+            # Its own dict: the main query's id and error must not mix with it.
+            twin = {k: group[k] for k in ("environment_id", "environment_name", "account_id", "region")}
+            twin.update(role="histogram", error=None, step=step, bin=step_text, start=start, end=end)
+            counting.append(twin)
+            jobs.append(
+                (
+                    twin,
+                    lambda g=group, i=identity, n=names: aws_client.start_query(
+                        g["account_id"], g["region"], i, n, count, start, end, 10000
+                    ),
+                )
+            )
     _parallel(jobs, "query_id")
-    handles = [{**g, "query_id": g.get("query_id")} for g, _ in resolved]
+    handles = [{**g, "query_id": g.get("query_id")} for g, _ in resolved] + counting
     failed = [
         {**{k: h[k] for k in ("environment_id", "environment_name", "account_id", "region")},
          "query_id": "", "status": "Failed", "rows": [], "statistics": None, "error": h["error"]}
         for h in handles
-        if h.get("error") or not h.get("query_id")
+        if h.get("role") != "histogram" and (h.get("error") or not h.get("query_id"))
     ]
-    return {"handles": handles, "results": failed}
+    out: dict[str, Any] = {"handles": handles, "results": failed}
+    if inputs.get("histogram"):
+        out["volume"] = _histogram(start, end, step_text, [
+            _histogram_group(h, _filled({}, start, end, step), h.get("error")) for h in counting
+        ], note)
+    else:
+        # Off: a histogram from an earlier run mustn't sit over these results.
+        out["volume"] = None
+    return out
 
 
 def _rows(data: dict[str, Any]) -> list[list[dict[str, str]]]:
     return [[{"field": f["field"], "value": f["value"]} for f in row] for row in data.get("results") or []]
 
 
+def _bin_ms(value: str) -> Optional[int]:
+    """A `bin()` bucket's time, as Logs Insights writes it ("2026-01-01
+    00:05:00.000", UTC), in epoch milliseconds."""
+    try:
+        parsed = datetime.datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return int(parsed.replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
+
+
+def _counts(data: dict[str, Any]) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for row in data.get("results") or []:
+        fields = {f["field"]: f["value"] for f in row}
+        bucket = next((v for k, v in fields.items() if k.startswith("bin(")), None)
+        t = _bin_ms(bucket) if bucket else None
+        if t is not None:
+            try:
+                counts[t] = counts.get(t, 0) + int(float(fields.get("count") or 0))
+            except ValueError:
+                continue
+    return counts
+
+
 def cloudwatch_poll(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
-    """Each running query's results so far, and whether all are finished.
-    Run as whoever started the queries (the background run knows who)."""
+    """Each running query's results so far, its histogram's bars if it counts
+    one, and whether all are finished. Run as whoever started the queries
+    (the background run knows who)."""
     handles = [h for h in inputs.get("handles") or [] if isinstance(h, dict)]
     live = [h for h in handles if h.get("query_id") and not h.get("error")]
     resolved = dict(
         (g["environment_id"], (g, i)) for g, i in _resolve_each(db, user, sorted({int(h["environment_id"]) for h in live}))
     )
     results: list[dict[str, Any]] = []
+    counted: list[dict[str, Any]] = []
     jobs = []
     for h in handles:
         base = {k: h.get(k) for k in ("environment_id", "environment_name", "account_id", "region")}
+        into = counted if h.get("role") == "histogram" else results
         if not (h.get("query_id") and not h.get("error")):
-            results.append({**base, "query_id": "", "status": "Failed", "rows": [], "statistics": None,
-                            "error": h.get("error") or "The query didn't start."})
+            into.append({**base, "_handle": h, "query_id": "", "status": "Failed", "rows": [], "statistics": None,
+                         "error": h.get("error") or "The query didn't start."})
             continue
         group, identity = resolved.get(int(h["environment_id"]), ({}, None))
-        item = {**base, "query_id": h["query_id"], "status": "Running", "rows": [], "statistics": None, "error": None}
-        results.append(item)
+        item = {**base, "_handle": h, "query_id": h["query_id"], "status": "Running", "rows": [], "statistics": None,
+                "error": None}
+        into.append(item)
         if identity is None:
             item.update(status="Failed", error=group.get("error") or "You can't reach this environment any more.")
             continue
         jobs.append((item, lambda h=h, i=identity: aws_client.get_query_results(h["account_id"], h["region"], i, h["query_id"])))
     _parallel(jobs, "_data")
-    for item in results:
+    bars: list[dict[str, Any]] = []
+    for item in results + counted:
+        handle = item.pop("_handle")
         data = item.pop("_data", None)
         if item.get("error") and data is None:
             item["status"] = "Failed"
         elif data is not None:
             item.update(status=data["status"], rows=_rows(data), statistics=data.get("statistics"))
-    return {"results": results, "done": all(r["status"] in CLOUDWATCH_DONE for r in results)}
+        if handle.get("role") == "histogram":
+            counts = _counts(data or {})
+            bars.append(_histogram_group(item, _filled(counts, handle["start"], handle["end"], handle["step"]), item["error"]))
+    out: dict[str, Any] = {
+        "results": results,
+        "done": all(r["status"] in CLOUDWATCH_DONE for r in results + counted),
+    }
+    if counted:
+        first = next(h for h in handles if h.get("role") == "histogram")
+        out["volume"] = _histogram(first["start"], first["end"], first["bin"], bars)
+    return out
 
 
 def cloudwatch_stop(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
@@ -443,8 +537,6 @@ def opensearch_list_indices(db: Session, user: models.User, inputs: dict[str, An
 def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
     """One Lucene search per chosen domain, its hits as the rows the log list
     draws. A single request each: no start, poll or stop."""
-    from ..routers.opensearch import _hits_to_rows  # the hit flattening the old route had
-
     selection = untag(inputs.get("openSearchSelection")) or {}
     targets: list[tuple[int, str, str, list[str]]] = []
     for env, domains in (selection.items() if isinstance(selection, dict) else []):
@@ -459,6 +551,7 @@ def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _c
     field = str(inputs.get("timestampField") or "@timestamp")
     # 1000: the most the search asks OpenSearch for (§4.7 found the page offering 10000).
     limit = _limit_of(inputs, 1000)
+    step, step_text = timewindow.interval(start, end)
     by_env = {g["environment_id"]: (g, i) for g, i in _resolve_each(db, user, sorted({t[0] for t in targets}))}
     results = []
     jobs = []
@@ -475,17 +568,25 @@ def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _c
             continue
         jobs.append(
             (item, lambda i=identity, g=group, e=endpoint, x=indices: opensearch_client.search(
-                g["account_id"], g["region"], i, e, x, query, start, end, field, limit))
+                g["account_id"], g["region"], i, e, x, query, start, end, field, limit, step_text))
         )
     _parallel(jobs, "_data")
+    bars = []
+    several = len({item["environment_id"] for item in results}) < len(results)
     for item in results:
         data = item.pop("_data", None)
+        # Always (D52): an aggregation on the same search, so it's free.
+        counts = {b["t"]: b["count"] for b in (data or {}).get("buckets") or []}
+        bar = _histogram_group(item, _filled(counts, start, end, step), item["error"])
+        if several:
+            bar["environment_name"] = f"{item['environment_name']} · {item['domain_name']}"
+        bars.append(bar)
         if data is None:
             item["status"] = "Failed" if item["error"] else item["status"]
             continue
-        item["rows"] = [[f.model_dump() for f in row] for row in _hits_to_rows(data["hits"], item["domain_name"])]
+        item["rows"] = opensearch_client.hits_to_rows(data["hits"], item["domain_name"])
         item["total_hits"] = data.get("total")
-    return {"results": results}
+    return {"results": results, "volume": _histogram(start, end, step_text, bars)}
 
 
 # ---------------------------------------------------------------- IoT

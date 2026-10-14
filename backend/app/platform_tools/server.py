@@ -45,9 +45,10 @@ from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
 from ..panes import runs as pane_runs
-from ..routers import log_groups, opensearch
 from . import tokens
 from .panes import (
+    _visible_environment,
+    chart_spec,
     KINDS,
     InputError,
     PaneKind,
@@ -376,61 +377,21 @@ def _flagged(user: models.User, flag: str, label: str) -> None:
 
 
 @mcp.tool()
-async def list_log_groups(environment_ids: list[int], name_contains: str = "") -> dict:
-    """CloudWatch log group names in the given environments, optionally only those whose name contains some text."""
-    with _acting() as (db, user, caller):
-        _flagged(user, "logs_enabled", "CloudWatch")
-        response = await log_groups.get_log_groups(
-            payload=schemas.LogGroupsRequest(environment_ids=environment_ids), db=db, current_user=user
-        )
-        needle = name_contains.lower()
-        out = []
-        for r in response.results:
-            names = [g.name for g in r.log_groups if needle in g.name.lower()]
-            entry: dict[str, Any] = {"environment_id": r.environment_id, "environment": r.environment_name}
-            if r.error:
-                entry["error"] = r.error
-            # A big account has thousands; the model needs enough to choose from.
-            entry["log_groups"] = names[:200]
-            if len(names) > 200:
-                entry["more"] = len(names) - 200
-            out.append(entry)
-        return {"results": out}
-
-
-@mcp.tool()
-async def list_opensearch_domains(environment_ids: list[int]) -> dict:
-    """OpenSearch domains, with their endpoints, in the given environments."""
-    with _acting() as (db, user, caller):
-        _flagged(user, "opensearch_enabled", "OpenSearch")
-        response = await opensearch.get_domains(
-            payload=schemas.OpenSearchDomainsRequest(environment_ids=environment_ids), db=db, current_user=user
-        )
-        return {"results": [r.model_dump() for r in response.results]}
-
-
-@mcp.tool()
-async def list_opensearch_indices(environment_id: int, domain_endpoint: str) -> dict:
-    """The indices of one OpenSearch domain (its endpoint comes from list_opensearch_domains)."""
-    with _acting() as (db, user, caller):
-        _flagged(user, "opensearch_enabled", "OpenSearch")
-        response = _call(
-            opensearch.get_indices,
-            payload=schemas.OpenSearchIndicesRequest(environment_id=environment_id, domain_endpoint=domain_endpoint),
-            db=db,
-            current_user=user,
-        )
-        return {"indices": [i.model_dump() for i in response.indices]}
-
-
-@mcp.tool()
 async def list_options(
-    session_id: str, pane_id: str, input: str, inputs: Optional[dict[str, Any]] = None
+    session_id: str,
+    pane_id: str,
+    input: str,
+    inputs: Optional[dict[str, Any]] = None,
+    parent: Optional[dict[str, Any]] = None,
+    contains: str = "",
 ) -> dict:
     """The choices for a pane input whose options are loaded (get_context's pane_kinds mark them `options`): a
-    DynamoDB pane's tables, an S3 pane's buckets, a Cognito pane's user pools. Uses the pane's current inputs, with
-    `inputs` (same keys as set_pane_inputs) used instead for this look-up only -- e.g. {"connection": 3} to list
-    another environment's tables. Changes nothing."""
+    DynamoDB pane's tables, an S3 pane's buckets, a CloudWatch pane's log groups per environment, an OpenSearch
+    pane's domains per environment. Uses the pane's current inputs, with `inputs` (same keys as set_pane_inputs)
+    used instead for this look-up only -- e.g. {"connection": 3} to list another environment's tables. A two-level
+    picker (OpenSearch's indices) lists inside one first-level item with `parent`: {"connection": environment id,
+    "domainEndpoint": the domain's endpoint}. `contains` keeps only choices whose text contains it. Changes
+    nothing."""
     with _acting() as (db, user, caller):
         found, _ = live_store.reachable(db, user.id, session_id)
         if found is None:
@@ -442,19 +403,57 @@ async def list_options(
             loaded = ", ".join(i.key for i in (manifest.inputs if manifest else []) if i.options) or "none"
             raise InputError(f"{kind.label}'s {input} has no options to list. Its inputs with options: {loaded}.")
         rc = RunContext(db=db, user=user, timezone=caller.timezone)
-        unknown = [k for k in inputs or {} if kind.input(k) is None]
-        if unknown:
-            raise InputError(f"{kind.label} has no input {', '.join(unknown)}.")
-        values = {**pane_values(found.state, pane_id), **{k: _convert(kind, k, v, rc) for k, v in (inputs or {}).items()}}
-        _check_reachable(db, user, kind, values)
-        action = next(a for a in manifest.actions if a.id == spec.options.action)
+        if parent is not None:
+            if not spec.options.children:
+                raise InputError(f"{kind.label}'s {input} has one level of choices: leave parent out.")
+            action = next(a for a in manifest.actions if a.id == spec.options.children)
+            values = dict(parent)
+            if "connection" in values:
+                values["connection"] = _visible_environment(rc, values["connection"])
+        else:
+            unknown = [k for k in inputs or {} if kind.input(k) is None]
+            if unknown:
+                raise InputError(f"{kind.label} has no input {', '.join(unknown)}.")
+            values = {
+                **pane_values(found.state, pane_id), **{k: _convert(kind, k, v, rc) for k, v in (inputs or {}).items()}
+            }
+            _check_reachable(db, user, kind, values)
+            action = next(a for a in manifest.actions if a.id == spec.options.action)
         from ..routers import panes as panes_router
 
         try:
             listed = await asyncio.to_thread(panes_router.run_handler, db, user, manifest, action, values)
         except HTTPException as e:
             raise InputError(str(e.detail)) from None
-        return {"input": input, "options": listed.get("options") or []}
+        needle = contains.lower()
+
+        def kept(items: list) -> list:
+            return [i for i in items if needle in json.dumps(i, default=str).lower()] if needle else items
+
+        if "groups" in listed:
+            # A two-level picker's first level: its items per environment, each
+            # with its own error, as the pane draws them.
+            out = []
+            for group in listed["groups"]:
+                entry: dict[str, Any] = {
+                    "environment_id": group.get("environment_id"),
+                    "environment": group.get("environment_name"),
+                }
+                if group.get("error"):
+                    entry["error"] = group["error"]
+                items = kept(group.get("items") or [])
+                # A big account has thousands; the model needs enough to choose from.
+                entry["items"] = items[:200]
+                if len(items) > 200:
+                    entry["more"] = len(items) - 200
+                out.append(entry)
+            more = (
+                {"next": f"list_options with parent lists inside one ({spec.options.children})"}
+                if spec.options.children
+                else {}
+            )
+            return {"input": input, "groups": out, **more}
+        return {"input": input, "options": kept(listed.get("options") or [])}
 
 
 # ---------------------------------------------------------------- shaping a session
@@ -772,6 +771,30 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
         row, _ = _mutate(
             db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
+        return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+
+
+def _apply_views(state: dict, user: models.User, pane_id: str, views: dict[str, Any]) -> None:
+    kind = kind_for(user, _pane(state, pane_id))
+    if not kind.v2 or not kind.view_defaults:
+        raise InputError(f"{kind.label} has nothing to change in how it shows its results.")
+    unknown = [k for k in views if k not in kind.view_defaults]
+    if unknown:
+        raise InputError(
+            f"{kind.label} has no view {', '.join(unknown)}. Its views are: {', '.join(kind.view_defaults)}."
+        )
+    for key, value in views.items():
+        state[f"{pane_id}.view.{key}"] = chart_spec(value) if kind.view_kinds.get(key) == "chart" else value
+    if (state.get("layout") or "tabs") == "tabs":
+        state["activePane"] = pane_id
+
+
+@mcp.tool()
+async def set_pane_view(session_id: str, pane_id: str, views: dict[str, Any]) -> dict:
+    """Changes how a pane shows its results -- its view keys, as get_context lists them for its kind: the sort, the
+    grouping, expanded rows, a chart of the rows. Everyone looking at the session sees it. Runs nothing."""
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, lambda s, _r, _m: _apply_views(s, user, pane_id, views), ORIGIN)
         return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
 
 

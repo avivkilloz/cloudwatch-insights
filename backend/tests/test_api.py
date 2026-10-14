@@ -55,85 +55,6 @@ def test_environment_and_settings_crud():
     assert resp.status_code == 204
 
 
-def test_log_groups_reports_error_for_unconfigured_environment():
-    resp = client.post("/api/log-groups", json={"environment_ids": [999999]})
-    assert resp.status_code == 200
-    results = resp.json()["results"]
-    assert len(results) == 1
-    assert results[0]["error"] is not None
-
-
-def test_start_query_reports_error_for_unconfigured_environment():
-    resp = client.post(
-        "/api/queries/start",
-        json={
-            "targets": [{"environment_id": 999999, "log_group_names": ["/aws/lambda/foo"]}],
-            "query_string": "fields @timestamp, @message",
-            "start_time": 0,
-            "end_time": 3600,
-            "limit": 100,
-        },
-    )
-    assert resp.status_code == 200
-    queries = resp.json()["queries"]
-    assert len(queries) == 1
-    assert queries[0]["error"] is not None
-
-
-def test_start_query_rejects_out_of_range_limit():
-    resp = client.post(
-        "/api/queries/start",
-        json={
-            "targets": [{"environment_id": 1, "log_group_names": ["/aws/lambda/foo"]}],
-            "query_string": "fields @timestamp",
-            "start_time": 0,
-            "end_time": 3600,
-            "limit": 50000,
-        },
-    )
-    assert resp.status_code == 422
-
-
-def test_saved_query_update():
-    resp = client.post("/api/saved-queries", json={"name": "Errors", "query_string": "fields @message"})
-    assert resp.status_code == 201
-    saved = resp.json()
-    assert saved["backend"] == "cloudwatch"  # default when not specified
-
-    resp = client.put(f"/api/saved-queries/{saved['id']}", json={"query_string": "fields @message | filter @message like /ERROR/"})
-    assert resp.status_code == 200
-    updated = resp.json()
-    assert updated["query_string"] == "fields @message | filter @message like /ERROR/"
-    assert updated["name"] == "Errors"
-    assert updated["backend"] == "cloudwatch"  # untouched field preserved
-
-    resp = client.delete(f"/api/saved-queries/{saved['id']}")
-    assert resp.status_code == 204
-
-
-def test_saved_query_backend_field_persists_and_filters():
-    resp = client.post(
-        "/api/saved-queries",
-        json={"name": "OS Errors", "query_string": "level:ERROR", "backend": "opensearch"},
-    )
-    assert resp.status_code == 201
-    saved = resp.json()
-    assert saved["backend"] == "opensearch"
-
-    resp = client.get("/api/saved-queries")
-    assert resp.status_code == 200
-    matching = next(q for q in resp.json() if q["id"] == saved["id"])
-    assert matching["backend"] == "opensearch"
-
-    resp = client.put(f"/api/saved-queries/{saved['id']}", json={"backend": "cloudwatch"})
-    assert resp.status_code == 200
-    assert resp.json()["backend"] == "cloudwatch"
-    assert resp.json()["query_string"] == "level:ERROR"  # untouched field preserved
-
-    resp = client.delete(f"/api/saved-queries/{saved['id']}")
-    assert resp.status_code == 204
-
-
 def test_iot_search_reports_error_for_unconfigured_environment():
     resp = _action("iot", "search", {"connections": [999999], "queryString": "thingName:*"})
     assert resp.status_code == 200
@@ -228,108 +149,6 @@ def test_cognito_actions_reject_unconfigured_environment():
     assert "not configured" in resp.json()["detail"]
 
 
-def test_opensearch_domains_reports_error_for_unconfigured_environment():
-    resp = client.post("/api/opensearch/domains", json={"environment_ids": [999999]})
-    assert resp.status_code == 200
-    results = resp.json()["results"]
-    assert len(results) == 1
-    assert results[0]["error"] is not None
-    assert results[0]["domains"] == []
-
-
-def test_opensearch_indices_rejects_unconfigured_environment():
-    resp = client.post(
-        "/api/opensearch/indices",
-        json={"environment_id": 999999, "domain_endpoint": "search-x.us-east-1.es.amazonaws.com"},
-    )
-    assert resp.status_code == 400
-
-
-def test_opensearch_indices_resolves_the_role_for_a_real_environment(monkeypatch):
-    """Reaches list_indices with an environment that actually resolves.
-
-    The test above it passes an id that doesn't exist, so resolve_environment
-    raises first and nothing after it ever runs -- which is how a wrong
-    resolve_role_name() call in this endpoint survived: every caller of this
-    route in production hit a TypeError, and every test stopped one line
-    short of it.
-    """
-    from app import opensearch_client
-
-    resp = client.post(
-        "/api/environments",
-        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
-    )
-    assert resp.status_code == 201
-    environment_id = resp.json()["id"]
-
-    seen = {}
-
-    def fake_list_indices(account_id, region, role_name, domain_endpoint):
-        seen.update(account_id=account_id, region=region, role_name=role_name, endpoint=domain_endpoint)
-        return [{"index": "logs-2024.01", "docs_count": 12, "store_size": "345kb"}]
-
-    monkeypatch.setattr(opensearch_client, "list_indices", fake_list_indices)
-
-    resp = client.post(
-        "/api/opensearch/indices",
-        json={"environment_id": environment_id, "domain_endpoint": "search-x.us-east-1.es.amazonaws.com"},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["indices"][0]["index"] == "logs-2024.01"
-    # The role came from the caller's group (its AWS identity), not from the environment row.
-    assert seen["role_name"].role_name == TEST_ROLE_NAME
-    assert seen["account_id"] == "111122223333"
-    assert seen["endpoint"] == "search-x.us-east-1.es.amazonaws.com"
-
-    client.delete(f"/api/environments/{environment_id}")
-
-
-def test_opensearch_search_reports_error_for_unconfigured_environment():
-    resp = client.post(
-        "/api/opensearch/search",
-        json={
-            "targets": [
-                {
-                    "environment_id": 999999,
-                    "domain_name": "logs",
-                    "domain_endpoint": "search-x.us-east-1.es.amazonaws.com",
-                    "indices": ["app-logs"],
-                }
-            ],
-            "query_string": "level:ERROR",
-            "start_time": 0,
-            "end_time": 3600,
-        },
-    )
-    assert resp.status_code == 200
-    results = resp.json()["results"]
-    assert len(results) == 1
-    assert results[0]["status"] == "Failed"
-    assert results[0]["error"] is not None
-
-
-def test_opensearch_search_rejects_out_of_range_limit():
-    resp = client.post(
-        "/api/opensearch/search",
-        json={
-            "targets": [
-                {
-                    "environment_id": 1,
-                    "domain_name": "logs",
-                    "domain_endpoint": "search-x.us-east-1.es.amazonaws.com",
-                    "indices": ["app-logs"],
-                }
-            ],
-            "query_string": "level:ERROR",
-            "start_time": 0,
-            "end_time": 3600,
-            "limit": 50000,
-        },
-    )
-    assert resp.status_code == 422
-
-
 def test_tools_http_request_rejects_blocked_address():
     resp = send_http(client, {"method": "GET", "url": "http://169.254.169.254/latest/meta-data/"})
     assert resp.status_code == 400
@@ -394,24 +213,26 @@ def test_saved_items_are_isolated_per_user():
     login = other.post("/api/auth/login", json={"username": "isolated-user", "password": "x"})
     assert login.status_code == 200
 
-    resp = client.post("/api/saved-queries", json={"name": "Admin's query", "query_string": "fields @message"})
+    # Saved queries are saved inputs now (D46), the same per-user store.
+    query = {"pane_type": "logs-cloudwatch", "inputs": {"queryString": "fields @message"}}
+    resp = client.post("/api/saved-inputs", json={**query, "name": "Admin's query"})
     assert resp.status_code == 201
     admin_saved_id = resp.json()["id"]
 
-    resp = other.post("/api/saved-queries", json={"name": "Other user's query", "query_string": "fields @message"})
+    resp = other.post("/api/saved-inputs", json={**query, "name": "Other user's query"})
     assert resp.status_code == 201
     other_saved_id = resp.json()["id"]
 
     # Neither user's list includes the other's saved query.
-    admin_names = {q["name"] for q in client.get("/api/saved-queries").json()}
-    other_names = {q["name"] for q in other.get("/api/saved-queries").json()}
+    admin_names = {q["name"] for q in client.get("/api/saved-inputs").json()}
+    other_names = {q["name"] for q in other.get("/api/saved-inputs").json()}
     assert "Admin's query" in admin_names and "Other user's query" not in admin_names
     assert "Other user's query" in other_names and "Admin's query" not in other_names
 
     # Nor can one edit/delete the other's by id.
-    resp = other.put(f"/api/saved-queries/{admin_saved_id}", json={"name": "hijacked"})
+    resp = other.put(f"/api/saved-inputs/{admin_saved_id}", json={"name": "hijacked"})
     assert resp.status_code == 404
-    resp = other.delete(f"/api/saved-queries/{admin_saved_id}")
+    resp = other.delete(f"/api/saved-inputs/{admin_saved_id}")
     assert resp.status_code == 404
-    resp = client.delete(f"/api/saved-queries/{other_saved_id}")
+    resp = client.delete(f"/api/saved-inputs/{other_saved_id}")
     assert resp.status_code == 404

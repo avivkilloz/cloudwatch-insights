@@ -844,3 +844,40 @@ def test_a_query_still_running_is_left_running_and_the_agent_can_stop_it(mcp, mo
     assert _row(session).state["logs-cloudwatch.out.run"]["status"] == "stopped"
     again = call(mcp, token, "stop_pane", session_id=session, pane_id="logs-cloudwatch")
     assert again["stopped"] is False and "Nothing was running" in again["note"]
+
+
+def test_list_options_lists_the_logs_pickers_choices_level_by_level(mcp, monkeypatch):
+    # The agent's own list_log_groups and list_opensearch_* went with the old
+    # routes (D49); list_options lists the same, from the panes' loaders.
+    from app import opensearch_client
+
+    monkeypatch.setattr(
+        aws_client, "list_log_groups", lambda a, r, i: [{"name": n} for n in ("/app/api", "/app/worker", "/infra/lb")]
+    )
+    monkeypatch.setattr(
+        opensearch_client, "list_domains", lambda a, r, i: [{"domain_name": "d", "endpoint": "d.example", "engine_version": "2"}]
+    )
+    asked: list = []
+
+    def list_indices(a, r, i, endpoint):
+        asked.append(endpoint)
+        return [{"index": "logs-1", "docs_count": 5}, {"index": "audit", "docs_count": 1}]
+
+    monkeypatch.setattr(opensearch_client, "list_indices", list_indices)
+    token = _token()
+    env = _environment()
+    session = call(mcp, token, "create_session", title="s", panes=[{"kind": "logs-cloudwatch"}, {"kind": "logs-opensearch"}])["session_id"]
+
+    groups = call(mcp, token, "list_options", session_id=session, pane_id="logs-cloudwatch", input="logGroupSelection",
+                  inputs={"connections": [env]}, contains="app")
+    assert groups["groups"] == [{"environment_id": env, "environment": "Prod", "items": ["/app/api", "/app/worker"]}]
+
+    domains = call(mcp, token, "list_options", session_id=session, pane_id="logs-opensearch", input="openSearchSelection",
+                   inputs={"connections": [env]})
+    assert domains["groups"][0]["items"] == [{"domain_name": "d", "endpoint": "d.example", "engine_version": "2"}]
+    assert "parent" in domains["next"]
+    indices = call(mcp, token, "list_options", session_id=session, pane_id="logs-opensearch", input="openSearchSelection",
+                   parent={"connection": "Prod", "domainEndpoint": "d.example"})
+    assert [o["value"] for o in indices["options"]] == ["logs-1", "audit"] and asked == ["d.example"]
+    assert "one level" in call_error(mcp, token, "list_options", session_id=session, pane_id="logs-cloudwatch",
+                                     input="logGroupSelection", parent={"connection": env})

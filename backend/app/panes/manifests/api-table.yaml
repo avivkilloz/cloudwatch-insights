@@ -45,8 +45,13 @@ outputs:
     render: table
     actions: [select, copy, export, attach]
     inspect: true
+    config: { chart: chart }
   - key: response
     render: json
+views:
+  - key: chart
+    kind: chart
+    default: null
 layout:
   - title: Request
     items:
@@ -58,7 +63,10 @@ layout:
           - action: fetch
   - title: Rows
     when: { output: rows, present: true }
+    aside:
+      - chart: rows
     items:
+      - chart: rows
       - output: rows
   - title: Response
     when: { output: response, present: true }

@@ -22,7 +22,7 @@ inputs:
   - key: openSearchSelection
     type: opensearch_indices
     default: {}
-    help: Which domains and indices to search (list_opensearch_domains and list_opensearch_indices).
+    help: Which domains and indices to search (list_options gives the domains, and with parent a domain's indices).
     options:
       action: list_domains
       children: list_indices
@@ -91,6 +91,8 @@ actions:
     requires: { openSearchSelection: Select at least one index to search. }
     resets: [view.expanded]
 outputs:
+  - key: volume
+    render: histogram
   - key: results
     render: logs
     legacy_key: osResults
@@ -103,6 +105,7 @@ outputs:
       sort: { field: sortField, direction: sortDirection }
       group_by: groupBy
       expand: expanded
+      chart: chart
 views:
   - key: sortField
     default: "@timestamp"
@@ -114,6 +117,9 @@ views:
     default: none
   - key: expanded
     default: []
+  - key: chart
+    kind: chart
+    default: null
 legacy_drop: [results, logGroupSelection]
 layout:
   - title: 1. Choose environments
@@ -133,8 +139,12 @@ layout:
       - toolbar:
           - action: run
   - title: 4. Results
+    aside:
+      - chart: results
     items:
       - restored: run
+      - output: volume
+      - chart: results
       - output: results
 implies: opensearch_environments
 inspect:

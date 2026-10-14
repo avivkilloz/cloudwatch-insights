@@ -112,10 +112,11 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   its own: that is the drift this exists to end. (For a pane still drawn by
   hand, `handler` names its legacy agent runner in `platform_tools/panes.
   HANDLERS`.) `run_handler` checks the group's flag itself and fills an
-  unset input with its default. DynamoDB's, Cognito's, S3's and IoT's old
-  routes are gone (D49; their bodies are the handlers); the logs routes,
-  saved queries' and the agent's `list_log_groups`/`list_opensearch_*` stay
-  one release, as theirs did. `list_options` runs any input's loader.
+  unset input with its default. Every pane's old per-service routes are gone
+  (D49; their bodies are the handlers), the logs' and saved queries' last,
+  in 3b-4, with the agent's `list_log_groups`/`list_opensearch_*`:
+  `list_options` runs any input's loader -- a two-level picker's groups per
+  environment, and with `parent` its second level (a domain's indices).
 - **A background run** (`poll: {handler, stop}`, CloudWatch's Run; D51,
   §16.9.1) isn't the browser's to poll: the action starts the queries,
   stores a `pane_runs` row and writes `out.run`, and a task on the server
@@ -131,6 +132,30 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   first (`flushAll`: a pane added a second ago must exist on the server)
   and gets back only the run; its button is busy until `out.run` says
   otherwise. A pane with a `time_range` sends the browser's zone (`_tz`).
+- **Charts** (§16.11, D11/D53): a `chart:` layout item over an output whose
+  config names a `kind: chart` view key. Beside a card title it is only the
+  type picker (an unused chart adds no row -- the near-empty row the user
+  disliked for Saved); in the card, the x / y / aggregate / series pickers
+  and the chart. The spec is the view key, so it syncs, templates keep it,
+  and the agent sets it with `set_pane_view` (any view key; a chart spec is
+  checked by `panes.chart_spec`). The frame is worked out in the browser
+  (`panes/frame.ts`) from what the output holds -- never stored. ECharts is
+  imported only by `panes/chart/EChart.tsx`'s dynamic `import()` of
+  `echartsCore.ts` (line, bar, pie, grid, tooltip, legend, canvas), so a
+  session with no chart never fetches it; keep new imports going through
+  that file. Colours are the dataviz reference palette's validated eight, its
+  light or dark steps by the theme's `color-scheme` (`chart/palette.ts`);
+  past eight series the rest fold into "Other", never a made-up hue.
+- **The log-volume histogram** (D52, output `volume`, render `histogram`):
+  OpenSearch adds a `date_histogram` to the same search, always; CloudWatch
+  starts a counting query (`timewindow.count_query`: the user's commands
+  split outside quotes and `/regex/`, `fields`/`display`/`sort`/`limit`/
+  `dedup` dropped, `stats count(*) as count by bin()` appended) only while
+  the pane's `histogram` input is on, as `role: histogram` handles of the
+  same background run -- polled, stopped and unwatched-stopped with it.
+  Off, a run writes `volume: null` so an old histogram doesn't sit over new
+  rows. A query with its own `stats` gets a `note` instead. Every bar of the
+  window is filled (`_filled`), at 0 where nothing matched.
 - **Several connections** (`type: connections`, IoT): the handler fans out
   itself through `handlers.fan_out`, one group per connection
   (`{environment_id, environment_name, <rows>, error}`, the shape every
@@ -368,10 +393,10 @@ boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
 The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
 `_flagged`), since the agent must never reach further than its user's UI
 would -- **and so do the per-service routes now** (`resolve.require_flag`,
-called at the top of every AWS-calling endpoint in `queries.py`,
-`opensearch.py`, `iot.py`, `log_groups.py`, `tools.py`, right where
-`resolve_environment`/`resolve_role_name` already were; a ported pane's
-actions get it from `routers/panes.run_handler`, and the action endpoint
+called at the top of every AWS-calling endpoint left in `tools.py`, right
+where `resolve_environment`/`resolve_role_name` already were; a ported
+pane's actions -- every AWS call but MQTT's now -- get it from
+`routers/panes.run_handler`, and the action endpoint
 answers a group without the pane's flag with the 404 of a pane that doesn't
 exist). This used to be a real, if not agent-reachable, gap: a group with an
 environment and a role but a page's flag off could still reach that page's

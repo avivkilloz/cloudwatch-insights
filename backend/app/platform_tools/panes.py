@@ -102,6 +102,42 @@ _TYPE_NAMES = {
 
 MAX_TEXT = 100_000
 
+# A chart over a pane's rows (D53), as set_pane_view takes it.
+CHART_TYPES = ("timeseries", "bar", "pie", "stat")
+CHART_AGGS = ("count", "sum", "avg", "min", "max")
+CHART_HELP = (
+    'A chart of the rows: {"type": "timeseries"|"bar"|"pie"|"stat", "x": a field, "y": a field or "count", '
+    '"agg": "count"|"sum"|"avg"|"min"|"max", "series": a field (optional)}; null removes it. Fields are the '
+    "rows' own column names, as the run returned them."
+)
+
+
+def chart_spec(value: Any) -> Optional[dict[str, Any]]:
+    """A chart spec the pane can draw, or why not. Its field names can't be
+    checked here -- the columns are whatever the last run returned -- so a
+    name with no column is the pane's to say."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise InputError(CHART_HELP)
+    unknown = set(value) - {"type", "x", "y", "agg", "series"}
+    if unknown:
+        raise InputError(f"A chart has no {', '.join(sorted(unknown))}. {CHART_HELP}")
+    type_ = value.get("type")
+    if type_ not in CHART_TYPES:
+        raise InputError(f"A chart's type is one of {', '.join(CHART_TYPES)}, not {type_!r}.")
+    agg = value.get("agg") or "count"
+    if agg not in CHART_AGGS:
+        raise InputError(f"A chart's agg is one of {', '.join(CHART_AGGS)}, not {agg!r}.")
+    y = str(value.get("y") or "count")
+    x = value.get("x")
+    if type_ != "stat" and not x:
+        raise InputError(f"A {type_} chart needs an x field.")
+    spec: dict[str, Any] = {"type": type_, "x": str(x or ""), "y": y, "agg": "count" if y == "count" else agg}
+    if value.get("series"):
+        spec["series"] = str(value["series"])
+    return spec
+
 
 def _visible_environment(rc: RunContext, value: Any) -> int:
     """The id of the AWS connection `value` names, as get_context lists them:
@@ -220,7 +256,7 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
             if not domain or not endpoint:
                 raise InputError(
                     f"{spec.key}: each entry needs a domain_name and its domain_endpoint "
-                    "(list_opensearch_domains gives both)."
+                    "(list_options on this input gives both)."
                 )
             if not isinstance(indices, list) or not indices:
                 raise InputError(f"{spec.key}: pick at least one index for domain {domain}.")
@@ -299,6 +335,8 @@ class PaneKind:
     # relative to the pane, and each view key's default.
     resets: dict[str, tuple[str, ...]] = field(default_factory=dict)
     view_defaults: dict[str, Any] = field(default_factory=dict)
+    # A view key's kind where its value has a shape to check ("chart", D53).
+    view_kinds: dict[str, str] = field(default_factory=dict)
     # What choosing a value of an input sets besides (its manifest
     # `choice_sets`): input -> value -> {other input: value}.
     choice_sets: dict[str, dict[Any, dict[str, Any]]] = field(default_factory=dict)
@@ -320,6 +358,14 @@ class PaneKind:
             "run": self.run_help,
             **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
             **({"stop_pane": "Stops a run still going."} if self.background else {}),
+            **(
+                {"views": [
+                    {"key": k, "default": d, **({"help": CHART_HELP} if self.view_kinds.get(k) == "chart" else {})}
+                    for k, d in self.view_defaults.items()
+                ]}
+                if self.view_defaults
+                else {}
+            ),
         }
 
 
@@ -719,6 +765,7 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
         v2=manifest.state == "v2",
         resets={i.key: tuple(i.resets) for i in manifest.inputs if i.resets},
         view_defaults={v.key: v.default for v in manifest.views},
+        view_kinds={v.key: v.kind for v in manifest.views if v.kind},
         choice_sets={i.key: i.choice_sets for i in manifest.inputs if i.choice_sets},
         aliases={i.legacy_key: i.key for i in manifest.agent_inputs() if i.legacy_key and i.legacy_key != i.key},
         background=bool(manifest.main_action() and manifest.main_action().poll),

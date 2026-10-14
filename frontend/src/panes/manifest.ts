@@ -129,7 +129,8 @@ export type Render =
   | "http_response"
   | "attach"
   | "logs"
-  | "run";
+  | "run"
+  | "histogram";
 
 export interface ManifestOutput {
   key: string;
@@ -173,6 +174,8 @@ export interface LayoutItem {
   time_range?: { preset: string; start: string; end: string };
   /** "Sort by" this output's fields, bound to its sort view keys. */
   sort?: string;
+  /** A chart over this output's rows, its spec in the output's `chart` view key (D53). */
+  chart?: string;
 }
 
 export interface Card {

@@ -17,12 +17,8 @@ from .routers import (
     credentials,
     environments,
     live_sessions,
-    log_groups,
-    opensearch,
     panes,
-    queries,
     saved_inputs,
-    saved_queries,
     saved_sessions,
     session_categories,
     settings,
@@ -118,10 +114,6 @@ app.include_router(credentials.types_router)
 app.include_router(credentials.router)
 app.include_router(credentials.audit_router)
 app.include_router(settings.router)
-app.include_router(log_groups.router)
-app.include_router(queries.router)
-app.include_router(opensearch.router)
-app.include_router(saved_queries.router)
 app.include_router(saved_sessions.router)
 app.include_router(session_categories.router)
 app.include_router(live_sessions.router)

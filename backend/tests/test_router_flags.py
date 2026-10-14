@@ -56,25 +56,6 @@ def _reached_aws(resp) -> None:
     assert resp.status_code != 400 or "turned on" not in resp.json().get("detail", ""), resp.text
 
 
-def _query_body(env_id: int) -> dict:
-    return {
-        "targets": [{"environment_id": env_id, "log_group_names": ["/x"]}],
-        "query_string": "fields @message",
-        "start_time": 0,
-        "end_time": 1,
-    }
-
-
-def test_logs_disabled_refuses_cloudwatch_queries():
-    env_id = _environment()
-    off = _user(env_id, logs_enabled=False)
-    _refused(off.post("/api/queries/start", json=_query_body(env_id)))
-    on = _user(env_id, logs_enabled=True)
-    resp = on.post("/api/queries/start", json=_query_body(env_id))
-    assert resp.status_code == 200
-    assert resp.json()["queries"][0].get("error")  # no real AWS -- fails past the flag check
-
-
 def _action(c: TestClient, pane: str, action: str, inputs: dict):
     return c.post(f"/api/panes/{pane}/actions/{action}", json={"inputs": inputs})
 
@@ -111,25 +92,40 @@ def test_cognito_disabled_refuses_user_pools():
     _reached_aws(_action(on, "cognito", "list_user_pools", {"connection": env_id}))
 
 
-def test_the_old_per_service_routes_are_gone():
-    # Kept one release for tabs that hadn't reloaded (D49): DynamoDB's,
-    # Cognito's and S3's removed in 3b-2, IoT's and the HTTP client's in 3b-3.
+def test_logs_disabled_refuses_cloudwatch():
     env_id = _environment()
-    assert client.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": "x"}).status_code == 404
-    assert client.post("/api/tools/http-request", json={"method": "GET", "url": "https://example.com"}).status_code in (404, 405)
-    assert client.get("/api/tables/list", params={"environment_id": env_id}).status_code == 404
-    assert client.get("/api/buckets/list", params={"environment_id": env_id}).status_code == 404
-    assert client.get("/api/cognito/user-pools", params={"environment_id": env_id}).status_code == 404
+    off = _user(env_id, logs_enabled=False)
+    _no_pane(_action(off, "logs-cloudwatch", "list_log_groups", {"connections": [env_id]}))
+    on = _user(env_id, logs_enabled=True)
+    resp = _action(on, "logs-cloudwatch", "list_log_groups", {"connections": [env_id]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["groups"][0].get("error")  # no real AWS -- fails past the flag check
 
 
 def test_opensearch_disabled_refuses_domains():
     env_id = _environment()
     off = _user(env_id, opensearch_enabled=False)
-    _refused(off.post("/api/opensearch/domains", json={"environment_ids": [env_id]}))
+    _no_pane(_action(off, "logs-opensearch", "list_domains", {"connections": [env_id]}))
     on = _user(env_id, opensearch_enabled=True)
-    resp = on.post("/api/opensearch/domains", json={"environment_ids": [env_id]})
-    assert resp.status_code == 200
-    assert resp.json()["results"][0].get("error")
+    resp = _action(on, "logs-opensearch", "list_domains", {"connections": [env_id]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["groups"][0].get("error")
+
+
+def test_the_old_per_service_routes_are_gone():
+    # Kept one release for tabs that hadn't reloaded (D49): DynamoDB's,
+    # Cognito's and S3's removed in 3b-2, IoT's and the HTTP client's in 3b-3,
+    # the logs' and saved queries' in 3b-4.
+    env_id = _environment()
+    assert client.post("/api/queries/start", json={}).status_code == 404
+    assert client.post("/api/log-groups", json={"environment_ids": [env_id]}).status_code == 404
+    assert client.post("/api/opensearch/domains", json={"environment_ids": [env_id]}).status_code == 404
+    assert client.get("/api/saved-queries").status_code == 404
+    assert client.post("/api/iot/search", json={"environment_ids": [env_id], "query_string": "x"}).status_code == 404
+    assert client.post("/api/tools/http-request", json={"method": "GET", "url": "https://example.com"}).status_code in (404, 405)
+    assert client.get("/api/tables/list", params={"environment_id": env_id}).status_code == 404
+    assert client.get("/api/buckets/list", params={"environment_id": env_id}).status_code == 404
+    assert client.get("/api/cognito/user-pools", params={"environment_id": env_id}).status_code == 404
 
 
 def test_iot_disabled_refuses_search():

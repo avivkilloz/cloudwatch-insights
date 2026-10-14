@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-14, a sharing fix after Phase 3b-3 (CloudWatch and OpenSearch)._
+_Last updated: 2026-10-14, Phase 3b-4 (charts)._
 
 ## Platform plan
 
@@ -1029,10 +1029,17 @@ that member; each now does (`"upsert"`, `"access"`, `"delete"`), so it shows up,
 takes effect or leaves at once. smoke70 (fails on the old code, each check
 against its own part of the fix) and a test in `test_session_members.py`.
 
-3b-3 (CloudWatch and OpenSearch) merged as #108; nothing is half-written. Next,
-detail 3b-4 (charts, PLATFORM_PLAN.md §16.5) before building
-it. The logs routes, saved queries' routes and the agent's `list_log_groups`
-and `list_opensearch_*` tools stay one release and go in 3b-4.
+3b-4 (charts) is built and verified against the running stack and awaits its PR
+(PLATFORM_PLAN.md §16.11, as built in §16.12): a chart over the API table's
+rows and both logs panes' results, picked beside the card's title (time series,
+bar, pie, stat tile; x / y / aggregate / series from the rows' own columns; a
+view key, so it syncs and the agent sets it with the new `set_pane_view`);
+ECharts in its own chunk, fetched on the first chart; the log-volume histogram
+(D52: OpenSearch always, CloudWatch with its Histogram toggle, a counting query
+in the same background run). The logs' and saved queries' old routes and the
+agent's `list_log_groups`/`list_opensearch_*` are gone; `list_options` lists
+the logs pickers, level by level. Next, after it merges, detail 3b-5 (MQTT on
+the server).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1202,10 +1209,8 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3b-4 (charts) and
-   3b-5 (MQTT on the server), each detailed in PLATFORM_PLAN.md §16 before it is
-   built. The logs' old routes, saved queries' and the agent's per-service list
-   tools go in 3b-4 (D49).
+1. 3b-5 (MQTT on the server), detailed in PLATFORM_PLAN.md §16 before it is
+   built.
 2. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,

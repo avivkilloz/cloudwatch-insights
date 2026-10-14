@@ -35,7 +35,7 @@ InputType = Literal[
 
 Render = Literal[
     "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach",
-    "logs", "run",
+    "logs", "run", "histogram",
 ]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
@@ -182,6 +182,9 @@ class ManifestView(_Strict):
     key: str
     default: Any = None
     legacy_key: Optional[str] = None
+    # What the value is, when it is more than a string or a list of row
+    # keys: "chart" is a chart spec (D53), checked when the agent sets it.
+    kind: Optional[Literal["chart"]] = None
 
 
 class ManifestAction(_Strict):
@@ -299,6 +302,9 @@ class LayoutItem(_Strict):
     # "Sort by" a field of this output's rows, and the direction: the
     # output's `sort` view keys, its fields the choices.
     sort: Optional[str] = None
+    # A chart over this output's rows (D53): its type, x, y and series are
+    # picked in the pane and kept in the output's `chart` view key.
+    chart: Optional[str] = None
 
 
 class Card(_Strict):
@@ -385,6 +391,13 @@ class Manifest(_Strict):
                 raise ValueError(f"the layout names an action {item.action} that isn't declared")
             if item.sort is not None and item.sort not in outputs:
                 raise ValueError(f"the layout sorts an output {item.sort} that isn't declared")
+            if item.chart is not None:
+                charted = next((o for o in self.outputs if o.key == item.chart), None)
+                if charted is None:
+                    raise ValueError(f"the layout charts an output {item.chart} that isn't declared")
+                view = charted.config.get("chart")
+                if not any(v.key == view and v.kind == "chart" for v in self.views):
+                    raise ValueError(f"output {item.chart} is charted, so its config needs `chart:` naming a chart view")
             if item.copy_of is not None and item.copy_of not in outputs:
                 raise ValueError(f"the layout copies an output {item.copy_of} that isn't declared")
             for ref in (item.error, item.restored, item.runs, item.more, item.busy, item.stop):
