@@ -50,7 +50,8 @@ only check that a question asked in the agent panel's Global tab reaches it).
 e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
-`smoke69` (CloudWatch and OpenSearch) needs the backend served with AWS faked:
+`smoke69` (CloudWatch and OpenSearch) and `smoke71`'s logs half (the histograms)
+need the backend served with AWS faked:
 a CloudWatch query runs on the server and is polled into the session there
 (PLATFORM_PLAN.md D51), so the page has nothing to stand in for. Start it as
 

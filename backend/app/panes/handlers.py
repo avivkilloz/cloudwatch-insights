@@ -537,8 +537,6 @@ def opensearch_list_indices(db: Session, user: models.User, inputs: dict[str, An
 def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
     """One Lucene search per chosen domain, its hits as the rows the log list
     draws. A single request each: no start, poll or stop."""
-    from ..routers.opensearch import _hits_to_rows  # the hit flattening the old route had
-
     selection = untag(inputs.get("openSearchSelection")) or {}
     targets: list[tuple[int, str, str, list[str]]] = []
     for env, domains in (selection.items() if isinstance(selection, dict) else []):
@@ -586,7 +584,7 @@ def opensearch_search(db: Session, user: models.User, inputs: dict[str, Any], _c
         if data is None:
             item["status"] = "Failed" if item["error"] else item["status"]
             continue
-        item["rows"] = [[f.model_dump() for f in row] for row in _hits_to_rows(data["hits"], item["domain_name"])]
+        item["rows"] = opensearch_client.hits_to_rows(data["hits"], item["domain_name"])
         item["total_hits"] = data.get("total")
     return {"results": results, "volume": _histogram(start, end, step_text, bars)}
 

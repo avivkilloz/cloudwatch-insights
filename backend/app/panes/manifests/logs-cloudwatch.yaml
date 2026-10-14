@@ -24,7 +24,7 @@ inputs:
     type: log_groups
     default: {}
     help: >-
-      Which log groups to query, per environment (list_log_groups gives the names). Their environments are selected
+      Which log groups to query, per environment (list_options gives the names). Their environments are selected
       with them.
     options:
       action: list_log_groups

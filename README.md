@@ -134,6 +134,17 @@ from your picture's menu and is not a session; the strip stays above it.
   session open; left unwatched for 10 minutes, the query is stopped in AWS.
   Results from all targets are merged into one list, shrunk to a single
   summary line per row by default; click a row to expand every field.
+  Tick **Histogram** to also see every match counted over time above the
+  list (a second, counting Logs Insights query over the same log groups,
+  which CloudWatch bills like the first; OpenSearch's search always shows
+  one, at no extra cost).
+- **Charts.** The API table's rows and both logs panes' results can be
+  charted: choose **Chart** beside the card's title (time series, bar, pie or
+  a stat tile), then the x, y and series from the rows' own columns. A
+  CloudWatch `stats … by bin(5m)` query charts as a time series of its
+  counts. The chart is saved with the session, so everyone looking sees the
+  same one, and the agent can set one up ("chart errors per environment over
+  time").
 - **IoT session**: pick one or more environments, then search either **Things**
   (the same "Advanced search" syntax as the AWS console — by name,
   attributes, connectivity, shadow values, group membership, and more) or

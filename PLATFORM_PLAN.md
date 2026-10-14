@@ -3030,6 +3030,60 @@ shows (D53)._
   - ECharts' chunk is not loaded until a chart is shown;
   - each failing against the old frontend.
 
+### 16.12 3b-4 as built
+
+Where the build departed from §16.11, and what it added:
+
+- **The chart picker sits beside the card's title.** It is the `chart:` item
+  placed in the card's `aside`, where it draws only the type ("Chart: None").
+  The same item in the card draws the x, y, aggregate and series pickers and
+  the chart, once a type is chosen. So a pane nobody charts gets no new row,
+  avoiding the near-empty row that once sat under Saved inputs.
+- **A new chart guesses its fields.**
+  - x is the time column for a time series, else the first text column.
+  - y is the first numeric column that isn't an id, summed; failing that, rows
+    are counted.
+  - A `stats count(*) by bin(1m)` result is one row per bar, so counting its
+    rows would draw a flat 1. Summing `count(*)` draws the counts.
+- **The histogram is the output `volume`.** The CloudWatch toggle is the input
+  `histogram`, and an input and an output can't share a key.
+  - Its value is `{start, end, interval, groups, note}`. The window and step
+    give every target's bars one time axis.
+  - Every bar of the window is there, at 0 where nothing matched (`_filled`).
+    Neither Logs Insights' `bin()` nor a reader can tell a gap from a quiet
+    spell otherwise.
+  - Off, a CloudWatch run writes `volume: null`, so an earlier histogram
+    doesn't sit over new rows.
+- **The old routes went (D49).** `/api/log-groups`, `/api/queries/*`,
+  `/api/opensearch/*` and `/api/saved-queries` are gone, and so are the agent's
+  `list_log_groups` and `list_opensearch_*`. In their place, `list_options`
+  learnt the logs pickers:
+  - their groups per environment, each with its own error, and `contains` to
+    filter;
+  - `parent` for a two-level picker's second level (a domain's indices).
+
+  Without that, `list_options` had returned nothing for them, which is why the
+  old tools had stayed. The hit flattening the OpenSearch route did moved to
+  `opensearch_client.hits_to_rows`. `models.SavedQuery` stays, read once by the
+  3b-3 move into saved inputs.
+- **The ECharts chunk** is 597 kB (204 kB gzipped), fetched the first time a
+  chart is shown. The main bundle grew by 13 kB.
+- **Checked:**
+  - **New suite smoke71** covers:
+    - the picker beside the title, and the library fetched only on the first
+      chart;
+    - the starter's fields;
+    - a time series, a bar and a pie drawn (a non-blank canvas);
+    - a stat tile's sum and max;
+    - another tab;
+    - a server-side write followed;
+    - a missing column named;
+    - CloudWatch's Histogram, off and on;
+    - a `stats` query's note and its results charted;
+    - OpenSearch's histogram.
+
+    It fails against the frontend on main.
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):

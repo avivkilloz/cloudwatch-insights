@@ -256,7 +256,7 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
             if not domain or not endpoint:
                 raise InputError(
                     f"{spec.key}: each entry needs a domain_name and its domain_endpoint "
-                    "(list_opensearch_domains gives both)."
+                    "(list_options on this input gives both)."
                 )
             if not isinstance(indices, list) or not indices:
                 raise InputError(f"{spec.key}: pick at least one index for domain {domain}.")

@@ -177,3 +177,37 @@ def search(
         "total": total_count,
         "buckets": [{"t": int(b["key"]), "count": int(b.get("doc_count") or 0)} for b in buckets if "key" in b],
     }
+
+
+def _stringify(value) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, default=str)
+    return str(value)
+
+
+def _flatten(obj: dict, prefix: str = "") -> dict:
+    """Nested document fields as dotted keys ("user.name"), the shallow shape
+    the log list draws CloudWatch's field/value rows in."""
+    out: dict = {}
+    for key, value in obj.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            out.update(_flatten(value, full_key))
+        else:
+            out[full_key] = value
+    return out
+
+
+def hits_to_rows(hits: list[dict], domain_name: str) -> list[list[dict[str, str]]]:
+    """A search's hits as the log list's rows: `{field, value}` lists."""
+    rows = []
+    for hit in hits:
+        flat = _flatten(hit.get("_source") or {})
+        index_name = hit.get("_index", "")
+        # "@log" mirrors CloudWatch's own field of the same name, so grouping
+        # by log group and the agent's per-source sampling work alike.
+        flat["@log"] = f"{domain_name}/{index_name}" if index_name else domain_name
+        flat["@index"] = index_name
+        flat["@id"] = hit.get("_id", "")
+        rows.append([{"field": k, "value": _stringify(v)} for k, v in flat.items()])
+    return rows

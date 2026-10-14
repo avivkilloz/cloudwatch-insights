@@ -51,7 +51,8 @@ function specOf(value: unknown): ChartSpec | null {
 function starter(type: ChartType, frame: Frame, previous: ChartSpec | null): ChartSpec {
   const time = frame.fields.find((f) => f.type === "time")?.name;
   const text = frame.fields.find((f) => f.type === "string")?.name;
-  const number = frame.fields.find((f) => f.type === "number")?.name;
+  // An id is a number but never a measure.
+  const number = frame.fields.find((f) => f.type === "number" && !/(^|[_-])id$/i.test(f.name))?.name;
   const keep = previous
     ? { y: previous.y, agg: previous.agg }
     : number

@@ -22,7 +22,7 @@ inputs:
   - key: openSearchSelection
     type: opensearch_indices
     default: {}
-    help: Which domains and indices to search (list_opensearch_domains and list_opensearch_indices).
+    help: Which domains and indices to search (list_options gives the domains, and with parent a domain's indices).
     options:
       action: list_domains
       children: list_indices
