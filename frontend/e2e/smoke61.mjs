@@ -68,6 +68,10 @@ const run = async () => {
   // ---- 1. the role is the group's default AWS identity
   await page.click(`[data-group="${GROUP}"]`);
   await page.waitForSelector('.group-editor [data-identity="aws:"] select');
+  // Until the credentials arrive the select holds only the identity's own
+  // name; the loaded options add the role in brackets.
+  await page.waitForFunction(() => [...document.querySelectorAll('.group-editor [data-identity="aws:"] select option')]
+    .some((o) => o.textContent.includes("(")), null, { timeout: 10000 }).catch(() => {});
   const chosen = await page.locator('.group-editor [data-identity="aws:"] select').evaluate((s) => s.selectedOptions[0]?.textContent ?? "");
   check(chosen.includes("e2e-ReadOnly"), "Its role shows as its default AWS identity", chosen);
 
