@@ -19,7 +19,9 @@ What it answers, all of it deterministic:
 
 from __future__ import annotations
 
+import datetime
 import itertools
+import re
 import threading
 from typing import Any, Optional
 
@@ -76,8 +78,39 @@ def start_query(
             "limit": limit or 1000,
             "polls": 0,
             "stopped": False,
+            "stats": _stats_of(query_string),
+            "start": start_time,
+            "end": end_time,
         }
     return query_id
+
+
+_STEP_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _stats_of(query: str) -> Optional[dict[str, Any]]:
+    """A `stats count(*) [as name] by bin(<step>)` query's shape, which the
+    fake answers with a count per bar; None for a query of rows."""
+    m = re.search(r"stats\s+count\(\*\)(?:\s+as\s+(\w+))?\s+by\s+bin\((\d+)([smhd])\)", query)
+    if not m:
+        return None
+    return {"name": m.group(1) or "count(*)", "bin": f"{m.group(2)}{m.group(3)}", "step": int(m.group(2)) * _STEP_UNITS[m.group(3)]}
+
+
+def _stats_rows(q: dict[str, Any]) -> list[list[dict]]:
+    """A count per bar over the query's window, the same every run: 1 to 5
+    per log group, by the bar's place, and empty bars left out as Logs
+    Insights leaves them."""
+    stats = q["stats"]
+    step = stats["step"]
+    rows = []
+    for k, t in enumerate(range(q["start"] - q["start"] % step, q["end"] + 1, step)):
+        count = (k % 5 + 1) * len(q["groups"]) if k % 7 != 3 else 0
+        if not count:
+            continue
+        stamp = datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.000")
+        rows.append([{"field": f"bin({stats['bin']})", "value": stamp}, {"field": stats["name"], "value": str(count)}])
+    return rows
 
 
 def _rows(q: dict[str, Any]) -> list[list[dict]]:
@@ -109,7 +142,8 @@ def get_query_results(account_id: str, region: str, identity: Any, query_id: str
         if not q["stopped"]:
             q["polls"] += 1
         status = "Cancelled" if q["stopped"] else "Running" if q["slow"] or q["polls"] < 3 else "Complete"
-        return {"status": status, "results": _rows(q), "statistics": {"recordsMatched": float(len(_rows(q)))}}
+        rows = _stats_rows(q) if q["stats"] else _rows(q)
+        return {"status": status, "results": rows, "statistics": {"recordsMatched": float(len(rows))}}
 
 
 def stop_query(account_id: str, region: str, identity: Any, query_id: str) -> None:
@@ -146,10 +180,12 @@ def search(
     end_time: int,
     timestamp_field: str = "@timestamp",
     limit: int = 100,
+    histogram_interval: Optional[str] = None,
 ) -> dict:
     if not _fake(account_id):
         return _real["search"](
-            account_id, region, identity, domain_endpoint, indices, query_string, start_time, end_time, timestamp_field, limit
+            account_id, region, identity, domain_endpoint, indices, query_string, start_time, end_time, timestamp_field,
+            limit, histogram_interval,
         )
     if "#fail" in query_string:
         raise RuntimeError("search_phase_execution_exception: the fake search failed, as asked (#fail).")
@@ -162,7 +198,12 @@ def search(
         for index in indices
         for i in range(3)
     ][:limit]
-    return {"hits": hits, "total": len(hits)}
+    buckets = []
+    if histogram_interval:
+        step = int(histogram_interval[:-1]) * _STEP_UNITS[histogram_interval[-1]]
+        for k, t in enumerate(range(start_time - start_time % step, end_time + 1, step)):
+            buckets.append({"t": t * 1000, "count": (k % 4) * len(indices)})
+    return {"hits": hits, "total": len(hits), "buckets": buckets}
 
 
 for _name, _fn in [

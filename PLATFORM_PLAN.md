@@ -1209,6 +1209,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D49 | 2026-10-11 | **Old per-pane routes are kept for one release after their pane is ported**, then removed (§16.3.8). | A tab that hasn't reloaded yet keeps working; PR 1's stale-tab reload covers the rest. |
 | D50 | 2026-10-11 | **Settings → "Saved" becomes "Library"** (Templates and Saved inputs; the user asked for "Storage or similar", "Library" was proposed back for the reason given, and changing it is one word), and **Users and User groups become one tab** with a Users / Groups switch, as Credentials / Types (§16.3.4, §16.3.9). | "Library" says reusable things you start from or load; "Storage" is kept for files and blobs (D7), which will need a section of their own. One tab for people and their groups, as for credentials and their types. |
 | D51 | 2026-10-12 | **A long-running action (a CloudWatch query) is polled by the server, and only while someone is looking** (§16.9). The server keeps the run in a `pane_runs` row and writes each poll's results into the session through the same versioned, announced path as the agent. It polls as whoever started the run, and only while the session is open in at least one connected browser (any participant's, with the session open in their workspace) or an agent turn is waiting on it. Unwatched, it pauses; still unwatched after 10 minutes, it stops the queries in AWS. A run whose replica died is picked up by another. | The user chose server polling so a shared session sees one stream, and asked that it not run all the time. Browser polling would have had every open tab poll, each as its own user, so a member without that environment's access would write errors into the shared results. |
+| D52 | 2026-10-14 | **The log-volume histogram counts every match: always for OpenSearch, on request for CloudWatch** (§16.11). OpenSearch adds a date-histogram aggregation to the same search. CloudWatch runs a second, counting query only while the pane's Histogram toggle is on (off by default). | The user's choice. Counting from the returned rows would cover only the newest 100 and couldn't show when a spike began. OpenSearch's count is free, but CloudWatch bills per GB scanned, and a second query scans the log groups again. |
+| D53 | 2026-10-14 | **A chart on table-like results is picked in the pane, not fixed by its manifest** (§16.11). Type, x, y, series and aggregate are chosen from the result's own columns, and stored as a view key (D48). So it syncs to every member, templates keep it, and the agent sets it with `set_pane_view`. | The user's choice. The API table's columns aren't known until it runs, so a manifest-fixed chart couldn't chart it. The builder (Phase 4) will add manifest-defined charts on top. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -2944,6 +2946,89 @@ Where the build departed from §16.9, and what it added:
     reload mid-run, Stop from the other tab, sort, group by, the cap, an expanded
     row in both tabs, Target errors, OpenSearch's domains, indices and search, and
     an old session. It fails against the old frontend.
+
+### 16.11 PR 3b-4 in detail: charts
+
+_Detailed 2026-10-14, after 3b-3 merged. Two questions were asked: where the
+log-volume histogram's counts come from (D52), and who chooses what a table's chart
+shows (D53)._
+
+#### 16.11.1 Data frames and the chart spec (D11)
+
+- **A data frame is worked out in the browser** from what an output already holds;
+  nothing new is stored. It has fields (name, type: time, number, string) and rows.
+  - A table's rows (the API table) are records.
+  - A log list's rows are `{field, value}` lists, flattened, plus `environment`.
+  - Types are inferred from the values: numbers, then times (ISO, epoch
+    milliseconds or seconds, CloudWatch's `2026-01-01 00:05:00.000`), else strings.
+- **The spec** is the view key `chart` (D48, D53):
+  `{type, x, y, agg, series}`.
+  - `type` is one of `timeseries`, `bar`, `pie`, `stat`.
+  - `y` is a field name, or `count` to count the rows.
+  - `agg` is one of `sum`, `avg`, `min`, `max` or `count`.
+  - Rows are grouped by x (and series) and y is aggregated. A `stats ... by bin(5m)`
+    result is already one row per bucket, so it is drawn as it is.
+  - **Stat** is one number: y aggregated over all rows, with a sparkline when x is
+    a time.
+- **ECharts, loaded on demand.** The core is imported with only the line, bar and
+  pie charts, the grid, tooltip and legend components, and the canvas renderer. A
+  dynamic `import()` puts them in their own chunk, fetched the first time a chart
+  is on screen.
+  - Its colours are read from the theme's CSS tokens, so a chart follows the
+    theme.
+
+#### 16.11.2 The chart in a pane
+
+- **A `chart` layout item** names the output it charts. It draws a "Chart" bar
+  that folds; whether it is folded is the tab's, not the session's.
+  - Unfolded, it shows the type, x, y, aggregate and series pickers, filled from
+    the frame's fields, then the chart.
+  - It is placed on the API table's rows and on both logs panes' results, where
+    a CloudWatch `stats` query becomes a line chart.
+- **The agent** sets it with `set_pane_view`, a new generic tool for any pane's
+  view keys (sort, group by and expanded rows too, as D48 intended). It
+  validates the keys against the manifest's views. A chart's field names
+  can't be checked until the pane has run; a name with no column is shown in
+  the pane as exactly that.
+
+#### 16.11.3 The log-volume histogram (D52)
+
+- **The `histogram` output** holds one group per target,
+  `{environment_id, environment_name, buckets: [{t, count}], error}`. It is drawn
+  above the results as bars stacked by environment.
+- **The interval** is picked from the time window so there are about 60 bars,
+  rounded to a readable step (1 s up to 1 d).
+  - The handler picks it, `panes/timewindow.interval`, so the agent's run and the
+    browser's agree.
+- **OpenSearch:** the search adds a `date_histogram` aggregation on the timestamp
+  field, with `min_doc_count: 0` over the window. It is one request, as before.
+- **CloudWatch:** a `histogram` input, a "Histogram" checkbox in the Query toolbar,
+  off by default.
+  - On, the start handler starts a second query per environment: the user's query
+    with its `fields`, `display`, `sort` and `limit` commands removed and
+    `| stats count(*) as count by bin(<interval>)` appended. The commands are split
+    on `|` outside quotes and `/regex/` literals.
+  - A query that already has `stats` gets no histogram, and the pane says why.
+  - Both queries are handles of the same background run (D51). They are polled,
+    stopped and unwatched-stopped together.
+
+#### 16.11.4 Tests
+
+- **Backend:**
+  - the count query built from a user's query, including quotes, regexes and
+    `stats`;
+  - the interval;
+  - the OpenSearch aggregation and its buckets;
+  - a CloudWatch run with the histogram on, both handles polled and stopped;
+  - `set_pane_view` refusing a key the manifest doesn't declare.
+- **Browser:**
+  - the API table's chart: type, x, y and series, a stat tile, and the chart
+    reaching another tab;
+  - a CloudWatch `stats` result charted;
+  - the histogram, on for CloudWatch (fake AWS answers the counting query) and
+    always on for OpenSearch;
+  - ECharts' chunk is not loaded until a chart is shown;
+  - each failing against the old frontend.
 
 ## 12. Research sources
 

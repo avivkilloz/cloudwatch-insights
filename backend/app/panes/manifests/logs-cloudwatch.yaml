@@ -62,6 +62,13 @@ inputs:
       "259200": Last 3 days
       "604800": Last 7 days
       custom: Custom range…
+  - key: histogram
+    type: bool
+    label: Histogram
+    default: false
+    help: >-
+      Also count every match over time (the log-volume histogram above the results). It runs a second Logs Insights
+      query over the same log groups, which CloudWatch bills like the first.
   - key: customStart
     type: text
     default: ""
@@ -95,6 +102,9 @@ outputs:
       sort: { field: sortField, direction: sortDirection }
       group_by: groupBy
       expand: expanded
+      chart: chart
+  - key: volume
+    render: histogram
   - key: run
     render: run
 views:
@@ -108,6 +118,9 @@ views:
     default: none
   - key: expanded
     default: []
+  - key: chart
+    kind: chart
+    default: null
 legacy_drop: [osResults, timestampField, openSearchSelection, startedQueries]
 layout:
   - title: 1. Choose environments
@@ -122,6 +135,7 @@ layout:
           - time_range: { preset: preset, start: customStart, end: customEnd }
           - input: limit
           - sort: results
+          - input: histogram
       - input: queryString
       - toolbar:
           - action: run
@@ -130,6 +144,8 @@ layout:
   - title: 4. Results
     items:
       - restored: run
+      - output: volume
+      - chart: results
       - output: results
 implies: log_group_environments
 inspect:

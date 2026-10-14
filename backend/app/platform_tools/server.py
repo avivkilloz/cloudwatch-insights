@@ -48,6 +48,7 @@ from ..panes import runs as pane_runs
 from ..routers import log_groups, opensearch
 from . import tokens
 from .panes import (
+    chart_spec,
     KINDS,
     InputError,
     PaneKind,
@@ -772,6 +773,30 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
         row, _ = _mutate(
             db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
+        return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+
+
+def _apply_views(state: dict, user: models.User, pane_id: str, views: dict[str, Any]) -> None:
+    kind = kind_for(user, _pane(state, pane_id))
+    if not kind.v2 or not kind.view_defaults:
+        raise InputError(f"{kind.label} has nothing to change in how it shows its results.")
+    unknown = [k for k in views if k not in kind.view_defaults]
+    if unknown:
+        raise InputError(
+            f"{kind.label} has no view {', '.join(unknown)}. Its views are: {', '.join(kind.view_defaults)}."
+        )
+    for key, value in views.items():
+        state[f"{pane_id}.view.{key}"] = chart_spec(value) if kind.view_kinds.get(key) == "chart" else value
+    if (state.get("layout") or "tabs") == "tabs":
+        state["activePane"] = pane_id
+
+
+@mcp.tool()
+async def set_pane_view(session_id: str, pane_id: str, views: dict[str, Any]) -> dict:
+    """Changes how a pane shows its results -- its view keys, as get_context lists them for its kind: the sort, the
+    grouping, expanded rows, a chart of the rows. Everyone looking at the session sees it. Runs nothing."""
+    with _acting() as (db, user, caller):
+        row, _ = _mutate(db, user, caller, session_id, lambda s, _r, _m: _apply_views(s, user, pane_id, views), ORIGIN)
         return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
 
 
