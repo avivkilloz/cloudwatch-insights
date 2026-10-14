@@ -14,6 +14,17 @@ export type FieldType = "number" | "time" | "string";
 export interface Field {
   name: string;
   type: FieldType;
+  /** How many different values it has, over the rows scanned. */
+  distinct: number;
+}
+
+/** A column can split a chart into series when it has few values: one
+ * coloured line per value. `@message` has one per row -- as series it drew
+ * a legend of whole log lines over the chart. */
+export const SERIES_MAX_DISTINCT = 20;
+
+export function groupable(field: Field): boolean {
+  return field.type === "string" && field.distinct <= SERIES_MAX_DISTINCT;
 }
 
 export type Row = Record<string, unknown>;
@@ -106,7 +117,13 @@ function framed(rows: Row[]): Frame {
   const names: string[] = [];
   for (const row of rows.slice(0, SCAN_ROWS)) for (const k of Object.keys(row)) if (!names.includes(k)) names.push(k);
   const sample = rows.slice(0, SCAN_ROWS);
-  return { fields: names.map((name) => ({ name, type: inferType(sample.map((r) => r[name])) })), rows };
+  return {
+    fields: names.map((name) => {
+      const values = sample.map((r) => r[name]);
+      return { name, type: inferType(values), distinct: new Set(values.map((v) => String(v ?? ""))).size };
+    }),
+    rows,
+  };
 }
 
 /** A table's records: plain objects, anything else in the list skipped. */
@@ -148,6 +165,9 @@ export interface Chart {
   /** The x values, ordered: times ascending, numbers ascending, else by total. */
   xs: (string | number)[];
   xType: FieldType;
+  /** A time x folded into bars of this width ("30s"), when the rows weren't
+   * already one per bar. */
+  step?: string;
   series: Series[];
   /** Why there is nothing to draw, said in the pane. */
   problem?: string;
@@ -193,18 +213,47 @@ function missing(frame: Frame, spec: ChartSpec): string | undefined {
 }
 
 /** The rows folded into series over x, as the spec says. */
+// The histogram's steps (backend panes/timewindow.STEPS): a time series over
+// raw rows is folded into about BARS of them.
+const STEPS: [number, string][] = [
+  [1, "1s"], [5, "5s"], [10, "10s"], [30, "30s"], [60, "1m"], [300, "5m"], [600, "10m"], [1800, "30m"],
+  [3600, "1h"], [10800, "3h"], [21600, "6h"], [43200, "12h"], [86400, "1d"],
+];
+const BARS = 60;
+
+/** The bar width for times spread over [min, max] ms. */
+function stepFor(min: number, max: number): [number, string] {
+  const wanted = Math.max(1, (max - min) / 1000 / BARS);
+  return STEPS.find(([seconds]) => seconds >= wanted) ?? STEPS[STEPS.length - 1];
+}
+
 export function chartOf(frame: Frame, spec: ChartSpec): Chart {
   const xType = frame.fields.find((f) => f.name === spec.x)?.type ?? "string";
   const problem = missing(frame, spec);
   if (problem) return { xs: [], xType, series: [], problem };
   const agg = aggOf(spec);
+  // Raw rows over time -- a log line each, most at their own millisecond --
+  // drew one spike per row. Folded into bars of one width they read as a
+  // rate; a result already one row per bar (`stats ... by bin()`) is left
+  // as it is.
+  let bucket: [number, string] | null = null;
+  if (xType === "time") {
+    const times = new Set<number>();
+    for (const row of frame.rows) {
+      const t = timeOf(row[spec.x]);
+      if (t !== null) times.add(t);
+    }
+    if (times.size > BARS) bucket = stepFor(Math.min(...times), Math.max(...times));
+  }
+  const stepMs = bucket ? bucket[0] * 1000 : 0;
   // x -> series -> the values folded into it.
   const cells = new Map<string | number, Map<string, number[]>>();
   const totals = new Map<string, number>();
   for (const row of frame.rows) {
     const raw = row[spec.x];
-    const x = xType === "time" ? timeOf(raw) : xType === "number" ? numberOf(raw) : raw == null ? "" : String(raw);
+    let x = xType === "time" ? timeOf(raw) : xType === "number" ? numberOf(raw) : raw == null ? "" : String(raw);
     if (x === null) continue;
+    if (stepMs && typeof x === "number") x = x - (x % stepMs);
     const v = measure(row, spec);
     if (v === null) continue;
     const name = spec.series ? String(row[spec.series] ?? "") || "(none)" : spec.y === "count" ? "Count" : spec.y;
@@ -226,7 +275,14 @@ export function chartOf(frame: Frame, spec: ChartSpec): Chart {
   const names = ranked.filter((n) => kept.has(n));
   if (ranked.length > kept.size) names.push(OTHER);
   let xs = [...cells.keys()];
-  if (xType === "string") {
+  if (stepMs) {
+    // Every bar of the span, empty ones too: a line drawn straight across a
+    // quiet spell reads as activity there.
+    const first = Math.min(...(xs as number[]));
+    const last = Math.max(...(xs as number[]));
+    xs = [];
+    for (let t = first; t <= last; t += stepMs) xs.push(t);
+  } else if (xType === "string") {
     const xTotal = (x: string | number) =>
       [...(cells.get(x)?.values() ?? [])].reduce((sum, list) => sum + list.reduce((a, b) => a + Math.abs(b), 0), 0);
     xs.sort((a, b) => xTotal(b) - xTotal(a));
@@ -236,7 +292,8 @@ export function chartOf(frame: Frame, spec: ChartSpec): Chart {
   const series = names.map((name) => ({
     name,
     values: xs.map((x) => {
-      const byName = cells.get(x)!;
+      const byName = cells.get(x);
+      if (!byName) return agg === "count" || agg === "sum" ? 0 : null;
       const values =
         name === OTHER
           ? [...byName.entries()].filter(([n]) => !kept.has(n)).flatMap(([, list]) => list)
@@ -245,7 +302,7 @@ export function chartOf(frame: Frame, spec: ChartSpec): Chart {
       return fold(name === OTHER && agg !== "min" && agg !== "max" ? (agg === "count" ? "count" : "sum") : agg, values);
     }),
   }));
-  return { xs, xType, series };
+  return { xs, xType, series, ...(bucket ? { step: bucket[1] } : {}) };
 }
 
 /** A stat tile's one number: y folded over every row; and, when x is a time,

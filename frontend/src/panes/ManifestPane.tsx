@@ -1483,7 +1483,7 @@ function OutputView({
     case "run":
       return <RunNote value={value} />;
     case "histogram":
-      return <HistogramView value={value} />;
+      return <HistogramView value={value} pane={pane} />;
     case "attach": {
       // Always offered to the agent's chat, no checkbox: the HTTP client's
       // last exchange, to ask why a request came back the way it did.
