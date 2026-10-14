@@ -52,6 +52,9 @@ class ActionRun(BaseModel):
     pane: Optional[str] = None
     # The browser's own time zone, for a custom time range typed in it.
     timezone: Optional[str] = None
+    # A running background run started again because its `restart_on`
+    # inputs changed (D54): what it had shown is kept.
+    restart: bool = False
 
 
 class RunStop(BaseModel):
@@ -218,7 +221,9 @@ def _start_run(
     way any other write to the session does."""
     row, member = _pane_of(db, user, manifest, payload.session, payload.pane)
     try:
-        run = runs.start(db, user, row, member, manifest, action, payload.pane, inputs)
+        run = runs.start(
+            db, user, row, member, manifest, action, payload.pane, inputs, keep=payload.restart and bool(action.restart_on)
+        )
     except runs.RunError as e:
         raise HTTPException(status_code=403 if "read-only" in str(e) else 400, detail=str(e)) from None
     return {"run": {"id": run.id, "status": run.status}}

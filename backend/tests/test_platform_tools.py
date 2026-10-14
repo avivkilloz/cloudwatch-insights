@@ -157,10 +157,12 @@ def test_context_lists_only_what_the_group_can_reach(mcp):
     assert [e["name"] for e in context["environments"]] == ["Visible"]
     kinds = [k["kind"] for k in context["pane_kinds"]]
     assert "iot" not in kinds and "logs-cloudwatch" in kinds
-    # Every kind the group has is offered, the browser-only ones too -- with
-    # nothing to fill in, and a run that says why.
+    # Every kind the group has is offered.
     mqtt = next(k for k in context["pane_kinds"] if k["kind"] == "tool-mqtt")
-    assert mqtt["inputs"] == [] and "browser" in mqtt["run"]
+    # MQTT's connection is the server's now (D54): the agent can fill it in,
+    # connect and read -- but not publish.
+    assert [i["key"] for i in mqtt["inputs"]] == ["connection", "topics", "publishTopic", "payload"]
+    assert "can't publish" in mqtt["run"] and "stop_pane" in mqtt
     assert "tool-jwt" in kinds
     assert context["timezone"] == "Europe/London"
     cloudwatch = next(k for k in context["pane_kinds"] if k["kind"] == "logs-cloudwatch")
@@ -349,20 +351,15 @@ def test_the_agent_can_set_a_sessions_description_and_category(mcp):
 
 
 def test_browser_only_tools_can_be_added_and_named_but_not_filled_in(mcp):
+    # JWT is the one left (its token is a secret, kept in the browser); MQTT's
+    # connection moved to the server in 3b-5 (test_mqtt.py).
     token = _token()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tool-diff"}])["session_id"]
-    added = call(mcp, token, "add_pane", session_id=session, kind="tool-mqtt")
-    assert added["pane_id"] == "tool-mqtt"
-    call(mcp, token, "add_pane", session_id=session, kind="tool-jwt")
+    added = call(mcp, token, "add_pane", session_id=session, kind="tool-jwt")
+    assert added["pane_id"] == "tool-jwt"
     state = _row(session).state
-    assert state["services"] == ["tool-diff", "tool-mqtt", "tool-jwt"]
-
-    error = call_error(mcp, token, "set_pane_inputs", session_id=session, pane_id="tool-mqtt", inputs={"topic": "a/b"})
-    assert "Connect" in error
+    assert state["services"] == ["tool-diff", "tool-jwt"]
     assert "browser" in call_error(mcp, token, "run_pane", session_id=session, pane_id="tool-jwt")
-    described = call(mcp, token, "get_session", session_id=session)
-    mqtt = next(p for p in described["panes"] if p["pane_id"] == "tool-mqtt")
-    assert mqtt["title"] == "MQTT tester" and "Connect" in mqtt["note"]
 
 
 def test_inputs_are_stored_as_the_browser_expects_and_checked(mcp):

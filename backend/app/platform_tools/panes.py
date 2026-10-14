@@ -94,6 +94,7 @@ _TYPE_NAMES = {
     "environment": "environment id (get_context's environments)",
     "log_groups": "object: environment id -> list of log group names",
     "opensearch_indices": "list of {environment_id, domain_name, domain_endpoint, indices: [index names]}",
+    "topics": "list of MQTT topic filters (+ one level, # the rest)",
     "headers": "object: name -> value",
     "credential": "credential name or id (get_context lists the ones the user can use)",
     "connection": "connection id or name (get_context's http_apis)",
@@ -233,6 +234,12 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
         return tag_set(sorted({_visible_environment(rc, v) for v in value}))
     if kind == "environment":
         return _visible_environment(rc, value)
+    if kind == "topics":
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list) or not all(isinstance(t, str) and t.strip() for t in value):
+            raise InputError(f"{spec.key} must be a list of MQTT topic filters, e.g. [\"devices/+/telemetry\"].")
+        return list(dict.fromkeys(t.strip() for t in value))
     if kind == "log_groups":
         if not isinstance(value, dict):
             raise InputError(f"{spec.key} must map environment ids to lists of log group names.")

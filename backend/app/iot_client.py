@@ -399,3 +399,11 @@ def get_certificate_detail(account_id: str, region: str, identity: aws_client.Id
             result["warnings"].append(f"attached things: {e}")
 
     return result
+
+
+def publish(account_id: str, region: str, identity: aws_client.Identity, topic: str, payload: str, qos: int = 0) -> None:
+    """One message through IoT's data plane (iot-data:Publish) -- no MQTT
+    connection needed, so the MQTT pane's Publish works connected or not."""
+    endpoint = get_iot_data_endpoint(account_id, region, identity)
+    client = aws_client.get_client_with_endpoint("iot-data", account_id, region, identity, f"https://{endpoint}")
+    client.publish(topic=topic, qos=qos, payload=payload.encode("utf-8"))

@@ -15,6 +15,9 @@ What it answers, all of it deterministic:
   stopped, and `#fail` fails it.
 - OpenSearch: one domain, `fake-domain`, with indices `app-logs` and
   `audit`; a search returns three hits per index, `#fail` fails it.
+- MQTT: an in-process broker. Every second `fake/robot-1/telemetry` gets
+  `{"seq": n, "temp": ...}`; a message published to any topic reaches every
+  fake connection subscribed to a matching filter.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ import re
 import threading
 from typing import Any, Optional
 
-from app import aws_client, opensearch_client
+from app import aws_client, iot_client, mqtt_client, opensearch_client
 from app.main import app  # noqa: F401 - what uvicorn serves
 
 FAKE_PREFIX = "0000"
@@ -215,3 +218,76 @@ for _name, _fn in [
     setattr(aws_client, _name, _fn)
 for _name, _fn in [("list_domains", list_domains), ("list_indices", list_indices), ("search", search)]:
     setattr(opensearch_client, _name, _fn)
+
+
+# ---------------------------------------------------------------- MQTT
+
+
+class _FakeConn:
+    def __init__(self, deliver) -> None:
+        self.deliver = deliver
+        self.filters: list[str] = []
+        self.open = True
+
+    def subscribe(self, topic: str) -> None:
+        self.filters.append(topic)
+
+    def unsubscribe(self, topic: str) -> None:
+        self.filters = [f for f in self.filters if f != topic]
+
+    def alive(self) -> bool:
+        return self.open
+
+    def error(self) -> Optional[str]:
+        return None
+
+    def close(self) -> None:
+        self.open = False
+        with _lock:
+            if self in _conns:
+                _conns.remove(self)
+
+    def offer(self, topic: str, payload: bytes) -> None:
+        if self.open and any(mqtt_client.matches(f, topic) for f in self.filters):
+            self.deliver(topic, payload)
+
+
+_conns: list[_FakeConn] = []
+_real_connect = mqtt_client.connect
+_real_publish = iot_client.publish
+
+
+def _connect(account_id: str, region: str, identity: Any, client_id: str, deliver):
+    if not _fake(account_id):
+        return _real_connect(account_id, region, identity, client_id, deliver)
+    conn = _FakeConn(deliver)
+    with _lock:
+        _conns.append(conn)
+    return conn, f"fake-ats.iot.{region}.amazonaws.com"
+
+
+def _broadcast(topic: str, payload: bytes) -> None:
+    with _lock:
+        conns = list(_conns)
+    for conn in conns:
+        conn.offer(topic, payload)
+
+
+def _publish(account_id: str, region: str, identity: Any, topic: str, payload: str, qos: int = 0) -> None:
+    if not _fake(account_id):
+        return _real_publish(account_id, region, identity, topic, payload, qos)
+    _broadcast(topic, payload.encode("utf-8"))
+
+
+def _telemetry() -> None:
+    import json
+    import time
+
+    for n in itertools.count(1):
+        time.sleep(1.0)
+        _broadcast("fake/robot-1/telemetry", json.dumps({"seq": n, "temp": 20 + n % 5}).encode())
+
+
+mqtt_client.connect = _connect
+iot_client.publish = _publish
+threading.Thread(target=_telemetry, name="fake-mqtt-telemetry", daemon=True).start()

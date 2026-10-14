@@ -15,11 +15,6 @@ export default function SavedItemsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function createSavedSessionItem(page: string, name: string, state: Record<string, unknown>) {
-    const saved = await api.createSavedSession({ page, name, state });
-    setSavedSessions((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
-  }
-
   async function updateSavedSessionItem(id: number, payload: { name?: string; state?: Record<string, unknown> }) {
     const updated = await api.updateSavedSession(id, payload);
     setSavedSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
@@ -36,7 +31,6 @@ export default function SavedItemsPage() {
   return (
     <SavedItemsHub
       savedSessions={savedSessions}
-      onCreateSession={createSavedSessionItem}
       onUpdateSession={updateSavedSessionItem}
       onDeleteSession={deleteSavedSessionItem}
     />

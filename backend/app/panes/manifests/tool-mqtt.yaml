@@ -7,9 +7,100 @@ about: "An MQTT client on an environment's IoT Core endpoint: subscribe to topic
 description: >-
   Subscribe and publish on an environment's IoT Core endpoint.
 help: >-
-  Connect to an environment's AWS IoT Core endpoint over a presigned WebSocket, subscribe to topic filters and
-  publish messages. Everything received is listed newest-first while the connection is open.
+  Connect to an environment's AWS IoT Core endpoint, subscribe to topic filters and publish messages. The server
+  holds the connection, as you, so everyone looking at the session sees the same messages arrive, newest first; it
+  disconnects two minutes after the last person looking leaves.
+state: v2
+rendered: true
+inputs:
+  - key: connection
+    type: connection
+    connection_type: aws
+    label: Environment
+    placeholder: Choose environment…
+    help: The environment whose IoT Core endpoint to connect to.
+  - key: topics
+    type: topics
+    label: Topics
+    default: []
+    placeholder: devices/+/telemetry
+    help: >-
+      Topic filters to receive (+ matches one level, # the rest). Changing them while connected reconnects with
+      the new ones, as you; the messages stay.
+  - key: publishTopic
+    type: text
+    label: Topic
+    default: ""
+    placeholder: devices/robot-1/commands
+    help: The one topic to publish to (no wildcards).
+  - key: payload
+    type: text
+    label: Message
+    rows: 3
+    default: ""
+    placeholder: '{"command": "ping"}'
+    help: The message to publish, as text (JSON or anything else).
+actions:
+  - id: connect
+    handler: aws.iot.mqtt_connect
+    main: true
+    run_label: Connect
+    busy_label: Connected
+    stop_label: Disconnect
+    requires: { connection: Choose an environment to connect to. }
+    restart_on: [topics]
+    max_running: 5
+    resets: [out.messages, out.published]
+    poll:
+      handler: aws.iot.mqtt_poll
+      stop: aws.iot.mqtt_close
+      every: 1
+      unwatched_stop: 120
+      append: { messages: 200 }
+      agent_wait: 8
+  - id: publish
+    handler: aws.iot.publish
+    effects: external
+    run_label: Publish
+    busy_label: Publishing…
+    requires: { connection: Choose an environment to publish on., publishTopic: Enter a topic to publish to. }
+outputs:
+  - key: messages
+    render: stream
+    actions: [export, attach]
+    config: { domain: tool-mqtt }
+  - key: status
+    render: text
+  - key: run
+    render: run
+  - key: published
+    render: text
+layout:
+  - title: Connection
+    items:
+      - line:
+          - input: connection
+          - action: connect
+          - stop: connect
+          - output: run
+      - output: status
+  - title: Subscribe
+    items:
+      - input: topics
+  - title: Publish
+    items:
+      - input: publishTopic
+      - input: payload
+      - toolbar:
+          - action: publish
+          - output: published
+  - title: Incoming messages
+    items:
+      - output: messages
+        empty: Connect and add a topic to see messages arrive here.
 agent:
   run: >-
-    You can add it, but not fill it in or connect it: its environment, topics and connection live only in the
-    user's browser. Tell the user to pick the environment and press Connect.
+    Connects as the user and listens to the pane's topics; you get what arrived in the first few seconds. It stays
+    connected in the pane, messages arriving there, until someone disconnects it (stop_pane) or nobody has the
+    session open for two minutes. Changing its topics while connected reconnects with the new ones. You can't
+    publish: that is the user's own button.

@@ -36,7 +36,8 @@ export type InputType =
   | "headers"
   | "credential"
   | "connection"
-  | "connections";
+  | "connections"
+  | "topics";
 
 /** A choice whose options come from a server action (a loader). */
 export interface Options {
@@ -112,7 +113,11 @@ export interface ManifestAction {
   /** A row action's inputs, as paths into `row.` and `group.`. */
   args: Record<string, string>;
   /** Run in the background, polled by the server into the session (D51). */
-  poll?: { handler: string; stop: string };
+  poll?: { handler: string; stop: string; every: number; append: Record<string, number> };
+  /** A running background run restarts, as whoever changed them, when these change (D54). */
+  restart_on?: string[];
+  /** The Stop button's words ("Disconnect"). */
+  stop_label?: string;
 }
 
 export type Render =
@@ -130,7 +135,8 @@ export type Render =
   | "attach"
   | "logs"
   | "run"
-  | "histogram";
+  | "histogram"
+  | "stream";
 
 export interface ManifestOutput {
   key: string;
