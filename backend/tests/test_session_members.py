@@ -119,3 +119,34 @@ def test_membership_is_scoped_to_its_own_session():
 
     assert client.get("/api/live-sessions/s2/members").json() == []
     assert client.put(f"/api/live-sessions/s2/members/{bob_id}", json={"permission": "viewer"}).status_code == 404
+
+
+def test_every_change_to_the_roster_is_announced_to_the_member(monkeypatch):
+    """The member's open browser hears of an invite, a permission change and
+    a removal at once. None was announced, so a session shared with someone
+    appeared in their rail only when the owner next edited it (that write is
+    announced to every participant), and a removal or a new permission only
+    on a reload."""
+    from app.routers import live_sessions
+
+    heard: list[tuple[int, str, str]] = []
+    real = live_sessions.notify
+
+    def recording(db, user_id, kind, client_id, version, origin, **kw):
+        heard.append((user_id, kind, client_id))
+        return real(db, user_id, kind, client_id, version, origin, **kw)
+
+    monkeypatch.setattr(live_sessions, "notify", recording)
+    _put_session("s1")
+    bob_id = _user("bob")
+
+    assert client.post("/api/live-sessions/s1/members", json={"username": "bob"}).status_code == 201
+    assert heard[-1] == (bob_id, "upsert", "s1")
+    # What the event sends the browser to fetch is there for bob to read.
+    assert _login_as("bob", "pw-123456").get("/api/live-sessions/s1").json()["role"] == "editor"
+
+    assert client.put(f"/api/live-sessions/s1/members/{bob_id}", json={"permission": "viewer"}).status_code == 200
+    assert heard[-1] == (bob_id, "access", "s1")
+
+    assert client.delete(f"/api/live-sessions/s1/members/{bob_id}").status_code == 204
+    assert heard[-1] == (bob_id, "delete", "s1")

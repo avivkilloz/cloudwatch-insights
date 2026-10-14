@@ -543,6 +543,7 @@ def invite_session_member(
     payload: schemas.SessionMemberCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
     row = _owned(db, current_user, client_id)
     username = payload.username.strip()
@@ -561,6 +562,10 @@ def invite_session_member(
         position=_next_position(db, invitee.id),
     )
     db.add(member)
+    # Told now, on this commit: the invitee's open browser learns of the
+    # session from this, not from the owner's next edit -- which used to be
+    # the first write announced to them, so it appeared only then.
+    notify(db, invitee.id, "upsert", row.client_id, row.version, origin)
     try:
         db.commit()
     except IntegrityError:
@@ -577,10 +582,16 @@ def update_session_member(
     payload: schemas.SessionMemberUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
     row = _owned(db, current_user, client_id)
     member = _member(db, row.id, user_id)
     member.permission = payload.permission
+    # The session's version doesn't move (its state didn't), so an "upsert"
+    # would be skipped by a browser already holding it; "access" asks it to
+    # re-read the row for its role -- a viewer's browser keeps its edits to
+    # itself, and one made an editor went on doing so until a reload.
+    notify(db, user_id, "access", row.client_id, row.version, origin)
     db.commit()
     db.refresh(member)
     return _member_out(member)
@@ -592,6 +603,7 @@ def remove_session_member(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
 ):
     """Removes someone from the roster -- the owner removing anyone, or a
     member leaving (removing themselves). Either way this takes them off the
@@ -604,6 +616,9 @@ def remove_session_member(
     else:
         row = _owned(db, current_user, client_id)
         member = _member(db, row.id, user_id)
+    # Gone from every browser of theirs at once, as a delete is: left in
+    # their rail, it 404'd on every save until they reloaded.
+    notify(db, user_id, "delete", client_id, None, origin)
     db.delete(member)
     db.commit()
     return None

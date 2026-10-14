@@ -690,6 +690,17 @@ agent against its own hand-rolled stub MCP server (`get_context`,
 `create_session`, `run_pane`), never the real `platform_tools/server.py`,
 so nothing here touches it.
 
+**A change to the roster is announced to the member it touches**, on the
+same commit: an invite as an `"upsert"` (their open browser fetches the
+session and adds it to their rail), a removal as a `"delete"` (it leaves
+their rail), and a permission change as `"access"` -- the session's version
+doesn't move, so an upsert would be skipped by a browser already holding
+it, and `"access"` makes it re-read the row for its `role` (a viewer's
+browser keeps its edits to itself, so one made an editor did until a
+reload). Before this, none was announced: a session shared with someone
+showed up only when the owner next wrote it, since `commit_write` is what
+tells every participant (`smoke70`).
+
 **The invite field suggests usernames as you type.** A follow-up to phase 2's
 UI, not a new access-control phase: `GET /api/users/suggest?prefix=` (new,
 `routers/users.py`) returns up to 8 `{id, username}` matches, ordered,
