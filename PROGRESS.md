@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-12, Phase 3b-3 (CloudWatch and OpenSearch)._
+_Last updated: 2026-10-14, a sharing fix after Phase 3b-3 (CloudWatch and OpenSearch)._
 
 ## Platform plan
 
@@ -1022,10 +1022,15 @@ Everything below is merged and verified against the running app.
 
 ## In progress / where I left off
 
-3b-3 (CloudWatch and OpenSearch) is built and verified against the running
-stack and awaits its PR; nothing is half-written. After it merges, restart the
-branch from `main` (`git fetch origin main && git checkout -B <branch>
-origin/main`) and detail 3b-4 (charts, PLATFORM_PLAN.md §16.5) before building
+**Fixed after 3b-3 merged (#108), reported by the user:** a session shared
+with someone appeared in their rail only once the owner did something in it.
+Inviting, changing a member's permission and removing one announced nothing to
+that member; each now does (`"upsert"`, `"access"`, `"delete"`), so it shows up,
+takes effect or leaves at once. smoke70 (fails on the old code, each check
+against its own part of the fix) and a test in `test_session_members.py`.
+
+3b-3 (CloudWatch and OpenSearch) merged as #108; nothing is half-written. Next,
+detail 3b-4 (charts, PLATFORM_PLAN.md §16.5) before building
 it. The logs routes, saved queries' routes and the agent's `list_log_groups`
 and `list_opensearch_*` tools stay one release and go in 3b-4.
 
@@ -1197,7 +1202,7 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Restart the branch from `main` once 3b-3's PR merges; then 3b-4 (charts) and
+1. 3b-4 (charts) and
    3b-5 (MQTT on the server), each detailed in PLATFORM_PLAN.md §16 before it is
    built. The logs' old routes, saved queries' and the agent's per-service list
    tools go in 3b-4 (D49).

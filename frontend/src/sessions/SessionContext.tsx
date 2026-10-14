@@ -466,6 +466,19 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         if (event.kind === "upsert") {
           if ((sync.versionOf(id) ?? -1) >= (event.version ?? 0)) return;
           fetchAndReceive(id);
+        } else if (event.kind === "access") {
+          // The owner changed this user's permission: same version, new role.
+          // The role decides whether this browser pushes its edits at all.
+          api
+            .getLiveSession(id)
+            .then((row) =>
+              setWorkspace((w) =>
+                w.sessions.some((s) => s.id === id && s.role !== row.role)
+                  ? { ...w, sessions: w.sessions.map((s) => (s.id === id ? { ...s, role: row.role } : s)) }
+                  : w,
+              ),
+            )
+            .catch(catchUpLater);
         } else if (event.kind === "close") {
           drop(id);
           refreshClosed();

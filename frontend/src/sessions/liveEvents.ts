@@ -15,7 +15,8 @@
 import { SYNC_ORIGIN } from "../api";
 
 export interface LiveEvent {
-  kind: "upsert" | "close" | "delete" | "reorder";
+  /** "access": this user's permission on a shared session changed. */
+  kind: "upsert" | "close" | "delete" | "reorder" | "access";
   client_id: string | null;
   version: number | null;
   /** The writer's X-Sync-Origin: a tab's id, or "agent". */
