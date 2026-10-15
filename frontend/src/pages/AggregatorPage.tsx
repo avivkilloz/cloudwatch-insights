@@ -20,6 +20,7 @@ import {
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { PaneMenuSlot } from "../components/paneMenuSlot";
+import Icon from "../components/Icon";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { every, REFRESH_CHOICES } from "../panes/refresh";
@@ -1495,12 +1496,12 @@ export default function AggregatorPage() {
                     screen, and a ⋮ on every tab would crowd them. */}
                 {shownPane?.id === s.id && <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />}
                 <button
-                  className="aggregator-tab-close"
+                  className="aggregator-tab-close icon-btn"
                   onClick={() => closePane(s.id)}
                   aria-label={`Close ${s.label}`}
                   title={`Close ${s.label}`}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </div>
             ))}
@@ -1610,7 +1611,7 @@ export default function AggregatorPage() {
                     <h3>{s.label}</h3>
                   )}
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       setRenaming(s.id);
@@ -1618,12 +1619,12 @@ export default function AggregatorPage() {
                     title={`Rename ${s.label}`}
                     aria-label={`Rename ${s.label}`}
                   >
-                    ✎
+                    <Icon name="pencil" />
                   </button>
                   {!dashboard && (
                     <>
                       <button
-                        className="secondary"
+                        className="secondary icon-btn"
                         disabled={i === 0}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1632,10 +1633,10 @@ export default function AggregatorPage() {
                         title={`Move ${s.label} ${back}`}
                         aria-label={`Move ${s.label} ${back}`}
                       >
-                        {layout === "columns" ? "◀" : "▲"}
+                        <Icon name={layout === "columns" ? "left" : "up"} />
                       </button>
                       <button
-                        className="secondary"
+                        className="secondary icon-btn"
                         disabled={i === open.length - 1}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1644,27 +1645,28 @@ export default function AggregatorPage() {
                         title={`Move ${s.label} ${forward}`}
                         aria-label={`Move ${s.label} ${forward}`}
                       >
-                        {layout === "columns" ? "▶" : "▼"}
+                        <Icon name={layout === "columns" ? "right" : "down"} />
                       </button>
                     </>
                   )}
-                  {/* The pane's ⋮ lands here. What's portalled into it
+                  {/* The pane's ⚙ lands here. What's portalled into it
                       bubbles through the pane, not this header, so a click
                       on it neither minimises nor starts a drag. */}
                   <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleMinimized(s.id);
                     }}
                     aria-label={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                    title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
                     aria-expanded={!collapsed}
                   >
-                    {collapsed ? "+" : "−"}
+                    <Icon name={collapsed ? "plus" : "minus"} />
                   </button>
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       closePane(s.id);
@@ -1672,7 +1674,7 @@ export default function AggregatorPage() {
                     title={`Close ${s.label}`}
                     aria-label={`Close ${s.label}`}
                   >
-                    ✕
+                    <Icon name="close" />
                   </button>
                 </header>
                 )}

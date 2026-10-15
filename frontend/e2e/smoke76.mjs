@@ -1,5 +1,5 @@
 // Three things asked for together, driven the way a user would:
-//   - a pane's settings are its ⋮, in its header (or, in the tabs layout, the
+//   - a pane's settings are its ⚙, in its header (or, in the tabs layout, the
 //     selected tab): auto-refresh and saved inputs, out of its cards; a click
 //     on it neither folds the pane nor starts a drag; a pane that can't run
 //     again by itself (Base64) offers no refresh;
@@ -67,6 +67,12 @@ const run = async () => {
   await page.click(`${CARD} button:text-is("Stacked")`);
   await page.waitForSelector(`${SHOWN} .aggregator-pane-header .pane-menu-button`);
   check((await page.locator(`${SHOWN} .aggregator-pane-header .pane-menu-button`).count()) === 2, "Stacked, every pane's header has one");
+  // Every button in a header the same square, its icon drawn (not a glyph
+  // taking its size from the font: they came out wide and uneven, ✎ taller).
+  const boxes = await page.locator(`${SHOWN} .aggregator-pane-header button, ${SHOWN} .session-card-head button`).evaluateAll((bs) =>
+    bs.map((b) => ({ w: Math.round(b.getBoundingClientRect().width), h: Math.round(b.getBoundingClientRect().height), svg: !!b.querySelector("svg"), text: b.textContent.trim() })));
+  check(boxes.length >= 8 && boxes.every((b) => b.w === 24 && b.h === 24 && b.svg && b.text === ""),
+    "Every header button is the same 24px square, with an icon rather than a glyph", JSON.stringify(boxes));
   await openPaneMenu(page, "DynamoDB");
   const headings = await page.locator(".pane-menu-list .pane-menu-heading").allInnerTexts();
   check(JSON.stringify(headings) === JSON.stringify(["AUTO-REFRESH", "SAVED INPUTS"]) ||

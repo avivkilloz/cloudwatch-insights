@@ -10,6 +10,7 @@
  */
 
 import { createPortal } from "react-dom";
+import Icon from "../components/Icon";
 import Popover from "../components/Popover";
 import { usePaneMenuSlot } from "../components/paneMenuSlot";
 import { PaneApi } from "./paneApi";
@@ -24,10 +25,10 @@ export default function PaneSettings({ pane, refresh, saved }: { pane: PaneApi; 
     <span className="pane-menu">
       <RefreshBadge state={refresh} />
       <Popover
-        glyph="⋮"
+        glyph={<Icon name="gear" />}
         label={`${label} settings`}
         title="Auto-refresh, saved inputs"
-        buttonClass="secondary pane-menu-button"
+        buttonClass="secondary icon-btn pane-menu-button"
         menuClass="rail-row-menu pane-menu-list"
         width={240}
         onOpen={saved.load}
