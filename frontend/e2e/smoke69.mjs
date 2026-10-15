@@ -155,12 +155,22 @@ const run = async () => {
   check(!(await page.locator(`${SHOWN} :text("Stopped by")`).isVisible()), "…and the last run's Stopped note goes");
   const firstMessage = () => page.locator(`${RESULTS} .result-row .msg`).first().textContent();
   check((await firstMessage()) === "/fake/api message 1", "Newest first by default", await firstMessage());
-  await page.locator(`${QUERY} label:has-text("Sort by") select`).first().selectOption("@message");
-  await page.locator(`${QUERY} label:has-text("Sort by") select`).nth(1).selectOption("asc");
+  // With the rows it sorts, not in the query (where it read as part of it).
+  check((await page.locator(`${QUERY} label:has-text("Sort by")`).count()) === 0 && (await page.locator(`${RESULTS} label:has-text("Sort by")`).count()) === 1,
+    "Sort by is with the results, not the query");
+  await page.locator(`${RESULTS} label:has-text("Sort by") select`).first().selectOption("@message");
+  await page.locator(`${RESULTS} label:has-text("Sort by") select`).nth(1).selectOption("asc");
   check((await firstMessage()) === "/fake/api message 1" && (await page.locator(`${RESULTS} .result-row .msg`).last().textContent()) === "/fake/worker message 6",
     "Sort by a field, ascending");
-  await page.locator(`${QUERY} label:has-text("Sort by") select`).first().selectOption("@timestamp");
-  await page.locator(`${QUERY} label:has-text("Sort by") select`).nth(1).selectOption("desc");
+  await page.locator(`${RESULTS} label:has-text("Sort by") select`).first().selectOption("@timestamp");
+  await page.locator(`${RESULTS} label:has-text("Sort by") select`).nth(1).selectOption("desc");
+  // A dashboard of a finished run: its results, no Query card -- a run's
+  // own note draws nothing once it's done, so it isn't a reason to keep one.
+  await page.click(`${SHOWN} .session-card button:text-is("View")`);
+  await page.waitForTimeout(300);
+  check((await page.locator(QUERY).count()) === 0 && (await rowCount(page)) === 12, "View mode shows the results without the Query card");
+  await page.click(`${SHOWN} .session-card button:text-is("Edit")`);
+  await page.waitForSelector(QUERY);
   await page.locator(`${RESULTS} label:has-text("Group by") select`).selectOption("log");
   check((await page.locator(`${RESULTS} h3`).allTextContents()).join("|") === "/fake/api|/fake/worker", "Group by log group");
   await page.locator(`${RESULTS} label:has-text("Group by") select`).selectOption("none");

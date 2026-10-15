@@ -173,7 +173,7 @@ interface ShellProps {
 
 function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange }: ShellProps) {
   const { user, logout } = useAuth();
-  const { sessions, activeId, view, ready, show, open, flushAll } = useSessions();
+  const { sessions, activeId, view, ready, show, open, flushAll, notice, dismissNotice } = useSessions();
 
   async function handleLogout() {
     await logout();
@@ -298,6 +298,14 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             brand={brand}
             account={dockShown ? null : account}
           />
+          {notice && (
+            <div className="panel app-update app-notice" role="alert">
+              <span className="error-text">{notice}</span>
+              <button className="secondary" onClick={dismissNotice}>
+                Dismiss
+              </button>
+            </div>
+          )}
           {stale && (
             <div className="panel app-update" role="status">
               <span>A new version of the app is available. It loads when you next switch page or session.</span>

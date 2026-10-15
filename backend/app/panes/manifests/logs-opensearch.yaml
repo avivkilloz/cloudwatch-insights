@@ -134,7 +134,6 @@ layout:
           - time_range: { preset: preset, start: customStart, end: customEnd }
           - input: limit
           - input: timestampField
-          - sort: results
       - input: queryString
       - toolbar:
           - action: run

@@ -10,7 +10,7 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { LiveSessionSummary, SessionCategory, api } from "../api";
+import { ApiError, LiveSessionSummary, SessionCategory, api, readableError } from "../api";
 import { PageId } from "../pages/pageTypes";
 import {
   EMPTY_WORKSPACE,
@@ -170,9 +170,14 @@ interface SessionsApi {
   closed: LiveSessionSummary[];
   /** Puts a closed session back on the strip, with the state it had. */
   reopen: (id: string) => void;
-  /** Throws a session away for good, open or closed. The only thing here that
+  /** Throws a session away for good, open or closed -- or, one shared with
+   * you, leaves it (only its owner can delete it). The only thing here that
    * loses work, which is why it is not what the ✕ used to do. */
   remove: (id: string) => void;
+  /** Something that didn't work and isn't any one page's to show: a delete
+   * the server refused. */
+  notice: string | null;
+  dismissNotice: () => void;
   activate: (id: string) => void;
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
@@ -617,16 +622,36 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     [],
   );
 
+  const [notice, setNotice] = useState<string | null>(null);
   const remove = useCallback(
     (id: string) => {
       touched.current = true;
+      const open = workspaceRef.current.sessions.find((s) => s.id === id);
+      const shut = closedRef.current.find((s) => s.client_id === id);
+      const role = open?.role ?? shut?.role;
+      // Shared with you: only its owner can delete it, so this leaves it. A
+      // member's delete used to be refused (404) and the refusal swallowed --
+      // the session went from the panel and came back on the next load.
+      const leaving = role !== undefined && role !== "owner";
       setWorkspace((w) => withoutSession(w, id));
       setClosed((c) => c.filter((s) => s.client_id !== id));
       sync.forget(id);
-      sync.enqueue(() => api.deleteLiveSession(id));
+      sync.enqueue(() =>
+        (leaving ? api.removeSessionMember(id, userId) : api.deleteLiveSession(id)).catch((e: unknown) => {
+          // Already gone from the server: what was asked for is done.
+          if (!leaving && e instanceof ApiError && e.status === 404) return;
+          // Otherwise it's still there, and will be on the next load: put it
+          // back where it was and say why, rather than let it seem gone.
+          if (open) setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? w : { ...w, sessions: [...w.sessions, open] }));
+          if (shut) setClosed((c) => (c.some((s) => s.client_id === id) ? c : [...c, shut]));
+          const title = open?.title ?? shut?.title ?? "the session";
+          setNotice(`Couldn't ${leaving ? "leave" : "delete"} "${title}": ${readableError(e)}`);
+        }),
+      );
     },
-    [sync],
+    [sync, userId],
   );
+  const dismissNotice = useCallback(() => setNotice(null), []);
 
   const activate = useCallback((id: string) => {
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
@@ -760,6 +785,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       closed,
       reopen,
       remove,
+      notice,
+      dismissNotice,
       activate,
       rename,
       reorder,
@@ -781,6 +808,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       close,
       reopen,
       remove,
+      notice,
+      dismissNotice,
       activate,
       rename,
       reorder,

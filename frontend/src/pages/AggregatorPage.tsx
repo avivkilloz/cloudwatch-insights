@@ -1365,7 +1365,8 @@ export default function AggregatorPage() {
           {/* Beside the layout, not a row of its own (the card only grows):
               View hides every pane's inputs and buttons, a dashboard of
               results (D61). A pane's ⚙ can show its own anyway. */}
-          <span className="field-label session-card-mode-label">Mode</span>
+        </CardRow>
+        <CardRow label="Mode">
           <div className="segmented" role="group" aria-label="Mode">
             {(
               [
@@ -1402,30 +1403,43 @@ export default function AggregatorPage() {
           </select>
         </CardRow>
         <CardRow label="Variables">
-          {/* Shared controls every pane with such an input follows (D60);
-              they're set in the bar under this card. */}
-          <>
-            {(["environment", "time"] as VariableName[]).map((name) =>
-              defined[name] === undefined ? (
-                <button
-                  key={name}
-                  className="secondary"
-                  disabled={isViewer}
-                  onClick={() =>
-                    changeVariables(
-                      { ...defined, [name]: name === "time" ? { preset: 3600, start: "", end: "" } : null },
-                      name === "time" ? [name] : [],
-                    )
-                  }
-                >
-                  + {VARIABLE_LABELS[name]}
-                </button>
-              ) : null,
-            )}
-            {defined.environment !== undefined && defined.time !== undefined && (
-              <span className="muted">Set in the bar under this card.</span>
-            )}
-          </>
+          {/* Each defined one as a chip (its value is set in the bar under
+              the card), each other as "+ …" -- controls, not a sentence. */}
+          {(["environment", "time"] as VariableName[]).map((name) =>
+            defined[name] === undefined ? (
+              <button
+                key={name}
+                className="secondary session-card-add"
+                disabled={isViewer}
+                onClick={() =>
+                  changeVariables(
+                    { ...defined, [name]: name === "time" ? { preset: 3600, start: "", end: "" } : null },
+                    name === "time" ? [name] : [],
+                  )
+                }
+              >
+                + {VARIABLE_LABELS[name]}
+              </button>
+            ) : (
+              <span key={name} className="session-card-chip" title="Set in the bar under this card">
+                {VARIABLE_LABELS[name]}
+                {!isViewer && (
+                  <button
+                    className="icon-btn session-card-chip-remove"
+                    aria-label={`Remove the ${VARIABLE_LABELS[name]} variable`}
+                    title="Remove it (panes keep the value they have)"
+                    onClick={() => {
+                      const next = { ...defined };
+                      delete next[name];
+                      changeVariables(next, []);
+                    }}
+                  >
+                    <Icon name="close" />
+                  </button>
+                )}
+              </span>
+            ),
+          )}
         </CardRow>
       </CardSection>
       <CardSection>
@@ -1447,12 +1461,12 @@ export default function AggregatorPage() {
                   <option value="editor">Editor</option>
                 </select>
                 <button
-                  className="session-member-remove"
+                  className="session-member-remove icon-btn"
                   onClick={() => removeMember(m.user_id)}
                   aria-label={`Remove ${m.username}`}
                   title={`Remove ${m.username}`}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </div>
             ))}
