@@ -968,8 +968,9 @@ inputs and its output stay visibly separate.
   you asked for regardless of how many environments you selected. A
   `| limit` command inside the query text itself is left untouched and
   applies on top of this, same as in the AWS console.
-- The **Sort by** field/direction next to it control how the *merged*
-  results from every environment are ordered and displayed — pick any
+- The **Sort by** field/direction, in the results' toolbar, control how the
+  *merged* results from every environment are ordered and displayed — it
+  sorts the rows on screen without running the query again — pick any
   field present in the results (it's populated from your actual query
   output after running it), or "Original order" to leave the merge order
   alone. This is separate from a `sort` command inside the query text

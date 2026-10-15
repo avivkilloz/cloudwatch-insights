@@ -10,7 +10,7 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { LiveSessionSummary, SessionCategory, api } from "../api";
+import { ApiError, LiveSessionSummary, SessionCategory, api, readableError } from "../api";
 import { PageId } from "../pages/pageTypes";
 import {
   EMPTY_WORKSPACE,
@@ -170,9 +170,14 @@ interface SessionsApi {
   closed: LiveSessionSummary[];
   /** Puts a closed session back on the strip, with the state it had. */
   reopen: (id: string) => void;
-  /** Throws a session away for good, open or closed. The only thing here that
+  /** Throws a session away for good, open or closed -- or, one shared with
+   * you, leaves it (only its owner can delete it). The only thing here that
    * loses work, which is why it is not what the ✕ used to do. */
   remove: (id: string) => void;
+  /** Something that didn't work and isn't any one page's to show: a delete
+   * the server refused. */
+  notice: string | null;
+  dismissNotice: () => void;
   activate: (id: string) => void;
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
@@ -225,6 +230,97 @@ export function useSessions(): SessionsApi {
 // How long to wait after the last change before writing. Typing in a query box
 // shouldn't mean an IndexedDB write per keystroke, but a refresh a second later
 // should still find your work.
+/** What this browser changed between loading the page and the server's list
+ * arriving: only this is laid over the server's copy then. */
+interface SinceLoad {
+  /** session -> state key -> its value now (undefined: removed). */
+  keys: Map<string, Map<string, unknown>>;
+  /** session -> key prefixes dropped (closed panes). */
+  drops: Map<string, string[]>;
+  titles: Map<string, string>;
+  categories: Map<string, number | null>;
+  /** Opened or reopened here: kept though the server's list hasn't them. */
+  opened: Set<string>;
+  /** Closed or deleted here: left out though the server's list has them. */
+  gone: Set<string>;
+  reordered: boolean;
+}
+
+function emptySinceLoad(): SinceLoad {
+  return {
+    keys: new Map(),
+    drops: new Map(),
+    titles: new Map(),
+    categories: new Map(),
+    opened: new Set(),
+    gone: new Set(),
+    reordered: false,
+  };
+}
+
+function keysOf(changes: SinceLoad, sessionId: string): Map<string, unknown> {
+  let keys = changes.keys.get(sessionId);
+  if (!keys) changes.keys.set(sessionId, (keys = new Map()));
+  return keys;
+}
+
+/** The server's copy of a session with what was done here since the load. */
+function overlay(session: PersistedSession, changes: SinceLoad): PersistedSession {
+  const keys = changes.keys.get(session.id);
+  const drops = changes.drops.get(session.id);
+  const title = changes.titles.get(session.id);
+  const hasCategory = changes.categories.has(session.id);
+  if (!keys && !drops && title === undefined && !hasCategory) return session;
+  const state = drops
+    ? Object.fromEntries(Object.entries(session.state).filter(([k]) => !drops.some((p) => k.startsWith(p))))
+    : { ...session.state };
+  for (const [key, value] of keys ?? []) {
+    if (value === undefined) delete state[key];
+    else state[key] = value;
+  }
+  return {
+    ...session,
+    state,
+    title: title ?? session.title,
+    categoryId: hasCategory ? changes.categories.get(session.id) : session.categoryId,
+  };
+}
+
+/** The ids of every session this browser has seen on the server, kept in
+ * localStorage per user (capped: the newest are what matter). */
+class SeenSessions {
+  private static readonly CAP = 2000;
+  private readonly key: string;
+  constructor(userId: number) {
+    this.key = `cwi-synced-${userId}`;
+  }
+  /** Null when this browser has no record yet. */
+  ids(): Set<string> | null {
+    try {
+      const raw = window.localStorage.getItem(this.key);
+      return raw === null ? null : new Set(JSON.parse(raw) as string[]);
+    } catch {
+      return null;
+    }
+  }
+  add(ids: string[]): void {
+    const current = this.ids();
+    if (current && ids.every((id) => current.has(id))) return;
+    const now = current ?? new Set<string>();
+    // Re-added at the end, so the cap keeps the most recently seen.
+    for (const id of ids) {
+      now.delete(id);
+      now.add(id);
+    }
+    try {
+      window.localStorage.setItem(this.key, JSON.stringify([...now].slice(-SeenSessions.CAP)));
+    } catch {
+      // Storage full or blocked: the load then treats this browser as one
+      // without a record, which is what it was before one was kept.
+    }
+  }
+}
+
 const PERSIST_DEBOUNCE_MS = 400;
 
 let sessionCounter = 0;
@@ -256,9 +352,31 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       }, AGENT_ACTIVITY_MS),
     );
   }, []);
-  // Set by the first local change, so a slow server reply can't land on top of
-  // something typed while it was in flight.
-  const touched = useRef(false);
+  // What this browser changed since the page loaded, until the server's list
+  // arrives: laid over the server's copy then, rather than this browser's whole
+  // local copy winning (see the load below). Null once the load is done.
+  const sinceLoad = useRef<SinceLoad | null>(null);
+  const changed = (record: (c: SinceLoad) => void) => {
+    if (sinceLoad.current) record(sinceLoad.current);
+  };
+  // The sessions this browser has ever seen on the server, kept across loads:
+  // one of them missing from the server's list was deleted elsewhere, while
+  // one never seen there is this browser's own, not saved yet.
+  const seen = useMemo(() => new SeenSessions(userId), [userId]);
+  // The workspace is pushed only once the server's list is in: before it, no
+  // version is known, and a push without one overwrites whatever is there.
+  const [listed, setListed] = useState(false);
+  // The stored bases, until the server's list replaces them: a save in the
+  // meantime would otherwise store none, and a second reload lose them.
+  const storedBases = useRef<Record<string, PersistedSession>>({});
+  const basesFor = useCallback(
+    (sessions: PersistedSession[]) => {
+      const ids = sessions.map((s) => s.id);
+      const kept = Object.fromEntries(ids.filter((id) => storedBases.current[id]).map((id) => [id, storedBases.current[id]]));
+      return { ...kept, ...sync.basesOf(ids) };
+    },
+    [sync],
+  );
   // reopen reads the closed list without depending on it, so it does not get a
   // new identity every time a session is closed.
   const closedRef = useRef<LiveSessionSummary[]>([]);
@@ -273,17 +391,22 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setReady(false);
     setClosed([]);
     setCategories([]);
-    touched.current = false;
+    setListed(false);
+    sinceLoad.current = emptySinceLoad();
 
     (async () => {
       // The local copy first, so the panel is populated on the first paint
       // rather than after a round trip.
-      const local = migrateSessions(await loadWorkspace(userId));
+      const stored = await loadWorkspace(userId);
+      const local = migrateSessions(stored.workspace);
+      const localBases = new Map(migrateSessionList(Object.values(stored.bases)).map((b) => [b.id, b]));
       if (cancelled) return;
+      storedBases.current = stored.bases;
       setWorkspace(local);
       setReady(true);
 
       let open: PersistedSession[];
+      let known: Set<string> | null;
       try {
         const [openRows, closedRows, categoryRows] = await Promise.all([
           api.listLiveSessions(),
@@ -292,8 +415,12 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         ]);
         if (cancelled) return;
         setCategories(categoryRows);
+        // Read before adopt records the open rows as seen: whether this
+        // browser kept a record at all decides what its local-only sessions are.
+        known = seen.ids();
         open = migrateSessionList(openRows.map(fromWire));
         sync.adopt(openRows);
+        storedBases.current = {};
         // Agent sessions are dropped by the migration above. Taking them off
         // the server too, rather than only out of this list, is what makes the
         // drop real: otherwise every load would fetch and discard them again,
@@ -306,36 +433,84 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
           if (row.type === "agent") sync.enqueue(() => api.deleteLiveSession(row.client_id));
         }
         setClosed(closedRows.filter((row) => row.type !== "agent"));
+        seen.add(closedRows.map((row) => row.client_id));
       } catch {
         // Offline, or a backend that has not been migrated yet. Keep working
         // against the local copy; the next flush pushes it up.
+        sinceLoad.current = null;
+        setListed(true);
         return;
       }
 
-      // Someone who had sessions before this existed, or who worked through an
-      // outage, has them only in this browser -- adopting the empty server list
-      // would throw them away. Keep the local ones and let the sync push them.
-      if (open.length === 0 && local.sessions.length > 0) return;
-      // And don't overwrite work done in the moment the request was in flight.
-      if (touched.current) return;
-
+      // The server's copy wins, with only what was done here since the page
+      // loaded laid over it. This browser's local copy used to win whenever
+      // anything had been written since the load -- and a pane writing the
+      // values it opened with counted, so it always did: a stale copy was
+      // pushed with the version just adopted, the server took it, and a
+      // change made elsewhere since (another browser, the agent) was lost, a
+      // session deleted elsewhere came back.
+      const changes = sinceLoad.current ?? emptySinceLoad();
+      sinceLoad.current = null;
       setWorkspace((w) => {
-        const ids = new Set(open.map((session) => session.id));
-        const activeId = w.activeId && ids.has(w.activeId) ? w.activeId : open[0]?.id ?? null;
+        const sessions = open
+          .filter((s) => !changes.gone.has(s.id))
+          .map((s) => {
+            // Merged as a conflict is (mergeSession): what this browser
+            // changed since it last agreed with the server -- before the
+            // reload too, pushed or not -- kept, the server's changes taken,
+            // the server's where both did. A browser without a stored base
+            // (from before one was kept) only has what was done since the load.
+            const here = w.sessions.find((l) => l.id === s.id);
+            const base = localBases.get(s.id);
+            return here && base ? mergeSession(base, here, s) : overlay(s, changes);
+          });
+        const onServer = new Set(open.map((s) => s.id));
+        for (const session of w.sessions) {
+          if (onServer.has(session.id) || changes.gone.has(session.id)) continue;
+          // Not on the server: opened just now, or never saved from here (an
+          // outage, a first load) -- pushed by the next flush. One this
+          // browser saw there before was deleted or closed elsewhere and stays
+          // so. Without a record (a browser from before one was kept), only
+          // an empty server list is taken as "never saved", as it always was.
+          const ownUnsaved = known ? !known.has(session.id) : open.length === 0;
+          if (changes.opened.has(session.id) || ownUnsaved) sessions.push(session);
+        }
+        if (changes.reordered) {
+          const rank = new Map(w.sessions.map((s, i) => [s.id, i]));
+          const last = Number.MAX_SAFE_INTEGER;
+          sessions.sort((a, b) => (rank.get(a.id) ?? last) - (rank.get(b.id) ?? last));
+        }
+        const ids = new Set(sessions.map((session) => session.id));
+        const activeId = w.activeId && ids.has(w.activeId) ? w.activeId : sessions[0]?.id ?? null;
         return {
-          sessions: open,
+          sessions,
           activeId,
           // Which tab this browser was on is local; falling back to home when
           // the session it pointed at is gone.
           view: w.view === "session" && !activeId ? "home" : w.view,
         };
       });
+      setListed(true);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [userId, sync]);
+  }, [userId, sync, seen]);
+
+  // A base moves when a push lands or a change is received; stored with the
+  // workspace, so it's saved again then too -- a stale stored base is merged
+  // against as if this browser had changed what the push carried.
+  const [basesMoved, setBasesMoved] = useState(0);
+  useEffect(() => {
+    sync.onSynced = (id) => {
+      seen.add([id]);
+      setBasesMoved((n) => n + 1);
+    };
+    return () => {
+      sync.onSynced = null;
+    };
+  }, [sync, seen]);
 
   // Persist on a trailing debounce. Writing only after `ready` matters: the
   // first render holds an empty workspace, and saving that would wipe the one
@@ -346,22 +521,22 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     if (pending.current !== null) window.clearTimeout(pending.current);
     pending.current = window.setTimeout(() => {
       pending.current = null;
-      saveWorkspace(userId, workspace);
+      saveWorkspace(userId, workspace, basesFor(workspace.sessions));
     }, PERSIST_DEBOUNCE_MS);
     return () => {
       if (pending.current !== null) window.clearTimeout(pending.current);
     };
-  }, [workspace, ready, userId]);
+  }, [workspace, basesMoved, ready, userId, basesFor]);
 
   // A debounce loses the last few hundred milliseconds if the tab is closed
   // mid-flight, which is exactly when someone is most likely to be mid-edit.
   useEffect(() => {
     function flush() {
-      if (ready) saveWorkspace(userId, workspace);
+      if (ready) saveWorkspace(userId, workspace, basesFor(workspace.sessions));
     }
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
-  }, [workspace, ready, userId]);
+  }, [workspace, ready, userId, basesFor]);
 
   // And the same to the server, on a longer debounce: the local copy is
   // already safe by the time this fires, so this is about durability and
@@ -369,7 +544,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // keystroke. Only what changed goes; WorkspaceSync works that out.
   const syncPending = useRef<number | null>(null);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !listed) return;
     if (syncPending.current !== null) window.clearTimeout(syncPending.current);
     syncPending.current = window.setTimeout(() => {
       syncPending.current = null;
@@ -378,7 +553,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     return () => {
       if (syncPending.current !== null) window.clearTimeout(syncPending.current);
     };
-  }, [workspace.sessions, ready, sync]);
+  }, [workspace.sessions, ready, listed, sync]);
 
   // A newer copy of a session from the server -- someone else's change,
   // announced or found on a 409 -- merged into this browser's (see
@@ -387,6 +562,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // you're looking at.
   useEffect(() => {
     sync.onRemote = (remote, base) => {
+      // Arriving while the load's list is in flight: kept by the load too.
+      changed((c) => {
+        c.opened.add(remote.id);
+        c.gone.delete(remote.id);
+      });
       setClosed((c) => (c.some((s) => s.client_id === remote.id) ? c.filter((s) => s.client_id !== remote.id) : c));
       setWorkspace((w) => {
         const index = w.sessions.findIndex((s) => s.id === remote.id);
@@ -427,6 +607,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       });
     };
     const drop = (id: string) => {
+      changed((c) => c.gone.add(id));
       sync.forget(id);
       setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? withoutSession(w, id) : w));
     };
@@ -525,8 +706,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   }, [ready, sync, markAgentActive]);
 
   const open = useCallback((title: string, state: Record<string, unknown> = {}) => {
-    touched.current = true;
     const id = `s${Date.now().toString(36)}${(sessionCounter++).toString(36)}`;
+    changed((c) => c.opened.add(id));
     setWorkspace((w) => ({
       ...w,
       sessions: [...w.sessions, { id, type: SESSION_TYPE, title, state }],
@@ -551,7 +732,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   const close = useCallback(
     (id: string) => {
-      touched.current = true;
+      changed((c) => c.gone.add(id));
       setWorkspace((w) => {
         const session = w.sessions.find((s) => s.id === id);
         // Moved across optimistically: a ✕ should feel instant rather than wait
@@ -586,7 +767,10 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 
   const reopen = useCallback(
     (id: string) => {
-      touched.current = true;
+      changed((c) => {
+        c.opened.add(id);
+        c.gone.delete(id);
+      });
       const summary = closedRef.current.find((s) => s.client_id === id);
       if (!summary) return;
       setClosed((c) => c.filter((s) => s.client_id !== id));
@@ -617,23 +801,43 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     [],
   );
 
+  const [notice, setNotice] = useState<string | null>(null);
   const remove = useCallback(
     (id: string) => {
-      touched.current = true;
+      changed((c) => c.gone.add(id));
+      const open = workspaceRef.current.sessions.find((s) => s.id === id);
+      const shut = closedRef.current.find((s) => s.client_id === id);
+      const role = open?.role ?? shut?.role;
+      // Shared with you: only its owner can delete it, so this leaves it. A
+      // member's delete used to be refused (404) and the refusal swallowed --
+      // the session went from the panel and came back on the next load.
+      const leaving = role !== undefined && role !== "owner";
       setWorkspace((w) => withoutSession(w, id));
       setClosed((c) => c.filter((s) => s.client_id !== id));
       sync.forget(id);
-      sync.enqueue(() => api.deleteLiveSession(id));
+      sync.enqueue(() =>
+        (leaving ? api.removeSessionMember(id, userId) : api.deleteLiveSession(id)).catch((e: unknown) => {
+          // Already gone from the server: what was asked for is done.
+          if (!leaving && e instanceof ApiError && e.status === 404) return;
+          // Otherwise it's still there, and will be on the next load: put it
+          // back where it was and say why, rather than let it seem gone.
+          if (open) setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? w : { ...w, sessions: [...w.sessions, open] }));
+          if (shut) setClosed((c) => (c.some((s) => s.client_id === id) ? c : [...c, shut]));
+          const title = open?.title ?? shut?.title ?? "the session";
+          setNotice(`Couldn't ${leaving ? "leave" : "delete"} "${title}": ${readableError(e)}`);
+        }),
+      );
     },
-    [sync],
+    [sync, userId],
   );
+  const dismissNotice = useCallback(() => setNotice(null), []);
 
   const activate = useCallback((id: string) => {
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
   }, []);
 
   const rename = useCallback((id: string, title: string) => {
-    touched.current = true;
+    changed((c) => c.titles.set(id, title));
     setWorkspace((w) => ({
       ...w,
       sessions: w.sessions.map((s) => (s.id === id ? { ...s, title } : s)),
@@ -641,7 +845,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   }, []);
 
   const reorder = useCallback((id: string, toIndex: number) => {
-    touched.current = true;
+    changed((c) => {
+      c.reordered = true;
+    });
     setWorkspace((w) => {
       const from = w.sessions.findIndex((s) => s.id === id);
       if (from < 0 || toIndex < 0 || toIndex >= w.sessions.length) return w;
@@ -656,7 +862,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   }, []);
 
   const setSessionCategory = useCallback((id: string, categoryId: number | null) => {
-    touched.current = true;
+    changed((c) => c.categories.set(id, categoryId));
     setWorkspace((w) => {
       const session = w.sessions.find((s) => s.id === id);
       if (!session || (session.categoryId ?? null) === categoryId) return w;
@@ -681,7 +887,6 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     // The server already set these sessions' category_id to null (ON DELETE
     // SET NULL); mirrored here so the panel doesn't wait for a reload to stop
     // showing them under a category that no longer exists.
-    touched.current = true;
     setWorkspace((w) => ({
       ...w,
       sessions: w.sessions.map((s) => (s.categoryId === id ? { ...s, categoryId: null } : s)),
@@ -711,8 +916,15 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   );
 
   // Pages call this (through useSessionState) on every change they want kept.
-  const writeState = useCallback((sessionId: string, key: string, value: unknown) => {
-    touched.current = true;
+  // A `seed` -- a pane writing the value it opened with -- is no change of
+  // anyone's: it goes in the workspace but is not laid over the server's copy
+  // on load (see the load above), which a stale value of this browser's would
+  // otherwise undo.
+  const writeState = useCallback((sessionId: string, key: string, value: unknown, seed?: boolean) => {
+    if (!seed) {
+      const current = workspaceRef.current.sessions.find((s) => s.id === sessionId)?.state[key];
+      if (!Object.is(current, value)) changed((c) => keysOf(c, sessionId).set(key, value));
+    }
     setWorkspace((w) => {
       const session = w.sessions.find((s) => s.id === sessionId);
       if (!session || Object.is(session.state[key], value)) return w;
@@ -730,7 +942,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // added later would come back holding a closed one's inputs, and every
   // closed pane's results would ride along in the session forever.
   const dropState = useCallback((sessionId: string, prefix: string) => {
-    touched.current = true;
+    changed((c) => {
+      const keys = keysOf(c, sessionId);
+      for (const key of [...keys.keys()]) if (key.startsWith(prefix)) keys.delete(key);
+      c.drops.set(sessionId, [...(c.drops.get(sessionId) ?? []), prefix]);
+    });
     // Its outputs too, here; the server drops its record when the save
     // without the pane arrives.
     if (prefix.endsWith(".") && !prefix.slice(0, -1).includes(".")) dropOutputs(sessionId, prefix.slice(0, -1));
@@ -745,9 +961,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // Named `sessionsApi` rather than `api`: the module-level `api` is the HTTP
   // client, and shadowing it here would quietly break the calls above.
   const flushAll = useCallback(async () => {
-    await saveWorkspace(userId, workspaceRef.current);
+    await saveWorkspace(userId, workspaceRef.current, basesFor(workspaceRef.current.sessions));
     await sync.flush(workspaceRef.current.sessions);
-  }, [userId, sync]);
+  }, [userId, sync, basesFor]);
 
   const sessionsApi = useMemo<SessionsApi>(
     () => ({
@@ -760,6 +976,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       closed,
       reopen,
       remove,
+      notice,
+      dismissNotice,
       activate,
       rename,
       reorder,
@@ -781,6 +999,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       close,
       reopen,
       remove,
+      notice,
+      dismissNotice,
       activate,
       rename,
       reorder,
@@ -811,7 +1031,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
 // Per-session state
 // ---------------------------------------------------------------------------
 
-type WriteState = (sessionId: string, key: string, value: unknown) => void;
+type WriteState = (sessionId: string, key: string, value: unknown, seed?: boolean) => void;
 const WriteStateContext = createContext<WriteState | null>(null);
 type DropState = (sessionId: string, prefix: string) => void;
 const DropStateContext = createContext<DropState | null>(null);
@@ -954,11 +1174,15 @@ export function useSessionState<T>(key: string, initial: T | (() => T)): [T, Dis
   // Report after render rather than inside the setter, so a page that calls
   // several setters in one handler produces one workspace update per commit.
   const lastWritten = useRef<unknown>(undefined);
+  const mounted = useRef(false);
   useEffect(() => {
     if (!scope || !write) return;
     if (Object.is(lastWritten.current, value)) return;
     lastWritten.current = value;
-    write(scope.id, fullKey, value);
+    // The first write is what the pane opened with, not a change (see
+    // writeState).
+    write(scope.id, fullKey, value, !mounted.current);
+    mounted.current = true;
   }, [scope, write, fullKey, value]);
 
   // And the other way: the bag changed under a mounted pane -- another tab,

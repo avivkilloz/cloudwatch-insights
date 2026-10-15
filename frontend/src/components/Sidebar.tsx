@@ -354,10 +354,13 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
         <button
           className="rail-row-forget"
           onClick={() => {
-            if (window.confirm(`Delete "${s.title}"? This can't be undone.`)) remove(s.client_id);
+            const ask = s.role !== "owner"
+              ? `Leave "${s.title}"? It's shared with you; only its owner can delete it.`
+              : `Delete "${s.title}"? This can't be undone.`;
+            if (window.confirm(ask)) remove(s.client_id);
           }}
-          aria-label={`Delete ${s.title}`}
-          title="Throw the session away for good"
+          aria-label={`${s.role !== "owner" ? "Leave" : "Delete"} ${s.title}`}
+          title={s.role !== "owner" ? "Leave this shared session" : "Throw the session away for good"}
         >
           ✕
         </button>

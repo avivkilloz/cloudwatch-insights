@@ -135,7 +135,6 @@ layout:
       - toolbar:
           - time_range: { preset: preset, start: customStart, end: customEnd }
           - input: limit
-          - sort: results
           - input: histogram
       - input: queryString
       - toolbar:

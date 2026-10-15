@@ -196,6 +196,11 @@ export class WorkspaceSync {
    * merge, from the new version. */
   onRemote: ((remote: PersistedSession, base: PersistedSession | undefined) => void) | null = null;
 
+  /** Set by the provider: a session the server now holds, as this browser
+   * saved or received it -- so a later load can tell one deleted elsewhere
+   * from one never saved. */
+  onSynced: ((clientId: string) => void) | null = null;
+
   /** Called with what the server already had, so the first flush after a load
    * doesn't re-send every restored session unchanged. */
   adopt(rows: LiveSession[]): void {
@@ -204,6 +209,17 @@ export class WorkspaceSync {
     this.bases.clear();
     rows.forEach((row) => this.remember(row, fromWire(row)));
     this.order = rows.map((row) => row.client_id);
+  }
+
+  /** The merge base of each of these sessions this browser has one for, to
+   * be stored beside the workspace (see StoredWorkspace). */
+  basesOf(ids: string[]): Record<string, PersistedSession> {
+    const out: Record<string, PersistedSession> = {};
+    for (const id of ids) {
+      const base = this.bases.get(id);
+      if (base) out[id] = base;
+    }
+    return out;
   }
 
   forget(clientId: string): void {
@@ -245,6 +261,7 @@ export class WorkspaceSync {
     this.synced.set(row.client_id, fingerprint(session));
     this.versions.set(row.client_id, row.version);
     this.bases.set(row.client_id, session);
+    this.onSynced?.(row.client_id);
   }
 
   /**
@@ -319,6 +336,7 @@ export class WorkspaceSync {
       this.versions.set(session.id, saved.version);
       this.bases.set(session.id, session);
       applyOutputs(session.id, saved.outputs);
+      this.onSynced?.(session.id);
       return true;
     } catch (err) {
       // Someone else wrote first. Fetch theirs and merge; the merged session

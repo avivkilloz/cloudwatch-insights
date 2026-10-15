@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-15, the answer check and 3c-1 (results store, auto-refresh)._
+_Last updated: 2026-10-15, after 3c-2: sort with the results, the session card, load merges with the server._
 
 ## Platform plan
 
@@ -1076,6 +1076,27 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - Tests: backend `test_session_variables.py` (3) and the viewer refresh in
   `test_pane_refresh.py`; smoke77 (23), failing against the old frontend; smoke76
   checks every header button is the same square with an icon.
+
+#114 merged. This round's PR, four reports from using it:
+- **Sort by** sorts the rows on screen, so it moved from the Query card to the
+  results' toolbar (CloudWatch, OpenSearch); view mode no longer keeps the Query
+  card for a quiet run status.
+- **The session card** reads as one form: Mode a row of its own, every control
+  one height, variables as chips with "+ …", members a grid aligned with the
+  invite row.
+- **A long token** in an agent turn (the warning, a topic, an ARN) wraps.
+- **A session that came back after a delete.** Two causes. A member's Delete
+  was refused by the server (only an owner may delete) and the refusal
+  swallowed: it is Leave for a member now, and a refused delete puts the session
+  back and says why. And the real one: every load pushed this browser's whole
+  local copy over the server's, since a pane writing the values it opened with
+  counted as a change -- so a stale browser revived a session deleted elsewhere
+  and undid changes made elsewhere (another browser, the agent). The load now
+  merges against the server copy this browser last agreed with (stored beside
+  the workspace), as a conflict does; a session missing from the server is
+  pushed only if this browser never saw it there.
+- Tests: smoke78 (19); its stale-copy checks fail against the old sync code;
+  smoke69 and smoke49 updated.
 
 Next: 3c-3 (Home → a session), detailed in PLATFORM_PLAN.md before it is built.
 

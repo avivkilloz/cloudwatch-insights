@@ -88,17 +88,31 @@ export default function SessionMenuItems({
       >
         Save as template…
       </button>
-      {/* The only one here that loses work, so it says so and asks first. */}
-      <button
-        className="rail-row-menu-danger"
-        onClick={() => {
-          close();
-          if (window.confirm(`Delete "${session.title}"? This can't be undone.`)) remove(session.id);
-        }}
-        title="Throw the session away for good"
-      >
-        Delete
-      </button>
+      {/* The only one here that loses work, so it says so and asks first. A
+          session shared with you is its owner's to delete: you leave it. */}
+      {session.role && session.role !== "owner" ? (
+        <button
+          className="rail-row-menu-danger"
+          onClick={() => {
+            close();
+            if (window.confirm(`Leave "${session.title}"? It's shared with you; only its owner can delete it.`)) remove(session.id);
+          }}
+          title="Leave this shared session: it goes from your panel, and stays for everyone else"
+        >
+          Leave
+        </button>
+      ) : (
+        <button
+          className="rail-row-menu-danger"
+          onClick={() => {
+            close();
+            if (window.confirm(`Delete "${session.title}"? This can't be undone.`)) remove(session.id);
+          }}
+          title="Throw the session away for good"
+        >
+          Delete
+        </button>
+      )}
     </>
   );
 }

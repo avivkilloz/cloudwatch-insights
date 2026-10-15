@@ -209,6 +209,10 @@ export function LogsView({ output, value, pane }: { output: ManifestOutput; valu
             : `${displayRows.length} row(s) across ${items.length} target(s)`}
           {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
         </span>
+        {/* Sorts the rows on screen, at once -- it was in the Query card,
+            beside Limit, where it read as part of the query (which has its
+            own sort, deciding which rows come back at all). */}
+        {cfg.sort && <SortControl output={output} pane={pane} />}
         <label className="row" style={{ gap: 6 }}>
           <span className="muted">Group by</span>
           <select value={groupBy} onChange={(e) => cfg.group_by && pane.setView(cfg.group_by, e.target.value)}>

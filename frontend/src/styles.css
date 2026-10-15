@@ -2120,8 +2120,10 @@ th {
 /* The Panes card's "+ CloudWatch" row: buttons rather than the checkboxes they
    replace, since a session can hold several of one kind and so there is no
    single pane a tick could stand for. Compact, so both rows still fit. */
-.aggregator-add-pane {
-  padding: 4px 10px;
+.aggregator-add-pane,
+.session-card-add {
+  height: 28px;
+  padding: 0 10px;
   font-size: 12.5px;
 }
 
@@ -2296,6 +2298,14 @@ th {
   border-radius: 6px;
   color: var(--warn);
   font-size: 12px;
+}
+
+/* A turn's words break anywhere they must: a topic, an ARN or a quoted path
+   has no space to break at, and ran straight out of the warning's box. Code
+   blocks keep their own scroll (white-space: pre isn't touched by this). */
+.agent-turn {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .agent-compose {
@@ -3011,16 +3021,20 @@ th {
    then the invite form -- a small list rather than the wrapping row of
    buttons Services/Tools use, since each row has its own controls. */
 .session-members {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  /* One grid for the members and the invite form below them, so each
+     member's name sits over the username field, their permission over its
+     select and their ✕ over Invite -- and none of it stretches to the far
+     edge of a wide card, away from the name it belongs to. */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 8px;
   width: 100%;
+  max-width: 720px;
 }
 
 .session-member {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: contents;
 }
 
 .session-member-name {
@@ -3040,20 +3054,10 @@ th {
 }
 
 .session-member-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  padding: 0;
+  justify-self: center;
   border: 1px solid transparent;
-  border-radius: 6px;
   background: none;
   color: var(--text-dim);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
 }
 
 .session-member-remove:hover {
@@ -3063,14 +3067,14 @@ th {
 }
 
 .session-member-invite {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  display: contents;
 }
 
 .session-member-invite .session-card-input {
+  width: 100%;
   min-width: 0;
+  /* The grid's column is the cap now (the list's 720px). */
+  max-width: none;
   height: 28px;
 }
 
@@ -3082,9 +3086,7 @@ th {
    leaving the dropdown visibly wider than the field it belongs to. */
 .session-member-invite-field {
   position: relative;
-  flex: 1;
   min-width: 0;
-  max-width: 560px;
 }
 
 .username-suggestions {
@@ -3226,14 +3228,10 @@ th {
   font-size: 12px;
 }
 
-/* Narrow, the invite row wraps rather than squeezing the username field to
-   nothing. */
-.session-card.in-rail .session-member-invite {
-  flex-wrap: wrap;
-}
-
+/* Narrow, the username field takes a line of its own rather than being
+   squeezed to nothing beside the select and Invite. */
 .session-card.in-rail .session-member-invite .session-member-invite-field {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
 }
 
 .session-card.in-rail .session-member-permission,
@@ -3875,7 +3873,11 @@ th {
   margin: 0 0 8px;
 }
 .session-card-refresh {
+  width: auto;
   max-width: 200px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
 }
 
 /* ---- The agent working, wherever you are (AgentChat, AgentPanel, SessionBar) ---- */
@@ -4048,8 +4050,32 @@ button.icon-btn {
   padding: 4px 8px;
   font-size: 12.5px;
 }
-/* "Mode" beside the Layout control, which it shares a row with: set apart,
-   so Edit | View doesn't read as two more layouts. */
-.session-card-mode-label {
-  margin: 0 0 0 14px;
+
+/* A session variable that's defined, in the card's Variables row: its name
+   and ✕, the height of the buttons beside it (its value is in the bar). */
+.session-card-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 2px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  font-size: 12.5px;
+}
+.session-card-chip button.session-card-chip-remove {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+}
+.session-card-chip button.session-card-chip-remove:hover {
+  color: var(--error);
+}
+.session-card-chip-remove .icon {
+  width: 12px;
+  height: 12px;
 }

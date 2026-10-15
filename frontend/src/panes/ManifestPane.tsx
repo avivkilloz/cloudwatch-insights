@@ -624,11 +624,20 @@ function inView(item: LayoutItem): boolean {
 /** Whether a card has anything to show in view mode: an output holding
  * something, or an error. A card left with only its Sort, or an empty
  * results table, is a frame around nothing in a dashboard. */
-function showsInView(items: LayoutItem[], pane: { outputs: Values; errors: Record<string, string | null> }): boolean {
+/** A run's own output that draws nothing (RunNote shows only a failed or
+ * stopped run): not a reason to draw its card -- CloudWatch's Query card
+ * stayed in view mode for a finished run alone. */
+function quietRun(pane: { m: PaneManifest; outputs: Values }, key: string): boolean {
+  if (pane.m.outputs.find((o) => o.key === key)?.render !== "run") return false;
+  const status = (pane.outputs[key] as { status?: string } | null)?.status;
+  return status !== "failed" && status !== "stopped";
+}
+
+function showsInView(items: LayoutItem[], pane: { m: PaneManifest; outputs: Values; errors: Record<string, string | null> }): boolean {
   return items.some((item) =>
     item.row || item.toolbar || item.line
       ? showsInView([...(item.row ?? []), ...(item.toolbar ?? []), ...(item.line ?? [])], pane)
-      : (!!item.output && present(pane.outputs[item.output])) ||
+      : (!!item.output && present(pane.outputs[item.output]) && !quietRun(pane, item.output)) ||
         (!!item.chart && present(pane.outputs[item.chart])) ||
         (!!item.error && !!pane.errors[item.error]),
   );
