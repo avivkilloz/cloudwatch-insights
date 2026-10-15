@@ -186,6 +186,16 @@ export interface LiveSession {
    * version it was made from, and one made from an older version is refused
    * (409) so the writer merges instead of overwriting a change it never saw. */
   version: number;
+  /** Each pane's outputs, apart from `state` and versioned on their own
+   * (PLATFORM_PLAN.md D21, sessions/outputs.ts). */
+  outputs?: Record<string, PaneOutputs>;
+}
+
+/** One pane's outputs as the server holds them. Version 0 is outputs still in
+ * an old session's state, not yet moved into a record. */
+export interface PaneOutputs {
+  version: number;
+  values: Record<string, unknown>;
 }
 
 /** A named group of sessions in the side panel, the way a Slack workspace
@@ -524,8 +534,10 @@ export const api = {
     action: string,
     inputs: Record<string, unknown>,
     cursor?: unknown,
-    /** A background action's session and pane (D51), and a time range's zone. */
-    extra?: { session?: string; pane?: string; timezone?: string; restart?: boolean },
+    /** The session and pane it runs for -- where the server stores its outputs
+     * (D21) or a background run (D51) -- a time range's zone, a restart, and
+     * outputs an input change made stale, cleared in the same write. */
+    extra?: { session?: string; pane?: string; timezone?: string; restart?: boolean; clear?: string[] },
   ) =>
     req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
       method: "POST",
@@ -636,11 +648,22 @@ export const api = {
   listLiveSessions: () => req<LiveSession[]>("/live-sessions"),
   listClosedLiveSessions: () => req<LiveSessionSummary[]>("/live-sessions/closed"),
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
+  /** Some panes' outputs, after an "outputs" event says they're newer (D21). */
+  getPaneOutputs: (clientId: string, panes: string[]) =>
+    req<Record<string, PaneOutputs>>(
+      `/live-sessions/${encodeURIComponent(clientId)}/outputs?${panes.map((p) => `pane=${encodeURIComponent(p)}`).join("&")}`,
+    ),
+  /** Clears outputs an input change made stale (its `resets`), for everyone. */
+  clearPaneOutputs: (clientId: string, pane: string, keys: string[]) =>
+    req<PaneOutputs>(`/live-sessions/${encodeURIComponent(clientId)}/outputs/${encodeURIComponent(pane)}/clear`, {
+      method: "POST",
+      body: JSON.stringify({ keys }),
+    }),
   putLiveSession: (
     clientId: string,
     // role is the server's own read on the caller's relationship to the
     // session -- never something the client says.
-    payload: Omit<LiveSession, "client_id" | "closed_at" | "version" | "role"> & { base_version?: number },
+    payload: Omit<LiveSession, "client_id" | "closed_at" | "version" | "role" | "outputs"> & { base_version?: number },
   ) =>
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`, {
       method: "PUT",

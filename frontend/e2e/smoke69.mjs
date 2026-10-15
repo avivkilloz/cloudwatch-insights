@@ -212,9 +212,12 @@ const run = async () => {
       "logs-cloudwatch.ranAt": Date.now() - 3600_000, "logs-cloudwatch.resultsVersion": 2, "logs-cloudwatch.startedQueries": [],
     },
   });
+  // Its results move further: into the pane's own record, beside the state (D21).
   check(put.status === 200 && put.body.state["logs-cloudwatch.in.queryString"] === "fields @message | limit 5"
-    && put.body.state["logs-cloudwatch.out.results"] && !("logs-cloudwatch.startedQueries" in put.body.state),
-    "The server moves an old CloudWatch session to the new keys", JSON.stringify(Object.keys(put.body?.state ?? {})));
+    && put.body.outputs?.["logs-cloudwatch"]?.values?.results && !("logs-cloudwatch.startedQueries" in put.body.state)
+    && !Object.keys(put.body.state).some((k) => k.includes(".out.")),
+    "The server moves an old CloudWatch session to the new keys, its results to the pane's record",
+    JSON.stringify(Object.keys(put.body?.state ?? {})));
   await page.reload();
   await page.click('.rail-row:has(.rail-row-label:text-is("Old logs"))');
   await page.waitForSelector(`${RESULTS} .msg:text-is("from the old page")`);

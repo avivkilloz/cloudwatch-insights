@@ -12,7 +12,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import aws_client, iot_client, live_store, models
+from app import aws_client, iot_client, live_store, models, pane_outputs
 from app.db import SessionLocal
 from app.main import app
 from app.panes import runs as pane_runs
@@ -71,9 +71,20 @@ def call_error(c: TestClient, token: str, name: str, **arguments) -> str:
 
 
 def _row(client_id: str) -> models.LiveSession:
+    """The row, its state showing its panes' outputs under `out.` keys as it
+    did before they had their own records (§18.2) -- detached, so nothing
+    here is written back."""
     db = SessionLocal()
     try:
-        return live_store.get(db, _admin().id, client_id)
+        row = live_store.get(db, _admin().id, client_id)
+        if row is not None:
+            merged = dict(row.state or {})
+            for pane, record in pane_outputs.read(db, row).items():
+                for key, value in record["values"].items():
+                    merged[f"{pane}.out.{key}"] = value
+            db.expunge(row)
+            row.state = merged
+        return row
     finally:
         db.close()
 
@@ -743,7 +754,7 @@ def test_run_pane_runs_on_the_server_and_puts_the_rows_in_the_pane(mcp, monkeypa
 
 def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch):
     _fake_cloudwatch(monkeypatch, rows=4)
-    monkeypatch.setattr(live_store, "BROWSER_STATE_BYTES", 3000)
+    monkeypatch.setattr(pane_outputs, "OUTPUT_BYTES", 3000)
     token = _token()
     env = _environment()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "logs-cloudwatch"}])["session_id"]
@@ -758,9 +769,10 @@ def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch)
         inputs={"logGroupSelection": {str(env): ["/app"]}},
     )
     assert "cut down" in out["note"]
-    state = _row(session).state
-    assert 0 < len(state["logs-cloudwatch.out.results"][0]["rows"]) < 4
-    assert live_store.state_bytes(state) <= 3000
+    with SessionLocal() as db:
+        values = pane_outputs.values_of(db, live_store.get(db, _admin().id, session), "logs-cloudwatch")
+    assert 0 < len(values["results"][0]["rows"]) < 4
+    assert pane_outputs.output_bytes(values) <= 3000
 
 
 def test_a_run_that_needs_its_inputs_says_which(mcp):

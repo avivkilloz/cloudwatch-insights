@@ -368,6 +368,9 @@ class PaneKind:
     # Its main action runs in the background, polled by the server into the
     # pane (D51): run_pane starts it there and waits on it.
     background: bool = False
+    # The shortest auto-refresh interval, in seconds, for a kind that can
+    # refresh by itself (§18.3); None for one that can't.
+    refresh_floor: Optional[int] = None
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -380,6 +383,7 @@ class PaneKind:
             "inputs": [i.describe() for i in self.inputs],
             "run": self.run_help,
             **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
+            **({"refresh_floor": self.refresh_floor} if self.refresh_floor else {}),
             **({"stop_pane": "Stops a run still going."} if self.background else {}),
             **(
                 {"views": [
@@ -792,7 +796,14 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
         choice_sets={i.key: i.choice_sets for i in manifest.inputs if i.choice_sets},
         aliases={i.legacy_key: i.key for i in manifest.agent_inputs() if i.legacy_key and i.legacy_key != i.key},
         background=bool(manifest.main_action() and manifest.main_action().poll),
+        refresh_floor=_refresh_floor(manifest),
     )
+
+
+def _refresh_floor(manifest: pane_manifest.Manifest) -> Optional[int]:
+    from ..panes import refresh as pane_refresh  # it reaches the routers, which import this module
+
+    return pane_refresh.floor_seconds(manifest) if manifest.refresh_action() is not None else None
 
 
 KINDS: dict[str, PaneKind] = {m.id: _kind(m) for m in pane_manifest.manifests().values()}

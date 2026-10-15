@@ -3,6 +3,7 @@ label: CloudWatch
 order: 10
 group: Services
 flag: logs_enabled
+cost: per_run
 about: >-
   CloudWatch Logs Insights: one query across log groups in several environments, results merged newest first.
 description: >-

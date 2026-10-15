@@ -606,6 +606,20 @@ class LiveSessionOut(BaseModel):
     closed_at: Optional[datetime] = None
     version: int = 0
     role: SessionRole = "owner"
+    # Each pane's outputs, apart from `state` (D21): {pane: {version, values}}.
+    outputs: dict[str, "PaneOutputsOut"] = {}
+
+
+class PaneOutputsOut(BaseModel):
+    version: int
+    values: dict
+
+
+class PaneOutputsClear(BaseModel):
+    keys: list[str] = Field(max_length=200)
+
+
+LiveSessionOut.model_rebuild()
 
 
 class LiveSessionSummary(BaseModel):

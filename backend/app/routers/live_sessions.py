@@ -35,13 +35,13 @@ import datetime
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import auth, live_store, models, presence, schemas
+from .. import auth, live_store, models, pane_outputs, presence, schemas
 from ..db import SessionLocal, get_db
 from ..panes import state as pane_state
 from ..live_events import listener, notify
@@ -98,15 +98,17 @@ def _role(member: Optional[models.SessionMember]) -> schemas.SessionRole:
     return "owner" if member is None else member.permission
 
 
-def _out(row: models.LiveSession, member: Optional[models.SessionMember]) -> schemas.LiveSessionOut:
+def _out(db: Session, row: models.LiveSession, member: Optional[models.SessionMember]) -> schemas.LiveSessionOut:
     return schemas.LiveSessionOut(
         client_id=row.client_id,
         type=row.type,
         title=row.title,
         position=row.position if member is None else member.position,
         category_id=row.category_id if member is None else member.category_id,
-        # A browser always reads the state shape it writes (§15.4).
-        state=pane_state.migrate(row.state),
+        # A browser always reads the state shape it writes (§15.4) -- and its
+        # panes' outputs beside it, never in it (D21, §18.2).
+        state=pane_outputs.split(pane_state.migrate(row.state))[0],
+        outputs=pane_outputs.read(db, row),
         truncated=row.truncated,
         closed_at=row.closed_at if member is None else member.closed_at,
         version=row.version,
@@ -254,7 +256,7 @@ def list_live_sessions(
     the tabs the browser has to put back on screen. Their own, and every one
     shared with them that they haven't closed -- indistinguishable here from
     an owned one except by `role`."""
-    return [_out(row, member) for row, member in _open_pairs(db, current_user)]
+    return [_out(db, row, member) for row, member in _open_pairs(db, current_user)]
 
 
 @router.get("/closed", response_model=list[schemas.LiveSessionSummary])
@@ -376,8 +378,8 @@ def upsert_live_session(
             # refused. Without this carve-out a viewer's own chat messages,
             # and the agent's replies to them, never left their browser at
             # all -- invisible to the owner and every other participant.
-            current_state = pane_state.migrate(row.state or {})
-            incoming_state = pane_state.migrate(payload.state or {})
+            current_state = pane_outputs.split(pane_state.migrate(row.state or {}))[0]
+            incoming_state = pane_outputs.split(pane_state.migrate(payload.state or {}))[0]
             changed_state_keys = {
                 k
                 for k in set(current_state) | set(incoming_state)
@@ -401,8 +403,13 @@ def upsert_live_session(
     if row.id is None:
         row.position = payload.position
     # Legacy keys of a ported pane are moved on the way in, so a tab still
-    # running the old code can't write the old shape back (§15.4).
-    row.state = pane_state.migrate(payload.state)
+    # running the old code can't write the old shape back (§15.4); and so are
+    # outputs, into their panes' records, where a tab from before them, or an
+    # IndexedDB copy, still sends them (§18.2). A pane the session no longer
+    # has loses its record: ids are reused.
+    state = pane_outputs.move_out(db, row, pane_state.migrate(payload.state))
+    row.state = state
+    pane_outputs.prune(db, row, state.get("services") or [])
     row.truncated = payload.truncated
     if member is None:
         # The owner's own view: their category, and writing to a closed
@@ -419,7 +426,7 @@ def upsert_live_session(
     # and, since commit_write fans out to every participant, every other
     # reachable browser hears about an editor member's write too.
     commit_write(db, row, origin)
-    return _out(row, member)
+    return _out(db, row, member)
 
 
 @router.post("/{client_id}/close", response_model=schemas.LiveSessionOut)
@@ -447,7 +454,7 @@ def close_live_session(
     db.refresh(row)
     if member is not None:
         db.refresh(member)
-    return _out(row, member)
+    return _out(db, row, member)
 
 
 @router.get("/{client_id}", response_model=schemas.LiveSessionOut)
@@ -460,7 +467,7 @@ def get_live_session(
     since the closed listing deliberately leaves the state out. Reachable
     through the caller's own membership as well as their own ownership."""
     row, member = _reachable(db, current_user, client_id)
-    return _out(row, member)
+    return _out(db, row, member)
 
 
 @router.delete("/{client_id}", status_code=204)
@@ -622,3 +629,37 @@ def remove_session_member(
     db.delete(member)
     db.commit()
     return None
+
+
+@router.get("/{client_id}/outputs", response_model=dict[str, schemas.PaneOutputsOut])
+def get_pane_outputs(
+    client_id: str,
+    pane: list[str] = Query(default=[]),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Some panes' outputs (all, if none is named): what a tab fetches when an
+    "outputs" event says a pane it shows has a newer version (§18.2)."""
+    row, _ = _reachable(db, current_user, client_id)
+    return pane_outputs.read(db, row, pane or None)
+
+
+@router.post("/{client_id}/outputs/{pane}/clear", response_model=schemas.PaneOutputsOut)
+def clear_pane_outputs(
+    client_id: str,
+    pane: str,
+    payload: schemas.PaneOutputsClear,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = OriginHeader,
+):
+    """Removes outputs an input change made stale -- its manifest `resets` --
+    for everyone looking, as the browser already did on screen."""
+    row, member = _reachable(db, current_user, client_id)
+    if member is not None and member.permission == "viewer":
+        raise HTTPException(status_code=403, detail="You have read-only access to this session.")
+    try:
+        pane_outputs.clear(db, row, pane, payload.keys, origin)
+    except pane_outputs.OutputError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return pane_outputs.read(db, row, [pane]).get(pane, {"version": 0, "values": {}})

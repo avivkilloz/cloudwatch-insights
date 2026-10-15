@@ -567,3 +567,28 @@ class PaneRun(Base):
     unwatched_since = Column(DateTime, nullable=True)
     agent_until = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class PaneOutput(Base):
+    """What one pane of a session shows: its outputs -- a run's rows, `run`,
+    `ranAt`, `resultsVersion` -- kept apart from the session's state
+    (PLATFORM_PLAN.md D21, §18.2). The state is what people edit and the
+    browser saves as a whole; results are what runs write, and kept in it,
+    every 1-second poll or refresh resent the whole session to every tab and
+    moved its version under someone typing. Written only through
+    `pane_outputs.write`, versioned on its own and announced per pane.
+
+    `refreshing_at` marks an auto-refresh under way, so the other tabs
+    watching coalesce onto it instead of starting their own (§18.3).
+    """
+
+    __tablename__ = "pane_outputs"
+    __table_args__ = (UniqueConstraint("session_id", "pane_id", name="uq_pane_outputs_session_pane"),)
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    pane_id = Column(String, nullable=False)
+    data = Column(JSON, nullable=False, default=dict)
+    version = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    refreshing_at = Column(DateTime, nullable=True)

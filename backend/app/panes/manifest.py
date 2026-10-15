@@ -376,6 +376,9 @@ class Manifest(_Strict):
     # Legacy keys the v2 migration drops rather than moves: what the pane no
     # longer keeps in the session (picker options, D47).
     legacy_drop: list[str] = []
+    # "per_run": each run costs money (Logs Insights bills by data scanned),
+    # so auto-refresh has a higher floor and says so (D22, §18.3).
+    cost: Optional[Literal["per_run"]] = None
 
     @model_validator(mode="after")
     def _references(self) -> "Manifest":
@@ -526,6 +529,18 @@ class Manifest(_Strict):
 
     def main_action(self) -> Optional[ManifestAction]:
         return next((a for a in self.actions if a.main), None)
+
+    def refresh_action(self) -> Optional[ManifestAction]:
+        """What an auto-refresh runs (§18.3): the pane's main action, or its
+        request (the API table's Fetch) -- unless it reaches outside the
+        platform (Send), is worked out as you type, or is a stream that never
+        ends (MQTT), none of which a timer should run again."""
+        action = self.main_action() or next((a for a in self.actions if a.request is not None), None)
+        if action is None or action.effects == "external" or action.live is not None:
+            return None
+        if action.poll is not None and action.poll.append:
+            return None
+        return action
 
 
 class ManifestError(ValueError):

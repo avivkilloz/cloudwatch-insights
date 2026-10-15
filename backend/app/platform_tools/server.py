@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import connections, credential_store, live_store, models, schemas
+from .. import connections, credential_store, live_store, models, pane_outputs, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
@@ -134,6 +134,19 @@ def _environments(db, user) -> list[dict]:
     return connections.targets(db, user, connections.AWS)
 
 
+def _full(db: Session, row: Optional[models.LiveSession]) -> dict:
+    """The session's state with its panes' outputs back under `<pane>.out.`,
+    as the agent's readers have always read them -- outputs live in their
+    own records now (D21, §18.2)."""
+    if row is None:
+        return {}
+    state = dict(row.state or {})
+    for pane, record in pane_outputs.read(db, row).items():
+        for key, value in (record.get("values") or {}).items():
+            state[f"{pane}.out.{key}"] = value
+    return state
+
+
 def _pane_ids(state: dict) -> list[str]:
     return list(state.get("services") or [])
 
@@ -173,6 +186,9 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     run = _run_state(state, kind, pane_id)
     if run:
         out["run"] = run
+    every = state.get(f"{pane_id}.refresh")
+    if isinstance(every, (int, float)):
+        out["refresh_every"] = int(every) or "off"
     said = _text_outputs(state, kind, pane_id)
     if said:
         out["outputs"] = said
@@ -266,7 +282,7 @@ def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail
     category and closed state if they're a member, never the owner's or
     another member's, even though `state` (panes, layout, description) is
     the one document every reachable caller sees alike."""
-    state = row.state or {}
+    state = _full(db, row)
     member = _membership(db, row, user_id)
     out: dict[str, Any] = {
         "session_id": row.client_id,
@@ -298,6 +314,8 @@ def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail
         out["members"] = members_out
     if detail:
         out["active_pane"] = state.get("activePane")
+        if state.get(SESSION_REFRESH_KEY):
+            out["refresh_every"] = state[SESSION_REFRESH_KEY]
     return out
 
 
@@ -400,7 +418,7 @@ async def inspect_row(session_id: str, pane_id: str, row: int) -> dict:
         kind = kind_for(user, _pane(found.state, pane_id))
         if kind.rows is None:
             raise InputError(f"{kind.label} panes have no rows to inspect.")
-        values = pane_values(found.state, pane_id)
+        values = pane_values(_full(db, found), pane_id)
         rows = kind.rows(values)
         if not rows:
             raise InputError("This pane has no results yet. Run it first.")
@@ -726,6 +744,62 @@ class DashboardRow(BaseModel):
     panes: list[DashboardCell]
 
 
+# The intervals the browser's refresh picker offers (§18.3), in seconds.
+REFRESH_CHOICES = (10, 30, 60, 300, 900, 3600)
+SESSION_REFRESH_KEY = "refresh"
+
+
+def _every(value: Any) -> int:
+    """An interval as the agent may say it -- 0/"off", seconds, "30s", "5m",
+    "1h" -- in seconds."""
+    if value in (None, "", 0, "0", "off", "Off", False):
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600}
+    try:
+        return int(float(text[:-1]) * units[text[-1]]) if text[-1] in units else int(text)
+    except (ValueError, IndexError):
+        raise InputError(f"{value!r} isn't an interval: say off, or seconds, or like 30s, 5m, 1h.") from None
+
+
+@mcp.tool()
+async def set_refresh(session_id: str, every: str, pane_id: Optional[str] = None) -> dict:
+    """Makes panes run again by themselves while the session is open on someone's screen -- a live dashboard. `every`
+    is off, or an interval like 30s, 1m, 5m, 1h. With pane_id it is that pane's own; without, it is the session's
+    default for every pane that hasn't one of its own. Only panes that can (get_context's refresh_floor says which,
+    and how often at most) refresh; nothing runs now."""
+    seconds = _every(every)
+    with _acting() as (db, user, caller):
+
+        def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
+            if pane_id is None:
+                if seconds and seconds < min(REFRESH_CHOICES):
+                    raise InputError(f"The shortest interval is {min(REFRESH_CHOICES)} seconds.")
+                state[SESSION_REFRESH_KEY] = seconds
+                return
+            kind = kind_for(user, _pane(state, pane_id))
+            floor = _refresh_floor(kind)
+            if floor is None:
+                raise InputError(f"{kind.label} panes don't refresh by themselves.")
+            if seconds and seconds < floor:
+                raise InputError(f"{kind.label} panes refresh at most every {floor} seconds.")
+            state[f"{pane_id}.{SESSION_REFRESH_KEY}"] = seconds
+
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
+        return _describe_session(db, row, user.id, detail=True)
+
+
+def _refresh_floor(kind: PaneKind) -> Optional[int]:
+    from ..panes import refresh as pane_refresh
+
+    manifest = pane_manifest.get(kind.type)
+    if manifest is None or manifest.refresh_action() is None:
+        return None
+    return pane_refresh.floor_seconds(manifest)
+
+
 @mcp.tool()
 async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
     """Switches a session to the dashboard layout and places its panes: rows top to bottom, each row's panes left to
@@ -756,7 +830,18 @@ async def arrange_dashboard(session_id: str, rows: list[DashboardRow]) -> dict:
         return _describe_session(db, row, user.id)
 
 
-def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inputs: dict[str, Any]) -> PaneKind:
+def _apply_inputs(
+    state: dict,
+    user: models.User,
+    db,
+    caller,
+    pane_id: str,
+    inputs: dict[str, Any],
+    cleared: Optional[list[str]] = None,
+) -> PaneKind:
+    """The inputs written into the state, with what each change resets: in
+    the state for inputs and views, and -- since outputs have their own
+    records (§18.2) -- named in `cleared` for the caller to clear there."""
     type_ = _pane(state, pane_id)
     kind = kind_for(user, type_)
     rc = RunContext(db=db, user=user, timezone=caller.timezone)
@@ -792,6 +877,9 @@ def _apply_inputs(state: dict, user: models.User, db, caller, pane_id: str, inpu
                 continue  # set in this same call: that value stands
             if part == "view":
                 state[f"{pane_id}.{ref}"] = kind.view_defaults.get(ref_key)
+            elif part == "out":
+                if cleared is not None:
+                    cleared.append(ref_key)
             else:
                 state.pop(f"{pane_id}.{ref}", None)
         # A choice that sets others (IoT's mode puts its own default query
@@ -824,13 +912,20 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
         found, _ = live_store.reachable(db, user.id, session_id)
         if found is not None:
             before = pane_values(found.state, pane_id) if pane_id in _pane_ids(found.state) else {}
+        cleared: list[str] = []
         row, kind = _mutate(
-            db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
+            db,
+            user,
+            caller,
+            session_id,
+            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs, cleared),
+            ORIGIN,
         )
+        _clear_outputs(db, row, pane_id, cleared)
         restarted = await _restart_if_running(db, user, row, kind, pane_id, before)
         if restarted:
             db.refresh(row)
-        out = {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+        out = {"session_id": row.client_id, "pane": _describe_pane(_full(db, row), pane_id, detail=True)}
         # Said in so many words: from "Doesn't run anything" in the tool's
         # description alone, a model filled in the MQTT tester and reported
         # it connected.
@@ -892,7 +987,7 @@ async def set_pane_view(session_id: str, pane_id: str, views: dict[str, Any]) ->
     grouping, expanded rows, a chart of the rows. Everyone looking at the session sees it. Runs nothing."""
     with _acting() as (db, user, caller):
         row, _ = _mutate(db, user, caller, session_id, lambda s, _r, _m: _apply_views(s, user, pane_id, views), ORIGIN)
-        return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+        return {"session_id": row.client_id, "pane": _describe_pane(_full(db, row), pane_id, detail=True)}
 
 
 def _longest_list(value: Any) -> Optional[list]:
@@ -911,23 +1006,43 @@ def _longest_list(value: Any) -> Optional[list]:
     return best
 
 
-def _write_results(state: dict, kind: PaneKind, pane_id: str, writes: dict[str, Any]) -> bool:
-    """A run's results into its pane, cut down until the session still fits
-    under the browser's limit. True if anything had to go."""
-    if pane_id not in _pane_ids(state):
-        raise InputError("The pane was removed while it was running, so its results have nowhere to go.")
-    budget = int(live_store.BROWSER_STATE_BYTES * 0.9)
-    trimmed = False
-    while True:
-        for key, value in writes.items():
-            state[output_key(kind, pane_id, key)] = value
-        if live_store.state_bytes(state) <= budget:
-            return trimmed
-        longest = _longest_list(writes)
-        if not longest:
-            raise InputError("These results are too big to show in a pane, even cut down. Ask for fewer.")
-        del longest[len(longest) // 2 :]
-        trimmed = True
+def _write_results(
+    db: Session, user: models.User, caller, row: models.LiveSession, kind: PaneKind, pane_id: str, writes: dict[str, Any]
+) -> tuple[models.LiveSession, bool]:
+    """A run's results into its pane's own record (§18.2), cut down to fit;
+    whether anything had to go. What a run resets in the session itself (an
+    expanded row, `view.`) goes through the session's own write."""
+    shaped = {output_key(kind, pane_id, k): v for k, v in writes.items()}
+    prefix = f"{pane_id}.out."
+    in_state = {k: v for k, v in shaped.items() if not k.startswith(prefix)}
+    outputs = {k[len(prefix):]: v for k, v in shaped.items() if k.startswith(prefix)}
+    if in_state:
+
+        def change(state: dict, _r, _m) -> None:
+            if pane_id not in _pane_ids(state):
+                raise InputError("The pane was removed while it was running, so its results have nowhere to go.")
+            state.update(in_state)
+
+        row, _ = _mutate(db, user, caller, row.client_id, change, ORIGIN)
+
+    def store(values: dict) -> bool:
+        values.update(outputs)
+        try:
+            return pane_outputs.fit(values)
+        except pane_outputs.OutputError as e:
+            raise InputError(str(e)) from None
+
+    try:
+        _, trimmed = pane_outputs.write(db, row, pane_id, store, ORIGIN)
+    except pane_outputs.OutputError as e:
+        raise InputError(f"{e} Its results have nowhere to go.") from None
+    db.refresh(row)
+    return row, trimmed
+
+
+def _clear_outputs(db: Session, row: models.LiveSession, pane_id: str, keys: list[str]) -> None:
+    if keys:
+        pane_outputs.clear(db, row, pane_id, keys, ORIGIN)
 
 
 def _shown_in(row: models.LiveSession, pane_id: str) -> str:
@@ -986,14 +1101,16 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
     set_pane_inputs). The results appear in the pane; you get counts and a sample of the rows to answer from. Queries
     are given about 90 seconds."""
     with _acting() as (db, user, caller):
+        cleared: list[str] = []
         row, kind = _mutate(
             db,
             user,
             caller,
             session_id,
-            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs or {}),
+            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs or {}, cleared),
             ORIGIN,
         )
+        _clear_outputs(db, row, pane_id, cleared)
         if kind.background:
             _check_reachable(db, user, kind, pane_values(row.state, pane_id))
             return await _run_background(db, user, caller, row, kind, pane_id)
@@ -1002,13 +1119,11 @@ async def run_pane(session_id: str, pane_id: str, inputs: Optional[dict[str, Any
         _check_reachable(db, user, kind, pane_values(row.state, pane_id))
         # No lock is held while it runs: a query can take a minute, and the
         # user's own edits to the session carry on meanwhile.
-        result = await kind.run(RunContext(db=db, user=user, timezone=caller.timezone), pane_values(row.state, pane_id))
+        result = await kind.run(RunContext(db=db, user=user, timezone=caller.timezone), pane_values(_full(db, row), pane_id))
         if not result.writes:
             return {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         writes = json.loads(json.dumps(result.writes))  # our own copy to trim
-        row, trimmed = _mutate(
-            db, user, caller, session_id, lambda s, _r, _m: _write_results(s, kind, pane_id, writes), ORIGIN
-        )
+        row, trimmed = _write_results(db, user, caller, row, kind, pane_id, writes)
         out = {"session_id": session_id, "pane_id": pane_id, "shown_in": _shown_in(row, pane_id), **result.summary}
         if trimmed:
             out["note"] = "The results were too big for a pane and were cut down; narrow the search to see them all."
@@ -1050,7 +1165,7 @@ async def _run_background(db: Session, user: models.User, caller, row: models.Li
         status = await asyncio.to_thread(_run_status, run["id"])
     db.expire_all()
     fresh = db.get(models.LiveSession, row.id)
-    values = pane_values(fresh.state if fresh else {}, pane_id)
+    values = pane_values(_full(db, fresh), pane_id)
     # What the pane shows of the run: its outputs but the run itself and the
     # histogram, a chart's worth of numbers the model doesn't need.
     results = {

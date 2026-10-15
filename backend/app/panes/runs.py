@@ -41,7 +41,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .. import live_store, models, presence
+from .. import live_store, models, pane_outputs, presence
 from ..db import SessionLocal
 from . import handlers
 from . import manifest as pane_manifest
@@ -99,45 +99,53 @@ def _write(
     resets: tuple[str, ...] = (),
     append: Optional[dict[str, int]] = None,
 ) -> None:
-    """Outputs into the pane's `out.` keys, cut down to fit the browser's limit
-    as the agent's writes are. A fresh run also stamps ranAt and a new
-    resultsVersion (which clears the row selection) and clears its resets.
-    An `append` output's new items go in front of what the session holds,
-    kept to its cap (a stream's messages, D54)."""
-    from ..platform_tools.server import _longest_list  # one trimming rule for every server-side write
+    """Outputs into the pane's own record (D21, §18.2), cut down to fit as
+    every server-side write is. A fresh run also stamps ranAt and a new
+    resultsVersion (which clears the row selection) and clears its resets --
+    `out.` ones in the record, `view.` ones (an expanded row) in the session.
+    An `append` output's new items go in front of what the pane holds, kept
+    to its cap (a stream's messages, D54). The session's own version doesn't
+    move: a 1-second poll no longer resends the whole session to every tab."""
+    view_resets = [r for r in resets if r.startswith("view.")] if fresh else []
+    if view_resets:
+        manifest = pane_manifest.get(_pane_type(row, pane_id))
+        defaults = {v.key: v.default for v in manifest.views} if manifest else {}
 
-    def change(state: dict, _row: models.LiveSession, _member: Optional[models.SessionMember]) -> None:
-        if pane_id not in (state.get("services") or []):
-            raise RunError("The pane was closed while it was running.")
+        def reset_views(state: dict, _row: models.LiveSession, _member: Optional[models.SessionMember]) -> None:
+            for ref in view_resets:
+                state[f"{pane_id}.{ref}"] = defaults.get(ref.split(".", 1)[1])
+
+        live_store.mutate(db, user_id, row.client_id, reset_views, ORIGIN, reopen=False)
+
+    def change(values: dict) -> None:
         writes = json.loads(json.dumps(outputs, default=str))
         if fresh:
-            state[f"{pane_id}.out.ranAt"] = _ms()
-            state[f"{pane_id}.out.resultsVersion"] = int(state.get(f"{pane_id}.out.resultsVersion") or 0) + 1
+            values["ranAt"] = _ms()
+            values["resultsVersion"] = int(values.get("resultsVersion") or 0) + 1
             for ref in resets:
-                state.pop(f"{pane_id}.{ref}", None)
+                if ref.startswith("out."):
+                    values.pop(ref.split(".", 1)[1], None)
         for key, cap in (append or {}).items():
             if key in writes:
-                held = state.get(f"{pane_id}.out.{key}")
+                held = values.get(key)
                 writes[key] = (list(writes[key] or []) + (held if isinstance(held, list) else []))[:cap]
-        budget = int(live_store.BROWSER_STATE_BYTES * 0.9)
-        trimmed = False
-        while True:
-            for key, value in writes.items():
-                state[f"{pane_id}.out.{key}"] = value
-            if live_store.state_bytes(state) <= budget:
-                if trimmed and isinstance(state.get(f"{pane_id}.out.run"), dict):
-                    # Said on the run, so the pane and the agent can own up to it.
-                    state[f"{pane_id}.out.run"]["trimmed"] = True
-                return
-            longest = _longest_list(writes)
-            if not longest:
-                raise RunError("These results are too big to show in a pane, even cut down. Ask for fewer.")
-            del longest[len(longest) // 2 :]
-            trimmed = True
+        values.update(writes)
+        try:
+            trimmed = pane_outputs.fit(values)
+        except pane_outputs.OutputError as e:
+            raise RunError(str(e)) from None
+        if trimmed and isinstance(values.get("run"), dict):
+            # Said on the run, so the pane and the agent can own up to it.
+            values["run"]["trimmed"] = True
 
-    # By the owner's client id: `mutate` finds a member's way in through
-    # their membership of that same row.
-    live_store.mutate(db, user_id, row.client_id, change, ORIGIN, reopen=False)
+    try:
+        pane_outputs.write(db, row, pane_id, change, ORIGIN)
+    except pane_outputs.OutputError as e:
+        raise RunError("The pane was closed while it was running.") from e
+
+
+def _pane_type(row: models.LiveSession, pane_id: str) -> str:
+    return ((row.state or {}).get("paneTypes") or {}).get(pane_id) or pane_id.split("~")[0]
 
 
 def _run_out(run: models.PaneRun, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -341,7 +349,7 @@ def tick(run_id: str) -> Tick:
         if done:
             run.status = DONE
             db.commit()
-        state_out = (row.state or {}).get(f"{run.pane_id}.out.run") or {}
+        state_out = pane_outputs.values_of(db, row, run.pane_id).get("run") or {}
         polled_at = _ms()
         outputs = {**polled, "run": _run_out(run, {"polledAt": polled_at})}
         # Written only when something changed: an unchanged poll every 2 s

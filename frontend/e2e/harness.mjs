@@ -262,6 +262,26 @@ export async function mockPaneActions(page, type, replies) {
     // `{ __status: 400, detail: "…" }` stands in a failed action, as the
     // backend answers one.
     if (json && json.__status) return route.fulfill({ status: json.__status, json: { detail: json.detail } });
+    // Only the AWS part is faked: the server stores a pane's results itself
+    // (PLATFORM_PLAN.md D21), so what this reply stands in for is handed to
+    // the backend served as dev.fake_aws to store as a real run's would be --
+    // the session's other tabs then see it. Served as app.main, there's no
+    // such route, and the reply goes back as it is (this tab only).
+    // A pane added a moment ago is still in the page's debounced save (409):
+    // asked again once it has landed.
+    for (let attempt = 0; body.session && body.pane && attempt < 4; attempt++) {
+      const stored = await page.context().request.post(`${BASE}/api/dev/store-result`, {
+        data: { type, action, session: body.session, pane: body.pane, cursor: body.cursor ?? null, clear: body.clear ?? [], result: json },
+        headers: { "X-Sync-Origin": (await route.request().headerValue("x-sync-origin")) ?? "" },
+      });
+      if (stored.status() === 409) {
+        await new Promise((r) => setTimeout(r, 700));
+        continue;
+      }
+      const outputs = stored.ok() ? await stored.json().catch(() => null) : null;
+      if (outputs) return route.fulfill({ json: { ...json, __outputs: outputs } });
+      break;
+    }
     return route.fulfill({ json });
   });
 }

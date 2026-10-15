@@ -16,13 +16,16 @@ import { SYNC_ORIGIN } from "../api";
 
 export interface LiveEvent {
   /** "access": this user's permission on a shared session changed. */
-  kind: "upsert" | "close" | "delete" | "reorder" | "access";
+  /** "outputs": one pane's outputs changed (`pane`; `version` is that pane's). */
+  kind: "upsert" | "close" | "delete" | "reorder" | "access" | "outputs";
   client_id: string | null;
   version: number | null;
   /** The writer's X-Sync-Origin: a tab's id, or "agent". */
   origin: string | null;
   /** A reorder's new order, when it fit in the announcement. */
   order?: string[];
+  /** The pane whose outputs an "outputs" event is about. */
+  pane?: string;
 }
 
 export function subscribeLiveEvents(onEvent: (event: LiveEvent) => void, onReconnect: () => void): () => void {
