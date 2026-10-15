@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-14, Phase 3b-4 (charts)._
+_Last updated: 2026-10-15, the answer check and 3c-1 (results store, auto-refresh)._
 
 ## Platform plan
 
@@ -1044,6 +1044,12 @@ against its own part of the fix) and a test in `test_session_members.py`.
   - Auto-refresh: per pane and per session, run once for everyone watching, and
     only while someone has the session on screen.
   - The MQTT presign route is gone (D49).
+- Tests: backend 371, agent 35. Full browser run 57 of 59: smoke31's two styling
+  checks fail as they do on main, and smoke49's "given the room back" width
+  check failed once and passed the three times it was run alone (dashboard code
+  this round didn't touch). The agent's model requests use the turn's own HTTP
+  client now: with the newer `openai` a fresh install resolves, every agent test
+  after the first failed with "the handler is closed".
 
 Next: 3c-2 (view mode and session variables), detailed in PLATFORM_PLAN.md before it
 is built.
