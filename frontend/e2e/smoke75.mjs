@@ -69,10 +69,16 @@ const run = async () => {
   await signIn(other);
   await other.click(ROW("API table"));
   await other.waitForSelector(`${SHOWN} .manifest-table table`);
-  const fetched = { session: 0, outputs: 0 };
+  const fetched = { session: 0, outputs: 0, ranItself: 0 };
   other.on("request", (r) => {
     if (/\/api\/live-sessions\/[^/?]+$/.test(r.url()) && r.method() === "GET") fetched.session++;
     if (/\/api\/live-sessions\/[^/]+\/outputs/.test(r.url())) fetched.outputs++;
+  });
+  // Both tabs' timers ask; whichever asks first runs it. A run the other tab
+  // asked for comes back in its own answer, with the outputs, not as an event.
+  other.on("response", async (r) => {
+    if (!/\/api\/panes\/[^/]+\/refresh$/.test(r.url())) return;
+    if ((await r.json().catch(() => null))?.refreshed) fetched.ranItself++;
   });
   await setRefresh(page, "10");
   const badge = await page.locator(`${SHOWN} .aggregator-tab.active .pane-refresh-on`).innerText().catch(() => "");
@@ -85,8 +91,9 @@ const run = async () => {
   // The session itself is written once -- the refresh setting -- and the
   // other tab fetches it once for that; every result is the pane's alone.
   check(after.version === first.version + 1, "The session itself moved only for the refresh setting, not for any result", `${first.version} → ${after.version}`);
-  // (A run the other tab asked for itself comes back in its answer instead.)
-  check(fetched.outputs >= 1 && fetched.session <= after.version - first.version,
+  // Both runs can be the other tab's own, by the timers' jitter: then it had
+  // nothing to fetch. That failed this check about one run in four.
+  check(fetched.outputs + fetched.ranItself >= 1 && fetched.session <= after.version - first.version,
     "…and the other tab fetched only the pane's outputs for the results, never the whole session", JSON.stringify(fetched));
 
   // ---- 2. typing while results arrive

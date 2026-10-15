@@ -1058,8 +1058,12 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - **The agent seen working** (D59): a line under a running turn says what it's doing
   and for how long; a dot on the other chat's tab and on the panel's toggle; a
   shared session's members see the question being answered.
-- Tests: smoke76 (26), its progress and member checks failing on the old frontend;
-  the Saved/↻ suites moved to the ⋮.
+- Tests: backend 372, agent 35; smoke76 (26), its progress and member checks failing
+  on the old frontend; the Saved/↻ suites moved to the ⋮. Full browser run 58 of 60:
+  smoke31's two styling checks fail as on main, and smoke75's "the other tab fetched
+  only the pane's outputs" failed about one run in four (both refreshes could be the
+  other tab's own, answered with the outputs, leaving nothing to fetch); it counts
+  those now, and passed three runs out of three.
 
 Next: 3c-2 (view mode and session variables), detailed in PLATFORM_PLAN.md before it
 is built.
