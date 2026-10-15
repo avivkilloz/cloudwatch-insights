@@ -562,6 +562,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // you're looking at.
   useEffect(() => {
     sync.onRemote = (remote, base) => {
+      // Arriving while the load's list is in flight: kept by the load too.
+      changed((c) => {
+        c.opened.add(remote.id);
+        c.gone.delete(remote.id);
+      });
       setClosed((c) => (c.some((s) => s.client_id === remote.id) ? c.filter((s) => s.client_id !== remote.id) : c));
       setWorkspace((w) => {
         const index = w.sessions.findIndex((s) => s.id === remote.id);
@@ -602,6 +607,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       });
     };
     const drop = (id: string) => {
+      changed((c) => c.gone.add(id));
       sync.forget(id);
       setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? withoutSession(w, id) : w));
     };
