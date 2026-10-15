@@ -1,4 +1,3 @@
-import MqttTool from "../components/tools/MqttTool";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest } from "../panes/manifest";
 import { SessionType } from "./SessionContext";
@@ -32,22 +31,11 @@ export interface SessionTypeDef {
   paneable?: boolean;
 }
 
-/** The panes still drawn by their own components (PLATFORM_PLAN.md §15):
- * only MQTT, whose state is a live connection in the browser. */
-const DRAWN: SessionTypeDef[] = [
-  {
-    type: "tool-mqtt",
-    label: "MQTT tester",
-    group: "Tools",
-    description: "Subscribe and publish on an environment's IoT Core endpoint.",
-    help:
-      "Connect to an environment's AWS IoT Core endpoint over a presigned WebSocket, subscribe to topic filters and " +
-      "publish messages. Everything received is listed newest-first while the connection is open.",
-    render: () => <MqttTool />,
-    enabledFor: (u) => !!u?.tools_enabled,
-    paneable: true,
-  },
-];
+/** Panes drawn by a component of their own rather than from a manifest
+ * (PLATFORM_PLAN.md §15). None since 3b-5 ported MQTT -- every pane is a
+ * manifest now -- but kept as the place a pane that a manifest can't yet
+ * describe would go. */
+const DRAWN: SessionTypeDef[] = [];
 
 /**
  * Every pane type, in catalogue order: the ones above, and one for each pane

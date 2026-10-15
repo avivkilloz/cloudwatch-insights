@@ -1111,7 +1111,8 @@ foundation the next one needs.
     - `KINDS` and the agent's tools generated from the manifests.
     - The one state shape (D9), and outputs in their own store (§4.6).
     - No visible change.
-  - **3b, the generic renderer and components:**
+  - **3b, the generic renderer and components** (done 2026-10-14, five PRs, §16;
+    every pane is drawn from its manifest):
     - Input cards and dynamic options.
     - The output components and output actions (§4.3), extracted from today's panes,
       plus the visualizations (data frames, the chart spec, ECharts, KPI tiles).
@@ -1211,6 +1212,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D51 | 2026-10-12 | **A long-running action (a CloudWatch query) is polled by the server, and only while someone is looking** (§16.9). The server keeps the run in a `pane_runs` row and writes each poll's results into the session through the same versioned, announced path as the agent. It polls as whoever started the run, and only while the session is open in at least one connected browser (any participant's, with the session open in their workspace) or an agent turn is waiting on it. Unwatched, it pauses; still unwatched after 10 minutes, it stops the queries in AWS. A run whose replica died is picked up by another. | The user chose server polling so a shared session sees one stream, and asked that it not run all the time. Browser polling would have had every open tab poll, each as its own user, so a member without that environment's access would write errors into the shared results. |
 | D52 | 2026-10-14 | **The log-volume histogram counts every match: always for OpenSearch, on request for CloudWatch** (§16.11). OpenSearch adds a date-histogram aggregation to the same search. CloudWatch runs a second, counting query only while the pane's Histogram toggle is on (off by default). | The user's choice. Counting from the returned rows would cover only the newest 100 and couldn't show when a spike began. OpenSearch's count is free, but CloudWatch bills per GB scanned, and a second query scans the log groups again. |
 | D53 | 2026-10-14 | **A chart on table-like results is picked in the pane, not fixed by its manifest** (§16.11). Type, x, y, series and aggregate are chosen from the result's own columns, and stored as a view key (D48). So it syncs to every member, templates keep it, and the agent sets it with `set_pane_view`. | The user's choice. The API table's columns aren't known until it runs, so a manifest-fixed chart couldn't chart it. The builder (Phase 4) will add manifest-defined charts on top. |
+| D54 | 2026-10-14 | **An MQTT connection is a background run, held by the server** (§16.13). It follows D51's rule: open while someone is looking, closed 2 minutes after the last viewer leaves, at most 5 open per user. The pane's topics are an input, and changing them while connected reconnects as whoever changed them, keeping the messages. Publishing is a person's action (`effects: external`); the agent can connect and read, but not publish. | D6 moved the connection to the server, and D51 already answered "only while someone is looking" the way the user wanted. A stream is just a run whose poll is the connection's buffer. The 2 minutes are the plan's (§4.4) "closes a couple of minutes after the last viewer leaves". |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3083,6 +3085,160 @@ Where the build departed from §16.11, and what it added:
     - OpenSearch's histogram.
 
     It fails against the frontend on main.
+
+### 16.13 PR 3b-5 in detail: MQTT on the server
+
+_Detailed 2026-10-14. It needed no new question: D51 already settled when the server
+holds something open for a session (D54)._
+
+#### 16.13.1 The connection is a background run (D54)
+
+- **The server's MQTT client** (`mqtt_client.py`) is paho-mqtt over the same
+  SigV4-presigned WebSocket URL the browser used (`iot_mqtt_signer`), as whoever
+  connected.
+  - Each connection keeps its newest messages in a buffer: at most 200, payloads cut
+    at 8 KB.
+  - It is held on the replica that opened it, keyed by its handle.
+  - A replica that claims the run (its holder died) reconnects. A dropped connection
+    reconnects with a fresh URL, since the presigned one expires.
+- **Connect** is a background action (D51): `aws.iot.mqtt_connect` opens the
+  connection and returns its handle. The run's poll, `aws.iot.mqtt_poll`, drains the
+  buffer into `out.messages`.
+- **What the poll config gains**, generic and in the manifest:
+  - `every`: 1 s for MQTT; 2 s stays the default.
+  - `unwatched_stop`: 120 s for MQTT; 600 s stays the default.
+  - `append`: `{messages: 200}`. New items go in front of what the session holds,
+    capped, instead of replacing it.
+  - `agent_wait`: 8 s. The agent reads what has arrived instead of waiting 90 s
+    on a stream that never ends.
+- **What an action gains:**
+  - `max_running`: at most 5 open connections per user, refused with a readable
+    reason.
+  - `stop_label`: "Disconnect".
+  - `restart_on: [topics]`: changing the topics while connected starts a fresh run
+    as whoever changed them, the messages kept. This applies to the browser's change
+    and the agent's `set_pane_inputs` alike. A member's new topic is never
+    subscribed with the starter's identity, which would be acting on their behalf.
+- **Stop** closes the connection on the replica holding it. A stop handled
+  elsewhere marks the run, and the holder closes it on its next tick. Closing the
+  app closes them all.
+
+#### 16.13.2 Publish
+
+- `aws.iot.publish` sends one message through IoT's data plane
+  (`iot-data:Publish`), as the person, on the chosen connection. It needs no open
+  connection.
+- It is `effects: external`: a person's action, never the agent's, until the
+  approval step exists.
+
+#### 16.13.3 The pane
+
+- **Inputs:** `connection` (one AWS connection), `topics` (topic filters, a list
+  edited as chips), `publishTopic`, `payload`.
+- **Outputs:** `messages` (render `stream`, newest first), `status` ("Connected to
+  … as …"), `published`, `run`.
+- **Saved topics move into saved inputs** (`{topics, publishTopic}`, once), and the
+  Library's MQTT Topics tab goes.
+- **Removed:** `MqttTool.tsx` and the `mqtt` npm package. `paneTypes.tsx`'s list
+  of panes drawn by hand is now empty: every pane is drawn from its manifest.
+  `/api/tools/mqtt/presigned-url` stays one release (D49); see §16.14.
+
+#### 16.13.4 Tests
+
+- **Backend**, with the connection faked at its transport:
+  - connect, poll and append, capped;
+  - topics changed while connected (a new run, messages kept);
+  - stop, including from another replica;
+  - unwatched for 2 minutes;
+  - the cap of five;
+  - publish refused to the agent;
+  - the saved-topics move.
+- **Browser**, through `dev/fake_aws`, whose in-process broker delivers what is
+  published to matching subscriptions:
+  - connect, then messages streaming in;
+  - a second tab on the same stream;
+  - adding a topic while connected;
+  - publish arriving;
+  - disconnect;
+  - a reload while connected;
+  - Saved ▾.
+
+
+### 16.14 3b-5 as built, and two chart fixes
+
+Where the build departed from §16.13, and what came with it:
+
+- **A connection is a run with no query.** A handle without `query_id` is live
+  until it carries an error (`runs._live`); the poll never says done. Two
+  things the poll's write learnt for it:
+  - an `append` output with nothing new is dropped, and a poll that changed
+    nothing writes nothing, so a quiet second doesn't move the session's
+    version or wake every tab;
+  - a stop handler may return outputs, which are written. Disconnect returns
+    `status: null`, so "Connected to …" goes when it does.
+- **A stop on another replica.** The holder sees the run marked stopped on its
+  next tick and runs the stop handler there, closing the socket. Without that,
+  the socket outlived the run on whichever replica held it.
+- **The agent's summary.** `run_pane` on a connection answers after
+  `agent_wait` (8 s) with what came, a note that it keeps running, and
+  `stop_pane` to end it. The pane's own `status` output was renamed
+  `connection` in that summary: it overwrote the run's status.
+  `set_pane_inputs` on a running pane's `restart_on` input restarts it as the
+  agent's user and says so.
+- **A refused connect says what answered.** paho, like the browser, reports a
+  refused WebSocket upgrade as "not upgraded" and nothing more. The server
+  repeats the handshake with the probe the browser's pre-flight used
+  (`iot_mqtt_signer.probe_presigned_url`) and adds its status and body to the
+  error. No `x-amzn-` header means something other than AWS answered. The
+  signed URL is never part of the sentence: it carries the session token.
+- **`/api/tools/mqtt/presigned-url` stays one release** (D49) and goes with
+  3c's first PR, with `schemas.MqttPresigned*` and their tests.
+- **The fake.** `dev/fake_aws` answers accounts starting `0000` with an
+  in-process broker: telemetry on `fake/robot-1/telemetry` every second, and
+  what is published delivered to matching subscriptions.
+
+**Two chart fixes and zoom**, from the user's first use of 3b-4:
+
+- **Series offers few-valued columns only.** It is limited to string columns with
+  at most 20 distinct values (`frame.groupable`). `@message` as series drew one
+  series per log line and a legend of whole lines over the chart.
+- **Raw rows over time are bucketed.** A time x with more than 60 distinct times
+  is folded into bars of one width. The width is from a fixed ladder (1 s … 1 d),
+  about 60 across the range. Every empty bucket is filled, and the chart says
+  "Per 5m". Before, it drew a spike per row.
+- **Zoom by dragging.** It works on the histogram and on a time series over
+  time, in a pane with a `time_range` input. ECharts' `lineX` brush is armed
+  as the cursor.
+  - A drag sets the range to `custom` with what was dragged, to the second
+    and at least 1 s, through `changeInputs`, and runs the main action.
+  - "Undo zoom" pops a stack kept per pane in the tab only. The inputs are the
+    shared truth; how one tab got there isn't.
+  - A chart without a time range (the API table) doesn't offer it.
+- **Checked:**
+  - Backend: `test_mqtt.py`, 11 tests:
+    - streaming, append and cap;
+    - payload cut;
+    - restart keeping messages;
+    - disconnect, including from another replica;
+    - unwatched for 2 minutes;
+    - the cap of five;
+    - publish;
+    - the agent connecting, reading, restarting and stopping, but not
+      publishing;
+    - the saved-topics move;
+    - topic matching;
+    - a refused connect's diagnostic.
+
+    `test_router_flags` also covers MQTT's actions.
+  - Browser:
+    - smoke72 (13 checks): connect, topics restarting with messages kept,
+      publish echo, a second tab, reload, Disconnect from the other tab,
+      Saved ▾.
+    - smoke73 (10 checks): series without the per-row column, "Per 5m",
+      no zoom without a time range, the histogram drag to a custom range and
+      its re-run with narrower bars, Undo zoom.
+
+    Both fail against the frontend on main.
 
 ## 12. Research sources
 

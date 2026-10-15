@@ -50,10 +50,12 @@ only check that a question asked in the agent panel's Global tab reaches it).
 e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
-`smoke69` (CloudWatch and OpenSearch) and `smoke71`'s logs half (the histograms)
-need the backend served with AWS faked:
+`smoke69` (CloudWatch and OpenSearch), `smoke71`'s logs half (the histograms),
+`smoke72` (MQTT) and `smoke73`'s zoom half need the backend served with AWS faked:
 a CloudWatch query runs on the server and is polled into the session there
-(PLATFORM_PLAN.md D51), so the page has nothing to stand in for. Start it as
+(PLATFORM_PLAN.md D51), and an MQTT connection is held there (D54), so the page
+has nothing to stand in for. The fake's broker sends `fake/robot-1/telemetry`
+every second and delivers what is published. Start it as
 
 ```bash
 cd backend

@@ -31,12 +31,41 @@ export function useChartColours(): ChartColours {
   return colours;
 }
 
-export default function EChart({ option, height, label }: { option: EChartsCoreOption; height: number; label: string }) {
+/** A time axis's range picked by dragging across it (`onRange`): ECharts'
+ * brush, armed as the cursor so a plain drag selects -- no toolbox button to
+ * find first -- and cleared once read. */
+function withBrush(option: EChartsCoreOption): EChartsCoreOption {
+  return {
+    ...option,
+    toolbox: { show: false },
+    brush: { xAxisIndex: 0, brushType: "lineX", brushMode: "single", transformable: false },
+  };
+}
+
+function arm(chart: EChartsType) {
+  chart.dispatchAction({ type: "takeGlobalCursor", key: "brush", brushOption: { brushType: "lineX", brushMode: "single" } });
+}
+
+export default function EChart({
+  option,
+  height,
+  label,
+  onRange,
+}: {
+  option: EChartsCoreOption;
+  height: number;
+  label: string;
+  /** Called with the dragged range of a time x axis, in epoch ms. */
+  onRange?: (start: number, end: number) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<EChartsType | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const optionRef = useRef(option);
-  optionRef.current = option;
+  const shown = onRange ? withBrush(option) : option;
+  const optionRef = useRef(shown);
+  optionRef.current = shown;
+  const onRangeRef = useRef(onRange);
+  onRangeRef.current = onRange;
 
   useEffect(() => {
     const el = box.current;
@@ -51,8 +80,15 @@ export default function EChart({ option, height, label }: { option: EChartsCoreO
       loadEcharts().then(
         (echarts) => {
           if (cancelled || chart.current || el.clientWidth === 0) return;
-          chart.current = echarts.init(el, undefined, { renderer: "canvas" });
-          chart.current.setOption(optionRef.current, true);
+          const made = echarts.init(el, undefined, { renderer: "canvas" });
+          chart.current = made;
+          made.setOption(optionRef.current, true);
+          made.on("brushEnd", (params: unknown) => {
+            const range = (params as { areas?: { coordRange?: [number, number] }[] }).areas?.[0]?.coordRange;
+            made.dispatchAction({ type: "brush", areas: [] });
+            if (range && onRangeRef.current && range[1] > range[0]) onRangeRef.current(range[0], range[1]);
+          });
+          if (onRangeRef.current) arm(made);
         },
         () => setError("The chart library couldn't be loaded; reload the page to try again."),
       );
@@ -67,8 +103,13 @@ export default function EChart({ option, height, label }: { option: EChartsCoreO
   }, []);
 
   useEffect(() => {
-    chart.current?.setOption(option, true);
-  }, [option]);
+    if (!chart.current) return;
+    chart.current.setOption(shown, true);
+    // setOption with notMerge drops the armed cursor along with the old option.
+    if (onRangeRef.current) arm(chart.current);
+    // `shown` is rebuilt from `option` each render; `option` is what changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [option, !!onRange]);
 
   if (error) return <p className="error-text">{error}</p>;
   return <div ref={box} className="chart-box" style={{ height }} role="img" aria-label={label} />;

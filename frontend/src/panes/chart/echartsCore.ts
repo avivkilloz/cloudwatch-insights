@@ -6,10 +6,12 @@
  */
 
 import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { BrushComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
-echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+// The brush (drag across a time axis to zoom, chart/zoom.ts) needs the
+// toolbox registered, though its buttons stay hidden: a plain drag selects.
+echarts.use([BarChart, LineChart, PieChart, BrushComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent, CanvasRenderer]);
 
 export default echarts;

@@ -31,11 +31,12 @@ InputType = Literal[
     "credential",
     "connection",
     "connections",
+    "topics",
 ]
 
 Render = Literal[
     "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach",
-    "logs", "run", "histogram",
+    "logs", "run", "histogram", "stream",
 ]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
@@ -173,6 +174,17 @@ class Poll(_Strict):
 
     handler: str
     stop: str
+    # Seconds between polls while someone is looking (a stream wants 1).
+    every: float = 2.0
+    # Stopped this long after the last viewer left: a scan no one will read
+    # costs money; an idle connection only holds a slot, but still goes.
+    unwatched_stop: float = 600.0
+    # Outputs the poll adds to rather than replaces -- its new items go in
+    # front of what the session holds -- each with the most it keeps (D54).
+    append: dict[str, int] = {}
+    # How long the agent waits on it before answering from what arrived; a
+    # stream never finishes, so waiting the whole 90 s would be wasted.
+    agent_wait: Optional[float] = None
 
 
 class ManifestView(_Strict):
@@ -211,6 +223,13 @@ class ManifestAction(_Strict):
     page: Optional[Page] = None
     # Cleared by a fresh run (not by Load more), like an input's `resets`.
     resets: list[str] = []
+    # A background run restarted, as whoever changed them, when these inputs
+    # change while it is going -- its appended outputs kept (D54).
+    restart_on: list[str] = []
+    # The most of its runs one user may have going at once.
+    max_running: Optional[int] = None
+    # The Stop button's words ("Disconnect").
+    stop_label: Optional[str] = None
     # The action run_pane runs for the agent. A pane's on_change actions whose
     # inputs are set run first, as picking them in the pane would have.
     main: bool = False
@@ -431,6 +450,12 @@ class Manifest(_Strict):
                     raise ValueError(f"action {a.id}'s arg {path!r} must be a path into row. or group.")
             for ref in a.resets:
                 check_key(ref)
+            for ref in a.restart_on:
+                if ref not in inputs:
+                    raise ValueError(f"action {a.id} restarts on an input {ref} that isn't declared")
+            for ref in (a.poll.append if a.poll else {}):
+                if ref not in outputs:
+                    raise ValueError(f"action {a.id} appends to an output {ref} that isn't declared")
             if a.page:
                 for ref in [a.page.cursor, *a.page.append, *a.page.sum]:
                     if ref not in outputs:

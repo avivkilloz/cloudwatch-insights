@@ -97,10 +97,13 @@ def _write(
     outputs: dict[str, Any],
     fresh: bool = False,
     resets: tuple[str, ...] = (),
+    append: Optional[dict[str, int]] = None,
 ) -> None:
     """Outputs into the pane's `out.` keys, cut down to fit the browser's limit
     as the agent's writes are. A fresh run also stamps ranAt and a new
-    resultsVersion (which clears the row selection) and clears its resets."""
+    resultsVersion (which clears the row selection) and clears its resets.
+    An `append` output's new items go in front of what the session holds,
+    kept to its cap (a stream's messages, D54)."""
     from ..platform_tools.server import _longest_list  # one trimming rule for every server-side write
 
     def change(state: dict, _row: models.LiveSession, _member: Optional[models.SessionMember]) -> None:
@@ -112,6 +115,10 @@ def _write(
             state[f"{pane_id}.out.resultsVersion"] = int(state.get(f"{pane_id}.out.resultsVersion") or 0) + 1
             for ref in resets:
                 state.pop(f"{pane_id}.{ref}", None)
+        for key, cap in (append or {}).items():
+            if key in writes:
+                held = state.get(f"{pane_id}.out.{key}")
+                writes[key] = (list(writes[key] or []) + (held if isinstance(held, list) else []))[:cap]
         budget = int(live_store.BROWSER_STATE_BYTES * 0.9)
         trimmed = False
         while True:
@@ -156,12 +163,32 @@ def start(
     pane_id: str,
     inputs: dict[str, Any],
     agent_seconds: float = 0,
+    keep: bool = False,
 ) -> models.PaneRun:
     """Starts the action's queries as `user` and the run that polls them. A
     run already going in the pane is stopped first: a second Run replaces the
-    first, as it always did."""
+    first, as it always did. `keep` is a restart (`restart_on`: its topics
+    changed): what the run had shown stays, its resets aren't applied."""
     if member is not None and member.permission == "viewer":
         raise RunError("You have read-only access to this session, so you can't run its panes.")
+    if action.max_running:
+        going = (
+            db.query(models.PaneRun)
+            .filter(
+                models.PaneRun.user_id == user.id,
+                models.PaneRun.pane_type == manifest.id,
+                models.PaneRun.action == action.id,
+                models.PaneRun.status == RUNNING,
+                # This pane's own run is about to be replaced, so it doesn't count.
+                ~((models.PaneRun.session_id == row.id) & (models.PaneRun.pane_id == pane_id)),
+            )
+            .count()
+        )
+        if going >= action.max_running:
+            raise RunError(
+                f"You already have {going} {manifest.label} runs going, the most one person may have: "
+                "stop one first."
+            )
     for previous in (
         db.query(models.PaneRun)
         .filter(models.PaneRun.session_id == row.id, models.PaneRun.pane_id == pane_id, models.PaneRun.status == RUNNING)
@@ -181,7 +208,7 @@ def start(
         pane_type=manifest.id,
         action=action.id,
         user_id=user.id,
-        status=RUNNING if any(h.get("query_id") for h in handles) else DONE,
+        status=RUNNING if any(_live(h) for h in handles) else DONE,
         handles=handles,
         replica=REPLICA,
         heartbeat_at=_now(),
@@ -195,25 +222,38 @@ def start(
         row,
         pane_id,
         {**started, "run": _run_out(run)},
-        fresh=True,
-        resets=tuple(r for r in action.resets if not r.startswith("in.")),
+        fresh=not keep,
+        resets=() if keep else tuple(r for r in action.resets if not r.startswith("in.")),
     )
     if run.status == RUNNING:
         manager.spawn(run.id)
     return run
 
 
+def _live(handle: dict[str, Any]) -> bool:
+    """Whether a handle is something still to poll: one that didn't fail to
+    start (a CloudWatch query with no id did; an MQTT connection has no
+    query id at all)."""
+    if handle.get("error"):
+        return False
+    return bool(handle.get("query_id")) if "query_id" in handle else True
+
+
 def _stop_queries(
     db: Session, manifest: pane_manifest.Manifest, action: pane_manifest.ManifestAction, run: models.PaneRun
-) -> None:
+) -> dict[str, Any]:
+    """Stops what the run started, as its starter, and returns the outputs
+    the stop handler says the pane should now show (MQTT clears its
+    "Connected to ..." line)."""
     starter = db.get(models.User, run.user_id)
     handler = handlers.ACTIONS.get(action.poll.stop) if action.poll else None
     if starter is None or handler is None:
-        return
+        return {}
     try:
-        handler(db, starter, {"handles": run.handles}, None)
+        return handler(db, starter, {"handles": run.handles}, None) or {}
     except Exception:  # noqa: BLE001 - stopping is best-effort, as it always was
         logger.warning("Stopping run %s failed", run.id, exc_info=True)
+        return {}
 
 
 def stop(db: Session, user: models.User, row: models.LiveSession, member: Optional[models.SessionMember], pane_id: str) -> bool:
@@ -233,11 +273,10 @@ def stop(db: Session, user: models.User, row: models.LiveSession, member: Option
         return False
     manifest = pane_manifest.get(run.pane_type)
     action = next((a for a in manifest.actions if a.id == run.action), None) if manifest else None
-    if manifest and action:
-        _stop_queries(db, manifest, action, run)
+    shown = _stop_queries(db, manifest, action, run) if manifest and action else {}
     run.status = STOPPED
     db.commit()
-    _write(db, user.id, row, pane_id, {"run": _run_out(run, {"stoppedBy": user.username})})
+    _write(db, user.id, row, pane_id, {**shown, "run": _run_out(run, {"stoppedBy": user.username})})
     return True
 
 
@@ -249,6 +288,14 @@ def tick(run_id: str) -> Tick:
     database session, as a background task's must be."""
     with SessionLocal() as db:
         run = db.get(models.PaneRun, run_id)
+        if run is not None and run.status == STOPPED and run.replica == REPLICA:
+            # Stopped by a request another replica served: what this one holds
+            # open for it (an MQTT connection) is this one's to close.
+            manifest = pane_manifest.get(run.pane_type)
+            action = next((a for a in manifest.actions if a.id == run.action), None) if manifest else None
+            if manifest and action:
+                _stop_queries(db, manifest, action, run)
+            return Tick(finished=True)
         if run is None or run.status != RUNNING or run.replica != REPLICA:
             return Tick(finished=True)
         run.heartbeat_at = _now()
@@ -262,14 +309,15 @@ def tick(run_id: str) -> Tick:
             return Tick(finished=True)
         if not presence.watched(db, row, run.agent_until):
             run.unwatched_since = run.unwatched_since or _now()
-            if (_now() - run.unwatched_since).total_seconds() < UNWATCHED_LIMIT_SECONDS:
+            limit = min(action.poll.unwatched_stop, UNWATCHED_LIMIT_SECONDS)
+            if (_now() - run.unwatched_since).total_seconds() < limit:
                 db.commit()
                 return Tick(finished=False, wait=IDLE_SECONDS)
             # Nobody came back: stop paying for a scan no one will read.
-            _stop_queries(db, manifest, action, run)
+            shown = _stop_queries(db, manifest, action, run)
             run.status = STOPPED
             db.commit()
-            _safe_write(db, starter.id, row, run, {"run": _run_out(run, {"note": "Stopped: no one had the session open."})})
+            _safe_write(db, starter.id, row, run, {**shown, "run": _run_out(run, {"note": "Stopped: no one had the session open."})})
             return Tick(finished=True)
         run.unwatched_since = None
         db.commit()
@@ -282,6 +330,11 @@ def tick(run_id: str) -> Tick:
             _safe_write(db, starter.id, row, run, {"run": _run_out(run, {"error": str(e.detail)})})
             return Tick(finished=True)
         done = bool(polled.pop("done", False))
+        # Nothing new for an appended output is nothing to write (a quiet
+        # topic would otherwise announce a change to every tab each second).
+        for key in action.poll.append:
+            if key in polled and not polled[key]:
+                del polled[key]
         db.refresh(run)
         if run.status != RUNNING:  # stopped while we polled
             return Tick(finished=True)
@@ -295,15 +348,22 @@ def tick(run_id: str) -> Tick:
         # would announce a "change" to every open tab for nothing.
         last = state_out.get("fingerprint")
         mark = _fingerprint(polled)
-        if done or mark != last:
+        if done or (polled and mark != last):
             outputs["run"]["fingerprint"] = mark
-            _safe_write(db, starter.id, row, run, outputs)
-        return Tick(finished=done)
+            _safe_write(db, starter.id, row, run, outputs, append=action.poll.append)
+        return Tick(finished=done, wait=action.poll.every)
 
 
-def _safe_write(db: Session, user_id: int, row: models.LiveSession, run: models.PaneRun, outputs: dict[str, Any]) -> None:
+def _safe_write(
+    db: Session,
+    user_id: int,
+    row: models.LiveSession,
+    run: models.PaneRun,
+    outputs: dict[str, Any],
+    append: Optional[dict[str, int]] = None,
+) -> None:
     try:
-        _write(db, user_id, row, run.pane_id, outputs)
+        _write(db, user_id, row, run.pane_id, outputs, append=append)
     except (RunError, live_store.StoreError) as e:
         # The pane was closed, or its starter lost access: nothing to show it in.
         logger.info("Run %s can't write its results: %s", run.id, e)
@@ -363,6 +423,11 @@ class Manager:
             future.cancel()
         self._tasks.clear()
         self.loop = None
+        # Connections this replica held for its runs (MQTT) close with it; a
+        # replica that claims the runs reconnects.
+        from .. import mqtt_client
+
+        mqtt_client.close_all()
 
 
 manager = Manager()

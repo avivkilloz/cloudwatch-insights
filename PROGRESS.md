@@ -1029,17 +1029,23 @@ that member; each now does (`"upsert"`, `"access"`, `"delete"`), so it shows up,
 takes effect or leaves at once. smoke70 (fails on the old code, each check
 against its own part of the fix) and a test in `test_session_members.py`.
 
-3b-4 (charts) is built and verified against the running stack and awaits its PR
-(PLATFORM_PLAN.md §16.11, as built in §16.12): a chart over the API table's
-rows and both logs panes' results, picked beside the card's title (time series,
-bar, pie, stat tile; x / y / aggregate / series from the rows' own columns; a
-view key, so it syncs and the agent sets it with the new `set_pane_view`);
-ECharts in its own chunk, fetched on the first chart; the log-volume histogram
-(D52: OpenSearch always, CloudWatch with its Histogram toggle, a counting query
-in the same background run). The logs' and saved queries' old routes and the
-agent's `list_log_groups`/`list_opensearch_*` are gone; `list_options` lists
-the logs pickers, level by level. Next, after it merges, detail 3b-5 (MQTT on
-the server).
+3b-4 (charts) merged as #110. This round's PR carries three things (PLATFORM_PLAN.md
+§16.14):
+- **Two chart fixes the user reported.** `@message` as a time series's series drew a
+  line and a legend entry per log line. Series now offers only columns with at most 20
+  values. Raw rows over time are folded into bars of one width ("Per 5m").
+- **Zoom by dragging,** the user's second question. Drag across the histogram or a
+  time-series chart in CloudWatch/OpenSearch: the range becomes what was dragged and
+  the query runs again; Undo zoom goes back.
+- **3b-5, MQTT on the server** (D54). The connection is a background run that every
+  tab and member sees. Topics changed while connected reconnect as whoever changed
+  them. Disconnect ends it, and so does two minutes with nobody looking. Five per
+  person. Publish is a person's action. The agent connects and reads. Saved topics
+  moved into saved inputs, and the Library's MQTT tab is gone. Every pane is now
+  drawn from its manifest.
+
+Next: 3c (sessions as live dashboards), detailed in PLATFORM_PLAN.md before it is
+built. Its first PR also removes `/api/tools/mqtt/presigned-url` (D49).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1209,8 +1215,9 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3b-5 (MQTT on the server), detailed in PLATFORM_PLAN.md §16 before it is
-   built.
+1. 3c (sessions as live dashboards: view mode, session variables,
+   auto-refresh), detailed in PLATFORM_PLAN.md before it is built; with it, the
+   presign route D49 kept for one release goes.
 2. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,

@@ -3828,3 +3828,23 @@ th {
   flex: 1;
   min-width: 0;
 }
+
+/* The MQTT tester's stream (panes/StreamView.tsx): the old tool's look -- a
+   topic tag and the time over each payload -- in a box that scrolls rather
+   than growing the pane by 200 messages. */
+.stream-list {
+  max-height: 420px;
+}
+
+.stream-message {
+  margin-bottom: 6px;
+}
+
+.stream-message .result-row-summary {
+  gap: 8px;
+}
+
+.stream-payload {
+  margin: 0;
+  border-radius: 0 0 6px 6px;
+}

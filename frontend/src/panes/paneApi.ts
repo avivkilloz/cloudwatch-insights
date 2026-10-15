@@ -18,6 +18,8 @@ export interface RunOptions {
   cursor?: unknown;
   /** Inputs as they will be once a change being made now has landed. */
   inputs?: Values;
+  /** A running background run started again because its `restart_on` inputs changed. */
+  restart?: boolean;
 }
 
 export interface PaneApi {

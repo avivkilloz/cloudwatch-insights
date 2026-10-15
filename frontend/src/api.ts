@@ -234,14 +234,6 @@ export interface SessionParticipant {
 
 // ---- Tools page ----
 
-export interface MqttPresignedUrlResponse {
-  endpoint: string;
-  url: string;
-  expires_in: number;
-  diagnostic_status_code: number | null;
-  diagnostic_body: string | null;
-  diagnostic_headers: string[];
-}
 
 const BASE = "/api";
 
@@ -533,7 +525,7 @@ export const api = {
     inputs: Record<string, unknown>,
     cursor?: unknown,
     /** A background action's session and pane (D51), and a time range's zone. */
-    extra?: { session?: string; pane?: string; timezone?: string },
+    extra?: { session?: string; pane?: string; timezone?: string; restart?: boolean },
   ) =>
     req<Record<string, unknown>>(`/panes/${encodeURIComponent(type)}/actions/${encodeURIComponent(action)}`, {
       method: "POST",
@@ -690,9 +682,4 @@ export const api = {
   getAgentStatus: () => req<AgentStatus>("/agent/status"),
   agentChat,
 
-  getMqttPresignedUrl: (environmentId: number) =>
-    req<MqttPresignedUrlResponse>("/tools/mqtt/presigned-url", {
-      method: "POST",
-      body: JSON.stringify({ environment_id: environmentId }),
-    }),
 };

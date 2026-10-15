@@ -31,6 +31,7 @@ from .. import models
 MARKER_3B1 = "saved_inputs_migrated_3b1"
 MARKER_3B2 = "saved_inputs_migrated_3b2"
 MARKER_3B3 = "saved_inputs_migrated_3b3"
+MARKER_3B5 = "saved_inputs_migrated_3b5"
 
 _MOVES: dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     "tables": ("tables", lambda s: {"connection": s.get("environment_id"), "tableName": s.get("table_name") or ""}),
@@ -61,9 +62,29 @@ def _http_request(s: dict[str, Any]) -> dict[str, Any]:
 def migrate_saved_shortcuts(db: Session) -> list[str]:
     """Once per database each: saved tables and buckets (3b-1), IoT's saved
     searches and the HTTP client's saved requests (3b-2), and the logs panes'
-    saved queries (3b-3) become saved inputs. Returns a line per moved item,
-    for the startup log."""
-    return _move_3b1(db) + _move_3b2(db) + _move_3b3(db)
+    saved queries (3b-3), and the MQTT tester's saved topics (3b-5) become
+    saved inputs. Returns a line per moved item, for the startup log."""
+    return _move_3b1(db) + _move_3b2(db) + _move_3b3(db) + _move_3b5(db)
+
+
+def _move_3b5(db: Session) -> list[str]:
+    """A saved topic filled either box of the old tester, so it fills both:
+    a topic to receive and the one to publish to."""
+    if db.get(models.Setting, MARKER_3B5) is not None:
+        return []
+    moved: list[str] = []
+    for row in db.query(models.SavedSession).filter(models.SavedSession.page == "tools-mqtt-topics").all():
+        topic = str((row.state or {}).get("topic") or "").strip()
+        if row.user_id is not None and topic:
+            db.add(models.SavedInput(
+                user_id=row.user_id, pane_type="tool-mqtt", name=row.name,
+                inputs={"topics": [topic], "publishTopic": topic},
+            ))
+            moved.append(f"MQTT topic '{row.name}' (user {row.user_id}) -> saved inputs")
+        db.delete(row)
+    db.add(models.Setting(key=MARKER_3B5, value="done"))
+    db.commit()
+    return moved
 
 
 def _move_3b3(db: Session) -> list[str]:

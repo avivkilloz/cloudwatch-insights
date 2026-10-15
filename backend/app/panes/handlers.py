@@ -716,6 +716,94 @@ def http_send(db: Session, user: models.User, inputs: dict[str, Any], _cursor: A
     return {"response": response.model_dump(), "exchange": [exchange]}
 
 
+# ---------------------------------------------------------------- MQTT (D54)
+
+
+def _topics(value: Any) -> list[str]:
+    return [t.strip() for t in (value if isinstance(value, list) else []) if isinstance(t, str) and t.strip()]
+
+
+def mqtt_connect(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """Opens an MQTT connection to the environment's IoT Core endpoint, as
+    the caller, subscribed to the pane's topics. A background run (D54)
+    polls it; it lives on this replica, under its handle's key."""
+    import uuid
+
+    from .. import mqtt_client
+
+    t, identity = _one(db, user, inputs)
+    topics = _topics(inputs.get("topics"))
+    key = uuid.uuid4().hex
+    try:
+        sub = mqtt_client.open_subscription(key, t.account_id, t.region, identity, topics)
+    except mqtt_client.MqttError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from None
+    except Exception as e:  # noqa: BLE001 - IoT's own words: no endpoint, no role, no network
+        raise HTTPException(status_code=502, detail=f"Couldn't connect to IoT Core: {e}") from None
+    handle = {
+        "key": key, "connection": t.id, "account_id": t.account_id, "region": t.region,
+        "topics": topics, "environment_name": t.name,
+    }
+    listening = f", listening to {', '.join(topics)}" if topics else "; add a topic to listen to"
+    return {"handles": [handle], "status": f"Connected to {sub.endpoint} as {sub.client_id}{listening}."}
+
+
+def mqtt_poll(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """What each connection received since the last poll, newest first. A
+    connection this replica doesn't hold -- its holder died and this one
+    claimed the run -- or one that dropped is opened again, as whoever
+    connected (the run's starter), with a fresh presigned URL."""
+    from .. import mqtt_client
+
+    messages: list[dict[str, Any]] = []
+    out: dict[str, Any] = {"done": False}
+    for h in inputs.get("handles") or []:
+        sub = mqtt_client.get(h["key"])
+        if sub is None or sub.conn is None or not sub.conn.alive():
+            lost = sub.conn.error() if sub is not None and sub.conn is not None else None
+            if sub is not None:
+                messages.extend(sub.drain())
+            t, identity = _one(db, user, {"connection": h["connection"]})
+            try:
+                sub = mqtt_client.open_subscription(h["key"], t.account_id, t.region, identity, h.get("topics") or [])
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"The connection was lost and couldn't be reopened: {e}") from None
+            if lost:
+                out["status"] = f"Reconnected to {sub.endpoint} as {sub.client_id} ({lost})"
+        messages.extend(sub.drain())
+    messages.sort(key=lambda m: m["timestamp"], reverse=True)
+    out["messages"] = messages
+    return out
+
+
+def mqtt_close(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    from .. import mqtt_client
+
+    for h in inputs.get("handles") or []:
+        mqtt_client.close(h["key"])
+    # The run's own note says who disconnected it; "Connected to ..." mustn't
+    # stay beside it.
+    return {"status": None}
+
+
+def iot_publish(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
+    """One message through IoT's data plane, as the caller. A person's action
+    (`effects: external`): the agent can't publish until approval exists."""
+    import time
+
+    topic = str(inputs.get("publishTopic") or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="Enter a topic to publish to.")
+    if "+" in topic or "#" in topic:
+        raise HTTPException(status_code=400, detail="A message is published to one topic: no + or # wildcards.")
+    payload = str(inputs.get("payload") or "")
+    t, identity = _one(db, user, inputs)
+    _aws("Failed to publish", lambda: iot_client.publish(t.account_id, t.region, identity, topic, payload))
+    # In UTC and said so: the server's clock zone is nobody's.
+    sent = time.strftime("%H:%M:%S UTC", time.gmtime())
+    return {"published": f"Published {len(payload.encode())} bytes to {topic} at {sent}."}
+
+
 ACTIONS: dict[str, Handler] = {
     "aws.dynamodb.list_tables": dynamodb_list_tables,
     "aws.dynamodb.describe": dynamodb_describe,
@@ -735,6 +823,10 @@ ACTIONS: dict[str, Handler] = {
     "aws.opensearch.list_domains": opensearch_list_domains,
     "aws.opensearch.list_indices": opensearch_list_indices,
     "aws.opensearch.search": opensearch_search,
+    "aws.iot.mqtt_connect": mqtt_connect,
+    "aws.iot.mqtt_poll": mqtt_poll,
+    "aws.iot.mqtt_close": mqtt_close,
+    "aws.iot.publish": iot_publish,
 }
 
 

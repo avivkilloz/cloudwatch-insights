@@ -25,10 +25,13 @@ import {
   Frame,
   frameOfLogs,
   frameOfRecords,
+  groupable,
   OTHER,
   statOf,
 } from "../frame";
+import { usePaneAddress } from "../../sessions/SessionContext";
 import EChart, { useChartColours } from "./EChart";
+import { timeRangeOf, undoZoom, useZoomDepth, zoomTo } from "./zoom";
 import { ChartColours } from "./palette";
 
 const CHART_HEIGHT = 260;
@@ -93,7 +96,7 @@ export function ChartItem({ output, pane, place }: { output: ManifestOutput; pan
   return (
     <div className="chart-section">
       <ChartPickers spec={spec} frame={frame} onChange={set} />
-      {spec.type === "stat" ? <StatTile frame={frame} spec={spec} /> : <ChartBody frame={frame} spec={spec} />}
+      {spec.type === "stat" ? <StatTile frame={frame} spec={spec} /> : <ChartBody frame={frame} spec={spec} pane={pane} />}
     </div>
   );
 }
@@ -101,7 +104,9 @@ export function ChartItem({ output, pane, place }: { output: ManifestOutput; pan
 function ChartPickers({ spec, frame, onChange }: { spec: ChartSpec; frame: Frame; onChange: (s: ChartSpec) => void }) {
   const fields = frame.fields;
   const numbers = fields.filter((f) => f.type === "number");
-  const texts = fields.filter((f) => f.type === "string");
+  // Only a column with few values splits a chart into series (a line per
+  // value); one with a value per row, @message, would be a legend of rows.
+  const texts = fields.filter(groupable);
   // A name the rows don't have (set by the agent, or an older run's) is kept
   // as a choice, so the select shows what's set rather than jumping.
   const choices = (names: string[], current: string) => (current && !names.includes(current) ? [...names, current] : names);
@@ -168,6 +173,11 @@ const TIME_LABELS = {
   millisecond: "{HH}:{mm}:{ss}",
 };
 
+/** A legend or tooltip name, cut down: a value can be a whole log line. */
+function short(name: string): string {
+  return name.length > 40 ? `${name.slice(0, 39)}…` : name;
+}
+
 function colourOf(c: ChartColours, name: string, index: number): string {
   return name === OTHER ? c.other : c.series[index % c.series.length];
 }
@@ -180,11 +190,13 @@ function chartOption(chart: Chart, spec: ChartSpec, c: ChartColours): EChartsCor
     textStyle: { color: c.text, fontSize: 12 },
     valueFormatter: (v: unknown) => formatNumber(typeof v === "number" ? v : null),
   };
-  const legend = many ? { top: 0, textStyle: { color: c.textDim }, itemWidth: 12, itemHeight: 8, icon: "roundRect" } : undefined;
+  const legend = many
+    ? { type: "scroll", top: 0, textStyle: { color: c.textDim }, itemWidth: 12, itemHeight: 8, icon: "roundRect" }
+    : undefined;
   if (spec.type === "pie") {
     const s = chart.series[0];
     // One ring, a slice per x; past the palette, the smallest share "Other".
-    const slices = chart.xs.map((x, i) => ({ name: String(x), value: s?.values[i] ?? 0 }));
+    const slices = chart.xs.map((x, i) => ({ name: short(String(x)), value: s?.values[i] ?? 0 }));
     slices.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     const kept = slices.length > c.series.length ? slices.slice(0, c.series.length - 1) : slices;
     if (slices.length > kept.length) {
@@ -216,20 +228,20 @@ function chartOption(chart: Chart, spec: ChartSpec, c: ChartColours): EChartsCor
     grid: { left: 8, right: 16, top: many ? 32 : 12, bottom: 8, containLabel: true },
     xAxis: time
       ? { type: "time", axisLabel: { ...axisText(c), formatter: TIME_LABELS, hideOverlap: true }, axisLine: { lineStyle: { color: c.grid } } }
-      : { type: "category", data: chart.xs.map(String), axisLabel: { ...axisText(c), hideOverlap: true }, axisLine: { lineStyle: { color: c.grid } } },
+      : { type: "category", data: chart.xs.map((x) => short(String(x))), axisLabel: { ...axisText(c), hideOverlap: true }, axisLine: { lineStyle: { color: c.grid } } },
     yAxis: { type: "value", axisLabel: axisText(c), splitLine: { lineStyle: { color: c.grid, opacity: 0.35 } } },
     series: chart.series.map((s) =>
       spec.type === "bar"
         ? {
             type: "bar",
-            name: s.name,
+            name: short(s.name),
             data: data(s.values),
             barMaxWidth: 28,
             itemStyle: { borderRadius: [4, 4, 0, 0] },
           }
         : {
             type: "line",
-            name: s.name,
+            name: short(s.name),
             data: data(s.values),
             showSymbol: chart.xs.length <= 1,
             symbolSize: 8,
@@ -240,13 +252,52 @@ function chartOption(chart: Chart, spec: ChartSpec, c: ChartColours): EChartsCor
   };
 }
 
-function ChartBody({ frame, spec }: { frame: Frame; spec: ChartSpec }) {
+/** Drag-to-zoom over a pane's time range, where it has one: the range, the
+ * hint and Undo. Null for a pane with no time range (the API table). */
+function useZoom(pane: PaneApi) {
+  const address = usePaneAddress();
+  const key = `${address.session ?? ""}:${address.pane}`;
+  const depth = useZoomDepth(key);
+  if (!timeRangeOf(pane.m)) return null;
+  return {
+    onRange: (start: number, end: number) => zoomTo(pane, key, start, end),
+    controls: (
+      <span className="row" style={{ gap: 8 }}>
+        <span className="muted">Drag across the chart to zoom in</span>
+        {depth > 0 && (
+          <button className="secondary" style={{ padding: "2px 8px" }} onClick={() => undoZoom(pane, key)}>
+            Undo zoom
+          </button>
+        )}
+      </span>
+    ),
+  };
+}
+
+function ChartBody({ frame, spec, pane }: { frame: Frame; spec: ChartSpec; pane: PaneApi }) {
   const colours = useChartColours();
   const chart = useMemo(() => chartOf(frame, spec), [frame, spec]);
   const option = useMemo(() => chartOption(chart, spec, colours), [chart, spec, colours]);
+  const zoom = useZoom(pane);
   if (chart.problem) return <p className="muted">{chart.problem}</p>;
   const what = spec.y === "count" ? "count of rows" : `${spec.agg} of ${spec.y}`;
-  return <EChart option={option} height={CHART_HEIGHT} label={`${what} by ${spec.x}`} />;
+  const zooms = zoom && chart.xType === "time";
+  return (
+    <>
+      {(chart.step || zooms) && (
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <span className="muted">{chart.step ? `Per ${chart.step}` : ""}</span>
+          {zooms && zoom.controls}
+        </div>
+      )}
+      <EChart
+        option={option}
+        height={CHART_HEIGHT}
+        label={`${what} by ${spec.x}${chart.step ? `, per ${chart.step}` : ""}`}
+        onRange={zooms ? zoom.onRange : undefined}
+      />
+    </>
+  );
 }
 
 function StatTile({ frame, spec }: { frame: Frame; spec: ChartSpec }) {
@@ -310,11 +361,12 @@ interface Volume {
 }
 
 /** Every match over time, bars stacked by environment (D52), above the list. */
-export function HistogramView({ value }: { value: unknown }) {
+export function HistogramView({ value, pane }: { value: unknown; pane: PaneApi }) {
   const colours = useChartColours();
   const volume = value && typeof value === "object" ? (value as Volume) : null;
   const groups = (volume?.groups ?? []).filter((g) => !g.error);
   const total = groups.reduce((sum, g) => sum + g.buckets.reduce((s, b) => s + b.count, 0), 0);
+  const zoom = useZoom(pane);
   const option = useMemo<EChartsCoreOption>(() => {
     const many = groups.length > 1;
     return {
@@ -357,16 +409,21 @@ export function HistogramView({ value }: { value: unknown }) {
           {volume.note}
         </p>
       ) : (
-        <span className="muted">
-          {formatNumber(total)} match{total === 1 ? "" : "es"} over time, per {volume.interval}
-        </span>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <span className="muted">
+            {formatNumber(total)} match{total === 1 ? "" : "es"} over time, per {volume.interval}
+          </span>
+          {zoom?.controls}
+        </div>
       )}
       {errors.map((g, i) => (
         <p key={i} className="error-text">
           {g.environment_name}: couldn't count ({g.error})
         </p>
       ))}
-      {groups.length > 0 && <EChart option={option} height={120} label={`Matches over time, per ${volume.interval}`} />}
+      {groups.length > 0 && (
+        <EChart option={option} height={120} label={`Matches over time, per ${volume.interval}`} onRange={zoom?.onRange} />
+      )}
     </div>
   );
 }

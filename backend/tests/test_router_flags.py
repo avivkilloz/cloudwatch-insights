@@ -143,6 +143,9 @@ def test_tools_disabled_refuses_http_client_and_mqtt():
     off = _user(env_id, tools_enabled=False)
     _no_pane(_action(off, "tool-http", "send", {"method": "GET", "url": "http://example.com"}))
     _refused(off.post("/api/tools/mqtt/presigned-url", json={"environment_id": env_id}))
+    publish = {"connection": env_id, "publishTopic": "devices/x", "payload": "{}"}
+    _no_pane(_action(off, "tool-mqtt", "publish", publish))
 
     on = _user(env_id, tools_enabled=True)
     _reached_aws(on.post("/api/tools/mqtt/presigned-url", json={"environment_id": env_id}))
+    _reached_aws(_action(on, "tool-mqtt", "publish", publish))

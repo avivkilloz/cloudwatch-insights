@@ -144,7 +144,14 @@ from your picture's menu and is not a session; the strip stays above it.
   CloudWatch `stats … by bin(5m)` query charts as a time series of its
   counts. The chart is saved with the session, so everyone looking sees the
   same one, and the agent can set one up ("chart errors per environment over
-  time").
+  time"). **Series** offers only columns with a handful of values (a status,
+  a log group) -- a column like `@message`, different on every row, would
+  draw a line per row. Raw rows over time are counted into bars of one
+  width, about 60 across the range, and the chart says which ("Per 5m").
+- **Zoom by dragging.** On the histogram, or a time-series chart in
+  CloudWatch or OpenSearch, drag across the stretch you want: the pane's time
+  range becomes exactly that (a custom range, to the second) and the query
+  runs again over it. **Undo zoom** goes back one step at a time.
 - **IoT session**: pick one or more environments, then search either **Things**
   (the same "Advanced search" syntax as the AWS console — by name,
   attributes, connectivity, shadow values, group membership, and more) or
@@ -275,21 +282,19 @@ from your picture's menu and is not a session; the strip stays above it.
   spans several. Removing `@log` from a query (or switching to OpenSearch,
   which has no equivalent field) just makes "Log group" grouping and the
   per-row tag a no-op.
-- Everything saved anywhere in the app — session templates, saved inputs
-  and saved MQTT topics — is **per user** (each user only
+- Everything saved anywhere in the app — session templates and saved
+  inputs — is **per user** (each user only
   ever sees and manages their own) and is managed from the **Library**
-  section of Settings, with a tab for each kind (Templates, Saved inputs,
-  MQTT Topics). Saved tables and buckets became saved inputs, once, when
+  section of Settings, with a tab for each kind (Templates, Saved inputs). Saved tables and buckets became saved inputs, once, when
   DynamoDB and S3 moved to manifests, IoT's saved searches and the HTTP
   client's saved requests did when they moved, and saved log queries did
-  when CloudWatch and OpenSearch moved (each pane's **Saved ▾** menu); MQTT
-  topics follow when MQTT does. The per-service session tabs
+  when CloudWatch and OpenSearch moved, and saved MQTT topics did when MQTT
+  moved (each pane's **Saved ▾** menu). The per-service session tabs
   (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
   than a session now, so nothing writes one, and the ones saved back then are
   listed under Templates — which is also where Add offers them.
   Saved inputs are renamed and deleted there, and saved and loaded from the
-  pane's own Saved ▾ menu; session templates edit their JSON state directly,
-  and MQTT topics their topic string (and can be added there too).
+  pane's own Saved ▾ menu; session templates edit their JSON state directly.
 - **Templates**, distinct from saved inputs: **⋮ → Save as
   template** on any session in the side panel keeps that session's *inputs* —
   selected environments, log groups, query text, time range, limit, sort,
@@ -355,9 +360,9 @@ double-click to reset. Neither grows so far that the page between them has no
 room for a pane: on a smaller window they stop sooner, and draw narrower
 until the window is wide enough again.
 
-It can add any pane your group has to a session. The MQTT tester and JWT
-tool it can add but not fill in: what's in them stays in your browser (a live
-connection, a pasted token), so it tells you what to do in them instead.
+It can add any pane your group has to a session. The JWT tool it can add but
+not fill in: a pasted token stays in your browser, so it tells you what to do
+there instead. The MQTT tester it can connect and read, but not publish from.
 
 It can do what your group can and nothing more -- the same environments, the
 same pages, the same IAM role -- and only if an admin has turned **Platform
@@ -800,31 +805,33 @@ inputs and its output stay visibly separate.
   "why is this a 403?" answerable.
 - **MQTT Tester** — pick one of your configured environments, then
   subscribe and publish to topics on that account's AWS IoT Core endpoint,
-  the same way the AWS IoT console's own "MQTT test client" works.
-  Connecting mints a short-lived (5 minute), SigV4-signed WebSocket URL
-  server-side using that environment's assumed role, then connects
-  straight from your browser to the endpoint — the MQTT session itself
-  never passes through this app's backend. The assumed role needs
-  `iot:DescribeEndpoint`, `iot:Connect`, `iot:Publish`, `iot:Subscribe`,
-  and `iot:Receive` (see the permissions policy above), and the IoT Core
-  endpoint must be reachable over HTTPS/WSS from wherever your browser is
-  (it's public by default unless the account restricts it to a VPC).
-  Frequently-used topics can be saved by name (**Save topic**, next to
-  either the subscribe or publish topic field) and reloaded from either
-  field's **Load saved topic…** dropdown — topic fields aren't gated on
-  being connected, so these can be prepared ahead of time.
+  the same way the AWS IoT console's own "MQTT test client" works. The
+  connection is held by the **server**, as you (your group's role), over a
+  SigV4-signed WebSocket: **Connect** opens it, messages stream into the
+  pane newest first (the last 200 kept, payloads past 8 KB cut, JSON
+  indented), and every tab and member with the session open sees the same
+  stream -- a reload finds it still connected. Topic filters are chips
+  (Enter or **Add**, ✕ to remove); changing them while connected
+  reconnects with them, as whoever changed them, keeping the messages
+  already shown. **Disconnect** ends it for everyone; so does nobody having
+  the session open for two minutes; one person can hold five at once.
+  **Publish** sends one message through IoT's data plane and needs no open
+  connection. Topics are kept with the pane's **Saved ▾** menu (topics you
+  saved before this moved there by themselves). The role needs
+  `iot:DescribeEndpoint`, `iot:Connect`, `iot:Publish`, `iot:Subscribe` and
+  `iot:Receive` (see the permissions policy above), and the IoT Core
+  endpoint must be reachable from the backend over HTTPS/WSS. The platform
+  agent can set the topics, connect, read what arrives and disconnect --
+  as you -- but not publish.
 
-  If it connects and then disconnects immediately, the browser itself can't
-  tell you why: rejecting a WebSocket handshake never surfaces an HTTP
-  status or body to JavaScript, only a generic "closed" event. To work
-  around that, minting the connection URL also attempts the actual
-  WebSocket handshake from the backend (which *can* see AWS's response) and
-  reports the result back as a "pre-flight check" next to the endpoint —
-  read that first:
-  - `HTTP 101` means AWS accepted the handshake — the URL and signature are
-    valid, so a subsequent immediate disconnect in the browser itself points
-    at something environment-specific (network reachability from your
-    browser, a proxy, etc.) rather than IAM/signing.
+  If connecting fails, the error says what answered the WebSocket
+  handshake: when it's refused, the server tries the handshake once more on
+  its own, which reads AWS's actual response (paho, like a browser, only
+  reports "not upgraded"):
+  - "the WebSocket handshake itself was accepted" means the URL and
+    signature are valid and it was MQTT that refused -- usually an IoT
+    policy limiting the client id (`cloudwatch-insights-<random>`, shown in
+    the status once connected).
   - `HTTP 403`/`401` means AWS rejected the connection, but the generic
     `Forbidden` body it returns doesn't say why -- and **this action doesn't
     show up in CloudTrail**, since it's an MQTT-level decision inside the IoT
@@ -833,7 +840,7 @@ inputs and its output stay visibly separate.
     → Logs → set the default log level to `DEBUG` or `INFO`), reconnect, and
     look in the CloudWatch Logs group it writes to (`AWSIotLogsV2` by
     default) for the entry matching the client ID shown under the connection
-    status (`cloudwatch-insights-<random>`).
+    status.
     - **If nothing shows up there even with logging enabled**, check for a
       *per-event-type* override before assuming the request never arrived:
       `aws iot get-v2-logging-options` returns an `eventConfigurations` list
@@ -876,22 +883,16 @@ inputs and its output stay visibly separate.
       signature failure (SigV4 signatures are time-bound) -- compare
       `date -u` in the pod against a trusted clock if the above doesn't
       explain it.
-  - If a rejection shows up in the pre-flight check but nothing matching
-    ever appears in AWS IoT Core's own logging (with both the default level
-    *and* any per-event-type overrides confirmed enabled), the request may
-    never be reaching IoT Core's device gateway at all -- something in the
-    network path (a proxy, firewall, or inspection appliance) could be
-    answering first. The pre-flight check's expandable "Response headers"
-    section is the fastest way to tell a genuine AWS rejection (AWS-typical
-    headers like `x-amzn-RequestId`/`x-amzn-ErrorType`, JSON content type)
-    from an intercepting proxy's own error page (an unfamiliar `Server`
-    header, an HTML content type, or other headers a real AWS response
-    would never include).
+  - "from something that isn't AWS (no x-amzn headers: a proxy or
+    firewall?)" means the response carried none of the headers a real AWS
+    answer has (`x-amzn-RequestId`, `x-amzn-ErrorType`) -- something in the
+    network path between the backend and IoT Core answered first, which is
+    also why nothing would ever appear in IoT Core's own logging.
   - `HTTP 404` means the endpoint itself doesn't recognize `/mqtt` as a
     route at all — double check the discovered endpoint is actually this
     account's ATS IoT data endpoint.
-  - No status at all (a connection/timeout error) means the endpoint wasn't
-    reachable from the backend — check network path and security groups if
+  - "the handshake failed" with no status (a connection/timeout error)
+    means the endpoint wasn't reachable from the backend — check network path and security groups if
     the domain uses a VPC endpoint.
 
 ## Notes

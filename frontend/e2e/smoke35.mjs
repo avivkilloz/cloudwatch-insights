@@ -157,10 +157,9 @@ const run = async () => {
   check(!savedTabs.some((t) => /Aggregator/.test(t)), "…and nothing is called Aggregator any more", JSON.stringify(savedTabs));
   check(!savedTabs.some((t) => ["CloudWatch Sessions", "OpenSearch Sessions", "IoT Sessions"].includes(t)),
     "The per-service saved-session tabs are gone", JSON.stringify(savedTabs));
-  // S3's, DynamoDB's and IoT's saved items, the HTTP client's saved requests
-  // and the logs panes' saved queries are saved inputs now (D46).
-  check(savedTabs.includes("MQTT Topics") && savedTabs.includes("Saved inputs") && !savedTabs.includes("Log Queries") &&
-      !savedTabs.includes("IoT Searches") && !savedTabs.includes("HTTP Requests"),
+  // Every pane's saved items are saved inputs now (D46), the MQTT tester's
+  // topics last (3b-5): Templates and Saved inputs are all there is.
+  check(JSON.stringify(savedTabs) === JSON.stringify(["Templates", "Saved inputs"]),
     "The saved items that are still written are all still there", JSON.stringify(savedTabs));
   const openTab = await page.locator(".panel:has(h2:text-is(\"Library\")) .tab.active").innerText();
   check(openTab === "Templates", "…and it is the one open on arrival", openTab);

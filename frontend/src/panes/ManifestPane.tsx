@@ -51,6 +51,7 @@ import {
 import { actionById, Option, PaneApi, plain, RunOptions, Values } from "./paneApi";
 import HttpResponseView from "./HttpResponseView";
 import { LogsView, RunNote, SortControl } from "./LogsView";
+import { StreamView, TopicsEditor } from "./StreamView";
 import { ChartItem, HistogramView } from "./chart/ChartView";
 import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
@@ -286,6 +287,15 @@ function Rendered({ m }: { m: PaneManifest }) {
       ran.push(action.id);
       run(action, { inputs: next });
     }
+    // A connection going with the old topics reconnects with the new ones,
+    // as whoever changed them -- never under the identity of whoever
+    // connected (D54) -- keeping its messages.
+    for (const action of m.actions) {
+      if (!action.poll || !running(action) || ran.includes(action.id)) continue;
+      if (!(action.restart_on ?? []).some((k) => k in changes && !Object.is(inputs[k], changes[k]))) continue;
+      ran.push(action.id);
+      run(action, { inputs: next, restart: true });
+    }
     return ran;
   }
 
@@ -332,6 +342,7 @@ function Rendered({ m }: { m: PaneManifest }) {
           session: address.session,
           pane: address.pane,
           ...(timezone ? { timezone } : {}),
+          ...(opts.restart ? { restart: true } : {}),
         });
         const started = (result.run as RunState | undefined)?.id;
         if (started && run_?.id !== started) setAwaiting(started);
@@ -625,7 +636,7 @@ function Item({
     const action = actionById(pane, item.stop)!;
     return (
       <button className="secondary" onClick={() => pane.stopRun(action)} disabled={!pane.running(action)}>
-        Stop
+        {action.stop_label ?? "Stop"}
       </button>
     );
   }
@@ -901,6 +912,13 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
     return (
       <Labelled label={label} grow={false} spaced={spaced}>
         {select}
+      </Labelled>
+    );
+  }
+  if (input.type === "topics") {
+    return (
+      <Labelled label={label} grow={false} spaced={spaced}>
+        <TopicsEditor input={input} value={value} onChange={set} placeholder={placeholder} />
       </Labelled>
     );
   }
@@ -1483,7 +1501,9 @@ function OutputView({
     case "run":
       return <RunNote value={value} />;
     case "histogram":
-      return <HistogramView value={value} />;
+      return <HistogramView value={value} pane={pane} />;
+    case "stream":
+      return <StreamView output={output} value={value} pane={pane} />;
     case "attach": {
       // Always offered to the agent's chat, no checkbox: the HTTP client's
       // last exchange, to ask why a request came back the way it did.

@@ -768,10 +768,47 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
     """Fills in some of a pane's inputs (the keys get_context lists for its kind); inputs you leave out keep their
     value. The user sees them filled in at once. Doesn't run anything -- run_pane does."""
     with _acting() as (db, user, caller):
-        row, _ = _mutate(
+        before = {}
+        found, _ = live_store.reachable(db, user.id, session_id)
+        if found is not None:
+            before = pane_values(found.state, pane_id) if pane_id in _pane_ids(found.state) else {}
+        row, kind = _mutate(
             db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
-        return {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+        out = {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+        restarted = await _restart_if_running(db, user, row, kind, pane_id, before)
+        if restarted:
+            out["note"] = restarted
+        return out
+
+
+async def _restart_if_running(db: Session, user: models.User, row: models.LiveSession, kind: PaneKind, pane_id: str, before: dict) -> Optional[str]:
+    """A running background run whose `restart_on` inputs just changed starts
+    again as this caller (D54: a topic someone adds is subscribed as them,
+    never as whoever connected), keeping what it had shown."""
+    manifest = pane_manifest.get(kind.type)
+    main = manifest.main_action() if manifest else None
+    if main is None or main.poll is None or not main.restart_on:
+        return None
+    after = pane_values(row.state, pane_id)
+    if all(before.get(k) == after.get(k) for k in main.restart_on):
+        return None
+    going = (
+        db.query(models.PaneRun)
+        .filter(models.PaneRun.session_id == row.id, models.PaneRun.pane_id == pane_id, models.PaneRun.status == pane_runs.RUNNING)
+        .first()
+    )
+    if going is None:
+        return None
+    _, member = live_store.reachable(db, user.id, row.client_id)
+    try:
+        await asyncio.to_thread(
+            _start_run, user.id, row.id, member.id if member else None, manifest, main, pane_id, after,
+            main.poll.agent_wait or BACKGROUND_WAIT_SECONDS, True,
+        )
+    except (HTTPException, pane_runs.RunError) as e:
+        return f"It was running, and restarting it with the new inputs failed: {getattr(e, 'detail', e)}"
+    return "It was running, so it restarted with the new inputs, as you."
 
 
 def _apply_views(state: dict, user: models.User, pane_id: str, views: dict[str, Any]) -> None:
@@ -935,15 +972,18 @@ async def _run_background(db: Session, user: models.User, caller, row: models.Li
         raise InputError(_OUT_OF_SCOPE)
     _, member = live_store.reachable(db, user.id, row.client_id)
     values = {**pane_values(row.state, pane_id), "_tz": caller.timezone}
+    # A stream (an MQTT connection) never finishes: read what arrived after a
+    # few seconds rather than waiting the whole 90 on it.
+    wait = main.poll.agent_wait or BACKGROUND_WAIT_SECONDS
     try:
         run = await asyncio.to_thread(
-            _start_run, user.id, row.id, member.id if member else None, manifest, main, pane_id, values
+            _start_run, user.id, row.id, member.id if member else None, manifest, main, pane_id, values, wait
         )
     except HTTPException as e:
         raise InputError(str(e.detail)) from None
     except pane_runs.RunError as e:
         raise InputError(str(e)) from None
-    deadline = asyncio.get_running_loop().time() + BACKGROUND_WAIT_SECONDS
+    deadline = asyncio.get_running_loop().time() + wait
     status = run["status"]
     while status == pane_runs.RUNNING and asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(1.0)
@@ -951,31 +991,44 @@ async def _run_background(db: Session, user: models.User, caller, row: models.Li
     db.expire_all()
     fresh = db.get(models.LiveSession, row.id)
     values = pane_values(fresh.state if fresh else {}, pane_id)
-    results = {"results": values.get("results") or []}
+    # What the pane shows of the run: its outputs but the run itself and the
+    # histogram, a chart's worth of numbers the model doesn't need.
+    results = {
+        o.key: values.get(o.key) for o in manifest.outputs
+        if o.render not in ("run", "histogram") and values.get(o.key) is not None
+    }
+    summary = _summary(manifest, results, None)
+    # The run's status is "status"; a pane's own output of that name (MQTT's
+    # "Connected to ...") is said as what it is.
+    if "status" in summary:
+        summary["connection"] = summary.pop("status")
     out = {
         "session_id": row.client_id,
         "pane_id": pane_id,
         "shown_in": _shown_in(fresh or row, pane_id),
         "status": status,
-        **_summary(manifest, results, None),
+        **summary,
     }
     if (values.get("run") or {}).get("trimmed"):
         out["note"] = "The results were too big for a pane and were cut down; narrow the search to see them all."
     if status == pane_runs.RUNNING:
         out["note"] = (
-            "Still running after 90 seconds: these are the rows so far. It keeps running in the pane, its results "
-            "arriving there; stop_pane stops it."
+            f"Still running after {wait:.0f} seconds: this is what arrived so far. It keeps running in the pane, "
+            "more arriving there; stop_pane stops it."
         )
     return out
 
 
-def _start_run(user_id: int, row_id: int, member_id, manifest, action, pane_id: str, values: dict) -> dict:
+def _start_run(
+    user_id: int, row_id: int, member_id, manifest, action, pane_id: str, values: dict,
+    wait: float = BACKGROUND_WAIT_SECONDS, keep: bool = False,
+) -> dict:
     with SessionLocal() as db:
         user = db.get(models.User, user_id)
         row = db.get(models.LiveSession, row_id)
         member = db.get(models.SessionMember, member_id) if member_id else None
         run = pane_runs.start(
-            db, user, row, member, manifest, action, pane_id, values, agent_seconds=BACKGROUND_WAIT_SECONDS + 5
+            db, user, row, member, manifest, action, pane_id, values, agent_seconds=wait + 5, keep=keep
         )
         return {"id": run.id, "status": run.status}
 
