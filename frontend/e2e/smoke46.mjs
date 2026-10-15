@@ -177,8 +177,8 @@ const run = async () => {
   await page.click(`${TAB("CloudWatch")} .session-tab-label`);
   await page.click(".session-bar-more");
   const items = await page.locator(".rail-row-menu button").allInnerTexts();
-  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Delete"]),
-    "The strip's ⋮ offers rename, save as template and delete", JSON.stringify(items));
+  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Set as my home page", "Delete"]),
+    "The strip's ⋮ offers rename, save as template, home page and delete", JSON.stringify(items));
   await page.click('.rail-row-menu button:text-is("Rename")');
   await page.fill(".session-tab-rename", "Renamed here");
   await page.press(".session-tab-rename", "Enter");

@@ -236,8 +236,10 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   it while the pane refreshes. Suites open it with `harness.openPaneMenu`.
 - **Session variables** (D60, §18.7; `panes/variables.ts` and its twin
   `app/panes/variables.py`): `variables: {environment?, time?}` at the
-  session's level, added from the card and set in a bar under it
-  (`components/SessionVariables.tsx`). Binding is by input type, never per
+  session's level, added and set in the card's Variables row, and in its
+  header while it's folded (`components/SessionVariables.tsx`; a bar of their
+  own under the card read as a stray card and was left behind when the card
+  moved to the side panel). Binding is by input type, never per
   pane: Environment binds every AWS `connection`/`connections` input, Time
   range a layout `time_range`'s three inputs. **Automatic**: every pane
   follows unless `<pane>.unlinked` names the variable. The value is *copied*
@@ -345,6 +347,21 @@ fingerprint, not templates -- and a pane reads them with `usePaneOutputs`.
   action they set off (one write, so they can't cross), or alone
   (`POST …/outputs/{pane}/clear`); the agent's `set_pane_inputs` clears the
   same way.
+
+**Home → a session** (R3, D63, §18.9). Per user, on `users`
+(`home_session_id` -- the row's id, a client_id being only unique per owner --
+and `home_session_title` for the note once it's gone; no foreign key, users
+and live_sessions would point at each other), through
+`/api/live-sessions/home` (declared before `/{client_id}`, or "home" is read
+as a session id): GET says `home` (reachable now, owner or member), `missing`
+(deleted or left) or neither; `PUT /{client_id}/home`; DELETE clears it, which
+is also how the default page's note is dismissed. Not in `UserOut`: whether
+it's reachable needs a query, and `user_out` serves every user listing. In the
+browser `SessionsApi.home/setHome/goHome`: the brand calls `goHome` (activate,
+or reopen if closed), and a load whose view is `home` lands there once, after
+the lists and the home answer are in (`landing`). "Start new session…" still
+shows the default page. `harness.clearWorkspace` clears it, or a deleted home
+leaves its note on every later suite's default page.
 
 **Auto-refresh** (R4, D22, §18.3; `panes/refresh.tsx`, `app/panes/refresh.py`).
 A pane's `<pane>.refresh` (seconds; 0 off; unset follows the session's
@@ -1256,9 +1273,9 @@ fixed where it happens:
   -- the one section that isn't backed by session state, fetched instead
   from its own API on mount. Every control in those rows is 28px high, and
   the members are one grid with the invite row, so a member's permission and
-  ✕ sit over the invite's select and button. In the body it folds to its header (`cardCollapsed`,
-  per session like a minimised pane, and only there -- in the rail there's
-  nothing to fold). PageInfo is
+  ✕ sit over the invite's select and button. It folds to its header (`cardCollapsed`, per session like a
+  minimised pane), in the body and in the side panel alike; folded, the
+  header keeps the name and the variables' controls (`folded`). PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`

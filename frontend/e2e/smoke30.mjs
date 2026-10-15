@@ -135,8 +135,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await page.click(`${ROW("CloudWatch")} .rail-row-more`);
   await page.waitForSelector(".rail-row-menu");
   const items = await page.locator(".rail-row-menu button").allTextContents();
-  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Delete"]),
-    "The ⋮ offers rename, save as template and delete", JSON.stringify(items));
+  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Set as my home page", "Delete"]),
+    "The ⋮ offers rename, save as template, home page and delete", JSON.stringify(items));
   check(!items.includes("Close"), "…and no longer Close, which moved to the tab");
 
   // ---------- rename happens in the row ----------

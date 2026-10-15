@@ -1,8 +1,11 @@
 /**
- * The session's variables (PLATFORM_PLAN.md §18.7, D60), in a bar under the
- * session card: an Environment and a Time range that every pane with such an
- * input follows. It stays in view mode -- it's what a dashboard is driven by --
- * and a viewer sees it but can't change it.
+ * The session's variables (PLATFORM_PLAN.md §18.7, D60): an Environment and a
+ * Time range that every pane with such an input follows. Set in the session
+ * card's Variables row, and in its header while the card is folded -- what a
+ * dashboard is driven by stays at hand however the card is put away. They used
+ * to be a bar of their own under the card, which read as a stray card and
+ * stayed behind when the card moved to the side panel. A viewer sees them but
+ * can't change them.
  */
 
 import { useEffect, useState } from "react";
@@ -20,11 +23,14 @@ export default function SessionVariables({
   variables,
   onChange,
   readOnly,
+  removable,
 }: {
   variables: Variables;
   /** The new variables, and which of them changed. */
   onChange: (next: Variables, changed: VariableName[]) => void;
   readOnly: boolean;
+  /** Each with its ✕ (the card's row), or only the controls (its header). */
+  removable: boolean;
 }) {
   const [environments, setEnvironments] = useState<Environment[] | null>(null);
   useEffect(() => {
@@ -45,10 +51,10 @@ export default function SessionVariables({
 
   const time = variables.time;
   return (
-    <div className="session-variables" role="group" aria-label="Session variables">
+    <>
       {names.map((name) => (
-        <div key={name} className="session-variable">
-          <span className="field-label">{VARIABLE_LABELS[name]}</span>
+        <span key={name} className="session-variable" role="group" aria-label={`Session ${VARIABLE_LABELS[name]}`}>
+          <span className="session-variable-label">{VARIABLE_LABELS[name]}</span>
           <fieldset disabled={readOnly} className="session-variable-control">
             {name === "environment" ? (
               <select
@@ -92,7 +98,6 @@ export default function SessionVariables({
                       value={time.start}
                       onChange={(e) => set("time", { ...time, start: e.target.value })}
                       placeholder="YYYY-MM-DDTHH:mm"
-                      style={{ width: 160 }}
                     />
                     <span className="muted">to</span>
                     <input
@@ -101,16 +106,15 @@ export default function SessionVariables({
                       value={time.end}
                       onChange={(e) => set("time", { ...time, end: e.target.value })}
                       placeholder="YYYY-MM-DDTHH:mm"
-                      style={{ width: 160 }}
                     />
                   </>
                 )}
               </>
             )}
           </fieldset>
-          {!readOnly && (
+          {removable && !readOnly && (
             <button
-              className="secondary icon-btn"
+              className="icon-btn session-variable-remove"
               onClick={() => remove(name)}
               aria-label={`Remove the ${VARIABLE_LABELS[name]} variable`}
               title={`Remove the ${VARIABLE_LABELS[name]} variable (panes keep the value they have)`}
@@ -118,8 +122,8 @@ export default function SessionVariables({
               <Icon name="close" />
             </button>
           )}
-        </div>
+        </span>
       ))}
-    </div>
+    </>
   );
 }

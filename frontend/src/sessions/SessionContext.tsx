@@ -10,7 +10,7 @@ import {
   ReactNode,
   SetStateAction,
 } from "react";
-import { ApiError, LiveSessionSummary, SessionCategory, api, readableError } from "../api";
+import { ApiError, HomeSession, LiveSessionSummary, SessionCategory, api, readableError } from "../api";
 import { PageId } from "../pages/pageTypes";
 import {
   EMPTY_WORKSPACE,
@@ -178,6 +178,14 @@ interface SessionsApi {
    * the server refused. */
   notice: string | null;
   dismissNotice: () => void;
+  /** The user's home page (R3, D63): a session, one that's gone, or neither --
+   * null until the server has said. */
+  home: HomeSession | null;
+  /** Makes a session the home page, or (null) the default page again. */
+  setHome: (id: string | null) => void;
+  /** Where the brand goes: the home session (reopened if it was closed), or
+   * the default page. */
+  goHome: () => void;
   activate: (id: string) => void;
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
@@ -366,6 +374,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // The workspace is pushed only once the server's list is in: before it, no
   // version is known, and a push without one overwrites whatever is there.
   const [listed, setListed] = useState(false);
+  // Whether this load may still land on the home session: once, when it
+  // would otherwise show the default page (see the effect after goHome).
+  const landing = useRef(true);
   // The stored bases, until the server's list replaces them: a save in the
   // meantime would otherwise store none, and a second reload lose them.
   const storedBases = useRef<Record<string, PersistedSession>>({});
@@ -392,6 +403,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setClosed([]);
     setCategories([]);
     setListed(false);
+    setHomeState(null);
+    landing.current = true;
     sinceLoad.current = emptySinceLoad();
 
     (async () => {
@@ -491,6 +504,8 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         };
       });
       setListed(true);
+      const homeAnswer = await api.getHomeSession().catch(() => null);
+      if (!cancelled && homeAnswer) setHomeState(homeAnswer);
     })();
 
     return () => {
@@ -608,6 +623,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     };
     const drop = (id: string) => {
       changed((c) => c.gone.add(id));
+      if (homeRef.current?.home?.client_id === id) refreshHome();
       sync.forget(id);
       setWorkspace((w) => (w.sessions.some((s) => s.id === id) ? withoutSession(w, id) : w));
     };
@@ -802,6 +818,12 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   );
 
   const [notice, setNotice] = useState<string | null>(null);
+  const [home, setHomeState] = useState<HomeSession | null>(null);
+  const homeRef = useRef(home);
+  homeRef.current = home;
+  const refreshHome = useCallback(() => {
+    api.getHomeSession().then(setHomeState, () => undefined);
+  }, []);
   const remove = useCallback(
     (id: string) => {
       changed((c) => c.gone.add(id));
@@ -816,7 +838,10 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       setClosed((c) => c.filter((s) => s.client_id !== id));
       sync.forget(id);
       sync.enqueue(() =>
-        (leaving ? api.removeSessionMember(id, userId) : api.deleteLiveSession(id)).catch((e: unknown) => {
+        (leaving ? api.removeSessionMember(id, userId) : api.deleteLiveSession(id)).then(() => {
+          // Gone, and it was the home page: the default page says so now.
+          if (homeRef.current?.home?.client_id === id) refreshHome();
+        }, (e: unknown) => {
           // Already gone from the server: what was asked for is done.
           if (!leaving && e instanceof ApiError && e.status === 404) return;
           // Otherwise it's still there, and will be on the next load: put it
@@ -828,13 +853,36 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         }),
       );
     },
-    [sync, userId],
+    [sync, userId, refreshHome],
   );
   const dismissNotice = useCallback(() => setNotice(null), []);
 
   const activate = useCallback((id: string) => {
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
   }, []);
+
+  const setHome = useCallback((id: string | null) => {
+    (id ? api.setHomeSession(id) : api.clearHomeSession()).then(setHomeState, (e: unknown) =>
+      setNotice(`Couldn't ${id ? "set" : "change"} your home page: ${readableError(e)}`),
+    );
+  }, []);
+
+  const goHome = useCallback(() => {
+    const target = homeRef.current?.home?.client_id;
+    if (target && workspaceRef.current.sessions.some((s) => s.id === target)) activate(target);
+    else if (target && closedRef.current.some((s) => s.client_id === target)) reopen(target);
+    else setWorkspace((w) => ({ ...w, view: "home" }));
+  }, [activate, reopen]);
+
+  // A load that would land on the default page -- sign-in, a fresh browser, a
+  // reload while on it -- lands on the home session instead (R3). Once, when
+  // both the lists and the home answer are in, so it reopens from the real
+  // closed list; "Start new session…" afterwards still shows the default page.
+  useEffect(() => {
+    if (!listed || !home || !landing.current) return;
+    landing.current = false;
+    if (home.home && workspace.view === "home") goHome();
+  }, [listed, home, workspace.view, goHome]);
 
   const rename = useCallback((id: string, title: string) => {
     changed((c) => c.titles.set(id, title));
@@ -978,6 +1026,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       remove,
       notice,
       dismissNotice,
+      home,
+      setHome,
+      goHome,
       activate,
       rename,
       reorder,
@@ -1001,6 +1052,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       remove,
       notice,
       dismissNotice,
+      home,
+      setHome,
+      goHome,
       activate,
       rename,
       reorder,

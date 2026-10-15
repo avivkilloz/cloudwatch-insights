@@ -1121,8 +1121,8 @@ foundation the next one needs.
   - **3c, sessions as live dashboards:** view mode, session variables,
     auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
     throughout, and each step's browser suites check it. Three PRs (D56, §18):
-    3c-1 (results in their own store, auto-refresh) built 2026-10-15; then view
-    mode and variables; then Home.
+    3c-1 (results in their own store, auto-refresh) built 2026-10-15; 3c-2
+    (view mode and variables) 2026-10-15; 3c-3 (Home) 2026-10-16.
   - **3d, permissions, categories and a first new pane:**
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).
@@ -1223,6 +1223,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D60 | 2026-10-15 | **Session variables bind automatically, by input type** (§18.7). An Environment variable sets every AWS connection input, a Time range every layout time range, unless the pane is unlinked. The value is copied into the pane's inputs, and the tab that changed it re-runs the panes that had run. | The user's choice, over linking each input by hand: least setup, like Grafana, and a new pane follows too. Copying keeps inputs the one truth, so refresh, the agent and templates need nothing new. |
 | D61 | 2026-10-15 | **View mode hides a pane's inputs and actions and keeps its outputs**: a session setting, a per-pane override in its ⚙, and always on for a viewer member (§18.7). | R2's two levels. A viewer can't change inputs anyway, so showing them was only clutter. |
 | D62 | 2026-10-15 | **A viewer's tab refreshes a dashboard as the viewer, when they can reach every connection the pane uses** (§18.7). Otherwise nothing runs, and nothing is recorded as a failure. | The user's choice, over editors only or the owner's access lent to viewers. Everyone still acts as themselves, and a dashboard watched only by viewers still refreshes. |
+| D63 | 2026-10-16 | **Home → a session is per user, set from the session's ⋮, and the brand is the way there** (§18.9). "Start new session…" keeps the catalogue; a session that's gone leaves the default page with a note, and the setting is cleared when the note is dismissed. The session variables move into the session card (the user's report). | R3. The brand is what every app treats as "home"; the catalogue is what you start things from, so it stays one click away whatever home is. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3639,6 +3640,42 @@ reached IndexedDB (an async write cut off by the unload), as before.
 **Leave.** A member's ✕ and menu leave a shared session
 (`DELETE …/members/<self>`); a delete or leave the server refuses puts the
 session back with a notice (`SessionsApi.notice`).
+
+### 18.9 3c-3: Home → a session (R3, D63)
+
+**Asked for:** a session as a user's home page (R3): any session they can
+reach, shared ones included; if it's deleted or they leave it, Home falls back
+to the default page with a note saying why.
+
+**Built:**
+- **Stored per user** on `users` (`home_session_id`, the row's own id -- a
+  `client_id` is only unique per owner -- and `home_session_title`, kept for
+  the note once the row is gone). Not in `UserOut`: whether it's still
+  reachable needs a query, and `user_out` serves every listing of users.
+- **`/api/live-sessions/home`**: GET answers `{home: {client_id, title,
+  closed}}`, `{missing: title}` when the session was deleted or isn't shared
+  with them any more, or nothing set; `PUT /{client_id}/home` sets it to a
+  session the caller can reach (404 otherwise); DELETE clears it.
+- **Where it shows:**
+  - The session's ⋮ offers "Set as my home page" or "Stop using as home
+    page"; the home session's row in the side panel carries a small house.
+  - The brand row goes there (reopening it if it was closed).
+  - So does a load that would land on the default page -- sign-in, a fresh
+    browser, a reload while on it.
+  - "Start new session…" still shows the catalogue: it is what you start
+    things from, whatever home is.
+- **Gone:** the default page says "Your home page, "X", was deleted or isn't
+  shared with you any more", and Dismiss clears the setting.
+
+**Not done:** a group default set by an admin (R3's "later"), and the agent
+setting it -- it's a preference of the person, not something a session's
+conversation should change.
+
+**Variables in the card (the user's report, same PR).** The bar under the
+card read as a stray card and stayed behind when the card moved to the side
+panel. The variables are set in the card's Variables row now; folded, the
+card's header keeps their controls, so a folded dashboard can still be driven;
+and the card folds in the side panel too.
 
 ## 12. Research sources
 

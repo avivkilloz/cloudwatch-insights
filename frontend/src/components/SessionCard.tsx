@@ -10,7 +10,9 @@ import Icon from "./Icon";
  *
  * It lives either at the top of the body or in the side panel (the corner
  * button, per browser, `railSlot.ts`), and stays wherever it was put -- in the
- * side panel even while that's hidden -- until it's moved back.
+ * side panel even while that's hidden -- until it's moved back. It folds to
+ * its header in either place; folded, the header keeps the session's name and
+ * its variables' controls, so a dashboard folded away can still be driven.
  */
 
 /** One row: its label, and whatever it holds. */
@@ -37,18 +39,21 @@ export default function SessionCard({
   onRename,
   onDescribe,
   onMove,
+  folded: foldedExtra,
   children,
 }: {
   title: string;
   description: string;
   inRail: boolean;
-  /** Folded down to its header (and the session's name). Only in the body:
-   * in the side panel it's out of the way already. */
+  /** Folded down to its header (and the session's name), in the body or the
+   * side panel alike -- the side panel is narrow, and the card took most of it. */
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onRename: (title: string) => void;
   onDescribe: (description: string) => void;
   onMove: () => void;
+  /** What the header holds while folded, after the name (the variables). */
+  folded?: ReactNode;
   children: ReactNode;
 }) {
   const [editing, setEditing] = useState<"title" | "description" | null>(null);
@@ -92,13 +97,13 @@ export default function SessionCard({
   }
 
   const hasDescription = description.trim() !== "";
-  const folded = collapsed && !inRail;
+  const folded = collapsed;
 
   // The whole header toggles, like a pane's -- so its buttons have to stop
   // their click bubbling there, or a press on Fold would toggle twice (once
   // from the button, once from the header it bubbles to) and cancel out.
   function headerClick() {
-    if (!inRail) onToggleCollapsed();
+    onToggleCollapsed();
   }
   function stop<E extends { stopPropagation(): void }>(fn: () => void) {
     return (e: E) => {
@@ -113,18 +118,22 @@ export default function SessionCard({
         <span className="session-card-kicker">Session</span>
         {/* Folded, the name is all that's left to say which session this is. */}
         {folded && <span className="session-card-folded-title">{title}</span>}
+        {folded && foldedExtra && (
+          // Its controls are used, not clicked through to the header.
+          <div className="session-card-folded-extra" onClick={(e) => e.stopPropagation()}>
+            {foldedExtra}
+          </div>
+        )}
         <div className="session-card-actions">
-          {!inRail && (
-            <button
-              className="session-card-fold secondary icon-btn"
-              onClick={stop(onToggleCollapsed)}
-              aria-expanded={!folded}
-              aria-label={folded ? "Expand the session card" : "Collapse the session card"}
-              title={folded ? "Expand" : "Collapse"}
-            >
-              <Icon name={folded ? "plus" : "minus"} />
-            </button>
-          )}
+          <button
+            className="session-card-fold secondary icon-btn"
+            onClick={stop(onToggleCollapsed)}
+            aria-expanded={!folded}
+            aria-label={folded ? "Expand the session card" : "Collapse the session card"}
+            title={folded ? "Expand" : "Collapse"}
+          >
+            <Icon name={folded ? "plus" : "minus"} />
+          </button>
           <button
             className="session-card-move secondary icon-btn"
             onClick={stop(onMove)}

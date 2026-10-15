@@ -622,6 +622,22 @@ class PaneOutputsClear(BaseModel):
 LiveSessionOut.model_rebuild()
 
 
+class HomeSessionRef(BaseModel):
+    client_id: str
+    title: str
+    # Closed in the caller's own panel: Home reopens it.
+    closed: bool
+
+
+class HomeSessionOut(BaseModel):
+    """The caller's home page (R3, D63): a session they can reach, or the
+    title of one that was deleted or isn't shared with them any more -- or
+    neither, when none is set."""
+
+    home: Optional[HomeSessionRef] = None
+    missing: Optional[str] = None
+
+
 class LiveSessionSummary(BaseModel):
     """A closed session as the side panel lists it: enough to show and reopen,
     without its rows. Nothing trims the closed list, so sending every session's

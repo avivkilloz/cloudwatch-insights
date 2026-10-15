@@ -25,7 +25,7 @@ const MAX_PER_TYPE = 10;
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { show, categories } = useSessions();
+  const { show, categories, home, setHome } = useSessions();
   const { start } = useStartSession();
   // How many panes of each kind the new session gets; absent means none.
   const [counts, setCounts] = useState<Partial<Record<SessionType, number>>>({});
@@ -61,6 +61,18 @@ export default function HomePage() {
 
   return (
     <div className="home">
+      {/* The session that was the home page is gone: say so rather than
+          quietly showing this page instead (R3). Dismissing clears it. */}
+      {home?.missing && (
+        <div className="panel home-missing" role="status">
+          <span>
+            Your home page, “{home.missing}”, was deleted or isn't shared with you any more, so this is the default page.
+          </span>
+          <button className="secondary" onClick={() => setHome(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="panel">
         <h2 style={{ marginBottom: 4 }}>New session</h2>
         <p className="muted home-group-blurb">

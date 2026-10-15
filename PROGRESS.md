@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-15, after 3c-2: sort with the results, the session card, load merges with the server._
+_Last updated: 2026-10-16, 3c-3 (Home → a session) and the variables in the session card._
 
 ## Platform plan
 
@@ -1098,7 +1098,22 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - Tests: smoke78 (19); its stale-copy checks fail against the old sync code;
   smoke69 and smoke49 updated.
 
-Next: 3c-3 (Home → a session), detailed in PLATFORM_PLAN.md before it is built.
+#115 merged. This round's PR:
+- **The session variables are in the session card** (the user's report): set in
+  its Variables row, and in its header while it's folded; the bar under the
+  card is gone, so they move to the side panel with it. The card folds in the
+  side panel too.
+- **3c-3, Home → a session** (PLATFORM_PLAN.md §18.9, D63): a session's ⋮ sets
+  it, the brand and a load that would show the default page go there (a closed
+  one reopened), its row carries a house, "Start new session…" keeps the
+  catalogue, and a home session that's deleted or left leaves a note on the
+  default page until dismissed. Shared sessions included.
+- Tests: backend `test_home_session.py` (6); smoke79 (20), failing against the
+  old frontend; smoke78 (variables folded and in the side panel), smoke77 and
+  smoke49 updated.
+
+Next: 3d (permissions, categories and a first new pane), detailed in
+PLATFORM_PLAN.md before it is built.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1268,9 +1283,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3c-3 (Home → a session), detailed in PLATFORM_PLAN.md §18 before it is built.
-   3c-2's follow-ups if wanted: more kinds of variable (text, a choice), and a
-   variable bound to a plugin's own input type.
+1. 3d (per-type permissions, the catalogue with categories, a first new
+   pane), detailed in PLATFORM_PLAN.md before it is built. Follow-ups if
+   wanted: more kinds of variable (text, a choice), a variable bound to a
+   plugin's own input type, and an admin-set group default home page.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
 3. **Platform agent, phase 3.**

@@ -160,7 +160,12 @@ const run = async () => {
 
   await page.click(`${CARD} .session-card-move`);
   await page.waitForTimeout(300);
-  check((await page.locator(".rail-session-slot .session-card-fold").count()) === 0, "In the side panel there's nothing to fold");
+  // The side panel is narrow and the card took most of it: it folds there too.
+  await page.click('.rail-session-slot [aria-label="Collapse the session card"]');
+  check((await page.locator(".rail-session-slot .session-card-row").count()) === 0 &&
+    (await page.locator(".rail-session-slot .session-card-folded-title").innerText()) === "Checkout",
+    "In the side panel, the card folds to its header and the session's name too");
+  await page.click('.rail-session-slot [aria-label="Expand the session card"]');
   const stacked = await page.evaluate(() => {
     const row = document.querySelector(".rail-session-slot .session-card-row");
     return row.querySelector(".session-card-values").getBoundingClientRect().top >= row.querySelector(".session-card-label").getBoundingClientRect().bottom - 1;

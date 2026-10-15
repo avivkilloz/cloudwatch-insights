@@ -19,7 +19,8 @@ export type IconName =
   | "left"
   | "right"
   | "to-rail"
-  | "from-rail";
+  | "from-rail"
+  | "home";
 
 // Generated: eight teeth between radii 5.2 and 6.9 around (8, 8).
 const GEAR =
@@ -41,6 +42,7 @@ const PATHS: Record<IconName, string> = {
   // To the side panel and back: an arrow to (or from) the panel's edge.
   "to-rail": "M2.5 3 V13 M13.5 8 H5.5 M8.5 5 L5.5 8 L8.5 11",
   "from-rail": "M13.5 3 V13 M2.5 8 H10.5 M7.5 5 L10.5 8 L7.5 11",
+  home: "M2.5 7.5 L8 2.75 L13.5 7.5 M4 6.25 V13.25 H12 V6.25 M6.75 13.25 V9.5 H9.25 V13.25",
 };
 
 export default function Icon({ name }: { name: IconName }) {

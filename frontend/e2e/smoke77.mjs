@@ -66,8 +66,9 @@ const run = async () => {
   await page.click(`${CARD} button:has-text("Stacked")`);
   await page.click(`${CARD} button:text-is("+ Environment")`);
   await page.click(`${CARD} button:text-is("+ Time range")`);
-  await page.waitForSelector(`${SHOWN} .session-variables`);
-  check((await page.locator(`${SHOWN} .session-variables select`).count()) === 2, "Added from the card, the variables are a bar under it");
+  await page.waitForSelector(`${CARD} .session-variable`);
+  check((await page.locator(`${CARD} .session-variable select`).count()) === 2 && (await page.locator(`${SHOWN} .session-variables`).count()) === 0,
+    "Added from the card, the variables are set in its Variables row, not a bar of their own");
   await page.selectOption(`${SHOWN} select[aria-label="Session environment"]`, { label: labelOf(a) });
   await page.waitForTimeout(500);
   const dynamo = `${PANE("DynamoDB")} select[aria-label="Environment"]`;
@@ -88,7 +89,7 @@ const run = async () => {
   const other = await newPage(browser);
   await signIn(other);
   await other.click(ROW(title));
-  await other.waitForSelector(`${SHOWN} .session-variables`);
+  await other.waitForSelector(`${SHOWN} .session-variable`);
   let otherRan = 0;
   other.on("request", (r) => { if (r.url().includes("/api/panes/iot/actions/search")) otherRan++; });
 
@@ -127,7 +128,7 @@ const run = async () => {
     "View mode hides the panes' inputs and buttons");
   check((await page.locator(`${PANE("IoT")} >> text=robot-1`).count()) > 0 && (await page.locator(`${PANE("IoT")} .view-mode-line`).innerText()).includes("Updated"),
     "…keeping their results, with how old they are");
-  check((await page.locator(`${SHOWN} .session-variables`).count()) === 1, "…and the variables bar, which drives the dashboard");
+  check((await page.locator(`${CARD} .session-variable select`).count()) === 2, "…and the variables in the card, which drive the dashboard");
   await openPaneMenu(page, "IoT");
   await page.selectOption('.pane-menu-list select[aria-label="This pane\'s inputs"]', "shown");
   await page.keyboard.press("Escape");

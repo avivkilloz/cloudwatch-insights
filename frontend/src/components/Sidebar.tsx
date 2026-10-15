@@ -8,6 +8,7 @@ import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
 import AgentWorking from "./AgentWorking";
+import Icon from "./Icon";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -60,7 +61,10 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
     deleteCategory,
     reorderCategories,
     setSessionCategory,
+    home,
+    goHome,
   } = useSessions();
+  const homeId = home?.home?.client_id ?? null;
   const agentActive = useAgentActivity();
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
@@ -313,6 +317,12 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
             {s.title}
           </button>
         )}
+        {/* Which session the brand goes to (R3). */}
+        {s.id === homeId && (
+          <span className="rail-row-home-mark" title="Your home page" aria-label="Your home page">
+            <Icon name="home" />
+          </span>
+        )}
         {/* Beside the name, not in it: the name is what finds the row. */}
         {agentActive.has(s.id) && <AgentWorking />}
         <Popover
@@ -351,6 +361,11 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
         >
           {s.title}
         </button>
+        {s.client_id === homeId && (
+          <span className="rail-row-home-mark" title="Your home page" aria-label="Your home page">
+            <Icon name="home" />
+          </span>
+        )}
         <button
           className="rail-row-forget"
           onClick={() => {
@@ -379,8 +394,12 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
       <div className="rail-head">
         <button
           className={`rail-row rail-row-home rail-brand${view === "home" ? " active" : ""}`}
-          onClick={() => show("home")}
-          title="The home page: every service, tool and platform feature"
+          onClick={goHome}
+          title={
+            home?.home
+              ? `Your home page: ${home.home.title}`
+              : "The home page: every service, tool and platform feature"
+          }
         >
           <BrandMark brand={brand} size={18} />
           <span className="rail-row-label rail-brand-title">{brand.title}</span>
