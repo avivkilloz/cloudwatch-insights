@@ -33,7 +33,7 @@ import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
-import { usePaneAddress, useSessions, useSessionState } from "../sessions/SessionContext";
+import { usePaneAddress, useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
 import { IndicesPicker, LogGroupsPicker, TimeRange } from "./GroupedPicker";
 import { FilesView, ListView, TagsView } from "./ListView";
@@ -60,6 +60,8 @@ import PaneSettings from "./PaneSettings";
 import { RefreshFailure, useAutoRefresh } from "./refresh";
 import { useSavedInputs } from "./SavedInputsMenu";
 import { TitleExtra } from "./titleExtra";
+import { boundBy, boundValues, changedInThisTab, targets as targetsOf, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "./variables";
+import { ViewModeLine } from "./viewMode";
 import { render } from "./template";
 
 /** Where an item is drawn, which decides its markup: a card's own column, a
@@ -84,6 +86,11 @@ interface Pane extends PaneApi {
   stopRun: (action: ManifestAction) => void;
   /** A results card's Clear: these outputs, for everyone looking. */
   clearOutputs: (keys: string[]) => void;
+  /** Input key -> the session variable it follows now (D60): drawn read-only. */
+  bound: Record<string, VariableName>;
+  unlink: (name: VariableName) => void;
+  /** View mode (D61): the pane shows its outputs only. */
+  viewOnly: boolean;
 }
 
 /** A background run as the server writes it into `out.run` (D51). */
@@ -198,6 +205,19 @@ function Rendered({ m }: { m: PaneManifest }) {
   );
 
   const live = useLiveOutputs(m, inputs);
+  // Session variables this pane follows (D60), and view mode (D61). A viewer
+  // always sees view mode: they can't change inputs, so showing them was only
+  // clutter.
+  const variables = useSessionValue<Variables>(VARIABLES_KEY) ?? NO_VARIABLES;
+  const [unlinked, setUnlinked] = useSessionState<string[]>("unlinked", []);
+  const [inputsShown, setInputsShown] = useSessionState<"shown" | "hidden" | undefined>("inputs", undefined);
+  const sessionView = !!useSessionValue<boolean>("viewMode");
+  const { sessions: allSessions } = useSessions();
+  const viewer = allSessions.find((s) => s.id === address.session)?.role === "viewer";
+  const viewOnly = viewer || (inputsShown ? inputsShown === "hidden" : sessionView);
+  const unlinkedList = Array.isArray(unlinked) ? unlinked : [];
+  const bound = boundBy(m, variables, unlinkedList);
+  const boundKey = JSON.stringify(boundValues(m, variables, unlinkedList));
   const [clicked, setClicked] = useState<Outputs>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
@@ -494,13 +514,62 @@ function Rendered({ m }: { m: PaneManifest }) {
     running,
     stopRun,
     clearOutputs,
+    bound,
+    unlink: (name) => setUnlinked([...unlinkedList.filter((n) => n !== name), name]),
+    viewOnly,
   };
+  // The pane holds the values of the variables it follows. Changed in this
+  // tab, the change is a person's (resets, on_change) and what had run runs
+  // again; changed elsewhere (another tab, a member, a pane just added), the
+  // inputs are only brought in line -- whoever changed it runs, not every tab.
+  useEffect(() => {
+    if (viewer) return;
+    const values = JSON.parse(boundKey) as Values;
+    const diff: Values = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (JSON.stringify(plain(inputs[key])) !== JSON.stringify(value)) diff[key] = value;
+    }
+    if (!Object.keys(diff).length) return;
+    if (!changedInThisTab(address.session)) {
+      for (const [key, value] of Object.entries(diff)) setInputValue(key, value);
+      return;
+    }
+    const ran = changeInputs(diff);
+    const main = m.actions.find((a) => a.main);
+    const next = { ...inputs, ...diff };
+    if (main && m.refresh && ranAt && !ran.includes(main.id) && missingInput(main, next) === null) run(main, { inputs: next });
+    // Only when what the variables give changes; the inputs it reads are this render's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundKey, viewer]);
+
   return (
     <div>
-      <PaneSettings pane={pane} refresh={refresh} saved={saved} />
+      <PaneSettings
+        pane={pane}
+        refresh={refresh}
+        saved={saved}
+        follows={follows(m, variables, unlinkedList, (name, follow) =>
+          setUnlinked(follow ? unlinkedList.filter((n) => n !== name) : [...unlinkedList.filter((n) => n !== name), name]),
+        )}
+        inputs={{ own: inputsShown, sessionView, viewer, set: setInputsShown }}
+      />
+      {viewOnly && (
+        <ViewModeLine
+          m={m}
+          session={address.session}
+          pane={address.pane}
+          ranAt={ranAt ?? null}
+          timezone={hasTimeRange(m) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined}
+        />
+      )}
       {saved.error && <p className="error-text">{saved.error}</p>}
       <RefreshFailure state={refresh} />
-      {m.layout.map((card, i) => (shown(card.when, pane) ? <CardView key={i} card={card} pane={pane} /> : null))}
+      {m.layout.map((card, i) =>
+        shown(card.when, pane) && (!viewOnly || showsInView(card.items, pane)) ? <CardView key={i} card={card} pane={pane} /> : null,
+      )}
+      {viewOnly && !!ranAt && !m.layout.some((card) => shown(card.when, pane) && showsInView(card.items, pane)) && (
+        <p className="muted">Nothing to show from the last run.</p>
+      )}
     </div>
   );
 }
@@ -541,6 +610,64 @@ function useLiveOutputs(m: PaneManifest, inputs: Values): Outputs {
   return { ...awaited, ...now };
 }
 
+const NO_VARIABLES: Variables = {};
+
+/** Whether an item is drawn in view mode (D61): a pane's outputs, and what
+ * belongs to them (a chart's pickers, sort, copy, errors); never its inputs,
+ * buttons, help or examples. Kept by its place in the manifest -- items are
+ * keyed by it -- just not drawn. */
+function inView(item: LayoutItem): boolean {
+  if (item.row || item.toolbar || item.line) return [...(item.row ?? []), ...(item.toolbar ?? []), ...(item.line ?? [])].some(inView);
+  return !!(item.output || item.chart || item.sort || item.error || item.copy || item.flash);
+}
+
+/** Whether a card has anything to show in view mode: an output holding
+ * something, or an error. A card left with only its Sort, or an empty
+ * results table, is a frame around nothing in a dashboard. */
+function showsInView(items: LayoutItem[], pane: { outputs: Values; errors: Record<string, string | null> }): boolean {
+  return items.some((item) =>
+    item.row || item.toolbar || item.line
+      ? showsInView([...(item.row ?? []), ...(item.toolbar ?? []), ...(item.line ?? [])], pane)
+      : (!!item.output && present(pane.outputs[item.output])) ||
+        (!!item.chart && present(pane.outputs[item.chart])) ||
+        (!!item.error && !!pane.errors[item.error]),
+  );
+}
+
+/** The variables a pane could follow and does, for its ⚙. */
+function follows(
+  m: PaneManifest,
+  variables: Variables,
+  unlinked: string[],
+  set: (name: VariableName, follow: boolean) => void,
+): { name: VariableName; label: string; following: boolean; set: (follow: boolean) => void }[] {
+  const names = Object.keys(targetsOf(m)) as VariableName[];
+  return names
+    .filter((name) => variables[name] !== undefined)
+    .map((name) => ({ name, label: VARIABLE_LABELS[name], following: !unlinked.includes(name), set: (f) => set(name, f) }));
+}
+
+/** An input following a session variable: shown, not changeable here, saying
+ * where its value comes from -- and how to make it the pane's own again. */
+function Bound({ name, pane, inline, children }: { name: VariableName; pane: Pane; inline: boolean; children: ReactNode }) {
+  const note = (
+    <span className={`bound-note muted${inline ? "" : " block"}`}>
+      From the session's {VARIABLE_LABELS[name]} ·{" "}
+      <button className="link-button" onClick={() => pane.unlink(name)}>
+        Unlink
+      </button>
+    </span>
+  );
+  return (
+    <>
+      <fieldset className="bound-input" disabled title={`Follows the session's ${VARIABLE_LABELS[name]}`}>
+        {children}
+      </fieldset>
+      {note}
+    </>
+  );
+}
+
 function present(value: unknown): boolean {
   return value !== undefined && value !== null && value !== "";
 }
@@ -572,8 +699,8 @@ function CardView({ card, pane }: { card: Card; pane: Pane }) {
   const title = textOf(card.title, pane.inputs);
   const aside = card.aside.filter((item) => shown(item.when, pane));
   // Clear, while there's something of the card's results to clear: an empty
-  // card offering to empty itself is only noise.
-  const clear = card.clear.some((key) => present(pane.outputs[key])) ? (
+  // card offering to empty itself is only noise. Not in view mode: it's an edit.
+  const clear = !pane.viewOnly && card.clear.some((key) => present(pane.outputs[key])) ? (
     <button className="secondary" onClick={() => pane.clearOutputs(card.clear)} title="Clear these results, for everyone">
       Clear
     </button>
@@ -654,6 +781,8 @@ function Item({
   prev?: LayoutItem;
   last?: boolean;
 }) {
+  // View mode draws a pane's outputs only (D61).
+  if (pane.viewOnly && !inView(item)) return null;
   const children = (list: LayoutItem[], inner: Place) =>
     list.map((child, at) => (shown(child.when, pane) ? <Item key={at} item={child} pane={pane} place={inner} /> : null));
 
@@ -731,7 +860,11 @@ function Item({
       </button>
     );
   }
-  if (item.time_range) return <TimeRange spec={item.time_range} pane={pane} />;
+  if (item.time_range) {
+    const name = pane.bound[item.time_range.preset];
+    const range = <TimeRange spec={item.time_range} pane={pane} />;
+    return name ? <Bound name={name} pane={pane} inline>{range}</Bound> : range;
+  }
   if (item.chart) {
     const output = pane.m.outputs.find((o) => o.key === item.chart);
     return output ? <ChartItem output={output} pane={pane} place={place} /> : null;
@@ -746,7 +879,9 @@ function Item({
   }
   if (item.input) {
     const input = pane.m.inputs.find((i) => i.key === item.input)!;
-    return <InputView input={input} pane={pane} place={place} />;
+    const view = <InputView input={input} pane={pane} place={place} />;
+    const name = pane.bound[input.key];
+    return name ? <Bound name={name} pane={pane} inline={place === "toolbar" || place === "line" || place === "aside"}>{view}</Bound> : view;
   }
   if (item.output) {
     const output = pane.m.outputs.find((o) => o.key === item.output)!;

@@ -21,6 +21,8 @@ import {
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { PaneMenuSlot } from "../components/paneMenuSlot";
 import Icon from "../components/Icon";
+import SessionVariables from "../components/SessionVariables";
+import { announceVariableChange, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "../panes/variables";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { every, REFRESH_CHOICES } from "../panes/refresh";
@@ -1145,6 +1147,18 @@ export default function AggregatorPage() {
   // The session's auto-refresh, for every pane that can and hasn't one of its
   // own (§18.3, panes/refresh.tsx).
   const [refreshEvery, setRefreshEvery] = useSessionState<number>("refresh", 0);
+  // The session's variables (D60) and view mode (D61). A viewer always sees
+  // view mode and can't change either.
+  const [variables, setVariables] = useSessionState<Variables>(VARIABLES_KEY, {});
+  const [viewMode, setViewMode] = useSessionState<boolean>("viewMode", false);
+  const sessionRole = sessions.find((x) => x.id === scope?.id)?.role;
+  const isViewer = sessionRole === "viewer";
+  const defined = (variables && typeof variables === "object" ? variables : {}) as Variables;
+  function changeVariables(next: Variables, changed: VariableName[]) {
+    // This tab's panes re-run what they had run; other tabs only follow.
+    if (changed.length && scope?.id) announceVariableChange(scope.id);
+    setVariables(next);
+  }
   // Per session, like a pane's minimised state: folding one session's card
   // says nothing about another's.
   const [cardCollapsed, setCardCollapsed] = useSessionState<boolean>("cardCollapsed", false);
@@ -1365,6 +1379,54 @@ export default function AggregatorPage() {
             ))}
           </select>
         </CardRow>
+        <CardRow label="Mode">
+          {/* View hides every pane's inputs and buttons: a dashboard of
+              results (D61). A pane's ⚙ can show its own anyway. */}
+          <div className="segmented" role="group" aria-label="Mode">
+            {(
+              [
+                [false, "Edit"],
+                [true, "View"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={label}
+                className={(isViewer || !!viewMode) === value ? "" : "secondary"}
+                aria-pressed={(isViewer || !!viewMode) === value}
+                disabled={isViewer}
+                onClick={() => setViewMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </CardRow>
+        <CardRow label="Variables">
+          {/* Shared controls every pane with such an input follows (D60);
+              they're set in the bar under this card. */}
+          <>
+            {(["environment", "time"] as VariableName[]).map((name) =>
+              defined[name] === undefined ? (
+                <button
+                  key={name}
+                  className="secondary"
+                  disabled={isViewer}
+                  onClick={() =>
+                    changeVariables(
+                      { ...defined, [name]: name === "time" ? { preset: 3600, start: "", end: "" } : null },
+                      name === "time" ? [name] : [],
+                    )
+                  }
+                >
+                  + {VARIABLE_LABELS[name]}
+                </button>
+              ) : null,
+            )}
+            {defined.environment !== undefined && defined.time !== undefined && (
+              <span className="muted">Set in the bar under this card.</span>
+            )}
+          </>
+        </CardRow>
       </CardSection>
       <CardSection>
         <CardRow label="Members">
@@ -1456,6 +1518,7 @@ export default function AggregatorPage() {
   return (
     <>
       {cardInRail ? (onScreen && railSlot ? createPortal(sessionCard, railSlot) : null) : sessionCard}
+      <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} />
 
       {open.length === 0 && (
         <div className="panel">

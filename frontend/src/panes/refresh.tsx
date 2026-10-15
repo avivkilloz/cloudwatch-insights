@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { applyOutputs } from "../sessions/outputs";
-import { useSessions, useSessionScope, useSessionState } from "../sessions/SessionContext";
+import { useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
 import { PaneManifest } from "./manifest";
 import { Values } from "./paneApi";
 
@@ -30,17 +30,6 @@ export function every(seconds: number): string {
 }
 
 /** A key of the session itself (not the pane's), followed as it changes. */
-function useSessionValue<T>(key: string): T | undefined {
-  const scope = useSessionScope();
-  const [value, setValue] = useState<T | undefined>(() => scope?.read()?.[key] as T | undefined);
-  useEffect(() => {
-    if (!scope) return;
-    setValue(scope.read()?.[key] as T | undefined);
-    return scope.subscribe((bag) => setValue(bag[key] as T | undefined));
-  }, [scope, key]);
-  return value;
-}
-
 function usePageVisible(): boolean {
   const [visible, setVisible] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
@@ -73,8 +62,7 @@ interface Failure {
 export function useAutoRefresh(m: PaneManifest, session: string | null, pane: string, held: Values, timezone?: string): RefreshState {
   const [own, setOwnState] = useSessionState<number | undefined>("refresh", undefined);
   const sessionEvery = Number(useSessionValue<number>("refresh") ?? 0) || 0;
-  const { activeId, view, sessions } = useSessions();
-  const role = sessions.find((s) => s.id === session)?.role;
+  const { activeId, view } = useSessions();
   const onScreen = view === "session" && activeId === session;
   const visible = usePageVisible();
   const chosen = own !== undefined && own !== null ? Number(own) : sessionEvery;
@@ -86,7 +74,9 @@ export function useAutoRefresh(m: PaneManifest, session: string | null, pane: st
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (!interval || !session || !onScreen || !visible || role === "viewer") return;
+    // A viewer's tab asks too (D62): the server runs it as the viewer when they
+    // can reach every connection the pane uses, and otherwise says so.
+    if (!interval || !session || !onScreen || !visible) return;
     const wait = Math.min(interval * 2 ** Math.min(failures, 10), MAX_BACKOFF_SECONDS) * 1000;
     // From whichever is latest: the last run (anyone's), the last failure,
     // or this tab's last ask -- the server may have answered "another tab's
@@ -105,7 +95,7 @@ export function useAutoRefresh(m: PaneManifest, session: string | null, pane: st
         .finally(() => setTick((t) => t + 1));
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [interval, session, pane, onScreen, visible, role, failures, ranAt, failure?.at, tick, m.id, timezone]);
+  }, [interval, session, pane, onScreen, visible, failures, ranAt, failure?.at, tick, m.id, timezone]);
 
   return {
     own: own ?? undefined,

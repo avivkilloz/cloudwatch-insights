@@ -3986,3 +3986,65 @@ button.icon-btn {
 .aggregator-tab.active button.aggregator-tab-close:hover {
   color: var(--accent-text);
 }
+
+/* ---- Session variables and view mode (§18.7) ---- */
+
+/* The session's variables, between its card and its panes: a dashboard's
+   shared controls (components/SessionVariables.tsx). */
+.session-variables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.session-variable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-variable .field-label {
+  margin: 0;
+}
+.session-variable-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+/* An input following a session variable: drawn as it is, not changeable
+   here, with where its value comes from beside it. */
+.bound-input {
+  display: contents;
+}
+.bound-note {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.bound-note.block {
+  display: block;
+  margin: -6px 0 10px;
+}
+/* A pane in view mode: how old its outputs are, and Refresh. */
+.view-mode-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.pane-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
