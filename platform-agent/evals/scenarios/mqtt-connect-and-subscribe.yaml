@@ -1,0 +1,17 @@
+name: mqtt-connect-and-subscribe
+about: >-
+  From a real conversation (2026-10-15): asked to connect and subscribe, the agent filled the topics in, never
+  connected, and told the user it was connected and listening.
+session:
+  panes: [tool-mqtt]
+messages:
+  - "in mqtt please connect to {env} and subscribe to the $aws/events/subscriptions/subscribed/# topic"
+expect:
+  - pane: tool-mqtt
+    inputs:
+      connection: "{env_id}"
+      topics: { contains: "$aws/events/subscriptions/subscribed/#" }
+    run: running
+    outputs:
+      status: { startswith: "Connected to" }
+  - answer_check: ok

@@ -1,0 +1,15 @@
+name: cloudwatch-run-and-chart
+about: >-
+  A run, then a chart over its rows: the pane must have run (not only been filled in) and the chart must be the
+  one asked for.
+session:
+  panes: [logs-cloudwatch]
+messages:
+  - "search every log group in {env} over the last 15 minutes, then chart the results as a bar chart by @log"
+settle: 6
+expect:
+  - pane: logs-cloudwatch
+    run: done
+    view:
+      chart: { has: { type: bar, x: "@log" } }
+  - answer_check: ok

@@ -1,0 +1,17 @@
+name: api-table-query-param
+about: >-
+  From the same conversation: shown a headers input as the rows its editor keeps, the agent sent `query: []` back,
+  was refused, and stopped without an answer.
+session:
+  panes: [api-table]
+  state:
+    api-table.in.path: /todos
+    api-table.in.query: [{ id: 1, key: "", value: "" }]
+messages:
+  - "on the API table, add the query parameter _limit with the value 5"
+expect:
+  - pane: api-table
+    inputs:
+      path: /todos
+      query: { row: { key: _limit, value: "5" } }
+  - answer_check: ok
