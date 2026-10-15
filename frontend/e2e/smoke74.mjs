@@ -74,7 +74,8 @@ const run = async () => {
   // What the agent reads of the pane now says whether it's running.
   // This user's only session.
   const [session] = (await api(page, "GET", "/live-sessions")).body ?? [];
-  const run = session?.state?.["tool-mqtt.out.run"];
+  // A pane's outputs are its own record now, beside the state (D21).
+  const run = session?.outputs?.["tool-mqtt"]?.values?.run;
   check(run?.status === "running", "The pane's run is going, as the check saw", JSON.stringify(run));
 
   await page.click(`${SHOWN} button:text-is("Disconnect")`);

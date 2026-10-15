@@ -8,7 +8,7 @@
 //   - nothing sensitive is kept: JWT's inputs never reach the store;
 //   - Settings → Library lists them by pane, renames and deletes;
 //   - Settings → Users switches between users and their groups.
-import { check, clearWorkspace, launch, mockPaneActions, newSession, openApp, report, SHOWN } from "./harness.mjs";
+import { check, clearWorkspace, launch, mockPaneActions, newSession, openApp, PICKER, report, SHOWN } from "./harness.mjs";
 
 const TABLE = "e2e-saved-table";
 
@@ -76,10 +76,10 @@ const run = async () => {
     .then(() => true, () => false);
   check(empty, "With nothing saved, the menu says so");
   await page.keyboard.press("Escape");
-  await page.selectOption(`${card} select >> nth=0`, { index: 1 });
+  await page.selectOption(`${card} ${PICKER} >> nth=0`, { index: 1 });
   await page.click(`${SHOWN} button:has-text("Load tables")`);
   await page.waitForSelector(`${SHOWN} option[value="${TABLE}"]`, { state: "attached" });
-  await page.selectOption(`${card} select >> nth=1`, TABLE);
+  await page.selectOption(`${card} ${PICKER} >> nth=1`, TABLE);
   await page.fill(`${SHOWN} input[placeholder="field:value field2:value2"]`, "status:ACTIVE");
   await saveAs(page, "e2e-orders");
   const saved = ((await api(page, "GET", "/saved-inputs?pane_type=tables")).body ?? []).find((s) => s.name === "e2e-orders");

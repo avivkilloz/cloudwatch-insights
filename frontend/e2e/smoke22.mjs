@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, mockPaneActions, newSession, report } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, check, closeTab, launch, mockPaneActions, newSession, PICKER, report, SHOT } from "./harness.mjs";
 
 const TABLE_ITEMS = [{ id: "1", name: "Alice" }, { id: "2", name: "Bob" }];
 
@@ -156,10 +156,10 @@ const VISIBLE = ".session-body:not([hidden])";
 
   // ---------- Real results in a Tables session ----------
   await page.click('.rail-row-label:text-is("DynamoDB")');
-  await page.selectOption(`${VISIBLE} .panel:has-text("Choose environment and table") select`, { index: 1 });
+  await page.selectOption(`${VISIBLE} .panel:has-text("Choose environment and table") ${PICKER}`, { index: 1 });
   await page.click(`${VISIBLE} button:has-text("Load tables")`);
   await page.waitForSelector('option[value="DemoTable"]', { state: "attached" });
-  await page.selectOption(`${VISIBLE} .panel:has-text("Choose environment and table") select >> nth=1`, "DemoTable");
+  await page.selectOption(`${VISIBLE} .panel:has-text("Choose environment and table") ${PICKER} >> nth=1`, "DemoTable");
   await page.waitForSelector(`${VISIBLE} >> text=partition key: id`);
   await page.click(`${VISIBLE} button:has-text("Scan")`);
   await page.waitForSelector(`${VISIBLE} >> text=2 item(s) loaded`);

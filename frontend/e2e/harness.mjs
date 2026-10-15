@@ -188,6 +188,9 @@ export async function newSession(page, ...labels) {
 /** The session on screen. Every other one is still mounted, just hidden, so
  * anything addressing panes or pane tabs has to go through this. */
 export const SHOWN = ".session-body:not([hidden])";
+// A pane's own pickers, in order -- not the "Refresh every" picker beside a
+// card's title (§18.3), which is a select too and comes first.
+export const PICKER = 'select:not([aria-label="Refresh every"])';
 
 /** Adds a pane of `label`'s kind to the session on screen, from its Panes
  * card -- the only way in from inside a session; it never removes one. */

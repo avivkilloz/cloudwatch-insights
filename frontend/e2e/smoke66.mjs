@@ -9,7 +9,7 @@
 //   - an expanded row is session state (D48): another tab of the same
 //     session shows it expanded too;
 //   - Cognito's tags take their tones from the row.
-import { check, clearWorkspace, launch, mockPaneActions, newPage, newSession, openApp, report, SHOWN, signIn } from "./harness.mjs";
+import { check, clearWorkspace, launch, mockPaneActions, newPage, newSession, openApp, PICKER, report, SHOWN, signIn } from "./harness.mjs";
 
 const FILES = [
   { key: "logs/a b.txt", name: "a b.txt", size: 42, last_modified: 1700000000, storage_class: null },
@@ -57,10 +57,10 @@ const run = async () => {
   // ---- 1. S3: open, walk in, go back up, search, clear
   await newSession(page, "S3");
   const card = `${SHOWN} .panel:has-text("Choose environment and bucket")`;
-  await page.selectOption(`${card} select >> nth=0`, { index: 1 });
+  await page.selectOption(`${card} ${PICKER} >> nth=0`, { index: 1 });
   await page.click(`${SHOWN} button:has-text("Load buckets")`);
   await page.waitForSelector(`${SHOWN} option[value="demo-bucket"]`, { state: "attached" });
-  await page.selectOption(`${card} select >> nth=1`, "demo-bucket");
+  await page.selectOption(`${card} ${PICKER} >> nth=1`, "demo-bucket");
   await page.waitForSelector(`${SHOWN} .result-row-summary:has-text("2024/")`);
   check(JSON.stringify(browsed[0]) === JSON.stringify({ prefix: "", search: "", cursor: null }), "Picking a bucket opens it at the top",
     JSON.stringify(browsed));
@@ -112,10 +112,10 @@ const run = async () => {
   // ---- 4. an expanded row reaches another tab of the session (D48)
   await newSession(page, "DynamoDB");
   const tables = `${SHOWN} .panel:has-text("Choose environment and table")`;
-  await page.selectOption(`${tables} select >> nth=0`, { index: 1 });
+  await page.selectOption(`${tables} ${PICKER} >> nth=0`, { index: 1 });
   await page.click(`${SHOWN} button:has-text("Load tables")`);
   await page.waitForSelector(`${SHOWN} option[value="T"]`, { state: "attached" });
-  await page.selectOption(`${tables} select >> nth=1`, "T");
+  await page.selectOption(`${tables} ${PICKER} >> nth=1`, "T");
   await page.click(`${SHOWN} button:text-is("Scan")`);
   await page.waitForSelector(`${SHOWN} >> text=2 item(s) loaded`);
   await page.click(`${SHOWN} .result-row-summary .msg:text-is("2")`);
@@ -132,10 +132,10 @@ const run = async () => {
   // ---- 5. Cognito's tags
   await newSession(page, "Cognito");
   const pools = `${SHOWN} .panel:has-text("Choose environment and user pool")`;
-  await page.selectOption(`${pools} select >> nth=0`, { index: 1 });
+  await page.selectOption(`${pools} ${PICKER} >> nth=0`, { index: 1 });
   await page.click(`${SHOWN} button:has-text("Load user pools")`);
   await page.waitForSelector(`${SHOWN} option[value="p1"]`, { state: "attached" });
-  await page.selectOption(`${pools} select >> nth=1`, "p1");
+  await page.selectOption(`${pools} ${PICKER} >> nth=1`, "p1");
   await page.click(`${SHOWN} button:text-is("Search")`);
   await page.waitForSelector(`${SHOWN} >> text=2 user(s) loaded`);
   const tags = await page.locator(`${SHOWN} .result-row-summary .tag`).evaluateAll((els) => els.map((e) => `${e.className}=${e.textContent}`));

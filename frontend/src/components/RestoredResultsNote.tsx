@@ -1,5 +1,3 @@
-import { useRef } from "react";
-
 /**
  * Says so when the rows on screen came back with the session rather than from
  * a search just run.
@@ -20,16 +18,23 @@ function formatAge(at: number): string {
   return `${Math.round(hours / 24)} days ago`;
 }
 
+// When this page loaded. Results that ran before it came back with the
+// session; anything run since -- here, in another tab, by the agent or a
+// refresh -- is current. This used to be "whatever ranAt was on the first
+// render", which held while results lived in the session's state; they are the
+// server's own record now (D21) and reach a pane after the session's local
+// copy has mounted it, so the first render had none and the note never showed.
+// ranAt is stamped by the server; a clock behind the browser's by more than
+// the time since loading would call a fresh run restored, which is the safe
+// way to be wrong.
+const LOADED_AT = Date.now();
+
 export default function RestoredResultsNote({ ranAt, onRerun }: { ranAt: number | null; onRerun?: () => void }) {
-  // Whatever ranAt was on the first render. While it still holds that value,
-  // nothing has been re-run in this page load, so what's on screen is restored.
-  const mountedWith = useRef(ranAt).current;
-  const restored = mountedWith !== null && ranAt === mountedWith;
-  if (!restored) return null;
+  if (ranAt === null || ranAt >= LOADED_AT) return null;
 
   return (
     <p className="muted" style={{ marginTop: 0 }}>
-      Showing results fetched <strong>{formatAge(mountedWith)}</strong> and restored with this session — they may be
+      Showing results fetched <strong>{formatAge(ranAt)}</strong> and restored with this session — they may be
       out of date.
       {onRerun && (
         <button className="secondary" style={{ marginLeft: 8, padding: "2px 8px" }} onClick={onRerun}>
