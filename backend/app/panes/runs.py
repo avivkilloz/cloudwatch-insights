@@ -172,12 +172,15 @@ def start(
     inputs: dict[str, Any],
     agent_seconds: float = 0,
     keep: bool = False,
+    refreshing: bool = False,
 ) -> models.PaneRun:
     """Starts the action's queries as `user` and the run that polls them. A
     run already going in the pane is stopped first: a second Run replaces the
     first, as it always did. `keep` is a restart (`restart_on`: its topics
-    changed): what the run had shown stays, its resets aren't applied."""
-    if member is not None and member.permission == "viewer":
+    changed): what the run had shown stays, its resets aren't applied. A
+    viewer may start one only as a refresh (D62), which refresh.py lets
+    through once it has checked they can reach every connection it uses."""
+    if member is not None and member.permission == "viewer" and not refreshing:
         raise RunError("You have read-only access to this session, so you can't run its panes.")
     if action.max_running:
         going = (

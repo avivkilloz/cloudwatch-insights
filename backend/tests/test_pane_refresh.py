@@ -1,7 +1,7 @@
 """Auto-refresh (PLATFORM_PLAN.md R4, D22, §18.3): a tab asks when a pane is
 due; the server runs it once with the session's own inputs, however many
 tabs ask, never faster than the pane type's floor; a failure is kept on the
-pane for every viewer, and a viewer can't refresh."""
+pane for every viewer, and a viewer refreshes only what they can reach (D62)."""
 
 import datetime
 import time
@@ -103,18 +103,37 @@ def test_a_background_pane_starts_a_run_and_waits_for_one_going(cloudwatch):
     assert _refresh(sid, pane=LOGS, every=60, type_=LOGS).json()["reason"] == "running"
 
 
-def test_a_viewer_cant_and_a_pane_that_doesnt_refresh_says_so(aws):
-    env = _environment()
-    sid = _tables(env)
-    bob, as_bob = _user("bob", env)
+def _viewer(sid: str, name: str, env: int):
+    uid, as_them = _user(name, env)
     with SessionLocal() as db:
         row = db.query(models.LiveSession).filter(models.LiveSession.client_id == sid).one()
-        db.add(models.SessionMember(session_id=row.id, user_id=bob, permission="viewer"))
+        db.add(models.SessionMember(session_id=row.id, user_id=uid, permission="viewer"))
         db.commit()
-    group = client.get("/api/user-groups").json()
-    gid = next(g["id"] for g in group if g["name"] == "g-bob")
+    gid = next(g["id"] for g in client.get("/api/user-groups").json() if g["name"] == f"g-{name}")
     client.put(f"/api/user-groups/{gid}", json={"tables_enabled": True})
-    assert _refresh(sid, c=as_bob).status_code == 403
+    return as_them
+
+
+def test_a_viewer_refreshes_as_themselves_only_what_they_can_reach(aws):
+    """D62: a viewer's tab refreshes a dashboard, as the viewer, when they can
+    reach every connection the pane uses; otherwise nothing runs and nothing
+    is counted as a failure."""
+    env = _environment()
+    sid = _tables(env)
+    as_bob = _viewer(sid, "bob", env)
+    done = _refresh(sid, c=as_bob).json()
+    assert done["refreshed"] is True and aws["scan"][0]["table"] == "Orders"
+    assert _values(sid)["items"] == [{"id": "1"}, {"id": "2"}]
+
+    other = _environment("Other", "222233334444")
+    sid2 = _tables(other, sid="r-3")
+    as_carol = _viewer(sid2, "carol", env)  # reaches env, not `other`
+    waited = _refresh(sid2, c=as_carol).json()
+    assert (waited["refreshed"], waited["reason"]) == (False, "unreachable")
+    assert len(aws["scan"]) == 1 and _values(sid2) == {}
+
+
+def test_a_pane_that_doesnt_refresh_says_so(aws):
     client.put("/api/live-sessions/r-2", json={"title": "M", "type": "aggregator", "state": {"services": ["tool-mqtt"], "layout": "tabs"}})
     resp = _refresh("r-2", pane="tool-mqtt", type_="tool-mqtt")
     assert resp.status_code == 400 and "don't refresh" in resp.json()["detail"]
