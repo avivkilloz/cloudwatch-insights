@@ -4069,6 +4069,9 @@ button.icon-btn {
 .session-card.in-rail.collapsed .session-card-head {
   flex-wrap: wrap;
 }
+.session-card.in-rail .session-card-folded-title {
+  flex: 1 1 0;
+}
 .session-card.in-rail .session-card-folded-extra {
   order: 3;
   flex-basis: 100%;

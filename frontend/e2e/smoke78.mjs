@@ -57,12 +57,45 @@ const run = async () => {
   check((await page.locator(`${CARD} .session-card-label`).allInnerTexts()).join(",").includes("Layout,Mode,Refresh,Variables"),
     "Layout, Mode, Refresh and Variables are each a row of their own");
   await page.click(`${ROW_OF("Variables")} button:text-is("+ Environment")`);
-  check((await page.locator(`${ROW_OF("Variables")} .session-card-chip`).innerText()).startsWith("Environment") &&
+  check((await page.locator(`${ROW_OF("Variables")} .session-variable`).innerText()).startsWith("Environment") &&
+    (await page.locator(`${ROW_OF("Variables")} .session-variable select`).count()) === 1 &&
     (await page.locator(`${ROW_OF("Variables")}`).innerText()).indexOf("Set in the bar") < 0,
-    "A defined variable is a chip; the others are buttons, not a sentence");
-  const heights = await page.locator(`${ROW_OF("Layout")} button, ${ROW_OF("Mode")} button, ${ROW_OF("Refresh")} select, ${ROW_OF("Variables")} .session-card-chip, ${ROW_OF("Variables")} > .session-card-values > button`)
+    "A defined variable is set right there in its row; the others are buttons, not a sentence");
+  const heights = await page.locator(`${ROW_OF("Layout")} button, ${ROW_OF("Mode")} button, ${ROW_OF("Refresh")} select, ${ROW_OF("Variables")} .session-variable, ${ROW_OF("Variables")} > .session-card-values > button`)
     .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
   check(heights.length >= 8 && heights.every((h) => h === 28), "Every control in those rows is the same height", JSON.stringify(heights));
+
+  // The variables belong to the card: folded, its header keeps their
+  // controls; moved to the side panel, they go with it, and it folds there.
+  await page.click(`${CARD} [aria-label="Collapse the session card"]`);
+  const foldedEnv = `${CARD} .session-card-head select[aria-label="Session environment"]`;
+  await page.waitForSelector(foldedEnv);
+  await page.selectOption(foldedEnv, { index: 1 });
+  const picked = await page.inputValue(foldedEnv);
+  check(picked !== "" && (await page.locator(`${CARD} [aria-label="Collapse the session card"]`).count()) === 0,
+    "Folded, the card's header still sets the variables, without unfolding it");
+  await page.click(`${CARD} [aria-label="Expand the session card"]`);
+  // The row's own control fetches the environments again before it can show one.
+  await page.waitForFunction((sel) => document.querySelector(sel)?.options.length > 1, `${CARD} select[aria-label="Session environment"]`);
+  check((await page.inputValue(`${ROW_OF("Variables")} select[aria-label="Session environment"]`)) === picked, "…the same value its row shows");
+  check((await page.locator(`${SHOWN} .session-variables`).count()) === 0, "There is no separate variables bar under the card");
+  await page.click(`${CARD} .session-card-move`);
+  const RAIL_CARD = ".rail-session-slot .session-card";
+  await page.waitForSelector(`${RAIL_CARD} select[aria-label="Session environment"]`);
+  check((await page.locator(`${SHOWN} select[aria-label="Session environment"]`).count()) === 0,
+    "Moved to the side panel, the variables go with the card");
+  await page.click(`${RAIL_CARD} [aria-label="Collapse the session card"]`);
+  check((await page.locator(`${RAIL_CARD} .session-card-row`).count()) === 0 &&
+    (await page.locator(`${RAIL_CARD} .session-card-head select[aria-label="Session environment"]`).count()) === 1,
+    "…and it folds there, keeping them in its header");
+  const head = await page.locator(`${RAIL_CARD} .session-card-head`).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [...el.querySelectorAll("button, select")].every((c) => { const b = c.getBoundingClientRect(); return b.left >= r.left && b.right <= r.right + 0.5; });
+  });
+  check(head, "…all of it inside the side panel");
+  await page.click(`${RAIL_CARD} [aria-label="Expand the session card"]`);
+  await page.click(`${RAIL_CARD} .session-card-move`);
+  await page.waitForSelector(ROW_OF("Members"));
   await page.fill(`${ROW_OF("Members")} [aria-label="Username to invite"]`, member);
   await page.selectOption(`${ROW_OF("Members")} [aria-label="Permission for the invited user"]`, "viewer");
   await page.click(`${ROW_OF("Members")} .session-member-invite button[type="submit"]`);
