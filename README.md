@@ -372,9 +372,21 @@ Anything that reaches outside the platform, like sending an HTTP request, it
 fills in for you to send yourself; asking before doing such things is the
 next step. The Global conversation isn't kept across a reload yet.
 
+Every answer is checked before it's left standing: the platform compares
+it with what the turn actually ran -- the calls the agent made, what came
+back, and the sessions it touched as they are afterwards -- and shows that
+as a step ("Checked the answer against what ran"). An answer that claims
+something nothing did ("connected" when the pane isn't running), or doesn't
+do what was asked, is taken back and redone once; if the redo still doesn't
+hold up, it stays with a warning under it saying what the check found. It
+costs one more model call per answer (`agent.check` in Helm turns it off or
+gives it a model of its own).
+
 It needs a LiteLLM proxy (or anything OpenAI-compatible) and a model that is
 good at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
-[DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional).
+[DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional). To try a model
+or a prompt change against conversations it has got wrong before, run the
+scenarios in `platform-agent/evals` (its README).
 
 ## Users, groups & login
 

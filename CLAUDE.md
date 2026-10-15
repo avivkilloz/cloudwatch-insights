@@ -72,7 +72,8 @@ backend/tests/       pytest, one file per area, real Postgres (no mocks of our o
 backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch/MQTT faked, for e2e
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
-                     streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
+                     streamed /chat, check.py the answer check), dev/fake_llm.py (scripted
+                     stand-in model and check), tests/, evals/ (scenarios for a real model)
 
 frontend/src/
   App.tsx            shell: rail column (brand, sessions, page info, account), scrolling body, mounted sessions
@@ -1006,6 +1007,31 @@ fixed where it happens:
   answer with nothing in their panes. A Global turn is unlimited (Follow
   opens whatever it writes to). And filling or running a pane unfolds it
   if it was minimised, as it already made it the active tab.
+- **What the agent reads it can write back, and it can see a run.** A pane's
+  description (`_describe_pane`, under `get_session` and every change tool)
+  gives inputs in the shape `set_pane_inputs` takes (`panes.agent_value`: a
+  headers input as name -> value, not the editor's rows -- shown the rows, a
+  model sent `query: []` back and was refused), a background pane's `run`
+  (running / stopped by whom / "not running: run_pane starts it (Connect)")
+  and its short text `outputs` ("Connected to … as …"). `set_pane_inputs`
+  says "Only the inputs changed; nothing ran." Without these, a model filled
+  the MQTT tester in and reported it connected, three turns running.
+- **Every answer is checked against what the turn ran** (`check.py`, D55,
+  PLATFORM_PLAN.md §17): one more model call reads the request, the turn's
+  calls and results, the sessions it touched as they are *after* the answer
+  (read by the platform, so "connected" meets the pane's run status) and the
+  answer, and says ok / not_done / unsupported. A failed answer is retracted
+  and redone once (not after a grounding redo); a second miss stands with a
+  notice. The check is the platform's own step in the chat (`check_answer`,
+  `preamble`, so never replayed in history), never blocks a turn (a failed or
+  unreadable check passes), runs on a per-turn HTTP client (langchain_openai
+  shares one per base URL, and a kept-alive connection from another event
+  loop failed the next check), and is `AGENT_CHECK`/`AGENT_CHECK_MODEL`
+  (Helm `agent.check`). The guard's nudge also catches "Let me reconnect…."
+  ending on a period before the turn has called anything, and after a failed
+  call it quotes the failure. Scenarios to try a real model against live in
+  `platform-agent/evals` (its README); add one for every conversation the
+  agent gets wrong.
 - **No per-service tuning of the agent.** Services and tools will be added
   by plugins, so the agent must never need a new prompt line, script or
   hint to use one. The prompt names no service (the kinds come from

@@ -1213,6 +1213,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D52 | 2026-10-14 | **The log-volume histogram counts every match: always for OpenSearch, on request for CloudWatch** (§16.11). OpenSearch adds a date-histogram aggregation to the same search. CloudWatch runs a second, counting query only while the pane's Histogram toggle is on (off by default). | The user's choice. Counting from the returned rows would cover only the newest 100 and couldn't show when a spike began. OpenSearch's count is free, but CloudWatch bills per GB scanned, and a second query scans the log groups again. |
 | D53 | 2026-10-14 | **A chart on table-like results is picked in the pane, not fixed by its manifest** (§16.11). Type, x, y, series and aggregate are chosen from the result's own columns, and stored as a view key (D48). So it syncs to every member, templates keep it, and the agent sets it with `set_pane_view`. | The user's choice. The API table's columns aren't known until it runs, so a manifest-fixed chart couldn't chart it. The builder (Phase 4) will add manifest-defined charts on top. |
 | D54 | 2026-10-14 | **An MQTT connection is a background run, held by the server** (§16.13). It follows D51's rule: open while someone is looking, closed 2 minutes after the last viewer leaves, at most 5 open per user. The pane's topics are an input, and changing them while connected reconnects as whoever changed them, keeping the messages. Publishing is a person's action (`effects: external`); the agent can connect and read, but not publish. | D6 moved the connection to the server, and D51 already answered "only while someone is looking" the way the user wanted. A stream is just a run whose poll is the connection's buffer. The 2 minutes are the plan's (§4.4) "closes a couple of minutes after the last viewer leaves". |
+| D55 | 2026-10-15 | **Every answer of the agent's is checked against what its turn ran** (§17). One more model call reads the request, the turn's tool calls and what they returned, the sessions it touched as they are after the answer, and the answer, and says ok, not done, or unsupported. A failed answer is taken back and redone once; a second miss stands with what was found under it. Alongside, replayable scenarios run against the real model on demand. | The user's choice, over a check only on turns that changed something, scenarios only, or a second supervising agent. The prompt already forbade claiming what no tool showed, and the agent claimed an MQTT connection three turns running anyway. The root cause was facts the agent couldn't read (§17.1); the check is for the next kind of miss, and costs one call per answer. |
+| D56 | 2026-10-15 | **3c ships as three PRs: auto-refresh first** (with results moving to their own store, D21), then view mode and session variables, then Home → a session (§18). | The user's choice. The store is what makes a refresh cheap: without it, every refresh resends the whole session to every tab. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3239,6 +3241,91 @@ Where the build departed from §16.13, and what came with it:
       its re-run with narrower bars, Undo zoom.
 
     Both fail against the frontend on main.
+
+## 17. Checking the agent's work (D55)
+
+_Written 2026-10-15, after a conversation in which the agent said it had connected
+the MQTT tester three turns running, and never had._
+
+### 17.1 What went wrong, and the fixes that needed no judge
+
+Traced turn by turn, each failure had a cause in what the agent could read or in how
+a turn ends, not in the model alone:
+
+- **"Connected and listening", from filling the topics in.** `set_pane_inputs`
+  doesn't run anything, and its description says so. But neither its result nor
+  `get_session` said whether the pane's run was going: a run's status and the "Connected
+  to…" line weren't lists, so the description left them out. Now a background pane
+  reports its `run` (running, stopped and by whom, or "not running: run_pane starts it
+  (Connect)") and its short text `outputs`. `set_pane_inputs` says "Only the inputs
+  changed; nothing ran."
+- **`query: []`, refused, then silence.** `get_session` showed the API table's query as
+  the rows its editor keeps, and the model sent that shape back. Inputs are now
+  described in the shape `set_pane_inputs` takes (`agent_value`), and the stored rows and
+  `[]` are accepted too. The nudge after a failed call quotes the failure. A turn that
+  still stops there says what failed, not "ran the steps but didn't write an answer".
+- **"Let me reconnect … again." and nothing.** The guard only caught an announced step
+  ending on a colon. It now also catches a last sentence that says what the agent is
+  about to do ("Let me…", "I'll…"), ending on a period, while the turn has called
+  nothing.
+
+### 17.2 The check (D55)
+
+- **What it reads:**
+  - the request in the user's words;
+  - the turn's ledger (each call's arguments, cut to 300 characters, and what it
+    returned, cut to 600);
+  - the sessions the turn touched, read by the platform after the answer (6,000
+    characters each, at most three);
+  - the answer.
+
+  The after-read is what lets "connected" be checked against the pane, not against the
+  agent's memory.
+- **What it says:** JSON, `{"verdict": "ok" | "not_done" | "unsupported", "problems":
+  […]}`.
+  - "Unsure" is ok.
+  - Style is not its business.
+  - An answer that says plainly it couldn't is ok.
+- **What happens:**
+  - A failed answer is taken back (the same retract the grounding check uses), and the
+    agent is told what was found, once per turn. A turn the grounding check already
+    redid isn't redone again.
+  - A second miss stands, with the problems under it.
+  - The check is a step of the platform's own in the chat ("Checked the answer against
+    what ran"). It isn't sent back in the history.
+- **It never blocks.**
+  - A check that fails or can't be read leaves the answer as it is, logged.
+  - It runs on its own HTTP client, made per turn.
+- **Settings:**
+  - `AGENT_CHECK` (on by default) and `AGENT_CHECK_MODEL` (the agent's model unless set);
+    in Helm, `agent.check`.
+  - It runs at temperature 0, not streamed, capped at 600 tokens.
+- **Cost:** one model call per answered turn, and one more when an answer is redone.
+
+### 17.3 Scenarios
+
+`platform-agent/evals`: each scenario gives
+- a session to start from;
+- earlier turns, if any;
+- the messages;
+- what the session must hold afterwards: inputs, a run's status, view keys, and the
+  check's verdict.
+
+The runner:
+- drives `/api/agent/chat` the way the browser does;
+- runs as a user in an `evals` group, so with an ordinary user's access;
+- repeats each scenario and reports a pass rate.
+
+It is seeded from the conversation above. A `fake`-tagged scenario checks the runner on
+the scripted model. It isn't in CI: it needs a model and costs money. It is for trying
+a model or a prompt before users meet the failure again.
+
+### 17.4 Not done, on purpose
+
+- **A second, supervising agent.** It would double the cost and latency, and it would
+  have had the same blind spot: the facts it needed weren't readable.
+- **Checking only turns that changed something.** It misses the turn that should have
+  acted and didn't.
 
 ## 12. Research sources
 

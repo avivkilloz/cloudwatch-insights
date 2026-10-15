@@ -301,6 +301,11 @@ Things worth knowing:
   applies to `POST /api/agent/chat`.
 - The agent keeps nothing between turns (the browser sends the conversation
   so far with each one), so `agent.replicaCount` can be anything.
+- Every answer is checked against what its turn ran, by one more call to the
+  model (`agent.check.enabled`, on by default; `agent.check.model` to use a
+  different, cheaper model for it -- it only reads and judges, at
+  temperature 0). Turn it off to save that call; answers then go out
+  unchecked, as before.
 
 To set the initial admin password explicitly (recommended), add:
 ```bash
