@@ -110,6 +110,7 @@ layout:
       - output: tableInfo
         when: { output: tableInfo, present: true }
   - title: 2. Search items
+    clear: [items, lastEvaluatedKey, scannedCount]
     when: { input: tableName, present: true }
     items:
       - restored: scan

@@ -8,12 +8,12 @@
 //   - a reload while connected finds it still connected and streaming;
 //   - Disconnect from the other tab ends it in both, saying who, and the
 //     "Connected to" line goes;
-//   - Saved ▾ keeps the topics.
+//   - Saved inputs (the pane's ⋮) keep the topics.
 //
 // Needs the backend served as `uvicorn dev.fake_aws:app` (e2e/README.md): its
 // in-process broker sends fake/robot-1/telemetry every second and delivers
 // what is published.
-import { check, clearWorkspace, launch, newPage, newSession, openApp, report, ROW, SHOWN, signIn } from "./harness.mjs";
+import { check, clearWorkspace, launch, newPage, newSession, openApp, report, ROW, SHOWN, signIn, openPaneMenu } from "./harness.mjs";
 
 async function api(page, method, path, body) {
   return page.evaluate(
@@ -110,14 +110,14 @@ const run = async () => {
   check((await count(page, MESSAGES)) === stoppedAt, "…and nothing more arrives");
   await other.close();
 
-  // ---- 7. Saved ▾ keeps the topics
+  // ---- 7. Saved inputs (the pane's ⋮) keep the topics
   page.once("dialog", (d) => d.accept("e2e telemetry"));
-  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
-  await page.click('.pane-saved-menu button:text-is("Save as…")');
+  await openPaneMenu(page);
+  await page.click('.pane-menu-list button:text-is("Save these inputs as…")');
   await page.waitForTimeout(800);
   const saved = (await api(page, "GET", "/saved-inputs?pane_type=tool-mqtt")).body ?? [];
   const mine = saved.find((s) => s.name === "e2e telemetry");
-  check(mine && JSON.stringify(mine.inputs.topics) === JSON.stringify(["fake/#", "other/#"]), "Saved ▾ keeps the topics", JSON.stringify(saved));
+  check(mine && JSON.stringify(mine.inputs.topics) === JSON.stringify(["fake/#", "other/#"]), "Saved inputs (the pane's ⋮) keep the topics", JSON.stringify(saved));
   for (const s of saved) await api(page, "DELETE", `/saved-inputs/${s.id}`);
 
   await clearWorkspace(page);

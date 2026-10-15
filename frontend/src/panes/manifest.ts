@@ -189,6 +189,8 @@ export interface Card {
   when?: When;
   aside: LayoutItem[];
   items: LayoutItem[];
+  /** The outputs its Clear removes: the card's results, not all that's stored. */
+  clear: string[];
 }
 
 export interface PaneManifest {

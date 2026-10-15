@@ -11,7 +11,15 @@
 //
 // Needs the backend served as `uvicorn dev.fake_aws:app`: its `.fake` hosts
 // answer the API table with what the suite puts there.
-import { check, clearWorkspace, launch, newPage, newSession, openApp, report, ROW, SHOWN, signIn } from "./harness.mjs";
+import { check, clearWorkspace, launch, newPage, newSession, openApp, openPaneMenu, report, ROW, SHOWN, signIn } from "./harness.mjs";
+
+// The pane's own refresh is in its ⋮ menu.
+const REFRESH = '.pane-menu-list select[aria-label="Refresh every"]';
+async function setRefresh(page, value) {
+  await openPaneMenu(page);
+  await page.selectOption(REFRESH, value);
+  await page.keyboard.press("Escape");
+}
 
 async function api(page, method, path, body) {
   return page.evaluate(
@@ -53,18 +61,28 @@ const run = async () => {
   check(first.values.resultsVersion === 1 && first.values.rows?.length === 2, "Precondition: one Fetch, stored for the pane", JSON.stringify(first.values));
 
   // ---- 1. the pane's own refresh; a second tab follows without refetching the session
-  const options = await page.locator(`${SHOWN} select[aria-label="Refresh every"] option`).allInnerTexts();
-  check(options.includes("↻ Every 10s") && options.includes("↻ Off"), "The pane offers a refresh beside its title", JSON.stringify(options));
+  await openPaneMenu(page);
+  const options = await page.locator(`${REFRESH} option`).allInnerTexts();
+  await page.keyboard.press("Escape");
+  check(options.includes("Every 10s") && options.includes("Off"), "The pane's ⋮ offers a refresh", JSON.stringify(options));
   const other = await newPage(browser);
   await signIn(other);
   await other.click(ROW("API table"));
   await other.waitForSelector(`${SHOWN} .manifest-table table`);
-  const fetched = { session: 0, outputs: 0 };
+  const fetched = { session: 0, outputs: 0, ranItself: 0 };
   other.on("request", (r) => {
     if (/\/api\/live-sessions\/[^/?]+$/.test(r.url()) && r.method() === "GET") fetched.session++;
     if (/\/api\/live-sessions\/[^/]+\/outputs/.test(r.url())) fetched.outputs++;
   });
-  await page.selectOption(`${SHOWN} select[aria-label="Refresh every"]`, "10");
+  // Both tabs' timers ask; whichever asks first runs it. A run the other tab
+  // asked for comes back in its own answer, with the outputs, not as an event.
+  other.on("response", async (r) => {
+    if (!/\/api\/panes\/[^/]+\/refresh$/.test(r.url())) return;
+    if ((await r.json().catch(() => null))?.refreshed) fetched.ranItself++;
+  });
+  await setRefresh(page, "10");
+  const badge = await page.locator(`${SHOWN} .aggregator-tab.active .pane-refresh-on`).innerText().catch(() => "");
+  check(badge === "↻ 10s", "…and once on, says so beside the ⋮", badge);
   const started = Date.now();
   await page.waitForTimeout(25_000);
   const after = await outputs(page);
@@ -73,8 +91,9 @@ const run = async () => {
   // The session itself is written once -- the refresh setting -- and the
   // other tab fetches it once for that; every result is the pane's alone.
   check(after.version === first.version + 1, "The session itself moved only for the refresh setting, not for any result", `${first.version} → ${after.version}`);
-  // (A run the other tab asked for itself comes back in its answer instead.)
-  check(fetched.outputs >= 1 && fetched.session <= after.version - first.version,
+  // Both runs can be the other tab's own, by the timers' jitter: then it had
+  // nothing to fetch. That failed this check about one run in four.
+  check(fetched.outputs + fetched.ranItself >= 1 && fetched.session <= after.version - first.version,
     "…and the other tab fetched only the pane's outputs for the results, never the whole session", JSON.stringify(fetched));
 
   // ---- 2. typing while results arrive
@@ -100,13 +119,15 @@ const run = async () => {
   await page.waitForSelector(`${SHOWN} .manifest-table table`);
 
   // ---- 4. the session's refresh drives a pane without its own
-  await page.selectOption(`${SHOWN} select[aria-label="Refresh every"]`, "session");
+  await setRefresh(page, "session");
   await page.selectOption(`${SHOWN} select[aria-label="Refresh panes every"]`, "10");
   const before = await outputs(page);
   await page.waitForTimeout(14_000);
   check((await outputs(page)).values.resultsVersion > before.values.resultsVersion, "The session's refresh runs a pane that follows it");
-  const label = await page.locator(`${SHOWN} select[aria-label="Refresh every"] option:checked`).innerText();
-  check(label === "↻ Session (10s)", "…and the pane says it follows the session", label);
+  await openPaneMenu(page);
+  const label = await page.locator(`${REFRESH} option:checked`).innerText();
+  await page.keyboard.press("Escape");
+  check(label === "As the session (10s)", "…and the pane says it follows the session", label);
 
   // ---- 5. a failure says why
   await page.fill(`${SHOWN} input[aria-label="Path"]`, "/nothing-here");

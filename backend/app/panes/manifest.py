@@ -334,6 +334,10 @@ class Card(_Strict):
     # Items at the right of the card's title: a Copy button, a view select.
     aside: list[LayoutItem] = []
     items: list[LayoutItem] = []
+    # The outputs this card's Clear removes -- its results, not everything
+    # stored: DynamoDB's table info and MQTT's "Connected to…" stay. Clear
+    # shows only while one of them holds something.
+    clear: list[str] = []
 
 
 class Inspect(_Strict):
@@ -495,6 +499,11 @@ class Manifest(_Strict):
             check_when(card.when)
             for item in card.aside + card.items:
                 check_item(item)
+            for ref in card.clear:
+                if ref not in outputs:
+                    raise ValueError(f"a card clears an output {ref} that isn't declared")
+                if ref == "run":
+                    raise ValueError("a card can't clear `run`: it's the pane's running query or connection, not a result")
         for o in self.outputs:
             check_text(o.label)
             detail = o.config.get("detail")

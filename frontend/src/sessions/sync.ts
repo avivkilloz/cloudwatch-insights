@@ -108,11 +108,22 @@ function chatOnlyChange(base: PersistedSession | undefined, session: PersistedSe
  * would let one person's own new message silently overwrite another's sent
  * in the same debounce window, rather than keeping both. This unions by
  * turn id instead -- remote's own turns, plus whatever this side added that
- * base didn't already have -- so no message either side sent is lost. */
+ * base didn't already have -- so no message either side sent is lost.
+ *
+ * One turn can be on both sides in two states: a session turn is stored as
+ * "running" when it's asked and replaced when it's answered, and a write by
+ * the agent landing while that replacement is on its way makes it a 409 to
+ * merge. The answered one wins, whichever side has it: the server's "running"
+ * copy would leave the turn spinning for everyone until it was given up on. */
 function mergeChatTurns(base: unknown, local: unknown, remote: unknown): unknown {
-  const asTurns = (v: unknown): { id: string }[] => (Array.isArray(v) ? (v as { id: string }[]) : []);
+  type Turn = { id: string; status?: string };
+  const asTurns = (v: unknown): Turn[] => (Array.isArray(v) ? (v as Turn[]) : []);
   const baseIds = new Set(asTurns(base).map((t) => t.id));
-  const remoteTurns = asTurns(remote);
+  const localById = new Map(asTurns(local).map((t) => [t.id, t]));
+  const remoteTurns = asTurns(remote).map((t) => {
+    const here = localById.get(t.id);
+    return t.status === "running" && here && here.status !== "running" ? here : t;
+  });
   const remoteIds = new Set(remoteTurns.map((t) => t.id));
   const addedHere = asTurns(local).filter((t) => !baseIds.has(t.id) && !remoteIds.has(t.id));
   // Turn ids are "t<base36 time><base36 counter>": lexicographic order

@@ -7,9 +7,9 @@
 //     the body pretty-printed;
 //   - the last exchange is always offered to the agent's chat, no checkbox;
 //   - a failed send is its own card, and leaves no response or exchange;
-//   - Saved ▾ keeps a request, headers included;
+//   - Saved inputs (the pane's ⋮) keep a request, headers included;
 //   - a session saved by the old tool opens with its request and response.
-import { check, clearWorkspace, launch, mockPaneActions, newSession, openApp, report, SHOWN } from "./harness.mjs";
+import { check, clearWorkspace, launch, mockPaneActions, newSession, openApp, report, SHOWN, openPaneMenu } from "./harness.mjs";
 
 const NAME = "e2e-http-orders";
 
@@ -113,15 +113,15 @@ const run = async () => {
   check((await page.locator(".agent-dock .agent-attach").count()) === 0, "…and with it the exchange on offer");
   fail = false;
 
-  // ---- 6. Saved ▾
+  // ---- 6. Saved inputs (the pane's ⋮)
   page.once("dialog", (d) => d.accept(NAME));
-  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
-  await page.click('.pane-saved-menu button:text-is("Save as…")');
+  await openPaneMenu(page);
+  await page.click('.pane-menu-list button:text-is("Save these inputs as…")');
   await page.waitForTimeout(600);
   await newSession(page, "HTTP client");
   await page.waitForSelector(card("Request"));
-  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
-  await page.click(`.pane-saved-menu [data-saved-input-item="${NAME}"]`);
+  await openPaneMenu(page);
+  await page.click(`.pane-menu-list [data-saved-input-item="${NAME}"]`);
   await page.waitForSelector(card("Body"));
   check((await page.inputValue(`${SHOWN} input[aria-label="URL"]`)) === "https://api.example.com/orders" &&
       (await page.locator(`${card("Headers")} input[placeholder="Header name"]`).first().inputValue()) === "Accept" &&

@@ -139,6 +139,7 @@ layout:
       - toolbar:
           - action: run
   - title: 4. Results
+    clear: [results, volume]
     aside:
       - chart: results
     items:

@@ -1029,7 +1029,7 @@ that member; each now does (`"upsert"`, `"access"`, `"delete"`), so it shows up,
 takes effect or leaves at once. smoke70 (fails on the old code, each check
 against its own part of the fix) and a test in `test_session_members.py`.
 
-#111 (charts, zoom, 3b-5 MQTT) merged. This round's PR carries:
+#111 (charts, zoom, 3b-5 MQTT) and #112 (below) merged.
 - **The agent, after a conversation where it said "connected" three times and never
   was** (PLATFORM_PLAN.md §17):
   - It can now read a pane's run status, and inputs in the shape it writes them.
@@ -1050,6 +1050,20 @@ against its own part of the fix) and a test in `test_session_members.py`.
   this round didn't touch). The agent's model requests use the turn's own HTTP
   client now: with the newer `openai` a fresh install resolves, every agent test
   after the first failed with "the handler is closed".
+
+This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
+- **A pane's ⋮** in its header (or selected tab): auto-refresh and saved inputs,
+  out of the cards (D57). Room for 3c-2's "hide inputs" on a dashboard.
+- **Clear** on a results card, for everyone, of the outputs its manifest names (D58).
+- **The agent seen working** (D59): a line under a running turn says what it's doing
+  and for how long; a dot on the other chat's tab and on the panel's toggle; a
+  shared session's members see the question being answered.
+- Tests: backend 372, agent 35; smoke76 (26), its progress and member checks failing
+  on the old frontend; the Saved/↻ suites moved to the ⋮. Full browser run 58 of 60:
+  smoke31's two styling checks fail as on main, and smoke75's "the other tab fetched
+  only the pane's outputs" failed about one run in four (both refreshes could be the
+  other tab's own, answered with the outputs, leaving nothing to fetch); it counts
+  those now, and passed three runs out of three.
 
 Next: 3c-2 (view mode and session variables), detailed in PLATFORM_PLAN.md before it
 is built.

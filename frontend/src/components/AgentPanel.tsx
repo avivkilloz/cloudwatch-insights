@@ -11,7 +11,13 @@ import AgentChat from "./AgentChat";
  * toggle).
  */
 export default function AgentPanel({ account }: { account?: ReactNode }) {
-  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId } = useAgent();
+  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, running, runningIn } = useAgent();
+  // A dot on the other tab while its conversation has a turn running, so
+  // switching away doesn't hide that the agent is still at it.
+  const busy = (scope: "global" | "session") =>
+    running && runningIn?.scope === scope && tab !== scope ? (
+      <span className="agent-tab-busy" title="The agent is still answering here" aria-label="(answering)" />
+    ) : null;
   return (
     <div className="agent-panel">
       <div className="agent-panel-head">
@@ -24,6 +30,7 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
             title="The platform: start sessions, find things across them"
           >
             Global
+            {busy("global")}
           </button>
           <button
             role="tab"
@@ -33,6 +40,7 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
             title={viewingSessionId ? "This session: change it, ask about what's checked in it" : "Open a session first"}
           >
             Session
+            {busy("session")}
           </button>
         </div>
         <div className="agent-panel-actions">

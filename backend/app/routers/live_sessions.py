@@ -654,7 +654,8 @@ def clear_pane_outputs(
     origin: Optional[str] = OriginHeader,
 ):
     """Removes outputs an input change made stale -- its manifest `resets` --
-    for everyone looking, as the browser already did on screen."""
+    or a results card's Clear names, for everyone looking, as the browser
+    already did on screen."""
     row, member = _reachable(db, current_user, client_id)
     if member is not None and member.permission == "viewer":
         raise HTTPException(status_code=403, detail="You have read-only access to this session.")

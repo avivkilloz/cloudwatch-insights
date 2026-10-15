@@ -3753,34 +3753,77 @@ th {
   flex-wrap: wrap;
 }
 
-/* "Load saved…" / "Save as…" at the top right of every manifest pane
-   (panes/SavedInputsBar.tsx): one line above its cards, the 16px gap below
-   it that the cards keep between themselves. */
-.pane-saved {
+/* A pane's ⋮ (panes/PaneSettings.tsx): auto-refresh and saved inputs, in
+   its header beside the other buttons, or in its tab in the tabs layout. The
+   spot stays out of the row until a pane fills it. */
+.pane-menu-slot {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  flex: none;
 }
-
-.pane-saved-menu {
-  max-height: 320px;
+.pane-menu-slot:empty {
+  display: none;
+}
+.pane-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Lit beside the ⋮ while the pane refreshes by itself. */
+.pane-refresh-on {
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* In a tab, bare like the tab's own ✕, not a button within a button. */
+.aggregator-tab .pane-menu-button {
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+}
+.aggregator-tab.active .pane-refresh-on {
+  color: var(--accent-text);
+}
+.pane-menu-list {
+  width: 240px;
+  max-height: 420px;
   overflow-y: auto;
 }
-
-.pane-saved-menu button {
+.pane-menu-list button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.pane-saved-note {
-  padding: 6px 8px;
+.pane-menu-heading {
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.pane-menu-heading + .pane-menu-heading,
+.pane-menu-note + .pane-menu-heading,
+.pane-menu-list button + .pane-menu-heading {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.pane-menu-field {
+  display: block;
+  padding: 2px 8px 4px;
+}
+.pane-menu-field select {
+  width: 100%;
   font-size: 12.5px;
 }
-
-.pane-saved-sep {
-  margin: 4px 0;
-  border-top: 1px solid var(--border);
+.pane-menu-note {
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* Settings → Users: the add form, opened from the list's head above the list. */
@@ -3849,21 +3892,64 @@ th {
   border-radius: 0 0 6px 6px;
 }
 
-/* Auto-refresh (§18.3): the pane's ↻ picker sits beside Saved ▾ in its first
-   card's title, as small as that menu's button; lit while it's refreshing. */
-.pane-refresh {
-  font-size: 12px;
-  padding: 2px 6px;
-  margin-right: 6px;
-  max-width: 190px;
-}
-.pane-refresh.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
+/* Auto-refresh (§18.3) failing, above the pane's cards. */
 .pane-refresh-error {
   margin: 0 0 8px;
 }
 .session-card-refresh {
   max-width: 200px;
+}
+
+/* ---- The agent working, wherever you are (AgentChat, AgentPanel, SessionBar) ---- */
+
+/* Under a running turn, the whole time it runs: what it's doing, and for how
+   long, so the quiet between two steps doesn't read as stopped. */
+.agent-progress,
+.agent-busy-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.agent-busy-note {
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 6px 12px;
+}
+.agent-progress-dot,
+.agent-tab-busy {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-working-pulse 1.2s ease-in-out infinite;
+}
+.agent-progress-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+/* Beside a Global/Session tab's name while its conversation runs unseen. */
+.agent-tab-busy {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+/* The panel's toggle while it's closed and the agent is still answering. */
+.session-bar-agent.busy {
+  position: relative;
+  color: var(--accent);
+}
+.session-bar-agent.busy::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-working-pulse 1.2s ease-in-out infinite;
 }

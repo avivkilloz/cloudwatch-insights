@@ -103,6 +103,8 @@ layout:
     items:
       - error: send
   - when: { output: response, present: true }
+    # The exchange goes too: it's the same request, offered to the agent.
+    clear: [response, exchange]
     items:
       - output: response
 agent:
