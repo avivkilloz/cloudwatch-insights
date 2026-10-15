@@ -274,6 +274,67 @@ def list_closed_live_sessions(
     return [_summary_out(row, member) for row, member in _closed_pairs(db, current_user)]
 
 
+def _home_out(db: Session, user: models.User) -> schemas.HomeSessionOut:
+    if user.home_session_id is None:
+        return schemas.HomeSessionOut(missing=user.home_session_title)
+    row = db.get(models.LiveSession, user.home_session_id)
+    member = None
+    if row is not None and row.user_id != user.id:
+        member = (
+            db.query(models.SessionMember)
+            .filter(models.SessionMember.session_id == row.id, models.SessionMember.user_id == user.id)
+            .one_or_none()
+        )
+        if member is None:
+            row = None
+    if row is None:
+        # Deleted, or they left it (or were removed): the default page, with
+        # a note saying which one -- until it's dismissed, which clears this.
+        return schemas.HomeSessionOut(missing=user.home_session_title or "your home session")
+    closed_at = row.closed_at if member is None else member.closed_at
+    return schemas.HomeSessionOut(
+        home=schemas.HomeSessionRef(client_id=row.client_id, title=row.title, closed=closed_at is not None)
+    )
+
+
+# Before /{client_id}, which would otherwise take "home" for a session id.
+@router.get("/home", response_model=schemas.HomeSessionOut)
+def get_home_session(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Which session is the caller's home page (R3, D63), if any."""
+    return _home_out(db, current_user)
+
+
+@router.delete("/home", response_model=schemas.HomeSessionOut)
+def clear_home_session(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Home is the default page again -- also how the "your home page is
+    gone" note is dismissed."""
+    current_user.home_session_id = None
+    current_user.home_session_title = None
+    db.commit()
+    return _home_out(db, current_user)
+
+
+@router.put("/{client_id}/home", response_model=schemas.HomeSessionOut)
+def set_home_session(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Makes a session the caller can reach -- theirs, or one shared with
+    them at any permission -- their home page."""
+    row, _member = _reachable(db, current_user, client_id)
+    current_user.home_session_id = row.id
+    current_user.home_session_title = row.title
+    db.commit()
+    return _home_out(db, current_user)
+
+
 @router.post("/reorder", response_model=list[schemas.LiveSessionOut])
 def reorder_live_sessions(
     payload: schemas.LiveSessionOrder,

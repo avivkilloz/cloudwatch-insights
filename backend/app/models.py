@@ -64,6 +64,13 @@ class User(Base):
     # to keep rows small.
     avatar_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    # The session that is this user's home page (R3, D63): the row's own id,
+    # since a client_id is only unique per owner. No foreign key -- users and
+    # live_sessions would each point at the other -- so a deleted row leaves
+    # the id behind, read as "gone" like a session they've left. The title is
+    # kept to say which one in the note that follows.
+    home_session_id = Column(Integer, nullable=True)
+    home_session_title = Column(String, nullable=True)
 
     group = relationship("UserGroup", back_populates="users")
 
