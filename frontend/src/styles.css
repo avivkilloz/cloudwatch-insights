@@ -2846,9 +2846,8 @@ th {
   border-radius: 8px 8px 0 0;
 }
 
-/* In the side panel there's nothing to fold -- the card is already out of the
-   way -- so its header doesn't toggle. */
-.session-card:not(.in-rail) .session-card-head {
+/* Folds in the body and in the side panel alike. */
+.session-card .session-card-head {
   cursor: pointer;
   user-select: none;
 }
@@ -3991,26 +3990,26 @@ button.icon-btn {
 
 /* ---- Session variables and view mode (§18.7) ---- */
 
-/* The session's variables, between its card and its panes: a dashboard's
-   shared controls (components/SessionVariables.tsx). */
-.session-variables {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 20px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-}
+/* A session variable (components/SessionVariables.tsx): its name, its
+   control and, in the card's Variables row, its ✕ -- one box the height of
+   the "+ …" buttons beside it. The same box sits in the card's header while
+   it's folded, so a folded dashboard keeps its controls. */
 .session-variable {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 2px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  font-size: 12.5px;
+  cursor: default;
 }
-.session-variable .field-label {
-  margin: 0;
+.session-variable-label {
+  flex: none;
+  color: var(--text-dim);
 }
 .session-variable-control {
   display: flex;
@@ -4020,6 +4019,59 @@ button.icon-btn {
   padding: 0;
   border: none;
   min-width: 0;
+}
+.session-variable-control select,
+.session-variable-control input {
+  height: 22px;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+.session-variable-control input {
+  width: 140px;
+}
+.session-variable:not(:has(.session-variable-remove)) {
+  padding-right: 3px;
+}
+.session-variable button.session-variable-remove {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+}
+.session-variable button.session-variable-remove:hover {
+  color: var(--error);
+}
+.session-variable-remove .icon {
+  width: 12px;
+  height: 12px;
+}
+.session-card-folded-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+/* Narrow, each variable takes the row and its select what's left of it. */
+.session-card.in-rail .session-variable {
+  width: 100%;
+}
+.session-card.in-rail .session-variable-control {
+  flex: 1;
+}
+.session-card.in-rail .session-variable-control select {
+  flex: 1;
+  width: 0;
+}
+.session-card.in-rail.collapsed .session-card-head {
+  flex-wrap: wrap;
+}
+.session-card.in-rail .session-card-folded-extra {
+  order: 3;
+  flex-basis: 100%;
 }
 /* An input following a session variable: drawn as it is, not changeable
    here, with where its value comes from beside it. */
@@ -4051,31 +4103,3 @@ button.icon-btn {
   font-size: 12.5px;
 }
 
-/* A session variable that's defined, in the card's Variables row: its name
-   and ✕, the height of the buttons beside it (its value is in the bar). */
-.session-card-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 2px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel-alt);
-  font-size: 12.5px;
-}
-.session-card-chip button.session-card-chip-remove {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  border: none;
-  background: none;
-  color: var(--text-dim);
-}
-.session-card-chip button.session-card-chip-remove:hover {
-  color: var(--error);
-}
-.session-card-chip-remove .icon {
-  width: 12px;
-  height: 12px;
-}

@@ -1308,6 +1308,7 @@ export default function AggregatorPage() {
       }}
       onDescribe={setDescription}
       onMove={() => setPanesInRail(!cardInRail)}
+      folded={<SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} removable={false} />}
     >
       {/* Two rows rather than one long one -- ten buttons in a single line
           reads as an undifferentiated list, and "a search page" and "a tool"
@@ -1403,10 +1404,13 @@ export default function AggregatorPage() {
           </select>
         </CardRow>
         <CardRow label="Variables">
-          {/* Each defined one as a chip (its value is set in the bar under
-              the card), each other as "+ …" -- controls, not a sentence. */}
-          {(["environment", "time"] as VariableName[]).map((name) =>
-            defined[name] === undefined ? (
+          {/* Each defined one with its control and ✕, each other as "+ …":
+              set here, where the session is set up (and in the header while
+              the card is folded), not in a bar of their own under it. */}
+          <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} removable />
+          {(["environment", "time"] as VariableName[])
+            .filter((name) => defined[name] === undefined)
+            .map((name) => (
               <button
                 key={name}
                 className="secondary session-card-add"
@@ -1420,26 +1424,7 @@ export default function AggregatorPage() {
               >
                 + {VARIABLE_LABELS[name]}
               </button>
-            ) : (
-              <span key={name} className="session-card-chip" title="Set in the bar under this card">
-                {VARIABLE_LABELS[name]}
-                {!isViewer && (
-                  <button
-                    className="icon-btn session-card-chip-remove"
-                    aria-label={`Remove the ${VARIABLE_LABELS[name]} variable`}
-                    title="Remove it (panes keep the value they have)"
-                    onClick={() => {
-                      const next = { ...defined };
-                      delete next[name];
-                      changeVariables(next, []);
-                    }}
-                  >
-                    <Icon name="close" />
-                  </button>
-                )}
-              </span>
-            ),
-          )}
+            ))}
         </CardRow>
       </CardSection>
       <CardSection>
@@ -1532,7 +1517,6 @@ export default function AggregatorPage() {
   return (
     <>
       {cardInRail ? (onScreen && railSlot ? createPortal(sessionCard, railSlot) : null) : sessionCard}
-      <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} />
 
       {open.length === 0 && (
         <div className="panel">
