@@ -59,10 +59,7 @@ LOOP_CHECK_CHARS = 200
 def build_check_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpenAI:
     """What checks an answer (check.py): not streamed -- nobody watches it --
     and as deterministic as the model allows, since it's a judgement, not
-    writing. On the turn's own HTTP client: langchain_openai otherwise shares
-    one per base URL across turns, and a kept-alive connection from a turn
-    run in another event loop failed the next check ("the handler is
-    closed")."""
+    writing. On the turn's own HTTP client, like the model (build_model)."""
     return ChatOpenAI(
         http_async_client=client,
         model=settings.check_model or settings.model,
@@ -76,8 +73,14 @@ def build_check_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpen
     )
 
 
-def build_model(settings: Settings) -> ChatOpenAI:
+def build_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpenAI:
+    """On the turn's own HTTP client: langchain_openai otherwise shares one per
+    base URL across turns, and a kept-alive connection from a turn run in
+    another event loop failed the next turn ("the handler is closed") -- first
+    the check's, then, with a newer openai, every turn after the first in the
+    tests, which each run in a loop of their own."""
     return ChatOpenAI(
+        http_async_client=client,
         model=settings.model,
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
@@ -260,14 +263,14 @@ async def run_turn(
         return out
 
     prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
-    check_client = httpx.AsyncClient(timeout=60) if settings.check else None
+    client = httpx.AsyncClient(timeout=120)
     guard = TurnGuard(
         set(by_name),
-        check_model=build_check_model(settings, check_client) if check_client else None,
+        check_model=build_check_model(settings, client) if settings.check else None,
         read_sessions=read_sessions,
         focus=focus["session_id"] if focus else None,
     )
-    agent = create_agent(model or build_model(settings), tools, system_prompt=prompt, middleware=[guard])
+    agent = create_agent(model or build_model(settings, client), tools, system_prompt=prompt, middleware=[guard])
     history = conversation(messages, set(by_name))
     # The reads go with the message they were made for, as the last thing the
     # model reads -- not in the system prompt, many turns of conversation
@@ -381,8 +384,7 @@ async def run_turn(
         return
     finally:
         await stream.aclose()
-        if check_client is not None:
-            await check_client.aclose()
+        await client.aclose()
     if not answer.strip():
         # Asked once to carry on (repair.TurnGuard) and still nothing: say so,
         # rather than leave the chat looking as if the turn is still going or
