@@ -1217,6 +1217,9 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D54 | 2026-10-14 | **An MQTT connection is a background run, held by the server** (§16.13). It follows D51's rule: open while someone is looking, closed 2 minutes after the last viewer leaves, at most 5 open per user. The pane's topics are an input, and changing them while connected reconnects as whoever changed them, keeping the messages. Publishing is a person's action (`effects: external`); the agent can connect and read, but not publish. | D6 moved the connection to the server, and D51 already answered "only while someone is looking" the way the user wanted. A stream is just a run whose poll is the connection's buffer. The 2 minutes are the plan's (§4.4) "closes a couple of minutes after the last viewer leaves". |
 | D55 | 2026-10-15 | **Every answer of the agent's is checked against what its turn ran** (§17). One more model call reads the request, the turn's tool calls and what they returned, the sessions it touched as they are after the answer, and the answer, and says ok, not done, or unsupported. A failed answer is taken back and redone once; a second miss stands with what was found under it. Alongside, replayable scenarios run against the real model on demand. | The user's choice, over a check only on turns that changed something, scenarios only, or a second supervising agent. The prompt already forbade claiming what no tool showed, and the agent claimed an MQTT connection three turns running anyway. The root cause was facts the agent couldn't read (§17.1); the check is for the next kind of miss, and costs one call per answer. |
 | D56 | 2026-10-15 | **3c ships as three PRs: auto-refresh first** (with results moving to their own store, D21), then view mode and session variables, then Home → a session (§18). | The user's choice. The store is what makes a refresh cheap: without it, every refresh resends the whole session to every tab. |
+| D57 | 2026-10-15 | **A pane's settings are a ⋮ in its header** (or its tab, in the tabs layout): auto-refresh and saved inputs now, and later the dashboard's "hide inputs" (§18.6). | The user's request: a select and a menu beside the first card's title were cluttered and inconsistent. One place has room for what the settings grow into. |
+| D58 | 2026-10-15 | **A results card has Clear, which empties the outputs its manifest names (`clear:`) for everyone** (§18.6). | The user's request. The manifest names what to clear, because not everything a pane stores is a result: DynamoDB's table info and MQTT's "Connected to…" stay. |
+| D59 | 2026-10-15 | **A session turn is stored when it's asked**, and every running turn says what it's doing and for how long (§18.6). | The user's request for feedback while the agent works. Only the asking browser streams the steps, so the members of a shared session saw nothing until the answer. The stored copy is only the question; past 10 minutes it is taken as abandoned. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3468,6 +3471,43 @@ Where the build departed from §18.2–§18.4, and what it found:
     failure shown; typing through a refresh.
   - The cross-tab suites (smoke62, 66, 67, 69, 71) were updated for results
     beside the state.
+
+### 18.6 After 3c-1: a pane's ⋮, Clear, and the agent seen working
+
+Asked for after trying 3c-1 (2026-10-15), built before 3c-2:
+
+- **A pane's settings are a ⋮ in its header** (D57), or in the selected tab in
+  the tabs layout, where the tab is the header. It holds auto-refresh and saved
+  inputs, which had been a select and a menu beside the first card's title.
+  3c-2's "hide the inputs on a dashboard" goes in it too. The frame owns the
+  header and the pane owns what the menu holds, so the frame leaves a spot
+  (`components/paneMenuSlot.ts`) and the pane portals into it. A click there
+  bubbles through the pane, not the header, so it neither folds the pane nor
+  starts a drag. A pane that can't run again by itself (a live tool) offers no
+  refresh. While a pane refreshes, "↻ 30s" shows beside its ⋮.
+- **A results card has Clear** (D58) while it holds something. A card names
+  what its Clear removes (`clear:` in the manifest, checked to be its own
+  outputs and never `run`). It goes through the existing
+  `POST …/outputs/{pane}/clear`, for everyone, with `ranAt` and
+  `resultsVersion`. A viewer's Clear stays on their screen, as their clicks do.
+  The live tools have none, since their outputs are worked out from the inputs.
+- **The agent is seen working** (D59):
+  - A running turn shows what it's doing and for how long, the whole time it
+    runs. "Thinking…" used to show only until the first step.
+  - The other chat's tab gets a dot.
+  - The compose box says where the agent is busy and offers to go there.
+  - The panel's toggle is marked while the panel is closed.
+  - A session turn is stored when it's asked, so a member (or another tab)
+    sees the question and "Answering <name>…", not nothing until the answer.
+  - A turn its browser abandoned shows as unanswered after 10 minutes.
+  - The chat merge keeps the answered copy of a turn over a "running" one.
+- **Checked:**
+  - Backend: `test_pane_manifests.py` checks the manifest's `clear` and what it
+    serves.
+  - Browser: smoke76 (26 checks). The progress and member checks fail against
+    the old frontend.
+  - The suites that used Saved ▾ or the ↻ select now go through the ⋮
+    (`harness.openPaneMenu`).
 
 ## 12. Research sources
 

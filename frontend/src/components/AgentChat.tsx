@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { AgentScope, AgentStep, AgentTurn, splitThinking, useAgent } from "../agent/AgentContext";
+import { abandoned, AgentScope, AgentStep, AgentTurn, splitThinking, useAgent } from "../agent/AgentContext";
 import { useSessionSelection } from "../agent/selection";
 import { useAuth } from "../AuthContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
@@ -128,12 +128,50 @@ function Thoughts({ text, live }: { text: string; live: boolean }) {
   );
 }
 
-function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
+function elapsed(seconds: number): string {
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** What a running turn is doing, and for how long. There the whole time it
+ * runs: "Thinking…" used to show only until the first step, so the long
+ * quiet while a reasoning model worked out its next step read as the agent
+ * having stopped. Another browser's turn (a member's, or this user's other
+ * tab) has no steps to show here, only that it's being answered. */
+function TurnProgress({ turn, live }: { turn: AgentTurn; live: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  let doing: string;
+  if (!live) {
+    doing = turn.author ? `Answering ${turn.author.name}` : "Answering in another tab";
+  } else {
+    const step = [...turn.steps].reverse().find((s) => s.status === "running");
+    if (step) doing = describe(step);
+    else if (splitThinking(turn.answer).answer) doing = "Writing the answer";
+    else if (turn.steps.length) doing = "Working out the next step";
+    else doing = "Thinking";
+  }
+  const seconds = turn.startedAt ? Math.max(0, Math.floor((now - turn.startedAt) / 1000)) : null;
+  return (
+    <p className="agent-progress" role="status">
+      <span className="agent-progress-dot" aria-hidden="true" />
+      {doing.replace(/…$/, "")}…
+      {seconds !== null && <span className="agent-progress-time">{elapsed(seconds)}</span>}
+    </p>
+  );
+}
+
+function Turn({ turn, mine, live }: { turn: AgentTurn; mine: boolean; live: boolean }) {
   // Turns stored before reasoning was kept apart still carry it inline.
   const legacy = splitThinking(turn.answer);
   const thoughts = [turn.thoughts ?? "", legacy.thoughts].filter((t) => t.trim()).join("\n\n");
   const answer = legacy.answer;
-  const running = turn.status === "running";
+  // Left "running" by a browser that went away: its stream, and the turn,
+  // ended with it.
+  const gone = !live && abandoned(turn, Date.now());
+  const running = turn.status === "running" && !gone;
   return (
     <div className="agent-turn">
       <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
@@ -154,7 +192,8 @@ function Turn({ turn, mine }: { turn: AgentTurn; mine: boolean }) {
             </ul>
           )}
           {answer && <MarkdownLite text={answer} />}
-          {running && !answer && !thoughts && turn.steps.length === 0 && <p className="muted agent-thinking">Thinking…</p>}
+          {running && <TurnProgress turn={turn} live={live} />}
+          {gone && <p className="error-text">This wasn't answered: the browser that asked it closed before the agent finished.</p>}
           {turn.notice && <p className="agent-notice">⚠ {turn.notice}</p>}
           {turn.status === "stopped" && <p className="muted">Stopped.</p>}
           {turn.error && <p className="error-text">{turn.error}</p>}
@@ -184,16 +223,18 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     sessionTurns,
     running,
     runningIn,
+    liveTurnId,
     ask,
     stop,
     clear,
     follow,
     setFollow,
+    setTab,
     viewingSessionId,
     viewingSessionShared,
   } = useAgent();
   const { user } = useAuth();
-  const { sessions } = useSessions();
+  const { sessions, activate } = useSessions();
   const selection = useSessionSelection(scope === "session" ? viewingSessionId : null);
   const [input, setInput] = useState("");
   const [attach, setAttach] = useState(true);
@@ -312,12 +353,31 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           </p>
         )}
         {turns.map((t) => (
-          <Turn key={t.id} turn={t} mine={!t.author || t.author.id === user?.id} />
+          <Turn key={t.id} turn={t} mine={!t.author || t.author.id === user?.id} live={t.id === liveTurnId} />
         ))}
         <div ref={endRef} />
       </div>
       {unavailable && <p className="error-text">{unavailable}</p>}
-      {busyElsewhere && <p className="muted">The agent is busy in another conversation; it can take this when it's done.</p>}
+      {busyElsewhere && runningIn && (
+        // One turn at a time: say where the running one is, and take you there.
+        <p className="muted agent-busy-note" role="status">
+          <span className="agent-progress-dot" aria-hidden="true" />
+          The agent is still answering in{" "}
+          {runningIn.scope === "global"
+            ? "the Global chat"
+            : `“${sessions.find((x) => x.id === runningIn.sessionId)?.title ?? "another session"}”`}
+          ; it can take this when it's done.{" "}
+          <button
+            className="link-button"
+            onClick={() => {
+              if (runningIn.scope === "session" && runningIn.sessionId) activate(runningIn.sessionId);
+              setTab(runningIn.scope);
+            }}
+          >
+            Show
+          </button>
+        </p>
+      )}
       <div className="agent-compose">
         {scope === "session" && checked > 0 && (
           <label className="agent-attach" title="Send the rows checked in this session's panes with the question">

@@ -62,6 +62,7 @@ layout:
       - toolbar:
           - action: fetch
   - title: Rows
+    clear: [rows, response]
     when: { output: rows, present: true }
     aside:
       - chart: rows

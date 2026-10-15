@@ -56,8 +56,10 @@ import HttpResponseView from "./HttpResponseView";
 import { LogsView, RunNote, SortControl } from "./LogsView";
 import { StreamView, TopicsEditor } from "./StreamView";
 import { ChartItem, HistogramView } from "./chart/ChartView";
-import { RefreshFailure, RefreshPicker, useAutoRefresh } from "./refresh";
-import SavedInputsMenu from "./SavedInputsMenu";
+import PaneSettings from "./PaneSettings";
+import { RefreshFailure, useAutoRefresh } from "./refresh";
+import { useSavedInputs } from "./SavedInputsMenu";
+import { TitleExtra } from "./titleExtra";
 import { render } from "./template";
 
 /** Where an item is drawn, which decides its markup: a card's own column, a
@@ -80,6 +82,8 @@ interface Pane extends PaneApi {
    * from its Run until the run the server wrote says otherwise. */
   running: (action: ManifestAction) => boolean;
   stopRun: (action: ManifestAction) => void;
+  /** A results card's Clear: these outputs, for everyone looking. */
+  clearOutputs: (keys: string[]) => void;
 }
 
 /** A background run as the server writes it into `out.run` (D51). */
@@ -184,6 +188,7 @@ function Rendered({ m }: { m: PaneManifest }) {
   const storedViews = (m.views ?? []).map((v) => [v, useStoredView(v)] as const);
   const resultsVersion = held.resultsVersion as number | undefined;
   const ranAt = held.ranAt as number | undefined;
+  const saved = useSavedInputs(m, inputs);
   const refresh = useAutoRefresh(
     m,
     address.session,
@@ -279,6 +284,23 @@ function Rendered({ m }: { m: PaneManifest }) {
     } else if (part === "view") {
       setView(key, (m.views ?? []).find((v) => v.key === key)?.default ?? null);
     }
+  }
+
+  /** Empties a results card (its manifest's `clear`), for everyone looking
+   * -- on screen at once, then on the server, which tells the session's
+   * other tabs and members. `ranAt` goes too, so nothing says the empty
+   * card was "restored", and `resultsVersion`, so checked rows go with the
+   * rows. A viewer's is refused there and stays on their screen only, as
+   * their clicks do. */
+  function clearOutputs(keys: string[]) {
+    const all = [...keys, "ranAt", "resultsVersion"];
+    for (const key of all) setOutput(key, undefined);
+    setErrors({});
+    if (!address.session) return;
+    api.clearPaneOutputs(address.session, address.pane, all).then(
+      (stored) => applyOutputs(outputsAt, { [address.pane]: stored }),
+      () => undefined,
+    );
   }
 
   function changeInputs(given: Values): string[] {
@@ -471,30 +493,14 @@ function Rendered({ m }: { m: PaneManifest }) {
     toggleExamples: (key) => setExamplesOpen((prev) => ({ ...prev, [key]: !prev[key] })),
     running,
     stopRun,
+    clearOutputs,
   };
-  // The Saved ▾ menu goes in the first title shown (an untitled card -- the
-  // HTTP client's error -- has none to hold it).
-  const first = m.layout.findIndex((card) => card.title !== undefined && shown(card.when, pane));
   return (
     <div>
+      <PaneSettings pane={pane} refresh={refresh} saved={saved} />
+      {saved.error && <p className="error-text">{saved.error}</p>}
       <RefreshFailure state={refresh} />
-      {m.layout.map((card, i) =>
-        shown(card.when, pane) ? (
-          <CardView
-            key={i}
-            card={card}
-            pane={pane}
-            saved={
-              i === first ? (
-                <>
-                  <RefreshPicker m={m} state={refresh} />
-                  <SavedInputsMenu pane={pane} />
-                </>
-              ) : null
-            }
-          />
-        ) : null,
-      )}
+      {m.layout.map((card, i) => (shown(card.when, pane) ? <CardView key={i} card={card} pane={pane} /> : null))}
     </div>
   );
 }
@@ -562,16 +568,25 @@ function rich(source: string): ReactNode {
 
 /** `saved` is the Saved ▾ menu, given to the pane's first card only: it sits
  * at the right of that card's title, after anything the manifest put there. */
-function CardView({ card, pane, saved }: { card: Card; pane: Pane; saved: ReactNode }) {
+function CardView({ card, pane }: { card: Card; pane: Pane }) {
   const title = textOf(card.title, pane.inputs);
   const aside = card.aside.filter((item) => shown(item.when, pane));
+  // Clear, while there's something of the card's results to clear: an empty
+  // card offering to empty itself is only noise.
+  const clear = card.clear.some((key) => present(pane.outputs[key])) ? (
+    <button className="secondary" onClick={() => pane.clearOutputs(card.clear)} title="Clear these results, for everyone">
+      Clear
+    </button>
+  ) : null;
   if (card.title === undefined) {
     // Its one output or error draws its own title row, or none.
     return (
       <div className="panel">
-        {card.items.map((item, i) => (
-          <Item key={i} item={item} pane={pane} place="card" first={i === 0} />
-        ))}
+        <TitleExtra.Provider value={clear}>
+          {card.items.map((item, i) => (
+            <Item key={i} item={item} pane={pane} place="card" first={i === 0} />
+          ))}
+        </TitleExtra.Provider>
       </div>
     );
   }
@@ -579,15 +594,15 @@ function CardView({ card, pane, saved }: { card: Card; pane: Pane; saved: ReactN
     <div className="panel">
       {/* By whether the card has an aside at all, not whether it's showing:
           the title keeps one place as the aside comes and goes. */}
-      {card.aside.length > 0 || saved ? (
+      {card.aside.length > 0 || clear ? (
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          {saved ? (
+          {clear ? (
             <span className="row" style={{ gap: 8 }}>
               {aside.map((item, i) => (
                 <Item key={i} item={item} pane={pane} place="aside" />
               ))}
-              {saved}
+              {clear}
             </span>
           ) : (
             aside.map((item, i) => <Item key={i} item={item} pane={pane} place="aside" />)

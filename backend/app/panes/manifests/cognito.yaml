@@ -95,6 +95,7 @@ layout:
           - input: userPoolId
       - error: list_user_pools
   - title: 2. Search users
+    clear: [users, paginationToken]
     when: { input: userPoolId, present: true }
     items:
       - text: >-

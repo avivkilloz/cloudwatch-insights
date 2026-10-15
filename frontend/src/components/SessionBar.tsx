@@ -215,11 +215,17 @@ export default function SessionBar({
           {/* At the very end, the agent panel's toggle, as the side panel's
               own is at the start -- whichever way the agent panel is laid out. */}
           <button
-            className="session-bar-agent"
+            className={`session-bar-agent${agent.running && !agent.open ? " busy" : ""}`}
             onClick={() => agent.setOpen(!agent.open)}
             aria-expanded={agent.open}
             aria-label={agent.open ? "Hide the agent panel" : "Show the agent panel"}
-            title={agent.open ? "Hide the agent panel" : "Show the agent panel"}
+            title={
+              agent.open
+                ? "Hide the agent panel"
+                : agent.running
+                  ? "The agent is still answering — show the agent panel"
+                  : "Show the agent panel"
+            }
           >
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
               <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />

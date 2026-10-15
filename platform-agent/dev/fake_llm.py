@@ -58,7 +58,8 @@ afterwards shows a run "running", and a request to connect is not done
 unless run_pane was called. Everything else passes.
 
 FAKE_LLM_STEP_DELAY (seconds, default 0) pauses before each reply, so a test
-can watch a turn happen rather than only see its end.
+can watch a turn happen rather than only see its end; a question starting
+"slow " does the same for its own turn only.
 """
 
 import asyncio
@@ -81,6 +82,7 @@ NUDGE_MARK = "(From the platform, not the user:"
 CHECK_MARK = "You check an AI agent's answer against what it actually did."
 
 STEP_DELAY = float(os.environ.get("FAKE_LLM_STEP_DELAY", "0"))
+SLOW_STEP_SECONDS = 2.5
 
 # The last few requests, newest last, for tests to read what the agent sent;
 # the answer checks apart.
@@ -375,9 +377,17 @@ async def completions(request: Request):
     model = body.get("model", "fake")
     text, results = _turn(body.get("messages") or [])
     messages = body.get("messages") or []
+    # "slow <anything>": that turn, with a pause before each reply -- the
+    # quiet while a reasoning model works out its next step, for a test to
+    # watch the chat say it's still working (smoke76). In a shared session's
+    # chat it comes as "<name>: @platform-agent slow …", and runs as the rest.
+    slow_match = re.match(r"(?:[\w.-]+: )?(?:@platform-agent )?slow (.*)", text, re.I | re.S)
+    slow = slow_match is not None
+    if slow_match:
+        text = slow_match.group(1)
     step = _next(text, results, _reads(messages), _nudged(messages))
-    if STEP_DELAY:
-        await asyncio.sleep(STEP_DELAY)
+    if STEP_DELAY or slow:
+        await asyncio.sleep(max(STEP_DELAY, SLOW_STEP_SECONDS if slow else 0))
     call_id = f"call_{uuid.uuid4().hex[:8]}"
 
     if not body.get("stream"):

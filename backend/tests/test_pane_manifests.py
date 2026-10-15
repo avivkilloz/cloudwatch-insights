@@ -67,6 +67,26 @@ def test_an_action_says_exactly_one_thing_it_does():
         pane_manifest.ManifestAction(id="a", live="x", handler="y")
 
 
+def test_a_cards_clear_names_its_own_results_and_never_the_run(tmp_path):
+    path = tmp_path / "clears.yaml"
+    head = (
+        "id: clears\nlabel: C\nflag: tools_enabled\nabout: x\nstate: v2\nrendered: true\n"
+        "outputs: [{key: rows, render: table}, {key: run, render: run}]\n"
+    )
+    path.write_text(head + "layout: [{title: T, clear: [rowz], items: [{output: rows}]}]\n")
+    with pytest.raises(pane_manifest.ManifestError, match="clears an output rowz"):
+        pane_manifest._load(path)
+    path.write_text(head + "layout: [{title: T, clear: [rows, run], items: [{output: rows}]}]\n")
+    with pytest.raises(pane_manifest.ManifestError, match="can't clear `run`"):
+        pane_manifest._load(path)
+
+    # What the browser's Clear reads, as served: DynamoDB clears its items,
+    # never the table it described.
+    tables = next(m for m in client.get("/api/pane-types").json() if m["id"] == "tables")
+    clears = [card["clear"] for card in tables["layout"] if card["clear"]]
+    assert clears == [["items", "lastEvaluatedKey", "scannedCount"]]
+
+
 def test_pane_types_are_only_those_the_group_may_use():
     everything = client.get("/api/pane-types").json()
     assert {m["id"] for m in everything} == set(pane_manifest.manifests())

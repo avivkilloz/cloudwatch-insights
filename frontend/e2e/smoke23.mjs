@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, check, launch, mockPaneActions, newSession, PICKER, report, SHOT } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 
 const V = ".session-body:not([hidden])";
 
@@ -176,10 +176,10 @@ async function saveActiveAsTemplate(page) {
 
   // ---------- 8. Saving a session captures its real inputs ----------
   await newSession(page, "DynamoDB");
-  await page.selectOption(`${V} .panel:has-text("Choose environment and table") ${PICKER}`, { index: 1 });
+  await page.selectOption(`${V} .panel:has-text("Choose environment and table") select`, { index: 1 });
   await page.click(`${V} button:has-text("Load tables")`);
   await page.waitForSelector(`${V} option[value="DemoTable"]`, { state: "attached" });
-  await page.selectOption(`${V} .panel:has-text("Choose environment and table") ${PICKER} >> nth=1`, "DemoTable");
+  await page.selectOption(`${V} .panel:has-text("Choose environment and table") select >> nth=1`, "DemoTable");
   await page.waitForSelector(`${V} >> text=partition key: id`);
   await page.fill(`${V} input[placeholder="field:value field2:value2"]`, "status:ACTIVE");
   await page.click(`${V} button:has-text("Scan")`);
@@ -199,7 +199,7 @@ async function saveActiveAsTemplate(page) {
   // The environment list is refetched on mount, so the restored id only shows
   // as the select's value once its options exist. The first select: the
   // restored table shows as a second one, before its list is loaded (D47).
-  const envSelect = `${V} .panel:has-text("Choose environment and table") ${PICKER} >> nth=0`;
+  const envSelect = `${V} .panel:has-text("Choose environment and table") select >> nth=0`;
   for (let i = 0; i < 60 && (await page.locator(envSelect).inputValue()) === ""; i++) {
     await page.waitForTimeout(100);
   }

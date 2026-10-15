@@ -52,6 +52,9 @@ export interface AgentTurn {
   thoughts?: string;
   steps: AgentStep[];
   status: "running" | "done" | "failed" | "stopped";
+  /** When it was asked (ms): how long the agent has been at it, and -- for a
+   * turn another browser is answering -- whether it can still be going. */
+  startedAt?: number;
   error?: string;
   /** A warning about the answer, from the agent service (e.g. details in it
    * that none of the turn's tools returned). */
@@ -78,6 +81,19 @@ export type AgentLayout = "dock" | "float";
 /** The session state key a session's conversation lives under. */
 export const SESSION_CHAT_KEY = "agentChat";
 
+// A session turn is stored as "running" when it's asked, so everyone else on
+// the session sees the question and that the agent is on it; only the
+// browser that asked streams the steps. If that browser goes away mid-turn
+// (closed, reloaded), its stream ends and the turn with it, but nothing can
+// say so -- past this long, a turn still "running" is taken as one that
+// didn't finish. A turn is twenty steps at most, each a model call or a tool.
+const TURN_STALE_MS = 10 * 60_000;
+
+/** A stored turn left "running" by a browser that went away. */
+export function abandoned(turn: AgentTurn, now: number): boolean {
+  return turn.status === "running" && now - (turn.startedAt ?? 0) > TURN_STALE_MS;
+}
+
 interface AgentApi {
   /** Null until fetched. */
   status: AgentStatus | null;
@@ -87,6 +103,9 @@ interface AgentApi {
   running: boolean;
   /** Which conversation the running turn belongs to. */
   runningIn: { scope: AgentScope; sessionId: string | null } | null;
+  /** The turn this browser is streaming, if any: its steps are live here;
+   * another browser's running turn has only its question to show. */
+  liveTurnId: string | null;
   ask: (text: string, scope: AgentScope, selection?: SessionSelection) => void;
   stop: () => void;
   clear: (scope: AgentScope) => void;
@@ -381,7 +400,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const session = sessions.find((s) => s.id === sessionId);
       const stored = session?.state[SESSION_CHAT_KEY];
       const turns = Array.isArray(stored) ? (stored as AgentTurn[]) : [];
-      return live && live.scope === "session" && live.sessionId === sessionId ? [...turns, live.turn] : turns;
+      // The stored copy of the turn in flight is its question only; this
+      // browser has the whole of it.
+      return live && live.scope === "session" && live.sessionId === sessionId
+        ? [...turns.filter((t) => t.id !== live.turn.id), live.turn]
+        : turns;
     },
     [sessions, live],
   );
@@ -424,10 +447,18 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         answer: "",
         steps: [],
         status: "running",
+        startedAt: Date.now(),
         author,
         agentInvoked: true,
       };
       setLive({ scope, sessionId, turn: first });
+      // The question goes into the session's chat now, not when it's
+      // answered: everyone else on the session -- and this user's other tabs
+      // -- see it and that the agent is working on it, rather than nothing
+      // until the answer lands all at once.
+      if (scope === "session") {
+        writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), first].slice(-KEPT_TURNS));
+      }
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -498,7 +529,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           if (scope === "global") {
             setGlobalTurns((prev) => [...prev, done]);
           } else {
-            writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), done].slice(-KEPT_TURNS));
+            const others = storedTurns(sessionId!).filter((t) => t.id !== id);
+            writeSessionState(sessionId!, SESSION_CHAT_KEY, [...others, done].slice(-KEPT_TURNS));
           }
           setLive(null);
         });
@@ -528,6 +560,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       sessionTurns,
       running: live !== null,
       runningIn: live ? { scope: live.scope, sessionId: live.sessionId } : null,
+      liveTurnId: live?.turn.id ?? null,
       ask,
       stop,
       clear,

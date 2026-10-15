@@ -224,12 +224,26 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Text from data uses `panes/template.ts`**: `{{ path ?? 'default' }}`,
   `{{ a ? b : c }}`, `| bytes | time | encode_path`. Nothing else -- no calls
   -- so a manifest from anywhere can only read what it's given.
-- **Saved inputs** (D46): a "Saved ▾" menu (the items, then "Save as…") at
-  the right of every manifest pane's first card title -- not a row of its
-  own, which left an almost empty row between full ones; one table (`saved_inputs`) by pane type, the user's own; the server keeps
+- **A pane's settings are its ⋮** (D57, §18.6; `panes/PaneSettings.tsx`): in
+  its header, or the selected tab in the tabs layout -- auto-refresh and saved
+  inputs, never in its cards (a select and a menu beside the first card's
+  title read as clutter); the dashboard's "hide inputs" goes there next. The
+  frame owns the header, the pane what the menu holds: AggregatorPage leaves
+  a spot per pane (`components/paneMenuSlot.ts`, element and the pane's own
+  name) and ManifestPane portals into it -- a click there bubbles through the
+  pane, not the header, so it neither folds nor drags. "↻ 30s" shows beside
+  it while the pane refreshes. Suites open it with `harness.openPaneMenu`.
+- **Saved inputs** (D46): in the ⋮ (the items, then "Save these inputs
+  as…"); one table (`saved_inputs`) by pane type, the user's own; the server keeps
   only the manifest's non-sensitive inputs whatever the browser sends. The
   per-pane stores move into it once each, as their pane is ported
   (`panes/saved.py`, a `Settings` marker per move).
+- **Clear** (D58): a card's `clear:` names the outputs its Clear empties --
+  its results, never `run`, and not everything stored (DynamoDB's table
+  info, MQTT's "Connected to…" stay). Shown only while one holds something;
+  it goes through `POST …/outputs/{pane}/clear` with `ranAt` and
+  `resultsVersion`, for everyone (a viewer's stays on their screen). An
+  untitled card's Clear is put in its output's own title row (`TitleExtra`).
 - **The browser loads manifests before any session mounts** (`PaneTypesGate`,
   App.tsx): the catalogue (`registerManifestPanes`), the renderer and the
   key migration all need them.
@@ -317,7 +331,7 @@ way, a run going -- and otherwise runs `Manifest.refresh_action()` (main, or
 the request; never `effects: external`, live or a stream) with the session's
 stored inputs, as the caller. Floors: 10 s, 60 s for `cost: per_run`
 (CloudWatch); env vars only raise them. A viewer can't refresh (3c-2 decides
-viewer dashboards).
+viewer dashboards). Set in the pane's ⋮, the session's on its card.
 
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
@@ -1077,6 +1091,18 @@ fixed where it happens:
   call it quotes the failure. Scenarios to try a real model against live in
   `platform-agent/evals` (its README); add one for every conversation the
   agent gets wrong.
+- **The agent is seen working** (D59, §18.6). A running turn's
+  `TurnProgress` says what it's doing (its running step, "Working out the
+  next step", "Writing the answer") and for how long, the whole time --
+  "Thinking…" showed only until the first step, and a reasoning model's
+  quiet between steps read as stopped. The other chat's tab has a dot, the
+  compose box says where the agent is busy (with Show), and the panel's
+  toggle is marked while closed. A session turn is written into `agentChat`
+  when asked (`startedAt`, the question only): only the asking browser
+  streams, so members saw nothing until the answer. That browser filters its
+  stored copy out for the live one (`liveTurnId`); a "running" turn older than
+  10 minutes is `abandoned` (its browser went away). `mergeChatTurns` keeps
+  the answered copy of a turn over a "running" one.
 - **No per-service tuning of the agent.** Services and tools will be added
   by plugins, so the agent must never need a new prompt line, script or
   hint to use one. The prompt names no service (the kinds come from

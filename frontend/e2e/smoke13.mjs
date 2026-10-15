@@ -1,4 +1,4 @@
-import { ADMIN_PASSWORD, ADMIN_USER, BASE, check, closeAllTabs, launch, mockPaneActions, newSession, PICKER, report, SHOT } from "./harness.mjs";
+import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeAllTabs, launch, mockPaneActions, newSession, report } from "./harness.mjs";
 import fs from "fs";
 
 const SCRATCH = `${SHOT}/downloads`;
@@ -167,12 +167,12 @@ async function openSession(page, label) {
 
   // ---------- Tables ----------
   await openSession(page, "DynamoDB");
-  // Its "Saved tables" card is now the Saved ▾ menu every pane has (D46).
+  // Its "Saved tables" card is now the saved inputs in every pane's ⋮ (D46).
   await page.waitForSelector("text=1. Choose environment and table");
-  await page.selectOption(`.panel:has-text("Choose environment and table") ${PICKER}`, { label: "Demo Env (111122223333 · us-east-1)" });
+  await page.selectOption('.panel:has-text("Choose environment and table") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load tables")');
   await page.waitForSelector('option[value="DemoTable"]', { state: "attached" });
-  await page.selectOption(`.panel:has-text("Choose environment and table") ${PICKER} >> nth=1`, "DemoTable");
+  await page.selectOption('.panel:has-text("Choose environment and table") select >> nth=1', "DemoTable");
   await page.waitForSelector("text=partition key: id");
   await page.click('button:has-text("Scan")');
   await page.waitForSelector("text=2 item(s) loaded");
@@ -202,10 +202,10 @@ async function openSession(page, label) {
   // ---------- Buckets ----------
   await openSession(page, "S3");
   await page.waitForSelector("text=1. Choose environment and bucket");
-  await page.selectOption(`.panel:has-text("Choose environment and bucket") ${PICKER}`, { label: "Demo Env (111122223333 · us-east-1)" });
+  await page.selectOption('.panel:has-text("Choose environment and bucket") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load buckets")');
   await page.waitForSelector('option[value="demo-bucket"]', { state: "attached" });
-  await page.selectOption(`.panel:has-text("Choose environment and bucket") ${PICKER} >> nth=1`, "demo-bucket");
+  await page.selectOption('.panel:has-text("Choose environment and bucket") select >> nth=1', "demo-bucket");
   await page.waitForSelector("text=alpha.txt");
 
   const bucketsPanel = '.panel:has-text("2. Browse")';
@@ -217,10 +217,10 @@ async function openSession(page, label) {
   // ---------- Cognito ----------
   await openSession(page, "Cognito");
   await page.waitForSelector("text=1. Choose environment and user pool");
-  await page.selectOption(`.panel:has-text("Choose environment and user pool") ${PICKER}`, { label: "Demo Env (111122223333 · us-east-1)" });
+  await page.selectOption('.panel:has-text("Choose environment and user pool") select', { label: "Demo Env (111122223333 · us-east-1)" });
   await page.click('button:has-text("Load user pools")');
   await page.waitForSelector('option[value="pool1"]', { state: "attached" });
-  await page.selectOption(`.panel:has-text("Choose environment and user pool") ${PICKER} >> nth=1`, "pool1");
+  await page.selectOption('.panel:has-text("Choose environment and user pool") select >> nth=1', "pool1");
   await page.click('button:text-is("Search")');
   await page.waitForSelector("text=2 user(s) loaded");
 

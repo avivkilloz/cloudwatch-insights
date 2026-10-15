@@ -19,6 +19,7 @@ import {
   useSessionState,
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
+import { PaneMenuSlot } from "../components/paneMenuSlot";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { every, REFRESH_CHOICES } from "../panes/refresh";
@@ -521,6 +522,20 @@ export default function AggregatorPage() {
 
   // Which pane's name is being edited, in its header or its tab.
   const [renaming, setRenaming] = useState<ServiceId | null>(null);
+  // Each pane's ⋮ spot (components/paneMenuSlot.ts), by pane id: state, not
+  // a ref, so the pane renders into it once it exists -- and moves with it
+  // when the layout changes or another tab is selected. One stable callback
+  // per id, or every render would hand React a new ref to detach and attach.
+  const [menuSlots, setMenuSlots] = useState<Record<string, HTMLElement | null>>({});
+  const slotRefs = useRef(new Map<string, (el: HTMLElement | null) => void>());
+  const menuSlotRef = (id: string) => {
+    let ref = slotRefs.current.get(id);
+    if (!ref) {
+      ref = (el) => setMenuSlots((prev) => (prev[id] === el ? prev : { ...prev, [id]: el }));
+      slotRefs.current.set(id, ref);
+    }
+    return ref;
+  };
 
   /** A blank name goes back to the kind's own, numbered if another pane
    * already has it -- the same name a new pane would get. */
@@ -1476,6 +1491,9 @@ export default function AggregatorPage() {
                     {s.label}
                   </button>
                 )}
+                {/* Only the selected tab's: the menu is about the pane on
+                    screen, and a ⋮ on every tab would crowd them. */}
+                {shownPane?.id === s.id && <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />}
                 <button
                   className="aggregator-tab-close"
                   onClick={() => closePane(s.id)}
@@ -1630,6 +1648,10 @@ export default function AggregatorPage() {
                       </button>
                     </>
                   )}
+                  {/* The pane's ⋮ lands here. What's portalled into it
+                      bubbles through the pane, not this header, so a click
+                      on it neither minimises nor starts a drag. */}
+                  <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />
                   <button
                     className="secondary"
                     onClick={(e) => {
@@ -1659,7 +1681,9 @@ export default function AggregatorPage() {
                       kept apart within this one session -- by pane id, not
                       type, since two panes can be the same kind. */}
                   <PaneSelectionScope label={s.label}>
-                    <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
+                    <PaneMenuSlot.Provider value={{ el: menuSlots[s.id] ?? null, label: s.label }}>
+                      <SessionKeyScope prefix={s.id}>{s.render()}</SessionKeyScope>
+                    </PaneMenuSlot.Provider>
                   </PaneSelectionScope>
                 </div>
                 {/* Resize only makes sense once a pane has its own width and

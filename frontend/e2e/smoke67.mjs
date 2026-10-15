@@ -9,11 +9,11 @@
 //     sections (shadows, a certificate opening to its policies, jobs);
 //   - an expanded row is session state (D48): another tab of the session
 //     opens it too, and fetches its detail there;
-//   - Saved ▾ keeps a search: loading one in the other mode puts back its
+//   - Saved inputs (the pane's ⋮) keep a search: loading one in the other mode puts back its
 //     mode *and* its query, not the mode's default;
 //   - a session saved by the old page opens with its environments ticked and
 //     its results, in the new keys.
-import { check, clearWorkspace, launch, mockPaneActions, newPage, newSession, openApp, report, SHOWN, signIn } from "./harness.mjs";
+import { check, clearWorkspace, launch, mockPaneActions, newPage, newSession, openApp, report, SHOWN, signIn, openPaneMenu } from "./harness.mjs";
 
 const NAME = "e2e-iot-inactive";
 
@@ -150,17 +150,17 @@ const run = async () => {
     "Another tab of the session shows the row open, its detail fetched there", JSON.stringify(otherDetailed));
   await other.close();
 
-  // ---- 5. Saved ▾ keeps the mode and the query
+  // ---- 5. Saved inputs (the pane's ⋮) keep the mode and the query
   await page.click(`${SHOWN} button:text-is("Certificates")`);
   await page.fill(query, "status:INACTIVE");
   page.once("dialog", (d) => d.accept(NAME));
-  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
-  await page.click('.pane-saved-menu button:text-is("Save as…")');
+  await openPaneMenu(page);
+  await page.click('.pane-menu-list button:text-is("Save these inputs as…")');
   await page.waitForTimeout(600);
   await page.click(`${SHOWN} button:text-is("Things")`);
   check((await page.inputValue(query)) === "thingName:*", "Back to things, the query is theirs");
-  await page.click(`${SHOWN} .pane-saved button:text-is("Saved ▾")`);
-  await page.click(`.pane-saved-menu [data-saved-input-item="${NAME}"]`);
+  await openPaneMenu(page);
+  await page.click(`.pane-menu-list [data-saved-input-item="${NAME}"]`);
   await page.waitForTimeout(300);
   check(
     (await page.inputValue(query)) === "status:INACTIVE" &&

@@ -95,6 +95,7 @@ layout:
           - action: publish
           - output: published
   - title: Incoming messages
+    clear: [messages]
     items:
       - output: messages
         empty: Connect and add a topic to see messages arrive here.

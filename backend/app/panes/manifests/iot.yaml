@@ -230,6 +230,7 @@ layout:
       - toolbar:
           - action: search
   - title: 3. Results
+    clear: [thingResults, certResults]
     items:
       - restored: search
       - output: thingResults

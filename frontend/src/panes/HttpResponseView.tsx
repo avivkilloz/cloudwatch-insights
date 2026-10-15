@@ -6,7 +6,9 @@
  * card holding it has no title of its own, since the status sits beside it.
  */
 
+import { useContext } from "react";
 import { Values } from "./paneApi";
+import { TitleExtra } from "./titleExtra";
 
 function prettyBody(body: string): string {
   try {
@@ -23,6 +25,7 @@ function statusTone(statusCode: number): string {
 }
 
 export default function HttpResponseView({ response }: { response: Values }) {
+  const extra = useContext(TitleExtra);
   const status = Number(response.status_code);
   const headers = Array.isArray(response.headers) ? (response.headers as { key: string; value: string }[]) : [];
   return (
@@ -34,6 +37,7 @@ export default function HttpResponseView({ response }: { response: Values }) {
         </span>
         <span className="muted">{String(response.elapsed_ms ?? "")} ms</span>
         {!!response.body_truncated && <span className="tag pending">response truncated</span>}
+        {extra && <span style={{ marginLeft: "auto" }}>{extra}</span>}
       </div>
 
       <span className="field-label">Headers</span>

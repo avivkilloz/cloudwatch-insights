@@ -117,32 +117,48 @@ export function useAutoRefresh(m: PaneManifest, session: string | null, pane: st
   };
 }
 
-/** The ↻ picker beside a pane's first card title. */
-export function RefreshPicker({ m, state }: { m: PaneManifest; state: RefreshState }) {
+/** Auto-refresh in the pane's ⋮ menu (PaneSettings.tsx). It was a ↻ select
+ * beside the first card's title, until that title held two controls. */
+export function RefreshSection({ m, state }: { m: PaneManifest; state: RefreshState }) {
   if (!m.refresh) return null;
   const floor = m.refresh.floor;
   const value = state.own === undefined ? "session" : String(state.own);
   const costly = m.cost === "per_run";
-  const title = costly
-    ? `Run again by itself while the session is open. Each run is a query billed by the data it scans; at most every ${every(floor)}.`
-    : `Run again by itself while the session is open, at most every ${every(floor)}.`;
   return (
-    <select
-      className={`pane-refresh${state.interval ? " active" : ""}`}
-      aria-label="Refresh every"
-      title={title}
-      value={value}
-      onChange={(e) => state.setOwn(e.target.value === "session" ? undefined : Number(e.target.value))}
-    >
-      <option value="session">↻ Session ({every(state.sessionEvery ? Math.max(state.sessionEvery, floor) : 0)})</option>
-      <option value="0">↻ Off</option>
-      {REFRESH_CHOICES.filter((s) => s >= floor).map((s) => (
-        <option key={s} value={String(s)}>
-          ↻ Every {every(s)}
-          {costly ? " (billed per run)" : ""}
-        </option>
-      ))}
-    </select>
+    <>
+      <div className="pane-menu-heading">Auto-refresh</div>
+      <label className="pane-menu-field">
+        <select
+          aria-label="Refresh every"
+          value={value}
+          onChange={(e) => state.setOwn(e.target.value === "session" ? undefined : Number(e.target.value))}
+        >
+          <option value="session">As the session ({every(state.sessionEvery ? Math.max(state.sessionEvery, floor) : 0)})</option>
+          <option value="0">Off</option>
+          {REFRESH_CHOICES.filter((s) => s >= floor).map((s) => (
+            <option key={s} value={String(s)}>
+              Every {every(s)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="pane-menu-note muted">
+        {costly
+          ? `Runs again by itself while the session is open, at most every ${every(floor)}. Each run is a query billed by the data it scans.`
+          : `Runs again by itself while the session is open, at most every ${every(floor)}.`}
+      </div>
+    </>
+  );
+}
+
+/** Beside the ⋮ while the pane refreshes by itself, so that shows without
+ * opening the menu. */
+export function RefreshBadge({ state }: { state: RefreshState }) {
+  if (!state.interval) return null;
+  return (
+    <span className="pane-refresh-on" title={`Refreshes every ${every(state.interval)}`}>
+      ↻ {every(state.interval)}
+    </span>
   );
 }
 
