@@ -1121,8 +1121,8 @@ foundation the next one needs.
   - **3c, sessions as live dashboards:** view mode, session variables,
     auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
     throughout, and each step's browser suites check it. Three PRs (D56, §18):
-    3c-1 (results in their own store, auto-refresh) built 2026-10-15; then view
-    mode and variables; then Home.
+    3c-1 (results in their own store, auto-refresh) built 2026-10-15; 3c-2
+    (view mode and variables) 2026-10-15; 3c-3 (Home) 2026-10-16.
   - **3d, permissions, categories and a first new pane:**
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).

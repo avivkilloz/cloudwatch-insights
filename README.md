@@ -164,8 +164,9 @@ from your picture's menu and is not a session; the strip stays above it.
   refresh that keeps failing says why above the pane and tries less often.
   The agent can set it too ("refresh this every 5 minutes").
 - **Session variables.** A session can hold an **Environment** and a **Time
-  range** (the session card's Variables row adds them), set in a bar under
-  the card. Every pane with an environment picker or a time range follows
+  range**, added and set in the session card's **Variables** row (and in the
+  card's header while it's folded, so a folded dashboard can still be
+  driven). Every pane with an environment picker or a time range follows
   them, like a Grafana dashboard's variables: its own input shows the value,
   greyed, saying "From the session's Environment", and changing the variable
   runs again every pane that had run. **Unlink** beside the input gives a
@@ -180,6 +181,13 @@ from your picture's menu and is not a session; the strip stays above it.
   viewer always sees view mode, and an auto-refreshing dashboard refreshes
   for them too -- run as them, when they can reach its environments; when
   they can't, it says so and waits for someone who can.
+- **A session as your home page.** A session's **⋮ → Set as my home page**
+  makes the brand at the top of the side panel open it -- and signing in, or
+  reloading on the default page, lands there too (a closed one is reopened).
+  Its row carries a small house. Any session you can reach can be your home,
+  shared ones included; **Start new session…** still shows the default page.
+  If it's deleted, or you leave it, the default page says so; **Dismiss**
+  clears it. **⋮ → Stop using as home page** goes back to the default page.
 - **Clear.** A results card (CloudWatch's and OpenSearch's Results, IoT's,
   DynamoDB's items, S3's listing, Cognito's users, the API table's rows, the
   HTTP response, MQTT's messages) has **Clear** while it holds something: it
