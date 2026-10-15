@@ -37,6 +37,11 @@ Scripts (the user's message decides):
                       (`functions.run_pane:0...`), so it can be recovered.
 - "announce"       -- ends its step on "Let me search now:" without calling
                       anything; asked to carry on, it runs the pane.
+                      "announce plain" ends on a period instead ("Let me
+                      search now.").
+- "fumble"         -- a tool call that fails, then nothing; told what failed,
+                      it calls again with a good input and answers. "fumble
+                      silent" stays silent however it's asked.
 - "silent"         -- says nothing at all, however it's asked.
 - "rows"           -- (a session's chat) says how many checked rows came
                       attached to the question, and from which panes.
@@ -127,11 +132,14 @@ def _reads(messages: list[dict]) -> str:
     return ""
 
 
-def _nudged(messages: list[dict]) -> bool:
-    return bool(messages) and messages[-1].get("role") == "user" and _content(messages[-1]).startswith(NUDGE_MARK)
+def _nudged(messages: list[dict]) -> str:
+    """The platform's nudge, when it is the last thing sent; else ""."""
+    if messages and messages[-1].get("role") == "user" and _content(messages[-1]).startswith(NUDGE_MARK):
+        return _content(messages[-1])
+    return ""
 
 
-def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: bool = False) -> dict:
+def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: str = "") -> dict:
     step = len(results)
     lowered = text.lower()
     if lowered.startswith("think"):
@@ -162,7 +170,15 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: bo
             return _say(f"Searched: {results[0][1]}")
         if nudged:
             return _call("run_pane", session_id="s1", pane_id="iot")
-        return _say("Let me search now:")
+        return _say("Let me search now." if lowered.startswith("announce plain") else "Let me search now:")
+    if lowered.startswith("fumble"):
+        if step == 0:
+            return _call("run_pane", session_id="no-such-session", pane_id="iot")
+        if step >= 2:
+            return _say(f"Ran it on s1 instead: {results[-1][1]}")
+        if "failed" in nudged and not lowered.startswith("fumble silent"):
+            return _call("run_pane", session_id="s1", pane_id="iot")
+        return _say("")
     if lowered.startswith("silent"):
         return _say("")
     if lowered.startswith("whoami"):

@@ -199,6 +199,15 @@ def _usable_credential(rc: RunContext, value: Any) -> Optional[int]:
     return found.id
 
 
+def agent_value(spec: Input, stored: Any) -> Any:
+    """A stored input in the shape `convert` takes it back in, so what the
+    agent reads it can write. The two differ only where the pane keeps rows
+    for its editor: a headers input is name -> value to the agent."""
+    if spec.kind == "headers" and isinstance(stored, list):
+        return {str(r.get("key")): r.get("value", "") for r in stored if isinstance(r, dict) and r.get("key")}
+    return stored
+
+
 def convert(spec: Input, value: Any, rc: RunContext) -> Any:
     """The agent's value for an input, checked and put into the shape the
     browser stores it in."""
@@ -287,8 +296,15 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
             return sorted({_visible_environment(rc, v) for v in value})
         return sorted({_visible_connection(rc, v, spec.connection_type or "") for v in value})
     if kind == "headers":
+        # Taken as the object get_session shows (`agent_value`), or as the
+        # rows the pane stores: shown the rows, a model sent `[]` back and was
+        # refused, and the turn ended there.
+        if value is None or value == []:
+            value = {}
+        if isinstance(value, list) and all(isinstance(r, dict) for r in value):
+            value = {r.get("key", r.get("name")): r.get("value", "") for r in value if r.get("key", r.get("name"))}
         if not isinstance(value, dict):
-            raise InputError(f"{spec.key} must be an object of name -> value.")
+            raise InputError(f'{spec.key} must be an object of name -> value, e.g. {{"page": "2"}} ({{}} for none).')
         rows = [{"id": i + 1, "key": str(k), "value": str(v)} for i, (k, v) in enumerate(value.items())]
         # The editor always ends in an empty row to type the next header into.
         rows.append({"id": len(rows) + 1, "key": "", "value": ""})

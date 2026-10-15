@@ -373,3 +373,33 @@ def test_a_turn_that_says_nothing_ends_with_a_readable_error(settings):
     assert events[-1]["type"] == "error" and "stopped without answering" in events[-1]["message"]
     # Asked once to carry on, not more.
     assert len(fake_llm.REQUESTS) == 2
+
+
+def test_a_step_that_announces_a_run_with_a_period_and_stops_is_asked_to_carry_on(settings):
+    # "Let me reconnect to IoT Test and subscribe to the topic again." -- and
+    # the turn stopped; the user had to ask "did you do it?".
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "announce plain")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["name"] for c in calls] == ["run_pane"]
+    nudge = fake_llm.REQUESTS[1]["messages"][-1]["content"]
+    assert "Let me search now." in nudge and "didn't make that call" in nudge
+    assert "Searched:" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_after_a_failed_call_the_model_is_told_what_failed(settings):
+    # Refused a `query: []`, a model said nothing, twice, and the turn ended
+    # "ran the steps above but didn't write an answer".
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "fumble")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["args"]["session_id"] for c in calls] == ["no-such-session", "s1"]
+    nudges = [r["messages"][-1]["content"] for r in fake_llm.REQUESTS if str(r["messages"][-1].get("content")).startswith(fake_llm.NUDGE_MARK)]
+    assert len(nudges) == 1 and "failed" in nudges[0] and "no-such-session" in nudges[0]
+    assert "Ran it on s1 instead" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_a_turn_that_stops_after_a_failure_says_what_failed(settings):
+    events = _events(settings, "fumble silent")
+    notice = next(e for e in events if e["type"] == "notice")
+    assert "failed" in notice["message"] and "no-such-session" in notice["message"]

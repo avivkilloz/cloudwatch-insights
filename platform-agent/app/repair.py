@@ -16,9 +16,13 @@ LiteLLM and Bedrock, and neither is specific to one model or one tool:
   is a valid name and is answered "not a valid tool", so the model can try
   again. Ids get the same treatment.
 - **A step that ends with nothing to show.** No tool call and no answer, or
-  an answer that ends by announcing a step ("Let me search now:") it never
-  took. The user saw the turn stop. Such a step is asked once, per turn, to
-  carry on; the reply it gives instead is what the turn keeps.
+  an answer that ends by announcing a step it never took -- "Let me search
+  now:", and, with a period, "Let me reconnect to IoT Test and subscribe to
+  the topic again." The user saw the turn stop and asked "did you do it?".
+  Such a step is asked once, per turn, to carry on; the reply it gives
+  instead is what the turn keeps. After a tool that failed, the nudge quotes
+  the failure: told only to carry on, a model that had sent `query: []` and
+  been refused said nothing at all, twice.
 - **An answer built from nothing this turn returned.** In a shared chat a
   member without IoT Prod was told "Found 20 things in IoT Prod" and shown
   another person's earlier rows, no tool called. grounding.py already
@@ -34,7 +38,7 @@ import uuid
 from typing import Any, Optional
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from . import grounding
 from .text import CLOSE
@@ -73,14 +77,82 @@ def _visible(message: AIMessage) -> str:
     return _text(message.content).rsplit(CLOSE, 1)[-1].strip()
 
 
-def stopped_short(message: AIMessage) -> bool:
+def failed_nudge(error: str) -> str:
+    quoted = error.strip().replace("\n", " ")[:300]
+    return (
+        f"{FROM_PLATFORM} your last tool call failed: “{quoted}”. Fix what it says and call it again, or tell the "
+        "user plainly what failed and why.)"
+    )
+
+
+def announced_nudge(sentence: str) -> str:
+    return (
+        f"{FROM_PLATFORM} your reply ends “{sentence}”, but you didn't make that call. If it's still needed, make it "
+        "now; if not, give your answer.)"
+    )
+
+
+# A last sentence that says what the model is about to do. "Let me know …"
+# is a closing courtesy, not a step.
+_ANNOUNCES = re.compile(
+    r"^(?:(?:now|next|so|ok(?:ay)?|alright)[,\s]+)?(?:let me (?!know\b)|i'll |i will |i'm going to |i am going to )",
+    re.IGNORECASE,
+)
+_SENTENCES = re.compile(r"[^.!?\n]+[.!?:]*")
+
+
+def announced(visible: str, acted: bool = False) -> Optional[str]:
+    """The answer's last sentence, when it announces a step rather than
+    reporting one: one ending on a colon, or -- before the turn has called
+    anything -- one saying what it's about to do. After a run, "I'll keep it
+    running" is a report."""
+    sentences = [m.group(0).strip() for m in _SENTENCES.finditer(visible.strip())]
+    last = sentences[-1] if sentences else ""
+    if last.endswith(":") or (last and not acted and _ANNOUNCES.match(last)):
+        return last
+    return None
+
+
+def _acted(messages: list) -> bool:
+    """Whether the model has called a tool since the user's latest message
+    (the reads the platform made for it don't count: they are attached to
+    the message, not calls)."""
+    for m in reversed(messages):
+        if isinstance(m, HumanMessage) and not _text(m.content).startswith(FROM_PLATFORM):
+            return False
+        if isinstance(m, AIMessage) and m.tool_calls:
+            return True
+    return False
+
+
+def stopped_short(message: AIMessage, messages: Optional[list] = None) -> bool:
     """Whether a step ended with nothing the user can use: no tool call, and
-    either no answer (only reasoning, or nothing) or one that ends on the
-    colon of a step it announced and never took."""
+    either no answer (only reasoning, or nothing) or one that ends by
+    announcing a step it never took."""
     if message.tool_calls or message.invalid_tool_calls:
         return False
     visible = _visible(message)
-    return not visible or visible.endswith(":")
+    return not visible or announced(visible, _acted(messages or [])) is not None
+
+
+def _last_failure(messages: list) -> Optional[str]:
+    """What the turn's latest tool said, if it failed and nothing came after
+    it but the model's empty reply."""
+    for m in reversed(messages):
+        if isinstance(m, ToolMessage):
+            return _text(m.content) or "(no message)" if m.status == "error" else None
+        if isinstance(m, HumanMessage):
+            return None
+    return None
+
+
+def nudge_for(message: AIMessage, messages: list) -> str:
+    visible = _visible(message)
+    failure = None if visible else _last_failure(messages)
+    if failure is not None:
+        return failed_nudge(failure)
+    sentence = announced(visible, _acted(messages)) if visible else None
+    return announced_nudge(sentence) if sentence else NUDGE
 
 
 def _this_turn(messages: list) -> list[str]:
@@ -161,9 +233,10 @@ class TurnGuard(AgentMiddleware):
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelResponse:
         response = await handler(request)
         message = _last_ai(response)
-        if message is not None and not self.nudged and stopped_short(message):
+        if message is not None and not self.nudged and stopped_short(message, request.messages):
             self.nudged = True
-            response = await handler(request.override(messages=[*request.messages, message, HumanMessage(NUDGE)]))
+            nudge = HumanMessage(nudge_for(message, request.messages))
+            response = await handler(request.override(messages=[*request.messages, message, nudge]))
             message = _last_ai(response)
         if message is not None and not self.corrected and not (message.tool_calls or message.invalid_tool_calls):
             missing = grounding.ungrounded(_visible(message), _this_turn(request.messages))

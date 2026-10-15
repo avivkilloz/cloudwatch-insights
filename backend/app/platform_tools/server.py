@@ -55,6 +55,7 @@ from .panes import (
     RunContext,
     _call,
     _summary,
+    agent_value,
     available_kinds,
     convert,
     input_key,
@@ -168,7 +169,13 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     if not detail or kind is None or not kind.inputs:
         return out
     values = pane_values(state, pane_id)
-    out["inputs"] = {i.key: values[i.key] for i in kind.inputs if i.key in values}
+    out["inputs"] = {i.key: agent_value(i, values[i.key]) for i in kind.inputs if i.key in values}
+    run = _run_state(state, kind, pane_id)
+    if run:
+        out["run"] = run
+    said = _text_outputs(state, kind, pane_id)
+    if said:
+        out["outputs"] = said
     # What a run left there, as counts -- the rows themselves are for the
     # user to read in the pane; the agent gets its sample when it runs.
     counts = {
@@ -181,6 +188,51 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     if counts:
         out["results"] = counts
     return out
+
+
+def _action_label(kind: PaneKind) -> str:
+    manifest = pane_manifest.get(kind.type)
+    main = manifest.main_action() if manifest else None
+    return main.run_label if main is not None and isinstance(main.run_label, str) else "Run"
+
+
+def _run_state(state: dict, kind: PaneKind, pane_id: str) -> Optional[dict]:
+    """Whether the pane's run is going, for a pane that runs in the background
+    (D51): a query still running, a connection open. Without it the agent had
+    no way to tell -- it filled in the MQTT tester's topics, never connected,
+    and told the user it was connected and listening, three times."""
+    if not kind.background:
+        return None
+    run = untag(state.get(output_key(kind, pane_id, "run")))
+    label = _action_label(kind)
+    if not isinstance(run, dict) or not run.get("status"):
+        return {"status": "not running", "note": f"Nothing is running: run_pane starts it ({label})."}
+    out: dict[str, Any] = {"status": run["status"]}
+    if isinstance(run.get("startedAt"), (int, float)):
+        out["started"] = datetime.datetime.fromtimestamp(run["startedAt"] / 1000, datetime.timezone.utc).isoformat()
+    for key, name in (("stoppedBy", "stopped_by"), ("note", "note"), ("error", "error")):
+        if run.get(key):
+            out[name] = run[key]
+    if run["status"] != pane_runs.RUNNING:
+        out.setdefault("note", f"Not running now: run_pane starts it again ({label}).")
+    return out
+
+
+# A pane's own sentences about itself -- "Connected to … as …", "Published 18
+# bytes to …" -- are short; anything longer is results, which the agent gets
+# from a run's sample instead.
+TEXT_OUTPUT_CHARS = 300
+
+
+def _text_outputs(state: dict, kind: PaneKind, pane_id: str) -> dict[str, str]:
+    if not kind.v2:
+        return {}
+    prefix = f"{pane_id}.out."
+    return {
+        k[len(prefix):]: v if len(v) <= TEXT_OUTPUT_CHARS else v[:TEXT_OUTPUT_CHARS] + "…"
+        for k, v in state.items()
+        if k.startswith(prefix) and isinstance(v, str) and v.strip()
+    }
 
 
 def _membership(db: Session, row: models.LiveSession, user_id: int) -> Optional[models.SessionMember]:
@@ -775,10 +827,18 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
         row, kind = _mutate(
             db, user, caller, session_id, lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs), ORIGIN
         )
-        out = {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
         restarted = await _restart_if_running(db, user, row, kind, pane_id, before)
         if restarted:
-            out["note"] = restarted
+            db.refresh(row)
+        out = {"session_id": row.client_id, "pane": _describe_pane(row.state, pane_id, detail=True)}
+        # Said in so many words: from "Doesn't run anything" in the tool's
+        # description alone, a model filled in the MQTT tester and reported
+        # it connected.
+        out["note"] = restarted or (
+            f"Only the inputs changed; nothing ran. run_pane runs it ({_action_label(kind)})."
+            if kind.run or kind.background
+            else "Only the inputs changed."
+        )
         return out
 
 

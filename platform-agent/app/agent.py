@@ -241,6 +241,8 @@ async def run_turn(
     step_id: Optional[str] = None
     checked = 0
     acted = False
+    # The latest tool's failure, while nothing has run since it.
+    failed: Optional[str] = None
 
     def finish_step() -> list[dict]:
         nonlocal step, step_id, answer, thought, checked
@@ -310,6 +312,7 @@ async def run_turn(
                     elif isinstance(message, ToolMessage):
                         output = _text(message.content)
                         seen.append(output)
+                        failed = output if message.status == "error" else None
                         event = {
                             "type": "tool_result",
                             "id": message.tool_call_id,
@@ -337,7 +340,13 @@ async def run_turn(
             message = "The agent stopped without answering or doing anything. Try asking again."
             yield {"type": "error", "message": message}
             return
-        yield {"type": "notice", "message": "The agent ran the steps above but didn't write an answer."}
+        if failed is not None:
+            # Said for it: "ran the steps but didn't write an answer" under a
+            # failed step left the user to work out that it had failed.
+            message = f"The agent's last step failed and it stopped there: {_summary(failed)}"
+        else:
+            message = "The agent ran the steps above but didn't write an answer."
+        yield {"type": "notice", "message": message}
     missing = grounding.ungrounded(answer, seen)
     if missing:
         yield {"type": "notice", "message": grounding.notice(missing)}

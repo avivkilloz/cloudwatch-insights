@@ -276,3 +276,26 @@ def test_a_refused_connect_says_what_answered_the_handshake_never_the_signed_url
     with pytest.raises(mqtt_client.MqttError) as proxy:
         mqtt_client.connect("1", "us-east-1", None, "c", lambda *_: None)
     assert "isn't AWS" in str(proxy.value)
+
+
+def test_the_agent_can_tell_filled_in_from_connected(mcp, broker, monkeypatch):
+    # Asked to connect and subscribe, a model only filled the topics in and
+    # said it was connected: nothing it read could tell it otherwise.
+    poll = pane_manifest.get(PANE).main_action().poll
+    monkeypatch.setattr(poll, "agent_wait", 0.5)
+    token = _token()
+    env = _environment()
+    session = call(mcp, token, "create_session", title="s", panes=[{"kind": PANE}])["session_id"]
+    filled = call(mcp, token, "set_pane_inputs", session_id=session, pane_id=PANE, inputs={"connection": env, "topics": "a/#"})
+    assert "nothing ran" in filled["note"] and "Connect" in filled["note"]
+    assert filled["pane"]["run"]["status"] == "not running"
+    assert call(mcp, token, "get_session", session_id=session)["panes"][0]["run"]["status"] == "not running"
+
+    call(mcp, token, "run_pane", session_id=session, pane_id=PANE)
+    pane = call(mcp, token, "get_session", session_id=session)["panes"][0]
+    assert pane["run"]["status"] == "running" and pane["outputs"]["status"].startswith("Connected to")
+
+    call(mcp, token, "stop_pane", session_id=session, pane_id=PANE)
+    pane = call(mcp, token, "get_session", session_id=session)["panes"][0]
+    assert pane["run"]["status"] == "stopped" and pane["run"]["stopped_by"] == "admin"
+    assert "status" not in pane.get("outputs", {})

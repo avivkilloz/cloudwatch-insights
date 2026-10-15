@@ -878,3 +878,22 @@ def test_list_options_lists_the_logs_pickers_choices_level_by_level(mcp, monkeyp
     assert [o["value"] for o in indices["options"]] == ["logs-1", "audit"] and asked == ["d.example"]
     assert "one level" in call_error(mcp, token, "list_options", session_id=session, pane_id="logs-cloudwatch",
                                      input="logGroupSelection", parent={"connection": env})
+
+
+def test_what_get_session_shows_of_an_input_set_pane_inputs_takes_back(mcp):
+    # Shown the query as the rows its editor keeps, a model sent `query: []`
+    # back, was refused, and the turn ended with no answer.
+    token = _token()
+    session = call(mcp, token, "create_session", title="t", panes=[{"kind": "api-table"}])["session_id"]
+    set_ = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": {"page": "2"}})
+    assert set_["pane"]["inputs"]["query"] == {"page": "2"}
+    shown = call(mcp, token, "get_session", session_id=session)["panes"][0]["inputs"]["query"]
+    assert shown == {"page": "2"}
+    for sent, kept in (
+        (shown, {"page": "2"}),
+        ([], {}),
+        ([{"id": 1, "key": "limit", "value": "5"}, {"id": 2, "key": "", "value": ""}], {"limit": "5"}),
+    ):
+        out = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": sent})
+        assert out["pane"]["inputs"]["query"] == kept
+    assert "e.g." in call_error(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": "x"})
