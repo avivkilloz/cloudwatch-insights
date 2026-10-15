@@ -224,15 +224,39 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **Text from data uses `panes/template.ts`**: `{{ path ?? 'default' }}`,
   `{{ a ? b : c }}`, `| bytes | time | encode_path`. Nothing else -- no calls
   -- so a manifest from anywhere can only read what it's given.
-- **A pane's settings are its ⋮** (D57, §18.6; `panes/PaneSettings.tsx`): in
-  its header, or the selected tab in the tabs layout -- auto-refresh and saved
-  inputs, never in its cards (a select and a menu beside the first card's
-  title read as clutter); the dashboard's "hide inputs" goes there next. The
+- **A pane's settings are its ⚙** (D57, §18.6; `panes/PaneSettings.tsx`): in
+  its header, or the selected tab in the tabs layout -- auto-refresh, the
+  session variables it follows, whether it shows its inputs in view mode, and
+  saved inputs; never in its cards (a select and a menu beside the first
+  card's title read as clutter). The
   frame owns the header, the pane what the menu holds: AggregatorPage leaves
   a spot per pane (`components/paneMenuSlot.ts`, element and the pane's own
   name) and ManifestPane portals into it -- a click there bubbles through the
   pane, not the header, so it neither folds nor drags. "↻ 30s" shows beside
   it while the pane refreshes. Suites open it with `harness.openPaneMenu`.
+- **Session variables** (D60, §18.7; `panes/variables.ts` and its twin
+  `app/panes/variables.py`): `variables: {environment?, time?}` at the
+  session's level, added from the card and set in a bar under it
+  (`components/SessionVariables.tsx`). Binding is by input type, never per
+  pane: Environment binds every AWS `connection`/`connections` input, Time
+  range a layout `time_range`'s three inputs. **Automatic**: every pane
+  follows unless `<pane>.unlinked` names the variable. The value is *copied*
+  into the pane's inputs (ManifestPane's effect; `variables.apply` for the
+  agent and a new pane), so refresh, the agent and templates see an ordinary
+  input. A bound input is drawn read-only (`Bound`, a disabled fieldset with
+  `display: contents`) with "From the session's … · Unlink". Changed in this
+  tab (`announceVariableChange`), a bound pane's change is a person's
+  (`changeInputs`) and its main action runs again if it had run and refresh
+  could run it; changed elsewhere, inputs are only brought in line -- or
+  every open tab would run every pane. The agent's `set_variables` runs
+  nothing, like `set_pane_inputs`; setting a bound input unlinks it.
+- **View mode** (D61): `viewMode` (the card's Mode: Edit | View), a pane's
+  `<pane>.inputs` (`shown`/`hidden`) overriding it, and always on for a
+  viewer member. `inView` keeps outputs, charts, sort, copy, errors and drops
+  inputs, buttons, help, examples, the time range; a card is drawn only while
+  one of its outputs or errors holds something (`showsInView`). Items keep
+  their manifest keys -- hidden, not removed. A pane in view mode starts with
+  `ViewModeLine` ("Updated … · Refresh", through the refresh route).
 - **Saved inputs** (D46): in the ⋮ (the items, then "Save these inputs
   as…"); one table (`saved_inputs`) by pane type, the user's own; the server keeps
   only the manifest's non-sensitive inputs whatever the browser sends. The
@@ -330,8 +354,10 @@ record's lock -- fresh (within 80% of the interval), another refresh under
 way, a run going -- and otherwise runs `Manifest.refresh_action()` (main, or
 the request; never `effects: external`, live or a stream) with the session's
 stored inputs, as the caller. Floors: 10 s, 60 s for `cost: per_run`
-(CloudWatch); env vars only raise them. A viewer can't refresh (3c-2 decides
-viewer dashboards). Set in the pane's ⋮, the session's on its card.
+(CloudWatch); env vars only raise them. A viewer's tab refreshes too, as the
+viewer, only when they can reach every connection the pane's inputs name
+(`refresh.unreachable`; otherwise "unreachable", nothing written, D62).
+Set in the pane's ⚙, the session's on its card.
 
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
@@ -1189,6 +1215,11 @@ fixed where it happens:
   picture ends the strip, or the docked agent panel's header (a floating one
   leaves it on the strip). Anything that measured from a 53px header is
   measured from the window's top now.
+- **Small square buttons are drawn icons** (`components/Icon.tsx`, one
+  16-unit grid and stroke) in `button.icon-btn`, one 24px box: a pane's
+  header and tab, the session card's header, the ✎ beside a name. Text
+  glyphs (✎ ⋮ − ✕ ▲) took their size from the font, so the boxes came out
+  wide and uneven. 24px keeps a pane header 40px high (`DASHBOARD_HEADER_H`).
 - **A session's card** (`components/SessionCard.tsx`) is styled like a pane
   card: a header bar (`.session-card-head`, `panel-alt`, clicking it folds
   the card, like a pane's own header) and, in its body, one inner bordered
