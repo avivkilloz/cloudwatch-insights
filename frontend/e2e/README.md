@@ -51,9 +51,10 @@ e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
 `smoke69` (CloudWatch and OpenSearch), `smoke71`'s logs half (the histograms),
-`smoke72` (MQTT), `smoke73`'s zoom half and `smoke74` (the agent's answer check,
-on an MQTT connect; it needs the agent and fake model too) need the backend served
-with AWS faked:
+`smoke72` (MQTT), `smoke73`'s zoom half, `smoke74` (the agent's answer check,
+on an MQTT connect; it needs the agent and fake model too), `smoke75` (auto-refresh)
+and every suite that uses `mockPaneActions` across two tabs (`smoke62`, `smoke66`,
+`smoke67`, `smoke71`) need the backend served with AWS faked:
 a CloudWatch query runs on the server and is polled into the session there
 (PLATFORM_PLAN.md D51), and an MQTT connection is held there (D54), so the page
 has nothing to stand in for. The fake's broker sends `fake/robot-1/telemetry`
@@ -64,7 +65,15 @@ cd backend
 uvicorn dev.fake_aws:app --port 8000   # instead of app.main:app, same environment
 ```
 
-and an environment whose account id starts `0000` is answered by
+A pane's results are stored by the server (PLATFORM_PLAN.md D21), so a reply
+faked in the page alone never reaches the session's other tabs. Two things in
+`dev/fake_aws.py` cover that: an HTTP API connection whose host ends in `.fake`
+answers with what a suite put there (`PUT /api/dev/fake-http?path=…`), and
+`mockPaneActions` hands what it fakes to `/api/dev/store-result`, which stores it
+with the server's own code (retrying while a new pane's save lands). Served as
+`app.main:app`, neither route exists and a faked reply stays in its own tab.
+
+And an environment whose account id starts `0000` is answered by
 `backend/dev/fake_aws.py` (the suite creates one, `e2e-fake-aws`, and a user whose
 group reaches it); every other account still goes to AWS, so no other suite
 notices. Served as `app.main:app`, smoke69 fails its second precondition.

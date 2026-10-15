@@ -1120,7 +1120,9 @@ foundation the next one needs.
       unchanged. MQTT moves its connection server-side.
   - **3c, sessions as live dashboards:** view mode, session variables,
     auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
-    throughout, and each step's browser suites check it.
+    throughout, and each step's browser suites check it. Three PRs (D56, §18):
+    3c-1 (results in their own store, auto-refresh) built 2026-10-15; then view
+    mode and variables; then Home.
   - **3d, permissions, categories and a first new pane:**
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).
@@ -3434,6 +3436,38 @@ makes their save a 409 to merge.
   - auto-refresh runs once for two tabs, pauses while the session is hidden, and
     shows a failure;
   - the existing suites unchanged.
+
+### 18.5 3c-1 as built
+
+Where the build departed from §18.2–§18.4, and what it found:
+
+- **No waiting for a save before each run.** A stored action for a pane the
+  server doesn't have yet answers 409 *before running anything*; the browser saves
+  and asks again. Saving before every action first made each one a round trip
+  slower; S3's folder click was the one a suite caught.
+- **Replies carry the stored outputs** (`__outputs` on an action, `outputs` on a
+  refresh). A write's event carries the writer's origin, and the asking tab skips
+  it as its own echo: a refresh that failed was stored, shown in every other tab,
+  and missing from the tab that asked.
+- **The agent reads outputs as before**, through `_full`, the state with each
+  pane's record back under `out.`. Its writers go through the store, and an
+  input's `out.` resets are cleared there.
+- **The test helpers read the same way** (`_state`, `_row`), so the existing
+  assertions keep checking the same values. New tests pin that the state holds
+  none.
+- **Suites can no longer fake a result in the page alone**: another tab never
+  sees it. `dev/fake_aws` answers `.fake` HTTP hosts (`PUT /api/dev/fake-http`),
+  and `harness.mockPaneActions` hands what it fakes to `/api/dev/store-result`,
+  which stores it with the server's own `apply_outputs`.
+- **The MQTT presign route is gone**, one release after the port, as D49 said.
+  Its probe stays, for the server's own connect errors.
+- **Checked:**
+  - Backend: `test_pane_outputs.py` (6) and `test_pane_refresh.py` (7).
+  - Browser: smoke75 (11 checks): two tabs, one run per interval; the other tab
+    fetching only the pane's outputs; nothing off screen; the session default; a
+    failure shown; typing through a refresh.
+  - The cross-tab suites (smoke62, 66, 67, 69, 71) were updated for results
+    beside the state.
 
 ## 12. Research sources
 

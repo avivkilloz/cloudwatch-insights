@@ -160,50 +160,6 @@ def test_tools_http_request_rejects_non_http_scheme():
     assert resp.status_code == 400
 
 
-def test_tools_mqtt_presigned_url_rejects_unconfigured_environment():
-    resp = client.post("/api/tools/mqtt/presigned-url", json={"environment_id": 999999})
-    assert resp.status_code == 400
-
-
-def test_tools_mqtt_presigned_url_includes_preflight_diagnostic(monkeypatch):
-    from app import iot_mqtt_signer
-
-    resp = client.post(
-        "/api/environments",
-        json={"name": "Prod us-east-1", "account_id": "111122223333", "region": "us-east-1"},
-    )
-    assert resp.status_code == 201
-    environment_id = resp.json()["id"]
-
-    monkeypatch.setattr(
-        iot_mqtt_signer,
-        "build_presigned_ws_url",
-        lambda account_id, region, role_name, expires=300: {
-            "endpoint": "abc123-ats.iot.us-east-1.amazonaws.com",
-            "url": "wss://abc123-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz-Signature=deadbeef",
-        },
-    )
-    monkeypatch.setattr(
-        iot_mqtt_signer,
-        "probe_presigned_url",
-        lambda url: {
-            "status_code": 403,
-            "body": '{"message":"Forbidden"}',
-            "headers": ["Content-Type: application/json", "X-Amzn-Requestid: abc123"],
-        },
-    )
-
-    resp = client.post("/api/tools/mqtt/presigned-url", json={"environment_id": environment_id})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["endpoint"] == "abc123-ats.iot.us-east-1.amazonaws.com"
-    assert body["diagnostic_status_code"] == 403
-    assert body["diagnostic_body"] == '{"message":"Forbidden"}'
-    assert body["diagnostic_headers"] == ["Content-Type: application/json", "X-Amzn-Requestid: abc123"]
-
-    client.delete(f"/api/environments/{environment_id}")
-
-
 def test_saved_items_are_isolated_per_user():
     group = client.post("/api/user-groups", json={"name": "Viewers"}).json()
     resp = client.post("/api/users", json={"username": "isolated-user", "password": "x", "group_id": group["id"]})

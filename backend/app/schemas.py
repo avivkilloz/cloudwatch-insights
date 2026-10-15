@@ -763,33 +763,6 @@ class HttpToolResponse(BaseModel):
     elapsed_ms: int
 
 
-class MqttPresignedUrlRequest(BaseModel):
-    environment_id: int
-
-
-class MqttPresignedUrlResponse(BaseModel):
-    endpoint: str
-    url: str
-    expires_in: int
-    # A backend-side pre-flight check against this same URL -- browsers hide
-    # the real reason a WebSocket handshake gets rejected, so this surfaces
-    # whatever AWS actually said (status code + body) as a diagnostic.
-    diagnostic_status_code: Optional[int] = None
-    diagnostic_body: Optional[str] = None
-    # Raw response headers from the pre-flight check -- a rejection that
-    # never appears in AWS IoT Core's own connection logging (even with
-    # DEBUG logging on) suggests something in the network path answered
-    # before the request reached IoT Core at all; these headers are the
-    # fastest way to tell a genuine AWS response from an intercepting
-    # proxy/firewall's own.
-    diagnostic_headers: list[str] = []
-
-
-# ------------------------------------------------------------------- credentials
-# No model here ever carries a secret value out: secret fields are reported
-# only as `secret_fields_set` (PLATFORM_PLAN.md §13.5, D25).
-
-
 class CredentialTypeIn(BaseModel):
     id: str = Field(max_length=64)
     label: str = Field(min_length=1, max_length=100)
