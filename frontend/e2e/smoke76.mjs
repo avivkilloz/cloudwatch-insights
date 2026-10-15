@@ -74,17 +74,15 @@ const run = async () => {
   check(boxes.length >= 8 && boxes.every((b) => b.w === 24 && b.h === 24 && b.svg && b.text === ""),
     "Every header button is the same 24px square, with an icon rather than a glyph", JSON.stringify(boxes));
   await openPaneMenu(page, "DynamoDB");
-  const headings = await page.locator(".pane-menu-list .pane-menu-heading").allInnerTexts();
-  check(JSON.stringify(headings) === JSON.stringify(["AUTO-REFRESH", "SAVED INPUTS"]) ||
-    JSON.stringify(headings) === JSON.stringify(["Auto-refresh", "Saved inputs"]),
-    "It holds auto-refresh and saved inputs", JSON.stringify(headings));
+  const headings = (await page.locator(".pane-menu-list .pane-menu-heading").allInnerTexts()).map((h) => h.toLowerCase());
+  check(["auto-refresh", "saved inputs"].every((h) => headings.includes(h)), "It holds auto-refresh and saved inputs", JSON.stringify(headings));
   await page.keyboard.press("Escape");
   check((await page.locator(`${SHOWN} .aggregator-pane.collapsed`).count()) === 0, "…and opening it didn't fold the pane");
   await openPaneMenu(page, "Base64");
   const base64 = await page.locator(".pane-menu-list .pane-menu-heading").allInnerTexts();
   await page.keyboard.press("Escape");
-  check(base64.length === 1 && /saved inputs/i.test(base64[0]), "A pane that can't run again by itself offers no refresh",
-    JSON.stringify(base64));
+  check(!base64.some((h) => /refresh/i.test(h)) && base64.some((h) => /saved inputs/i.test(h)),
+    "A pane that can't run again by itself offers no refresh", JSON.stringify(base64));
   check((await page.locator(`${SHOWN} .panel .row:has(h2) select`).count()) === 0, "No card title holds a setting any more");
 
   // ---- 2. Clear

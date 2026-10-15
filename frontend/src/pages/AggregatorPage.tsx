@@ -1362,26 +1362,10 @@ export default function AggregatorPage() {
               </button>
             ))}
           </div>
-        </CardRow>
-        <CardRow label="Refresh">
-          <select
-            className="session-card-refresh"
-            aria-label="Refresh panes every"
-            title="Panes that can run again by themselves do, while the session is open on someone's screen -- once for everyone watching. A pane can set its own."
-            value={String(refreshEvery || 0)}
-            onChange={(e) => setRefreshEvery(Number(e.target.value))}
-          >
-            <option value="0">Off</option>
-            {REFRESH_CHOICES.map((seconds) => (
-              <option key={seconds} value={String(seconds)}>
-                Every {every(seconds)}
-              </option>
-            ))}
-          </select>
-        </CardRow>
-        <CardRow label="Mode">
-          {/* View hides every pane's inputs and buttons: a dashboard of
+          {/* Beside the layout, not a row of its own (the card only grows):
+              View hides every pane's inputs and buttons, a dashboard of
               results (D61). A pane's ⚙ can show its own anyway. */}
+          <span className="field-label session-card-mode-label">Mode</span>
           <div className="segmented" role="group" aria-label="Mode">
             {(
               [
@@ -1400,6 +1384,22 @@ export default function AggregatorPage() {
               </button>
             ))}
           </div>
+        </CardRow>
+        <CardRow label="Refresh">
+          <select
+            className="session-card-refresh"
+            aria-label="Refresh panes every"
+            title="Panes that can run again by themselves do, while the session is open on someone's screen -- once for everyone watching. A pane can set its own."
+            value={String(refreshEvery || 0)}
+            onChange={(e) => setRefreshEvery(Number(e.target.value))}
+          >
+            <option value="0">Off</option>
+            {REFRESH_CHOICES.map((seconds) => (
+              <option key={seconds} value={String(seconds)}>
+                Every {every(seconds)}
+              </option>
+            ))}
+          </select>
         </CardRow>
         <CardRow label="Variables">
           {/* Shared controls every pane with such an input follows (D60);

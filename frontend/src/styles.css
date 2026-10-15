@@ -4048,3 +4048,8 @@ button.icon-btn {
   padding: 4px 8px;
   font-size: 12.5px;
 }
+/* "Mode" beside the Layout control, which it shares a row with: set apart,
+   so Edit | View doesn't read as two more layouts. */
+.session-card-mode-label {
+  margin: 0 0 0 14px;
+}

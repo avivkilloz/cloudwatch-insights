@@ -147,11 +147,17 @@ const run = async () => {
   for (const [l, b] of Object.entries(layoutA)) if (!same(await box(l), b)) restored = false;
   check(restored, "A session closed moments after a change reopens with every pane where it was, that change included");
   const iotR = await box("IoT");
-  // Diagonally, into the free stretch of the left column between DynamoDB and
-  // CloudWatch -- straight down would (rightly) be blocked by OpenSearch.
-  await drag(page, "IoT", -iotR.x, 500);
+  // Into the free stretch of the left column between DynamoDB and CloudWatch,
+  // worked out from where they are -- a fixed +500 aimed at DynamoDB itself,
+  // and passed only while the drag happened to scroll the canvas on its way
+  // past the window's bottom edge. A taller window keeps it clear of that.
+  const dynamo = await box("DynamoDB");
+  await page.setViewportSize({ width: 1440, height: 1700 });
+  await page.waitForTimeout(300);
+  await drag(page, "IoT", -iotR.x, dynamo.y + dynamo.height + 20 - iotR.y);
   const iotR2 = await box("IoT");
-  check(iotR2.x < 1 && iotR2.y - iotR.y > 350, "…and its panes can still be dragged freely", JSON.stringify({ iotR, iotR2 }));
+  await page.setViewportSize({ width: 1440, height: 950 });
+  check(iotR2.x < 1 && iotR2.y > dynamo.y + dynamo.height, "…and its panes can still be dragged freely", JSON.stringify({ iotR, iotR2, dynamo }));
 
   // ---------- 8. dragging a minimised pane keeps its real size ----------
   // Fresh: the session above has panes everywhere a drag might aim.
