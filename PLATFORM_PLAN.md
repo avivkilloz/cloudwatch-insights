@@ -3573,6 +3573,22 @@ viewer, and only when they can reach every connection the pane's inputs name.
   counted, and the dashboard waits for someone who can.
 - Nobody's access is lent. A run always acts as whoever asked it (D51).
 
+**As built:**
+- **Mode shares the card's Layout row**, so the card grew by one row
+  (Variables), not two.
+- **View mode draws a card only while one of its outputs or errors holds
+  something.** A card left with only its Sort, or an empty table, was a frame
+  around nothing.
+- **Items stay keyed by their place in the manifest**: hidden, not removed.
+- **Only the tab that changed a variable re-runs**
+  (`announceVariableChange`, a 5-second window); the others write the same
+  input values and run nothing.
+- **A viewer's background run** (CloudWatch) starts through
+  `runs.start(refreshing=True)`, which refresh lets through after its
+  reachability check.
+- **The header buttons are drawn icons** in one 24px square
+  (`components/Icon.tsx`), asked for in the same round; the ⋮ is a ⚙.
+
 **Tests:**
 - Backend:
   - the binding twins;
