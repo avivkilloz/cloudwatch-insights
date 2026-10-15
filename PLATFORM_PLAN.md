@@ -3603,6 +3603,43 @@ viewer, and only when they can reach every connection the pane's inputs name.
   - view mode, session and per pane;
   - a viewer sees view mode, and refreshes.
 
+### 18.8 After 3c-2: what a load does with this browser's copy
+
+Found while chasing a session that "came back after a delete" (2026-10-15).
+
+**What happened.** On load the panel shows the browser's local copy at once,
+then takes the server's list -- unless anything had been written in between,
+in which case the local copy stayed and was pushed with the version just
+adopted. Every pane writes the value it opened with on mount, so something
+always had been: the stale copy always won. The server accepted it (its version
+matched), so a change made elsewhere since -- another browser, a member, the
+agent -- was lost, and a session deleted elsewhere was created again.
+
+**What a load does now.**
+- A pane's first write is a seed, not a change (`useSessionState`, `seed`).
+- Each open session is the server's copy merged with this browser's by
+  `mergeSession` -- the merge a 409 uses -- against the server copy this
+  browser last agreed with. That base is stored beside the workspace in
+  IndexedDB (`StoredWorkspace.bases`), saved again whenever a push lands or a
+  change is received. So a change made here and not pushed yet survives a
+  reload, and one made elsewhere isn't undone. A browser from before has no
+  base: only what was done since the load is laid over the server's copy
+  (`SinceLoad`, `overlay`).
+- A session on this browser but not on the server is kept only if it was
+  opened since the load, or never seen on the server by this browser
+  (`cwi-synced-<user>` in localStorage, fed by every adopt, push and received
+  change). Without that record, only an empty server list counts as "never
+  saved", as before.
+- Nothing is pushed until the list is in: a push without a version overwrites
+  whatever the server has.
+
+**Not covered:** a change made in the last ~400 ms before a reload never
+reached IndexedDB (an async write cut off by the unload), as before.
+
+**Leave.** A member's ✕ and menu leave a shared session
+(`DELETE …/members/<self>`); a delete or leave the server refuses puts the
+session back with a notice (`SessionsApi.notice`).
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):

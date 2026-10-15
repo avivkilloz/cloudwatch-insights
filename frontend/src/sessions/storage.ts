@@ -58,6 +58,15 @@ export interface Workspace {
 
 export const EMPTY_WORKSPACE: Workspace = { sessions: [], activeId: null, view: "home" };
 
+/** What is stored: the workspace, and per session the server's copy this
+ * browser last agreed with -- what a load merges against, so a change made
+ * here and not yet pushed survives a reload without a stale value of this
+ * browser's undoing one made elsewhere. Absent in a store from before. */
+export interface StoredWorkspace {
+  workspace: Workspace;
+  bases: Record<string, PersistedSession>;
+}
+
 // ---------------------------------------------------------------------------
 // JSON that survives the types pages actually hold
 // ---------------------------------------------------------------------------
@@ -97,8 +106,9 @@ export function decode<T>(text: string): T {
  * Returns the text to store; sessions that lost their state are flagged so the
  * UI can own up to it.
  */
-export function encodeWorkspace(workspace: Workspace): string {
-  return encode({ ...workspace, sessions: workspace.sessions.map(capSession) });
+export function encodeWorkspace(workspace: Workspace, bases: Record<string, PersistedSession> = {}): string {
+  const cappedBases = Object.fromEntries(Object.entries(bases).map(([id, base]) => [id, capSession(base)]));
+  return encode({ ...workspace, sessions: workspace.sessions.map(capSession), bases: cappedBases });
 }
 
 /**
@@ -198,7 +208,7 @@ function keyFor(userId: number): string {
   return `user:${userId}`;
 }
 
-export async function loadWorkspace(userId: number): Promise<Workspace> {
+export async function loadWorkspace(userId: number): Promise<StoredWorkspace> {
   try {
     const db = await openDb();
     const text = await new Promise<string | undefined>((resolve, reject) => {
@@ -207,24 +217,32 @@ export async function loadWorkspace(userId: number): Promise<Workspace> {
       request.onerror = () => reject(request.error);
     });
     db.close();
-    if (!text) return EMPTY_WORKSPACE;
-    const parsed = decode<Workspace>(text);
+    if (!text) return { workspace: EMPTY_WORKSPACE, bases: {} };
+    const parsed = decode<Workspace & { bases?: Record<string, PersistedSession> }>(text);
     // Anything half-written or from a shape we no longer understand starts
     // fresh rather than crashing the app on boot.
-    if (!parsed || !Array.isArray(parsed.sessions)) return EMPTY_WORKSPACE;
-    return { sessions: parsed.sessions, activeId: parsed.activeId ?? null, view: parsed.view ?? "home" };
+    if (!parsed || !Array.isArray(parsed.sessions)) return { workspace: EMPTY_WORKSPACE, bases: {} };
+    return {
+      workspace: { sessions: parsed.sessions, activeId: parsed.activeId ?? null, view: parsed.view ?? "home" },
+      bases: parsed.bases && typeof parsed.bases === "object" ? parsed.bases : {},
+    };
   } catch {
     // Private windows, blocked site data, a corrupt database -- none of which
     // should stop the app loading. You just lose the restored tabs.
-    return EMPTY_WORKSPACE;
+    return { workspace: EMPTY_WORKSPACE, bases: {} };
   }
 }
 
-export async function saveWorkspace(userId: number, workspace: Workspace): Promise<void> {
+export async function saveWorkspace(
+  userId: number,
+  workspace: Workspace,
+  bases: Record<string, PersistedSession> = {},
+): Promise<void> {
   try {
     const db = await openDb();
+    const text = encodeWorkspace(workspace, bases);
     await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(STORE, "readwrite").objectStore(STORE).put(encodeWorkspace(workspace), keyFor(userId));
+      const request = db.transaction(STORE, "readwrite").objectStore(STORE).put(text, keyFor(userId));
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });

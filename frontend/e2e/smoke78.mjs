@@ -11,8 +11,14 @@
 //     and it stays gone after a reload -- a member's Delete was refused by the
 //     server (only the owner may delete), the refusal swallowed, and the
 //     session came back on every load;
-//   - a delete the server refuses puts the session back and says why.
-import { check, clearWorkspace, launch, newPage, newSession, openApp, report, ROW, SHOWN, signIn } from "./harness.mjs";
+//   - a delete the server refuses puts the session back and says why;
+//   - a browser's stale copy never wins on load: a change made elsewhere just
+//     before a reload survives it, and a session deleted elsewhere while this
+//     browser was away stays deleted -- the reloaded page used to push its
+//     whole local copy over the server's (a pane writing the values it opened
+//     with counted as a change), which is how the IoT session kept coming
+//     back. One this browser never managed to save is still pushed.
+import { BASE, check, clearWorkspace, launch, newPage, newSession, openApp, report, ROW, SHOWN, signIn } from "./harness.mjs";
 
 async function api(page, method, path, body) {
   return page.evaluate(
@@ -118,6 +124,54 @@ const run = async () => {
   check(said.includes(`Couldn't delete "${doomed}"`) && said.includes("read-only"), "A refused delete says why", said);
   check((await page.locator(ROW(doomed)).count()) === 1, "…and puts the session back, rather than seeming gone until the next load");
   await page.unroute("**/api/live-sessions/*");
+
+  // ---- 5. the server's copy wins on load
+  await clearWorkspace(page);
+  await page.reload();
+  await page.waitForSelector(".rail");
+  await newSession(page, "Base64");
+  await page.waitForTimeout(1800);
+  // Stored in this browser, not pushed yet (the push waits 1.2 s).
+  await page.click(`${CARD} button:text-is("View")`);
+  await page.waitForTimeout(700);
+  let [live] = (await api(page, "GET", "/live-sessions")).body;
+  const elsewhere = { id: "tquick", question: "q", answer: "from elsewhere", steps: [], status: "done" };
+  const written = await api(page, "PUT", `/live-sessions/${live.client_id}`, {
+    title: live.title, type: "aggregator", state: { ...live.state, agentChat: [elsewhere] }, base_version: live.version,
+  });
+  await page.waitForTimeout(300);
+  await page.reload();
+  await page.waitForSelector(".rail");
+  await page.waitForTimeout(3000);
+  [live] = (await api(page, "GET", "/live-sessions")).body;
+  check(written.status === 200 && live.state.agentChat?.[0]?.id === "tquick", "A change made elsewhere just before a reload survives it",
+    JSON.stringify(live.state.agentChat ?? null).slice(0, 80));
+  check(live.state.viewMode === true, "…and so does this browser's own change before it");
+
+  await newSession(page, "Diff");
+  await page.waitForTimeout(1800);
+  const away = await page.locator(".rail-row.active .rail-row-label").innerText();
+  const awayId = (await api(page, "GET", "/live-sessions")).body.find((s) => s.title === away).client_id;
+  await page.goto("about:blank");
+  const gone = await page.context().request.delete(`${BASE}/api/live-sessions/${awayId}`);
+  await page.goto(BASE);
+  await page.waitForSelector(".rail");
+  await page.waitForTimeout(3000);
+  check(gone.status() === 204 && (await page.locator(ROW(away)).count()) === 0, "A session deleted elsewhere while this browser was away isn't on its panel");
+  check(!(await api(page, "GET", "/live-sessions")).body.some((s) => s.client_id === awayId), "…and isn't put back on the server");
+
+  await page.route("**/api/live-sessions/*", (route) =>
+    route.request().method() === "PUT" ? route.abort() : route.continue());
+  await newSession(page, "JWT");
+  const unsaved = await page.locator(".rail-row.active .rail-row-label").innerText();
+  await page.waitForTimeout(2500);
+  await page.unroute("**/api/live-sessions/*");
+  await page.goto("about:blank");
+  await page.goto(BASE);
+  await page.waitForSelector(".rail");
+  await page.waitForTimeout(3500);
+  check((await page.locator(ROW(unsaved)).count()) === 1, "A session this browser never managed to save is kept");
+  check((await api(page, "GET", "/live-sessions")).body.some((s) => s.title === unsaved), "…and saved once the server answers");
 
   await clearWorkspace(page);
   await browser.close();

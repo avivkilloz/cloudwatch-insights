@@ -254,7 +254,10 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   `<pane>.inputs` (`shown`/`hidden`) overriding it, and always on for a
   viewer member. `inView` keeps outputs, charts, sort, copy, errors and drops
   inputs, buttons, help, examples, the time range; a card is drawn only while
-  one of its outputs or errors holds something (`showsInView`). Items keep
+  one of its outputs or errors holds something (`showsInView`; a `run`
+  output that is only running or done doesn't count, or the Query card stayed
+  for its status line). Sort by is a view sort of the rows on screen, so it is
+  in the results' own toolbar (`LogsView`), never a query card. Items keep
   their manifest keys -- hidden, not removed. A pane in view mode starts with
   `ViewModeLine` ("Updated … · Refresh", through the refresh route).
 - **Saved inputs** (D46): in the ⋮ (the items, then "Save these inputs
@@ -401,6 +404,18 @@ other machines and the platform agent all write sessions on the server.
   tab can ignore the echo of its own writes.
 - A mounted `useSessionState` follows a remote change to its key; it no longer
   only seeds on mount.
+- **A load never lets this browser's stale copy win** (PLATFORM_PLAN.md
+  §18.8). It used to push its whole local copy whenever anything was written
+  before the server's list arrived -- and a pane's mount always writes -- so a
+  stale browser undid changes made elsewhere and revived sessions deleted
+  elsewhere (with the version it had just adopted, so the server took it). Now
+  `useSessionState`'s first write is a `seed`, each open session is
+  `mergeSession(base, local, server)` against the base stored beside the
+  workspace in IndexedDB (`StoredWorkspace.bases`; without one, only what was
+  done since the load is overlaid), a local-only session survives only if it
+  was opened since the load or this browser never saw it on the server
+  (`cwi-synced-<user>`, localStorage), and nothing is pushed before the list
+  is in. Any new mutator in SessionContext records itself in `SinceLoad`.
 - **Order belongs to `/reorder`.** A PUT sets `position` only when it creates
   the session, and position is not in the sync fingerprint; otherwise a tab
   holding the old order pushes it back on its next save and two tabs
@@ -710,6 +725,9 @@ and close are completely unchanged. Deleting stays owner-only (cascades to
 every member via `ON DELETE CASCADE`); a member instead **leaves**
 (`DELETE /{client_id}/members/{their_own_user_id}`, allowed for self-removal
 even though managing anyone *else*'s membership stays the owner's alone).
+The panel's ✕ and menu say Leave for a member and call that; a Delete the
+server refuses puts the session back with a notice (`SessionsApi.notice`) --
+a member's Delete used to 404 silently and the session came back on reload.
 
 A `client_id` is only unique *per owner*
 (`uq_live_sessions_user_client` -- two different people's browsers can mint
@@ -1232,10 +1250,13 @@ fixed where it happens:
   icon-button style, and the body's side padding matches a pane body's own
   12px so the inner section cards don't sit further in.
   Each section is a label column and a values column (`CardRow`): name and
-  description (edited in the same kind of box), adds, layout (one
-  segmented control), and members (see sharing, above) -- the one section
-  that isn't backed by session state, fetched instead from its own API on
-  mount. In the body it folds to its header (`cardCollapsed`,
+  description (edited in the same kind of box), adds, layout and mode (each
+  its own row, one segmented control each), refresh, variables (a chip per
+  variable with its ✕, "+ …" for the rest), and members (see sharing, above)
+  -- the one section that isn't backed by session state, fetched instead
+  from its own API on mount. Every control in those rows is 28px high, and
+  the members are one grid with the invite row, so a member's permission and
+  ✕ sit over the invite's select and button. In the body it folds to its header (`cardCollapsed`,
   per session like a minimised pane, and only there -- in the rail there's
   nothing to fold). PageInfo is
   only for non-session pages now. The description is the top-level state key
