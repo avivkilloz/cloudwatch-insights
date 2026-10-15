@@ -117,8 +117,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   await page.click(".session-bar-more");
   await page.waitForSelector(".rail-row-menu");
   const items = await page.locator(".rail-row-menu button").allTextContents();
-  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Delete"]),
-    "…offering the same three as the panel's ⋮", JSON.stringify(items));
+  check(JSON.stringify(items) === JSON.stringify(["Rename", "Save as template…", "Set as my home page", "Delete"]),
+    "…offering the same four as the panel's ⋮", JSON.stringify(items));
   await page.keyboard.press("Escape");
   check((await page.locator(".rail-row-menu").count()) === 0, "…and Escape closes it");
 
