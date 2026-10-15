@@ -208,6 +208,13 @@ agent:
   temperature: ""
   # A ceiling on one model step's output, in tokens; empty for the model's own.
   maxTokens: ""
+  # Every answer is checked against what the turn actually ran -- its tool
+  # calls and the sessions afterwards -- by one more model call; an answer
+  # that claims what nothing did is redone once (PLATFORM_PLAN.md D55).
+  # About one extra call per answer. `model` empty means agent.model.
+  check:
+    enabled: true
+    model: ""
 
   # Optional: a key shared by the backend and the agent, so nothing else in
   # the cluster can call the agent (and spend the model's budget). An existing

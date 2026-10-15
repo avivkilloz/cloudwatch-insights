@@ -32,6 +32,12 @@ function describe(step: AgentStep): string {
   if (step.preamble && step.name === "get_context")
     return done ? "Checked who's asking and what they can reach" : "Checking who's asking…";
   if (step.preamble && step.name === "get_session") return done ? "Read this session as it is now" : "Reading this session…";
+  // The platform's check of the answer against what ran (platform-agent's
+  // check.py): a failed one is followed by the agent's redo.
+  if (step.preamble && step.name === "check_answer") {
+    if (!done) return "Checking the answer against what ran…";
+    return step.status === "failed" ? "Checked the answer: it didn't match what ran" : "Checked the answer against what ran";
+  }
   switch (step.name) {
     case "get_context":
       return done ? "Looked at what you can reach" : "Looking at what you can reach…";

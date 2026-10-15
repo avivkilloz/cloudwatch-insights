@@ -22,7 +22,8 @@ to the browser unchanged:
   how it went; `session_id` names the session it touched, which is how the
   browser can follow the agent to it.
 - `{"type": "notice", "message"}` -- a warning to show under the answer
-  (one whose details no tool returned, see grounding.py).
+  (one whose details no tool returned, see grounding.py, or one the answer
+  check still found wanting after a redo, see check.py).
 - `{"type": "error", "message"}` then the stream ends -- a turn that failed.
 - `{"type": "done"}` -- a turn that finished.
 """
@@ -31,6 +32,7 @@ import json
 import logging
 from typing import Any, AsyncIterator, Optional
 
+import httpx
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -52,6 +54,26 @@ HISTORY_STEPS = 12
 HISTORY_ARGS_CHARS = 600
 # How often (in characters of a step's output) to look for a loop.
 LOOP_CHECK_CHARS = 200
+
+
+def build_check_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpenAI:
+    """What checks an answer (check.py): not streamed -- nobody watches it --
+    and as deterministic as the model allows, since it's a judgement, not
+    writing. On the turn's own HTTP client: langchain_openai otherwise shares
+    one per base URL across turns, and a kept-alive connection from a turn
+    run in another event loop failed the next check ("the handler is
+    closed")."""
+    return ChatOpenAI(
+        http_async_client=client,
+        model=settings.check_model or settings.model,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        temperature=0,
+        max_tokens=600,
+        streaming=False,
+        timeout=60,
+        max_retries=1,
+    )
 
 
 def build_model(settings: Settings) -> ChatOpenAI:
@@ -224,8 +246,27 @@ async def run_turn(
             yield event
         session = seen[-1] if len(seen) > before else None
 
+    async def read_sessions(ids: list[str]) -> list[str]:
+        """The sessions a turn touched, as they are after its answer -- read
+        by the platform for the answer check, not shown as the agent's."""
+        tool = by_name.get("get_session")
+        out = []
+        for session_id in ids if tool else []:
+            try:
+                result = await tool.ainvoke({"session_id": session_id})
+                out.append(_text(result.content if isinstance(result, ToolMessage) else result))
+            except Exception as e:  # noqa: BLE001 -- the check reads what it can
+                out.append(f"(session {session_id} couldn't be read: {_reason(e)})")
+        return out
+
     prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
-    guard = TurnGuard(set(by_name))
+    check_client = httpx.AsyncClient(timeout=60) if settings.check else None
+    guard = TurnGuard(
+        set(by_name),
+        check_model=build_check_model(settings, check_client) if check_client else None,
+        read_sessions=read_sessions,
+        focus=focus["session_id"] if focus else None,
+    )
     agent = create_agent(model or build_model(settings), tools, system_prompt=prompt, middleware=[guard])
     history = conversation(messages, set(by_name))
     # The reads go with the message they were made for, as the last thing the
@@ -260,8 +301,14 @@ async def run_turn(
         config={"recursion_limit": settings.max_steps},
         stream_mode=["messages", "updates"],
     )
+    def checks() -> list[dict]:
+        events, guard.events[:] = list(guard.events), []
+        return events
+
     try:
         async for mode, chunk in stream:
+            for event in checks():
+                yield event
             if mode == "messages":
                 message, meta = chunk
                 # Only the model's own words: tool output also passes through
@@ -326,12 +373,16 @@ async def run_turn(
                         yield event
         for event in finish_step():
             yield event
+        for event in checks():
+            yield event
     except Exception as e:  # noqa: BLE001 -- reported to the user, not raised
         logger.warning("Agent turn failed: %s", e)
         yield {"type": "error", "message": _failure(e)}
         return
     finally:
         await stream.aclose()
+        if check_client is not None:
+            await check_client.aclose()
     if not answer.strip():
         # Asked once to carry on (repair.TurnGuard) and still nothing: say so,
         # rather than leave the chat looking as if the turn is still going or
@@ -350,6 +401,8 @@ async def run_turn(
     missing = grounding.ungrounded(answer, seen)
     if missing:
         yield {"type": "notice", "message": grounding.notice(missing)}
+    if guard.notice:
+        yield {"type": "notice", "message": guard.notice}
     yield {"type": "done"}
 
 

@@ -28,6 +28,10 @@ class Settings:
     temperature: Optional[float] = None
     # A ceiling on one step's output, so a step that does go wrong ends.
     max_tokens: Optional[int] = None
+    # Whether every answer is checked against what the turn ran (check.py,
+    # D55), and by which model -- the agent's own unless set.
+    check: bool = True
+    check_model: Optional[str] = None
 
     @property
     def configured(self) -> bool:
@@ -46,4 +50,6 @@ def load() -> Settings:
         max_steps=int(os.environ.get("AGENT_MAX_STEPS", "40")),
         temperature=float(os.environ["AGENT_TEMPERATURE"]) if os.environ.get("AGENT_TEMPERATURE") else None,
         max_tokens=int(os.environ["AGENT_MAX_TOKENS"]) if os.environ.get("AGENT_MAX_TOKENS") else None,
+        check=os.environ.get("AGENT_CHECK", "on").lower() not in ("off", "false", "0", "no"),
+        check_model=os.environ.get("AGENT_CHECK_MODEL") or None,
     )

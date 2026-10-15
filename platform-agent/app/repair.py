@@ -35,12 +35,13 @@ LiteLLM and Bedrock, and neither is specific to one model or one tool:
 import json
 import re
 import uuid
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from . import grounding
+from . import check, grounding
+from .prompt import READS_MARK
 from .text import CLOSE
 
 # What Bedrock (and most providers) accept as a tool name or tool call id.
@@ -217,18 +218,92 @@ def repair(message: AIMessage, names: set[str]) -> AIMessage:
     return message.model_copy(update={"tool_calls": repaired, "invalid_tool_calls": []})
 
 
-class TurnGuard(AgentMiddleware):
-    """Both of the above, around every model call of one turn. Made afresh for
-    each turn, so its one nudge is that turn's."""
+ReadSessions = Callable[[list[str]], Awaitable[list[str]]]
 
-    def __init__(self, tool_names: set[str]) -> None:
+
+def _since_request(messages: list) -> tuple[str, list]:
+    """The user's latest message in their own words (the reads attached to
+    it left off), and everything after it but the platform's own notes."""
+    start = max(
+        (i for i, m in enumerate(messages) if isinstance(m, HumanMessage) and not _text(m.content).startswith(FROM_PLATFORM)),
+        default=-1,
+    )
+    request = _text(messages[start].content).split(READS_MARK, 1)[0].strip() if start >= 0 else ""
+    rest = [m for m in messages[start + 1 :] if not (isinstance(m, HumanMessage) and _text(m.content).startswith(FROM_PLATFORM))]
+    return request, rest
+
+
+class TurnGuard(AgentMiddleware):
+    """All of the above, around every model call of one turn. Made afresh for
+    each turn, so its one nudge, its one correction and its one redo after a
+    failed check (check.py) are that turn's.
+
+    `check_model` is what checks answers (None: they aren't checked);
+    `read_sessions` reads the sessions a turn touched, as they are after its
+    answer; `focus` is the session a session chat is about, always read."""
+
+    def __init__(
+        self,
+        tool_names: set[str],
+        check_model: Any = None,
+        read_sessions: Optional[ReadSessions] = None,
+        focus: Optional[str] = None,
+    ) -> None:
         super().__init__()
         self.names = tool_names | {UNREADABLE}
         self.nudged = False
         self.corrected = False
+        self.rechecked = False
+        self.check_model = check_model
+        self.read_sessions = read_sessions
+        self.focus = focus
         # Ids of answers replaced by a corrected one, whose words the turn
         # takes back from the chat.
         self.discarded: set[str] = set()
+        # The checks as steps in the chat, for the turn to send on as it goes.
+        self.events: list[dict] = []
+        # What the last check found, when its answer stands anyway.
+        self.notice: Optional[str] = None
+
+    async def _check(self, messages: list, message: AIMessage) -> Optional[check.Verdict]:
+        request, turn = _since_request(messages)
+        ids = check.touched(turn)
+        if self.focus and self.focus not in ids:
+            ids.insert(0, self.focus)
+        step = f"turn-check-{sum(1 for e in self.events if e['type'] == 'tool_call') + 1}"
+        self.events.append({"type": "tool_call", "id": step, "name": "check_answer", "args": {}, "preamble": True})
+        sessions = await self.read_sessions(ids[:3]) if self.read_sessions and ids else []
+        verdict = await check.judge(self.check_model, check.evidence(request, check.ledger(turn), sessions, _visible(message)))
+        summary = verdict.summary() if verdict else "The check couldn't be made; the answer stands as it is."
+        self.events.append({"type": "tool_result", "id": step, "name": "check_answer", "ok": verdict is None or verdict.ok, "summary": summary})
+        return verdict
+
+    async def _checked(self, request: ModelRequest, handler, response: ModelResponse) -> ModelResponse:
+        """A final answer checked, and redone once if the check finds it
+        wanting -- unless the grounding check already had this turn redo one."""
+        message = _last_ai(response)
+        if self.check_model is None or message is None or message.tool_calls or not _visible(message):
+            return response
+        verdict = await self._check(request.messages, message)
+        if verdict is None or verdict.ok:
+            self.notice = None
+            return response
+        if self.corrected or self.rechecked:
+            self.notice = check.notice(verdict)
+            return response
+        self.rechecked = True
+        if message.id:
+            self.discarded.add(message.id)
+        retry = [*request.messages, message, HumanMessage(check.correction(verdict))]
+        response = await handler(request.override(messages=retry))
+        again = _last_ai(response)
+        if again is not None and not again.tool_calls and _visible(again):
+            # A redo that answers straight away is checked here, against the
+            # same steps; one that calls tools first is checked when it
+            # answers, in a later model call.
+            verdict = await self._check(request.messages, again)
+            self.notice = check.notice(verdict) if verdict is not None and not verdict.ok else None
+        return response
 
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelResponse:
         response = await handler(request)
@@ -246,6 +321,7 @@ class TurnGuard(AgentMiddleware):
                     self.discarded.add(message.id)
                 retry = [*request.messages, message, HumanMessage(correction(missing))]
                 response = await handler(request.override(messages=retry))
+        response = await self._checked(request, handler, response)
         return ModelResponse(
             result=[repair(m, self.names) if isinstance(m, AIMessage) else m for m in response.result],
             structured_response=response.structured_response,

@@ -39,6 +39,9 @@ Scripts (the user's message decides):
                       anything; asked to carry on, it runs the pane.
                       "announce plain" ends on a period instead ("Let me
                       search now.").
+- "pretend connect" -- fills a pane in and says it's connected, without
+                      running it; told by the answer check, it runs the pane.
+                      "pretend connect stubborn" says it again regardless.
 - "fumble"         -- a tool call that fails, then nothing; told what failed,
                       it calls again with a good input and answers. "fumble
                       silent" stays silent however it's asked.
@@ -48,6 +51,11 @@ Scripts (the user's message decides):
 - "query <text>"   -- (a session's chat) writes <text> as the query of the
                       session's first pane that takes one.
 - anything else    -- a short reply, no tools.
+
+It also stands in for the answer check (app/check.py), which it knows by its
+instructions: an answer saying "connected and/now" is unsupported unless a session
+afterwards shows a run "running", and a request to connect is not done
+unless run_pane was called. Everything else passes.
 
 FAKE_LLM_STEP_DELAY (seconds, default 0) pauses before each reply, so a test
 can watch a turn happen rather than only see its end.
@@ -70,11 +78,14 @@ app = FastAPI(title="Fake model")
 # words (app/prompt.py, app/repair.py).
 READS_MARK = "\n\n---\n[Read by the platform for this message"
 NUDGE_MARK = "(From the platform, not the user:"
+CHECK_MARK = "You check an AI agent's answer against what it actually did."
 
 STEP_DELAY = float(os.environ.get("FAKE_LLM_STEP_DELAY", "0"))
 
-# The last few requests, newest last, for tests to read what the agent sent.
+# The last few requests, newest last, for tests to read what the agent sent;
+# the answer checks apart.
 REQUESTS: list[dict] = []
+CHECKS: list[dict] = []
 
 
 def _content(message: dict) -> str:
@@ -171,6 +182,14 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
         if nudged:
             return _call("run_pane", session_id="s1", pane_id="iot")
         return _say("Let me search now." if lowered.startswith("announce plain") else "Let me search now:")
+    if lowered.startswith("pretend connect"):
+        if step == 0:
+            return _call("set_pane_inputs", session_id="s1", pane_id="mqtt", inputs={"topics": ["a/#"]})
+        if "check of your answer" in nudged and not lowered.startswith("pretend connect stubborn"):
+            return _call("run_pane", session_id="s1", pane_id="mqtt")
+        if step >= 2:
+            return _say("Connected now, listening to a/#.")
+        return _say("Done: the MQTT tester is connected and listening to a/#.")
     if lowered.startswith("fumble"):
         if step == 0:
             return _call("run_pane", session_id="no-such-session", pane_id="iot")
@@ -299,10 +318,44 @@ def _chunk(model: str, delta: dict, finish: Optional[str] = None) -> str:
     return f"data: {json.dumps(body)}\n\n"
 
 
+def _section(text: str, start: str, end: Optional[str]) -> str:
+    part = text.split(start, 1)[1] if start in text else ""
+    return part.split(end, 1)[0] if end and end in part else part
+
+
+def _check(evidence: str) -> dict:
+    """The answer check's verdict, by two rules -- enough to drive a redo."""
+    request = _section(evidence, "Request:\n", "\n\nWhat ran this turn:").lower()
+    steps = _section(evidence, "What ran this turn:\n", "\n\nSessions it touched")
+    sessions = _section(evidence, "Sessions it touched, as they are now:\n", "\n\nThe answer:")
+    answer = _section(evidence, "The answer:\n", None).lower()
+    running = re.search(r'"status":\s*"running"', sessions) is not None
+    if re.search(r"\bconnected (and|now)\b", answer) and not running:
+        return {"verdict": "unsupported", "problems": ["The answer says it's connected, but the pane's run isn't running."]}
+    if "connect" in request and "called run_pane" not in steps:
+        return {"verdict": "not_done", "problems": ["Asked to connect, but run_pane was never called."]}
+    return {"verdict": "ok", "problems": []}
+
+
 @app.post("/chat/completions")
 @app.post("/v1/chat/completions")
 async def completions(request: Request):
     body = await request.json()
+    sent = body.get("messages") or []
+    if sent and sent[0].get("role") == "system" and _content(sent[0]).startswith(CHECK_MARK):
+        CHECKS.append(body)
+        del CHECKS[:-20]
+        verdict = json.dumps(_check(_content(sent[-1])))
+        return JSONResponse(
+            {
+                "id": "chatcmpl-fake-check",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": body.get("model", "fake"),
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": verdict}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        )
     REQUESTS.append(body)
     del REQUESTS[:-20]
     # As Bedrock does: a tool name outside [a-zA-Z0-9_-]+ anywhere in the
