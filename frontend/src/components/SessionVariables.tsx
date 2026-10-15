@@ -1,9 +1,7 @@
 /**
  * The session's variables (PLATFORM_PLAN.md §18.7, D60): an Environment and a
  * Time range that every pane with such an input follows. Set in the session
- * card's Variables row, and in its header while the card is folded -- what a
- * dashboard is driven by stays at hand however the card is put away. They used
- * to be a bar of their own under the card, which read as a stray card and
+ * card's Variables row. They used to be a bar of their own under the card, which read as a stray card and
  * stayed behind when the card moved to the side panel. A viewer sees them but
  * can't change them.
  */
@@ -23,14 +21,11 @@ export default function SessionVariables({
   variables,
   onChange,
   readOnly,
-  removable,
 }: {
   variables: Variables;
   /** The new variables, and which of them changed. */
   onChange: (next: Variables, changed: VariableName[]) => void;
   readOnly: boolean;
-  /** Each with its ✕ (the card's row), or only the controls (its header). */
-  removable: boolean;
 }) {
   const [environments, setEnvironments] = useState<Environment[] | null>(null);
   useEffect(() => {
@@ -112,7 +107,7 @@ export default function SessionVariables({
               </>
             )}
           </fieldset>
-          {removable && !readOnly && (
+          {!readOnly && (
             <button
               className="icon-btn session-variable-remove"
               onClick={() => remove(name)}

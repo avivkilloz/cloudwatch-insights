@@ -164,9 +164,7 @@ from your picture's menu and is not a session; the strip stays above it.
   refresh that keeps failing says why above the pane and tries less often.
   The agent can set it too ("refresh this every 5 minutes").
 - **Session variables.** A session can hold an **Environment** and a **Time
-  range**, added and set in the session card's **Variables** row (and in the
-  card's header while it's folded, so a folded dashboard can still be
-  driven). Every pane with an environment picker or a time range follows
+  range**, added and set in the session card's **Variables** row. Every pane with an environment picker or a time range follows
   them, like a Grafana dashboard's variables: its own input shows the value,
   greyed, saying "From the session's Environment", and changing the variable
   runs again every pane that had run. **Unlink** beside the input gives a

@@ -3673,9 +3673,10 @@ conversation should change.
 
 **Variables in the card (the user's report, same PR).** The bar under the
 card read as a stray card and stayed behind when the card moved to the side
-panel. The variables are set in the card's Variables row now; folded, the
-card's header keeps their controls, so a folded dashboard can still be driven;
-and the card folds in the side panel too.
+panel. The variables are set in the card's Variables row now, and the card
+folds in the side panel too. (Their controls were kept in the folded card's
+header for a round; the user found that clutter -- to change one, expand the
+card -- and they went.)
 
 ## 12. Research sources
 

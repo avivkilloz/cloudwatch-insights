@@ -3990,10 +3990,9 @@ button.icon-btn {
 
 /* ---- Session variables and view mode (§18.7) ---- */
 
-/* A session variable (components/SessionVariables.tsx): its name, its
-   control and, in the card's Variables row, its ✕ -- one box the height of
-   the "+ …" buttons beside it. The same box sits in the card's header while
-   it's folded, so a folded dashboard keeps its controls. */
+/* A session variable in the card's Variables row (components/
+   SessionVariables.tsx): its name, its control and its ✕ -- one box the
+   height of the "+ …" buttons beside it. */
 .session-variable {
   display: inline-flex;
   align-items: center;
@@ -4030,9 +4029,6 @@ button.icon-btn {
 .session-variable-control input {
   width: 140px;
 }
-.session-variable:not(:has(.session-variable-remove)) {
-  padding-right: 3px;
-}
 .session-variable button.session-variable-remove {
   width: 22px;
   height: 22px;
@@ -4048,13 +4044,6 @@ button.icon-btn {
   width: 12px;
   height: 12px;
 }
-.session-card-folded-extra {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  min-width: 0;
-}
 /* Narrow, each variable takes the row and its select what's left of it. */
 .session-card.in-rail .session-variable {
   width: 100%;
@@ -4066,15 +4055,8 @@ button.icon-btn {
   flex: 1;
   width: 0;
 }
-.session-card.in-rail.collapsed .session-card-head {
-  flex-wrap: wrap;
-}
 .session-card.in-rail .session-card-folded-title {
   flex: 1 1 0;
-}
-.session-card.in-rail .session-card-folded-extra {
-  order: 3;
-  flex-basis: 100%;
 }
 /* An input following a session variable: drawn as it is, not changeable
    here, with where its value comes from beside it. */

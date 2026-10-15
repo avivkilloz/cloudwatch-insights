@@ -236,10 +236,11 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   it while the pane refreshes. Suites open it with `harness.openPaneMenu`.
 - **Session variables** (D60, §18.7; `panes/variables.ts` and its twin
   `app/panes/variables.py`): `variables: {environment?, time?}` at the
-  session's level, added and set in the card's Variables row, and in its
-  header while it's folded (`components/SessionVariables.tsx`; a bar of their
-  own under the card read as a stray card and was left behind when the card
-  moved to the side panel). Binding is by input type, never per
+  session's level, added and set in the card's Variables row
+  (`components/SessionVariables.tsx`; a bar of their own under the card read
+  as a stray card and was left behind when the card moved to the side panel).
+  Folded, the card is its header alone -- to change a variable, expand it (the
+  user's call: controls in the folded header were clutter). Binding is by input type, never per
   pane: Environment binds every AWS `connection`/`connections` input, Time
   range a layout `time_range`'s three inputs. **Automatic**: every pane
   follows unless `<pane>.unlinked` names the variable. The value is *copied*
@@ -1274,8 +1275,8 @@ fixed where it happens:
   from its own API on mount. Every control in those rows is 28px high, and
   the members are one grid with the invite row, so a member's permission and
   ✕ sit over the invite's select and button. It folds to its header (`cardCollapsed`, per session like a
-  minimised pane), in the body and in the side panel alike; folded, the
-  header keeps the name and the variables' controls (`folded`). PageInfo is
+  minimised pane), in the body and in the side panel alike, to its header
+  and the session's name. PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`
