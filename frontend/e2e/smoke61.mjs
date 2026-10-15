@@ -104,9 +104,12 @@ const run = async () => {
 
   // ---- 4. the HTTP client's Target
   const sent = [];
-  page.on("request", (req) => {
-    // Send is the HTTP client's manifest action now (3b-2).
-    if (req.url().includes("/api/panes/tool-http/actions/send")) sent.push(JSON.parse(req.postData() ?? "{}").inputs);
+  page.on("response", (res) => {
+    // Send is the HTTP client's manifest action now (3b-2); a 409 is a send
+    // from a session not stored yet, sent again once it is (D21).
+    if (res.url().includes("/api/panes/tool-http/actions/send") && res.status() !== 409) {
+      sent.push(JSON.parse(res.request().postData() ?? "{}").inputs);
+    }
   });
   await newSession(page, "HTTP client");
   await page.waitForSelector(`${SHOWN} select[aria-label="Target"] option:has-text("${PARTNER}")`, { state: "attached" });

@@ -50,9 +50,13 @@ const run = async () => {
 
   const bodies = [];
   const sentRequests = [];
-  page.on("request", (req) => {
-    // Send is the HTTP client's manifest action now (3b-2).
-    if (req.url().includes("/api/panes/tool-http/actions/send")) sentRequests.push(req.postData() ?? "");
+  page.on("response", (res) => {
+    // Send is the HTTP client's manifest action now (3b-2). A send from a
+    // session the server hasn't stored yet is answered 409 unrun and sent
+    // again once it is (D21), so only the ones that ran count.
+    if (res.url().includes("/api/panes/tool-http/actions/send") && res.status() !== 409) {
+      sentRequests.push(res.request().postData() ?? "");
+    }
   });
   page.on("response", async (res) => {
     if (!res.url().includes("/api/")) return;
