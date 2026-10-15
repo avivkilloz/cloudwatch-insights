@@ -97,6 +97,9 @@ export interface UserGroup {
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
   user_count: number;
+  /** The pane types it may use (D65; every one for the Admin group). The
+   * *_enabled booleans above are worked out from these, and kept as shorthand. */
+  pane_types: string[];
 }
 
 /** The user's home page (R3, D63): a session they can reach, or the title of
@@ -122,6 +125,8 @@ export interface User {
   aggregator_enabled: boolean;
   tools_enabled: boolean;
   agent_enabled: boolean;
+  /** The pane types the user's group may use (D65): what the catalogue offers. */
+  pane_types: string[];
 }
 
 /** One pane's inputs under a name (PLATFORM_PLAN.md D46). Never a sensitive input. */
@@ -517,7 +522,9 @@ export const api = {
   deleteUser: (id: number) => req<void>(`/users/${id}`, { method: "DELETE" }),
 
   listUserGroups: () => req<UserGroup[]>("/user-groups"),
-  createUserGroup: (payload: Omit<UserGroup, "id" | "is_admin" | "user_count">) =>
+  // Only the name is needed: the server's defaults fill the rest, and
+  // `pane_types` says exactly what it may use (D65).
+  createUserGroup: (payload: Pick<UserGroup, "name"> & Partial<Omit<UserGroup, "id" | "is_admin" | "user_count">>) =>
     req<UserGroup>("/user-groups", { method: "POST", body: JSON.stringify(payload) }),
   updateUserGroup: (id: number, payload: Partial<Omit<UserGroup, "id" | "is_admin" | "user_count">>) =>
     req<UserGroup>(`/user-groups/${id}`, { method: "PUT", body: JSON.stringify(payload) }),

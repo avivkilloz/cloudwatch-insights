@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, ApiError, ConnectionType, Credential, EnvironmentRecord, GroupIdentity, readableError, UserGroup } from "../../api";
+import { manifests } from "../../panes/manifest";
 import { CardRow } from "../SessionCard";
 import { accepts } from "./EnvironmentsSettings";
 import { rowProps, Section, TagPicker, ViewHead } from "./settingsLayout";
@@ -13,39 +14,14 @@ import { rowProps, Section, TagPicker, ViewHead } from "./settingsLayout";
  * the same mechanism serves any other kind of connection.
  */
 
-const PAGE_FLAGS: {
-  key:
-    | "logs_enabled"
-    | "opensearch_enabled"
-    | "iot_enabled"
-    | "tables_enabled"
-    | "buckets_enabled"
-    | "cognito_enabled"
-    | "tools_enabled"
-    | "agent_enabled";
-  label: string;
-}[] = [
-  // Two pages, two sets of credentials: a group can be given one without the
-  // other, which one flag covering both could not say.
-  { key: "logs_enabled", label: "CloudWatch" },
-  { key: "opensearch_enabled", label: "OpenSearch" },
-  { key: "iot_enabled", label: "IoT" },
-  { key: "tables_enabled", label: "DynamoDB" },
-  { key: "buckets_enabled", label: "S3" },
-  { key: "cognito_enabled", label: "Cognito" },
-  // No Aggregator switch: every session is one now, so it would mean "this
-  // group gets no sessions at all". The column stays, unused.
-  { key: "tools_enabled", label: "Tools" },
-  // Not a page but the same kind of yes/no: the agent acts with everything
-  // else this group has, so it is its own switch, and off for a new group.
-  { key: "agent_enabled", label: "Platform agent" },
-];
-
-type Flags = Record<(typeof PAGE_FLAGS)[number]["key"], boolean>;
-
-type Draft = Flags & {
+type Draft = {
   id: number | null;
   name: string;
+  /** The pane types it may use (D65): one grant each, no longer one switch per page. */
+  pane_types: string[];
+  /** Not a pane but the same kind of yes/no: the agent acts with everything
+   * else this group has, so it is its own switch, and off for a new group. */
+  agent_enabled: boolean;
   environment_ids: number[];
   /** Identities as they will be saved; a new AWS role is created on Save (credential_id < 0, newRole set). */
   identities: (GroupIdentity & { newRole?: string })[];
@@ -53,17 +29,14 @@ type Draft = Flags & {
 
 const NEW_ROLE = "new-role";
 
-function flagsOf(g?: UserGroup): Flags {
-  return {
-    logs_enabled: g?.logs_enabled ?? true,
-    opensearch_enabled: g?.opensearch_enabled ?? true,
-    iot_enabled: g?.iot_enabled ?? true,
-    tables_enabled: g?.tables_enabled ?? true,
-    buckets_enabled: g?.buckets_enabled ?? true,
-    cognito_enabled: g?.cognito_enabled ?? true,
-    tools_enabled: g?.tools_enabled ?? true,
-    agent_enabled: g?.agent_enabled ?? false,
-  };
+/** Every pane type there is, under the catalogue's groups -- what a group can
+ * be granted. The Admin group's list is every manifest, so this is complete
+ * wherever an admin opens it. */
+function paneGroups(): { group: string; panes: { id: string; label: string }[] }[] {
+  const all = manifests();
+  return (["Services", "Tools", "Platform"] as const)
+    .map((group) => ({ group, panes: all.filter((m) => m.group === group).map((m) => ({ id: m.id, label: m.label })) }))
+    .filter((g) => g.panes.length > 0);
 }
 
 /** Credentials a group can use (D15): its own, global ones granted to it, or any for the Admin group. */
@@ -116,7 +89,16 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
     setNotice(null);
     setError(null);
     setAdding({ scope: "", credential: "", role: "" });
-    const base: Draft = { id: g?.id ?? null, name: g?.name ?? "", environment_ids: g?.environment_ids ?? [], identities: [], ...flagsOf(g) };
+    const base: Draft = {
+      id: g?.id ?? null,
+      name: g?.name ?? "",
+      // A new group starts with every pane type, as it started with every
+      // page switched on -- in the form, so nothing is granted unseen.
+      pane_types: g?.pane_types ?? manifests().map((m) => m.id),
+      agent_enabled: g?.agent_enabled ?? false,
+      environment_ids: g?.environment_ids ?? [],
+      identities: [],
+    };
     setDraft(base);
     if (g) {
       try {
@@ -189,9 +171,13 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
     setBusy(true);
     setError(null);
     try {
-      const flags = Object.fromEntries(PAGE_FLAGS.map((f) => [f.key, draft[f.key]])) as Flags;
-      const payload = { name: draft.name.trim(), environment_ids: draft.environment_ids, ...flags };
-      const saved = draft.id == null ? await api.createUserGroup({ ...payload, role_name: null, aggregator_enabled: true }) : await api.updateUserGroup(draft.id, payload);
+      const payload = {
+        name: draft.name.trim(),
+        environment_ids: draft.environment_ids,
+        pane_types: draft.pane_types,
+        agent_enabled: draft.agent_enabled,
+      };
+      const saved = draft.id == null ? await api.createUserGroup({ ...payload, role_name: null }) : await api.updateUserGroup(draft.id, payload);
       const identities: GroupIdentity[] = [];
       for (const i of draft.identities) {
         if (i.newRole) {
@@ -259,16 +245,63 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
           </CardRow>
         </Section>
 
-        <Section title="Pages">
-          <CardRow label="Turned on">
-            <div className="row group-flags">
-              {PAGE_FLAGS.map((f) => (
-                <label className="checkbox-item" key={f.key}>
-                  <input type="checkbox" checked={draft[f.key]} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.checked })} />
-                  {f.label}
-                </label>
-              ))}
-            </div>
+        <Section title="Panes">
+          {isAdminGroup ? (
+            <CardRow label="Can use">
+              <span className="credential-static">Every pane</span>
+            </CardRow>
+          ) : (
+            paneGroups().map(({ group, panes }) => {
+              const ids = new Set(panes.map((p) => p.id));
+              const rest = draft.pane_types.filter((t) => !ids.has(t));
+              return (
+                <CardRow key={group} label={group}>
+                  {/* One grant per pane type (D65): "Tools" used to be one
+                      switch for all six. An even grid, so a row of them reads
+                      as a list to tick rather than a sentence that wraps. */}
+                  <div className="group-panes">
+                    <div className="group-panes-grid group-flags" role="group" aria-label={`${group} this group can use`}>
+                      {panes.map((p) => (
+                        <label className="checkbox-item" key={p.id}>
+                          <input
+                            type="checkbox"
+                            checked={draft.pane_types.includes(p.id)}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                pane_types: e.target.checked
+                                  ? [...draft.pane_types, p.id]
+                                  : draft.pane_types.filter((t) => t !== p.id),
+                              })
+                            }
+                          />
+                          {p.label}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="group-panes-toggle">
+                      <button type="button" className="link-button" onClick={() => setDraft({ ...draft, pane_types: [...rest, ...ids] })}>
+                        All
+                      </button>
+                      <span className="muted">·</span>
+                      <button type="button" className="link-button" onClick={() => setDraft({ ...draft, pane_types: rest })}>
+                        None
+                      </button>
+                    </div>
+                  </div>
+                </CardRow>
+              );
+            })
+          )}
+          <CardRow label="Agent">
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={draft.agent_enabled}
+                onChange={(e) => setDraft({ ...draft, agent_enabled: e.target.checked })}
+              />
+              Platform agent
+            </label>
           </CardRow>
         </Section>
 

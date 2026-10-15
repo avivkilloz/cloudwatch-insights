@@ -198,7 +198,8 @@ export interface PaneManifest {
   label: string;
   order: number;
   group: "Services" | "Tools" | "Platform";
-  flag: string;
+  /** The old group switch that covered it (D65): informational only. */
+  flag?: string;
   about: string;
   help: string;
   description: string;
