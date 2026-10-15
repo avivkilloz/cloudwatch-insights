@@ -3327,6 +3327,114 @@ a model or a prompt before users meet the failure again.
 - **Checking only turns that changed something.** It misses the turn that should have
   acted and didn't.
 
+## 18. Phase 3c in detail: sessions as live dashboards
+
+_Detailed 2026-10-15. Three PRs (D56): **3c-1** results in their own store, and
+auto-refresh; **3c-2** view mode and session variables; **3c-3** Home → a
+session._
+
+### 18.1 Why the store comes first
+
+Today every result is a key in the session's state (`<pane>.out.<key>`). So:
+- every write of one, whether a 1-second poll, a Load more, or a run, resends
+  the whole session;
+- every other tab then GETs the whole session and merges it key by key;
+- a session over 4 MiB has *every* pane's results dropped by the browser's
+  `capSession`.
+
+Auto-refresh would turn each of those into a timer. Results also make the
+session's version move, so a refresh landing while someone types a query
+makes their save a 409 to merge.
+
+### 18.2 The store (3c-1, D21)
+
+- **`pane_outputs`**: one record per (session, pane). It holds the pane's output
+  values (results, `run`, `ranAt`, `resultsVersion`), a version of its own, and
+  `updated_at`. It is deleted with its session (cascade), and with its pane: a
+  session write that drops a pane from `services` drops its record, since pane ids
+  are reused.
+- **One writer: the server.** `pane_outputs.write(db, row, pane, change, origin)`
+  locks the record, edits a copy, checks the size and bumps the version. It
+  announces `{kind: "outputs", client_id, pane, version, origin}` to every
+  participant on commit. It never touches the session's own version. The writers:
+  - **The action endpoint**, given `session` and `pane`, runs a `request` or
+    `handler` action and stores its outputs itself. It applies the action's
+    `resets` and `page` rules (append, sum), and `ranAt` and `resultsVersion` on a
+    fresh run, as the browser used to. It returns them with the result. A caller
+    who can't edit gets the result back and nothing stored, which is how a
+    viewer's clicks already behaved.
+  - **Background runs** (`runs._write`).
+  - **The agent** (`run_pane`).
+  - **Clears.** An input change's `resets` of `out.` keys go as `clear` on the
+    first action they trigger, or alone (`POST …/outputs/{pane}/clear`). The
+    agent's `set_pane_inputs` clears the same way.
+- **Size.** Each pane may hold 4 MiB, the old whole-session budget, with the same
+  halving of the longest list past it. The session state's 4 MiB now holds
+  inputs, views and the chat only.
+- **Reading.** Every session GET carries `outputs: {pane: {version, values}}`
+  beside `state`, and `GET …/outputs?pane=` reads one pane. A tab fetches a
+  pane's outputs on its event, and only when the version is newer than its own.
+- **Migration.** `<pane>.out.*` keys found in stored state (old rows, an old tab's
+  PUT, an IndexedDB copy) are moved into a pane's record if it has none, and
+  dropped from the state otherwise: a record already there is newer. It happens on
+  read and on every write, with no marker, like the v2 key migration.
+- **The browser** keeps outputs in a store beside the workspace. It is not in
+  IndexedDB, not in the sync fingerprint and not in templates, and is filled from
+  GETs and events. A pane reads its outputs from there. It writes them only
+  through the API, applying what comes back.
+
+### 18.3 Auto-refresh (3c-1, R4)
+
+- **Settings.**
+  - Per pane: `<pane>.refresh`, in seconds; 0 is off; unset follows the session.
+  - Per session: `refresh`. Both live in the session's state, so they sync,
+    templates keep them, and the agent sets them (`set_refresh`).
+- **Who can refresh.** A pane can refresh when its main action isn't
+  `effects: external`, `live`, or a stream (a poll with `append`). That covers
+  the API table, the AWS panes, CloudWatch and OpenSearch, but not Send, MQTT
+  or the tools worked out as you type.
+- **When a tab asks for a refresh.**
+  - The timer runs only while the session is on screen and the tab is visible.
+  - On return, a refresh that is overdue (by its `ranAt`) is asked for at once.
+  - Each ask is jittered by up to 2 s, so tabs don't arrive together.
+- **Coalesced on the server** (`POST /api/panes/{type}/refresh`).
+  - Under the record's lock, a refresh is skipped when:
+    - the results are fresher than 80% of the interval;
+    - another refresh started less than an interval ago;
+    - a run is going.
+  - Otherwise the refresh marks `refreshing` and runs the main action with the
+    session's stored inputs, as the caller. The result reaches every tab through
+    the store's event.
+  - Five tabs watching cause one run.
+- **Floors** (D22):
+  - 10 s by default, and 60 s for a pane type that declares `cost: per_run`
+    (CloudWatch: Logs Insights bills each query by data scanned).
+  - `REFRESH_FLOOR_SECONDS` and `REFRESH_FLOOR_COSTLY_SECONDS` raise them.
+  - The picker offers nothing below the floor, and says what a per-run pane costs.
+- **Failures** are counted on the record (`refresh: {failures, error}`), so every
+  viewer sees why. The interval doubles per failure, up to an hour, and a success
+  resets it.
+- **Viewers.** A viewer can't refresh in 3c-1, the same as they can't run; view
+  mode (3c-2) is where a viewer-watched dashboard is decided.
+
+### 18.4 Tests
+
+- **Backend:**
+  - the store's write path, version and event;
+  - migration of `out.*` from state;
+  - a dropped pane's record going;
+  - the action endpoint storing, and append and clear;
+  - runs and agent writes;
+  - refresh coalescing, floors and failures;
+  - a viewer refused;
+  - the session's version unmoved by results.
+- **Browser:**
+  - a results write reaches another tab without a session refetch;
+  - an input typed while results arrive isn't lost;
+  - auto-refresh runs once for two tabs, pauses while the session is hidden, and
+    shows a failure;
+  - the existing suites unchanged.
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):
