@@ -21,6 +21,7 @@ import {
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
+import { every, REFRESH_CHOICES } from "../panes/refresh";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
@@ -1125,6 +1126,9 @@ export default function AggregatorPage() {
   const onScreen = view === "session" && scope !== null && activeId === scope.id;
   const thisSession = scope ? sessions.find((s) => s.id === scope.id) : undefined;
   const [description, setDescription] = useSessionState<string>(SESSION_DESCRIPTION_KEY, "");
+  // The session's auto-refresh, for every pane that can and hasn't one of its
+  // own (§18.3, panes/refresh.tsx).
+  const [refreshEvery, setRefreshEvery] = useSessionState<number>("refresh", 0);
   // Per session, like a pane's minimised state: folding one session's card
   // says nothing about another's.
   const [cardCollapsed, setCardCollapsed] = useSessionState<boolean>("cardCollapsed", false);
@@ -1328,6 +1332,22 @@ export default function AggregatorPage() {
               </button>
             ))}
           </div>
+        </CardRow>
+        <CardRow label="Refresh">
+          <select
+            className="session-card-refresh"
+            aria-label="Refresh panes every"
+            title="Panes that can run again by themselves do, while the session is open on someone's screen -- once for everyone watching. A pane can set its own."
+            value={String(refreshEvery || 0)}
+            onChange={(e) => setRefreshEvery(Number(e.target.value))}
+          >
+            <option value="0">Off</option>
+            {REFRESH_CHOICES.map((seconds) => (
+              <option key={seconds} value={String(seconds)}>
+                Every {every(seconds)}
+              </option>
+            ))}
+          </select>
         </CardRow>
       </CardSection>
       <CardSection>

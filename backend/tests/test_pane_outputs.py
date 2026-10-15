@@ -95,9 +95,12 @@ def test_a_closed_pane_takes_its_outputs_with_it(aws):
     client.put(f"/api/live-sessions/{sid}", json={"title": "T", "type": "aggregator", "state": {"services": [], "layout": "tabs"}})
     with SessionLocal() as db:
         assert db.query(models.PaneOutput).count() == 0
-    # Reopened under the same id, it starts empty -- and a write for a pane
-    # the session doesn't have is refused rather than bringing one back.
-    assert _scan(sid, env).status_code == 400
+    # A run for a pane the session doesn't have (yet: a pane added a moment
+    # ago is still in the browser's debounced save) is refused before it runs
+    # -- the browser saves and asks again -- rather than bringing one back.
+    refused = _scan(sid, env)
+    assert refused.status_code == 409 and "save the session" in refused.json()["detail"]
+    assert len(aws["scan"]) == 1
     _session()
     assert _got(sid)["outputs"] == {}
 

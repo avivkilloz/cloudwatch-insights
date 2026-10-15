@@ -56,6 +56,7 @@ import HttpResponseView from "./HttpResponseView";
 import { LogsView, RunNote, SortControl } from "./LogsView";
 import { StreamView, TopicsEditor } from "./StreamView";
 import { ChartItem, HistogramView } from "./chart/ChartView";
+import { RefreshFailure, RefreshPicker, useAutoRefresh } from "./refresh";
 import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
@@ -183,6 +184,13 @@ function Rendered({ m }: { m: PaneManifest }) {
   const storedViews = (m.views ?? []).map((v) => [v, useStoredView(v)] as const);
   const resultsVersion = held.resultsVersion as number | undefined;
   const ranAt = held.ranAt as number | undefined;
+  const refresh = useAutoRefresh(
+    m,
+    address.session,
+    address.pane,
+    held,
+    hasTimeRange(m) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+  );
 
   const live = useLiveOutputs(m, inputs);
   const [clicked, setClicked] = useState<Outputs>({});
@@ -469,9 +477,22 @@ function Rendered({ m }: { m: PaneManifest }) {
   const first = m.layout.findIndex((card) => card.title !== undefined && shown(card.when, pane));
   return (
     <div>
+      <RefreshFailure state={refresh} />
       {m.layout.map((card, i) =>
         shown(card.when, pane) ? (
-          <CardView key={i} card={card} pane={pane} saved={i === first ? <SavedInputsMenu pane={pane} /> : null} />
+          <CardView
+            key={i}
+            card={card}
+            pane={pane}
+            saved={
+              i === first ? (
+                <>
+                  <RefreshPicker m={m} state={refresh} />
+                  <SavedInputsMenu pane={pane} />
+                </>
+              ) : null
+            }
+          />
         ) : null,
       )}
     </div>

@@ -648,6 +648,12 @@ export const api = {
   listLiveSessions: () => req<LiveSession[]>("/live-sessions"),
   listClosedLiveSessions: () => req<LiveSessionSummary[]>("/live-sessions/closed"),
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
+  /** Asks for a pane to run again if it's due -- once, however many tabs ask (§18.3). */
+  refreshPane: (type: string, session: string, pane: string, every: number, timezone?: string) =>
+    req<{ refreshed: boolean; reason: string; version: number | null; error?: string; outputs?: PaneOutputs | null }>(
+      `/panes/${encodeURIComponent(type)}/refresh`,
+      { method: "POST", body: JSON.stringify({ session, pane, every, ...(timezone ? { timezone } : {}) }) },
+    ),
   /** Some panes' outputs, after an "outputs" event says they're newer (D21). */
   getPaneOutputs: (clientId: string, panes: string[]) =>
     req<Record<string, PaneOutputs>>(

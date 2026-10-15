@@ -72,7 +72,25 @@ def refresh(
     timezone: Optional[str],
     origin: Optional[str],
 ) -> dict[str, Any]:
-    """Runs the pane again if it's due, or says why not."""
+    """Runs the pane again if it's due, or says why not -- with what the
+    pane now holds: the asking tab hears no event of its own write (it
+    carries the tab's origin), so the outputs come back with the answer."""
+    outcome = _refresh(db, user, row, member, manifest, pane, every, timezone, origin)
+    db.expire_all()
+    return {**outcome, "outputs": pane_outputs.read(db, row, [pane]).get(pane)}
+
+
+def _refresh(
+    db: Session,
+    user: models.User,
+    row: models.LiveSession,
+    member: Optional[models.SessionMember],
+    manifest: pane_manifest.Manifest,
+    pane: str,
+    every: int,
+    timezone: Optional[str],
+    origin: Optional[str],
+) -> dict[str, Any]:
     from ..routers import panes as panes_router  # it imports this module
 
     action = manifest.refresh_action()

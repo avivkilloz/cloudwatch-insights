@@ -3848,3 +3848,22 @@ th {
   margin: 0;
   border-radius: 0 0 6px 6px;
 }
+
+/* Auto-refresh (§18.3): the pane's ↻ picker sits beside Saved ▾ in its first
+   card's title, as small as that menu's button; lit while it's refreshing. */
+.pane-refresh {
+  font-size: 12px;
+  padding: 2px 6px;
+  margin-right: 6px;
+  max-width: 190px;
+}
+.pane-refresh.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pane-refresh-error {
+  margin: 0 0 8px;
+}
+.session-card-refresh {
+  max-width: 200px;
+}

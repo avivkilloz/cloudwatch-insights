@@ -6,7 +6,7 @@ pane for every viewer, and a viewer can't refresh."""
 import datetime
 import time
 
-from app import models, pane_outputs
+from app import models
 from app.db import SessionLocal
 from app.panes import refresh as pane_refresh
 from tests.conftest import client
@@ -40,7 +40,10 @@ def test_a_due_pane_runs_once_with_the_sessions_own_inputs_however_many_ask(aws)
     assert aws["scan"][0]["table"] == "Orders"
     assert _values(sid)["items"] == [{"id": "1"}, {"id": "2"}] and _values(sid)["resultsVersion"] == 1
     # A second tab asking a moment later finds it fresh.
-    assert _refresh(sid).json() == {"refreshed": False, "reason": "fresh", "version": 1}
+    again = _refresh(sid).json()
+    assert (again["refreshed"], again["reason"], again["version"]) == (False, "fresh", 1)
+    # With what the pane holds: the asking tab hears no event of its own.
+    assert again["outputs"]["values"]["items"] == [{"id": "1"}, {"id": "2"}]
     assert len(aws["scan"]) == 1
 
 
