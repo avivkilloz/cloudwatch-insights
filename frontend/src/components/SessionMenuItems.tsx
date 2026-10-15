@@ -30,7 +30,8 @@ export default function SessionMenuItems({
   onMoveToCategory?: (categoryId: number | null) => void;
   close: () => void;
 }) {
-  const { remove } = useSessions();
+  const { remove, home, setHome } = useSessions();
+  const isHome = home?.home?.client_id === session.id;
   const saveAsTemplate = useSaveAsTemplate();
 
   return (
@@ -87,6 +88,17 @@ export default function SessionMenuItems({
         }}
       >
         Save as template…
+      </button>
+      {/* What the brand opens instead of the default page (R3, D63): any
+          session you can reach, shared ones included. */}
+      <button
+        onClick={() => {
+          close();
+          setHome(isHome ? null : session.id);
+        }}
+        title={isHome ? "The brand goes to the default page again" : "The brand, and signing in, open this session"}
+      >
+        {isHome ? "Stop using as home page" : "Set as my home page"}
       </button>
       {/* The only one here that loses work, so it says so and asks first. A
           session shared with you is its owner's to delete: you leave it. */}

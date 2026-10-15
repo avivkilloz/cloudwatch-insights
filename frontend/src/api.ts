@@ -99,6 +99,13 @@ export interface UserGroup {
   user_count: number;
 }
 
+/** The user's home page (R3, D63): a session they can reach, or the title of
+ * one that's gone (deleted, or no longer shared with them), or neither. */
+export interface HomeSession {
+  home: { client_id: string; title: string; closed: boolean } | null;
+  missing: string | null;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -681,6 +688,10 @@ export const api = {
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
   deleteLiveSession: (clientId: string) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+  getHomeSession: () => req<HomeSession>("/live-sessions/home"),
+  setHomeSession: (clientId: string) =>
+    req<HomeSession>(`/live-sessions/${encodeURIComponent(clientId)}/home`, { method: "PUT" }),
+  clearHomeSession: () => req<HomeSession>("/live-sessions/home", { method: "DELETE" }),
 
   listSessionMembers: (clientId: string) =>
     req<SessionMember[]>(`/live-sessions/${encodeURIComponent(clientId)}/members`),

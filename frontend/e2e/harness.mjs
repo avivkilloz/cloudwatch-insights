@@ -122,8 +122,8 @@ export async function openApp(browser, options = {}) {
 }
 
 /**
- * An empty workspace: no sessions on the server, none in this browser, and no
- * categories.
+ * An empty workspace: no sessions on the server, none in this browser, no
+ * categories, and no home session.
  *
  * All three matter. Clearing only the server leaves this browser's IndexedDB
  * copy to be adopted and pushed straight back up, which is the adoption rule
@@ -146,6 +146,9 @@ export async function clearWorkspace(page, rows = []) {
     for (const c of await (await fetch("/api/session-categories", { credentials: "same-origin" })).json()) {
       await fetch(`/api/session-categories/${c.id}`, { method: "DELETE", credentials: "same-origin" });
     }
+    // A home session just deleted above would leave "your home page is gone"
+    // on the default page of every suite after (R3).
+    await fetch("/api/live-sessions/home", { method: "DELETE", credentials: "same-origin" });
     await new Promise((resolve) => {
       const request = indexedDB.deleteDatabase("cloud-insights-sessions");
       request.onsuccess = request.onerror = request.onblocked = () => resolve();

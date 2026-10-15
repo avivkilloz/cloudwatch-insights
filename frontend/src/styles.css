@@ -4106,3 +4106,30 @@ button.icon-btn {
   font-size: 12.5px;
 }
 
+
+/* ---- Home -> a session (R3, D63) ---- */
+
+/* Beside the home session's name in the side panel: where the brand goes. */
+.rail-row-home-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin: 0 2px;
+  color: var(--text-dim);
+}
+.rail-row.active .rail-row-home-mark {
+  color: var(--accent-text);
+}
+.rail-row-home-mark .icon {
+  width: 13px;
+  height: 13px;
+}
+/* The default page, when the session that was home is gone. */
+.home-missing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  font-size: 13px;
+}
