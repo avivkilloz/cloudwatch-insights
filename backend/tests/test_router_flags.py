@@ -2,12 +2,12 @@
 tables_enabled, buckets_enabled, cognito_enabled, tools_enabled) are what the
 frontend uses to decide which pages to offer -- until now, the routers behind
 those pages never re-checked them, only environment visibility and the
-group's IAM role (resolve.require_flag closes that: see its own docstring).
+group's IAM role (pane_access.require closes that, per pane type now: D65).
 A raw request to a page a group's UI never shows used to still go through,
 as long as the group had the environment and a role; these tests prove that's
 no longer true, for one representative endpoint per flag.
 
-Each disabled-flag call has to fail with require_flag's own message ("turned
+Each disabled-flag call has to fail with pane_access.require's message ("turned
 on") *before* ever reaching AWS -- there are no real AWS credentials in this
 test run, so if the flag check didn't short-circuit first, the request would
 still fail, but with a different error (502, from the client call), which is

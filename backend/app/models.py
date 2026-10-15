@@ -50,6 +50,21 @@ class UserGroup(Base):
     environment_links = relationship(
         "GroupEnvironmentAccess", back_populates="group", cascade="all, delete-orphan"
     )
+    # Which pane types it may use (D65, pane_access.py) -- the *_enabled
+    # columns above are no longer read for panes; they're kept for rollback.
+    pane_grants = relationship("GroupPaneGrant", cascade="all, delete-orphan", lazy="selectin")
+
+
+class GroupPaneGrant(Base):
+    """One pane type a group may use (PLATFORM_PLAN.md §19.1, D65). The Admin
+    group needs none: it can use every pane type."""
+
+    __tablename__ = "group_pane_grants"
+    __table_args__ = (UniqueConstraint("group_id", "pane_type", name="uq_group_pane_grant"),)
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    pane_type = Column(String, nullable=False)
 
 
 class User(Base):

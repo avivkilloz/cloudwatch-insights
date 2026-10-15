@@ -130,20 +130,3 @@ def resolve_identity(
             session_token=values.get("session_token") or None,
         )
     return aws_client.Identity(role_name=values.get("role_name"), external_id=values.get("external_id") or None)
-
-
-def require_flag(current_user: models.User, flag: str, label: str) -> None:
-    """The per-page group boolean (logs_enabled, opensearch_enabled, iot_enabled,
-    tables_enabled, buckets_enabled, cognito_enabled) that decides whether the
-    frontend offers a page at all. The per-service routers only ever checked
-    environment visibility and the group's IAM role -- this is the "closing
-    that gap in the routers" CLAUDE.md names: without it, a group whose UI
-    never shows a page (but that does have an environment and a role) could
-    still reach that page's API directly, by hand or through anything else
-    that calls these routers, including a future platform_tools function that
-    forgot its own kind_for/_flagged check. The Admin group always passes,
-    same as environment visibility."""
-    group = current_user.group
-    if group and (group.is_admin or getattr(group, flag, False)):
-        return
-    raise ResolveError(f"Your group doesn't have {label} turned on.")

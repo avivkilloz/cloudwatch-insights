@@ -476,11 +476,6 @@ async def inspect_row(session_id: str, pane_id: str, row: int) -> dict:
 # ---------------------------------------------------------------- names for inputs
 
 
-def _flagged(user: models.User, flag: str, label: str) -> None:
-    if not (user.group and getattr(user.group, flag, False)):
-        raise InputError(f"Your group doesn't have {label} turned on.")
-
-
 @mcp.tool()
 async def list_options(
     session_id: str,

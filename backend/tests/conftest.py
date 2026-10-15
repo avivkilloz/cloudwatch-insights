@@ -16,7 +16,7 @@ os.environ.setdefault("COOKIE_SECURE", "false")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, connections, credential_types, models
+from app import bootstrap, connections, credential_types, models, pane_access
 from app.db import Base, SessionLocal, engine
 from app.main import app
 
@@ -49,6 +49,8 @@ def _clean_database():
         # The role becomes the Admin group's default AWS identity, the way
         # the startup migration does it for a real database (§14.5).
         connections.migrate_legacy(db)
+        # As at startup: from here on, groups' pane access is grants (D65).
+        pane_access.migrate(db)
     finally:
         db.close()
 

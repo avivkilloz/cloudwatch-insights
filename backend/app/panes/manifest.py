@@ -359,7 +359,10 @@ class Manifest(_Strict):
     # Where it comes in the catalogue and in the agent's list of kinds.
     order: int = 100
     group: Literal["Services", "Tools", "Platform"] = "Tools"
-    flag: str
+    # The group switch that covered it before access was per pane type (D65):
+    # read once, to migrate those switches into grants, and to keep them as
+    # shorthand in the API. A pane type without one is granted one by one.
+    flag: Optional[str] = None
     about: str
     help: str = ""
     description: str = ""
