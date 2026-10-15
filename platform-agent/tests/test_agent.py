@@ -425,6 +425,8 @@ def test_an_answer_claiming_what_nothing_did_is_checked_and_redone(settings):
     events = _events(settings, "pretend connect")
     checks = [e for e in events if e["type"] == "tool_result" and e["name"] == "check_answer"]
     assert [c["ok"] for c in checks] == [False, True]
+    # Each its own step: the browser matches a result to its call by id.
+    assert len({c["id"] for c in checks}) == 2
     assert "isn't running" in checks[0]["summary"]
     # Shown as steps of the platform's own, not the agent's.
     assert all(e.get("preamble") for e in events if e["type"] == "tool_call" and e["name"] == "check_answer")

@@ -51,7 +51,9 @@ e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
 `smoke69` (CloudWatch and OpenSearch), `smoke71`'s logs half (the histograms),
-`smoke72` (MQTT) and `smoke73`'s zoom half need the backend served with AWS faked:
+`smoke72` (MQTT), `smoke73`'s zoom half and `smoke74` (the agent's answer check,
+on an MQTT connect; it needs the agent and fake model too) need the backend served
+with AWS faked:
 a CloudWatch query runs on the server and is polled into the session there
 (PLATFORM_PLAN.md D51), and an MQTT connection is held there (D54), so the page
 has nothing to stand in for. The fake's broker sends `fake/robot-1/telemetry`

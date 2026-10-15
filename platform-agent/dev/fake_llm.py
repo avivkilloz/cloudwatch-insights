@@ -183,10 +183,15 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
             return _call("run_pane", session_id="s1", pane_id="iot")
         return _say("Let me search now." if lowered.startswith("announce plain") else "Let me search now:")
     if lowered.startswith("pretend connect"):
+        # In a session's chat, its first MQTT tester; in the tests, s1's.
+        found = re.search(r"get_session \(this chat's session\):\n(\{.*\})", reads)
+        session = json.loads(found.group(1)) if found else {}
+        pane = next((p["pane_id"] for p in session.get("panes", []) if p.get("kind") == "tool-mqtt"), "mqtt")
+        where = {"session_id": session.get("session_id", "s1"), "pane_id": pane}
         if step == 0:
-            return _call("set_pane_inputs", session_id="s1", pane_id="mqtt", inputs={"topics": ["a/#"]})
+            return _call("set_pane_inputs", **where, inputs={"topics": ["a/#"]})
         if "check of your answer" in nudged and not lowered.startswith("pretend connect stubborn"):
-            return _call("run_pane", session_id="s1", pane_id="mqtt")
+            return _call("run_pane", **where)
         if step >= 2:
             return _say("Connected now, listening to a/#.")
         return _say("Done: the MQTT tester is connected and listening to a/#.")

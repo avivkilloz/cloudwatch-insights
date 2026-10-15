@@ -264,13 +264,17 @@ class TurnGuard(AgentMiddleware):
         self.events: list[dict] = []
         # What the last check found, when its answer stands anyway.
         self.notice: Optional[str] = None
+        self.checks = 0
 
     async def _check(self, messages: list, message: AIMessage) -> Optional[check.Verdict]:
         request, turn = _since_request(messages)
         ids = check.touched(turn)
         if self.focus and self.focus not in ids:
             ids.insert(0, self.focus)
-        step = f"turn-check-{sum(1 for e in self.events if e['type'] == 'tool_call') + 1}"
+        # Numbered here, not from `events`: the turn empties that as it sends
+        # them on, and a second check under the first's id overwrote it.
+        self.checks += 1
+        step = f"turn-check-{self.checks}"
         self.events.append({"type": "tool_call", "id": step, "name": "check_answer", "args": {}, "preamble": True})
         sessions = await self.read_sessions(ids[:3]) if self.read_sessions and ids else []
         verdict = await check.judge(self.check_model, check.evidence(request, check.ledger(turn), sessions, _visible(message)))
