@@ -53,8 +53,9 @@ credentials are off and both fail on their first check, saying so.
 `smoke69` (CloudWatch and OpenSearch), `smoke71`'s logs half (the histograms),
 `smoke72` (MQTT), `smoke73`'s zoom half, `smoke74` (the agent's answer check,
 on an MQTT connect; it needs the agent and fake model too), `smoke75` (auto-refresh),
-`smoke76` (a pane's ⋮, Clear across two tabs, and the agent seen working -- the agent and
-fake model too; a question starting "slow " makes the fake take a few seconds a step)
+`smoke76` (a pane's ⚙, Clear across two tabs, and the agent seen working -- the agent and
+fake model too; a question starting "slow " makes the fake take a few seconds a step),
+`smoke77` (session variables, view mode, and a viewer's refresh of a `.fake` API)
 and every suite that uses `mockPaneActions` across two tabs (`smoke62`, `smoke66`,
 `smoke67`, `smoke71`) need the backend served with AWS faked:
 a CloudWatch query runs on the server and is polled into the session there

@@ -1220,6 +1220,9 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D57 | 2026-10-15 | **A pane's settings are a ⋮ in its header** (or its tab, in the tabs layout): auto-refresh and saved inputs now, and later the dashboard's "hide inputs" (§18.6). | The user's request: a select and a menu beside the first card's title were cluttered and inconsistent. One place has room for what the settings grow into. |
 | D58 | 2026-10-15 | **A results card has Clear, which empties the outputs its manifest names (`clear:`) for everyone** (§18.6). | The user's request. The manifest names what to clear, because not everything a pane stores is a result: DynamoDB's table info and MQTT's "Connected to…" stay. |
 | D59 | 2026-10-15 | **A session turn is stored when it's asked**, and every running turn says what it's doing and for how long (§18.6). | The user's request for feedback while the agent works. Only the asking browser streams the steps, so the members of a shared session saw nothing until the answer. The stored copy is only the question; past 10 minutes it is taken as abandoned. |
+| D60 | 2026-10-15 | **Session variables bind automatically, by input type** (§18.7). An Environment variable sets every AWS connection input, a Time range every layout time range, unless the pane is unlinked. The value is copied into the pane's inputs, and the tab that changed it re-runs the panes that had run. | The user's choice, over linking each input by hand: least setup, like Grafana, and a new pane follows too. Copying keeps inputs the one truth, so refresh, the agent and templates need nothing new. |
+| D61 | 2026-10-15 | **View mode hides a pane's inputs and actions and keeps its outputs**: a session setting, a per-pane override in its ⚙, and always on for a viewer member (§18.7). | R2's two levels. A viewer can't change inputs anyway, so showing them was only clutter. |
+| D62 | 2026-10-15 | **A viewer's tab refreshes a dashboard as the viewer, when they can reach every connection the pane uses** (§18.7). Otherwise nothing runs, and nothing is recorded as a failure. | The user's choice, over editors only or the owner's access lent to viewers. Everyone still acts as themselves, and a dashboard watched only by viewers still refreshes. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3508,6 +3511,97 @@ Asked for after trying 3c-1 (2026-10-15), built before 3c-2:
     the old frontend.
   - The suites that used Saved ▾ or the ↻ select now go through the ⋮
     (`harness.openPaneMenu`).
+
+
+### 18.7 3c-2: view mode and session variables
+
+_Detailed 2026-10-15, with the user's two choices (D60, D62)._
+
+**Session variables (D20, D60).**
+- **Two kinds for now**, both generic by input type, so a plugin's pane follows
+  them with nothing of its own:
+  - **Environment**: an AWS connection. It binds every `connection` input of
+    `connection_type: aws` (set to it) and every `connections` input of that type
+    (set to just it).
+  - **Time range**: preset, start and end. It binds the three inputs a layout's
+    `time_range` item names.
+- **Stored** in the session's state as `variables: {environment?, time?}`; a key
+  present means the variable is defined. It syncs, templates keep it, and the
+  agent sets it. Defined from the session card's Variables row; shown in a bar
+  under the card, which stays in view mode.
+- **Binding is automatic** (the user's choice, D60). Every pane with a matching
+  input follows a defined variable unless it is unlinked (`<pane>.unlinked`, a
+  list of variable names), from the pane's ⚙ or the note beside the input. A
+  bound input is shown read-only, saying where its value comes from.
+- **The value is copied into the pane's own inputs**, never resolved on read.
+  Inputs stay the one truth (§16.3), so refresh, the agent's runs, templates and
+  saved inputs need nothing new. A pane that doesn't hold the variable's value
+  writes it (on adding a pane, or when another tab changed the variable).
+- **Changing a variable re-runs the bound panes that had run**, in the tab that
+  changed it: their inputs change the way a person's would (resets,
+  `on_change`), then their main action runs. Only actions refresh would run, so
+  no stream (MQTT), nothing `effects: external`. Other tabs follow the inputs and
+  results as they arrive; they don't run anything themselves.
+- **The agent**:
+  - `set_variables` defines, changes or removes them and copies them into the
+    bound inputs. Like `set_pane_inputs`, it runs nothing, and says which panes to
+    `run_pane`.
+  - `link_pane` follows or unlinks one.
+  - `set_pane_inputs` on a bound input unlinks that pane from the variable, as a
+    person choosing their own value would, and says so.
+  - Descriptions report the variables, and which inputs each pane takes from
+    them.
+
+**View mode (R2, D61).**
+- **Settings:**
+  - The session: `viewMode` (true hides inputs), on the card's Layout row as
+    Edit | View.
+  - A pane: `<pane>.inputs`, `shown` or `hidden`, overrides the session, from
+    its ⚙ ("Show inputs" / "Hide inputs").
+- **A viewer member always sees view mode.**
+- **What's hidden:** input and action items, help text, examples, the time range,
+  Stop, and any card left with nothing to show.
+- **What's kept:** outputs (charts, sort, copy and export with them), errors,
+  and the restored note.
+- **Each pane's first card** in view mode starts with "Updated 2 minutes ago ·
+  Refresh". Refresh is the refresh route, so it coalesces like auto-refresh, and
+  a viewer can use it (D62).
+
+**A viewer's refresh (D62).** The user's choice: a viewer's tab refreshes as the
+viewer, and only when they can reach every connection the pane's inputs name.
+- Otherwise the answer is `unreachable`: nothing is written and no failure is
+  counted, and the dashboard waits for someone who can.
+- Nobody's access is lent. A run always acts as whoever asked it (D51).
+
+**As built:**
+- **Mode shares the card's Layout row**, so the card grew by one row
+  (Variables), not two.
+- **View mode draws a card only while one of its outputs or errors holds
+  something.** A card left with only its Sort, or an empty table, was a frame
+  around nothing.
+- **Items stay keyed by their place in the manifest**: hidden, not removed.
+- **Only the tab that changed a variable re-runs**
+  (`announceVariableChange`, a 5-second window); the others write the same
+  input values and run nothing.
+- **A viewer's background run** (CloudWatch) starts through
+  `runs.start(refreshing=True)`, which refresh lets through after its
+  reachability check.
+- **The header buttons are drawn icons** in one 24px square
+  (`components/Icon.tsx`), asked for in the same round; the ⋮ is a ⚙.
+
+**Tests:**
+- Backend:
+  - the binding twins;
+  - `set_variables`, `link_pane`, `set_view_mode`;
+  - unlinking on `set_pane_inputs`;
+  - a viewer's refresh, reachable and not.
+- Browser: smoke77, failing against the old frontend:
+  - define the variables;
+  - panes follow, are read-only, and re-run;
+  - unlink;
+  - a new pane follows;
+  - view mode, session and per pane;
+  - a viewer sees view mode, and refreshes.
 
 ## 12. Research sources
 

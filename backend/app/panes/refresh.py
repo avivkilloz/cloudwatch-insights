@@ -13,6 +13,11 @@ Five tabs watching cause one run.
 
 A failure is kept on the record (`refresh: {failures, error, at}`), so
 every viewer sees why, and the browsers back off by it; a success clears it.
+
+A viewer member's tab refreshes too (D62), as the viewer -- a run always acts
+as whoever asked -- but only when they can reach every connection the pane's
+inputs name. Otherwise the answer is "unreachable": nothing runs, nothing is
+written, no failure is counted, and the dashboard waits for someone who can.
 """
 
 import datetime
@@ -22,7 +27,7 @@ from typing import Any, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .. import live_store, models, pane_outputs
+from .. import connections, live_store, models, pane_outputs
 from ..live_store import untag
 from . import manifest as pane_manifest
 from . import runs
@@ -54,6 +59,28 @@ def stored_inputs(row: models.LiveSession, manifest: pane_manifest.Manifest, pan
         key = f"{pane}.in.{spec.key}"
         if key in state:
             out[spec.key] = untag(state[key])
+    return out
+
+
+def unreachable(db: Session, user: models.User, manifest: pane_manifest.Manifest, inputs: dict[str, Any]) -> list[str]:
+    """The connections the pane's inputs name that this user can't reach --
+    in a shared session, ones its owner or an editor picked."""
+    reach: dict[str, set[int]] = {}
+    out: list[str] = []
+    for spec in manifest.inputs:
+        if spec.type not in ("connection", "connections") or not spec.connection_type:
+            continue
+        value = inputs.get(spec.key)
+        ids = value if isinstance(value, list) else [] if value in (None, "") else [value]
+        if spec.connection_type not in reach:
+            reach[spec.connection_type] = {t["id"] for t in connections.targets(db, user, spec.connection_type)}
+        for one in ids:
+            try:
+                if int(one) in reach[spec.connection_type]:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            out.append(str(one))
     return out
 
 
@@ -96,8 +123,8 @@ def _refresh(
     action = manifest.refresh_action()
     if action is None:
         raise HTTPException(status_code=400, detail=f"{manifest.label} panes don't refresh by themselves.")
-    if member is not None and member.permission == "viewer":
-        raise HTTPException(status_code=403, detail="You have read-only access to this session, so it can't refresh.")
+    if member is not None and member.permission == "viewer" and unreachable(db, user, manifest, stored_inputs(row, manifest, pane)):
+        return _outcome(False, "unreachable", pane_outputs._record(db, row, pane))
     every = max(int(every), floor_seconds(manifest))
 
     # Decided under the record's lock, and the decision committed, before the
@@ -127,7 +154,9 @@ def _refresh(
     inputs = stored_inputs(row, manifest, pane)
     try:
         if action.poll is not None:
-            runs.start(db, user, row, member, manifest, action, pane, {**inputs, **({"_tz": timezone} if timezone else {})})
+            runs.start(
+                db, user, row, member, manifest, action, pane, {**inputs, **({"_tz": timezone} if timezone else {})}, refreshing=True
+            )
             pane_outputs.clear(db, row, pane, ["refresh"], origin)
             written = None
         else:

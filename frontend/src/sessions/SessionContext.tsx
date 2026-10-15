@@ -900,6 +900,20 @@ export function useSessionScope(): SessionScope | null {
   return useContext(SessionScopeContext);
 }
 
+/** A key at the session's own level (not a pane's), read-only and followed as
+ * it changes: the session's refresh, its variables, its view mode -- what a
+ * pane, inside its own key scope, needs to know about the session it's in. */
+export function useSessionValue<T>(key: string): T | undefined {
+  const scope = useSessionScope();
+  const [value, setValue] = useState<T | undefined>(() => scope?.read()?.[key] as T | undefined);
+  useEffect(() => {
+    if (!scope) return;
+    setValue(scope.read()?.[key] as T | undefined);
+    return scope.subscribe((bag) => setValue(bag[key] as T | undefined));
+  }, [scope, key]);
+  return value;
+}
+
 /**
  * Namespaces the keys used inside it.
  *

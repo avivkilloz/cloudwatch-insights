@@ -147,11 +147,27 @@ const run = async () => {
   for (const [l, b] of Object.entries(layoutA)) if (!same(await box(l), b)) restored = false;
   check(restored, "A session closed moments after a change reopens with every pane where it was, that change included");
   const iotR = await box("IoT");
-  // Diagonally, into the free stretch of the left column between DynamoDB and
-  // CloudWatch -- straight down would (rightly) be blocked by OpenSearch.
-  await drag(page, "IoT", -iotR.x, 500);
+  // Into the left column: its first gap the pane fits, or below its last pane,
+  // worked out from where the others are (16px apart). This was a fixed +500
+  // "into the free stretch between DynamoDB and CloudWatch", which never fits
+  // the pane; it passed while the drag happened to scroll the canvas past the
+  // window's edge, and the placement differs from run to run. Where exactly
+  // it lands (snapped, scrolled) isn't the point: that it moves, overlapping
+  // nothing, is.
+  const left = (await Promise.all(["OpenSearch", "DynamoDB", "CloudWatch"].map(box))).filter((b) => b.x < 1).sort((p, q) => p.y - q.y);
+  let target = 0;
+  for (const b of left) {
+    if (b.y - target >= iotR.height + 16) break;
+    target = Math.max(target, b.y + b.height + 16);
+  }
+  await page.setViewportSize({ width: 1440, height: 1900 });
+  await page.waitForTimeout(300);
+  await drag(page, "IoT", -iotR.x, target - iotR.y);
   const iotR2 = await box("IoT");
-  check(iotR2.x < 1 && iotR2.y - iotR.y > 350, "…and its panes can still be dragged freely", JSON.stringify({ iotR, iotR2 }));
+  await page.setViewportSize({ width: 1440, height: 950 });
+  const overlapping = await noOverlaps(Object.keys(layoutA));
+  check(iotR2.x < 1 && iotR2.y > iotR.y && overlapping.length === 0, "…and its panes can still be dragged freely, into another column, overlapping nothing",
+    JSON.stringify({ iotR, iotR2, target, left, overlapping }));
 
   // ---------- 8. dragging a minimised pane keeps its real size ----------
   // Fresh: the session above has panes everywhere a drag might aim.

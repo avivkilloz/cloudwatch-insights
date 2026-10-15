@@ -51,11 +51,14 @@ const run = async () => {
   check(appeared, "Invited, the session appears in the member's rail at once");
   if (!appeared) throw new Error("the invite never reached the member's browser");
   await bob.click(ROW("CloudWatch"));
-  await bob.waitForSelector(QUERY);
+  // A viewer sees the session as a dashboard: results, not inputs (D61).
+  await bob.waitForSelector(`${SHOWN} .view-mode-line`);
 
   // ---- made an editor: their edit reaches the owner without a reload
   await owner.selectOption(`${MEMBERS_ROW} .session-member-permission`, "editor");
-  await owner.waitForTimeout(2000);
+  // Made an editor, their inputs come back with nothing else done.
+  const inputs = await bob.waitForSelector(QUERY, { timeout: 8000 }).then(() => true, () => false);
+  check(inputs, "Made an editor, the member's view shows the inputs again");
   await bob.fill(QUERY, "fields @message | limit 70");
   let reached = false;
   for (let i = 0; i < 40 && !reached; i++) {

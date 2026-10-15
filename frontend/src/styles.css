@@ -1774,13 +1774,6 @@ th {
   color: var(--text);
 }
 
-.aggregator-pane-header button {
-  padding: 2px 8px;
-  font-size: 12px;
-  /* Fixed width so swapping the minimise glyph for the expand one doesn't
-     shuffle the buttons next to it. */
-  min-width: 28px;
-}
 
 .aggregator-pane-body {
   overflow-y: auto;
@@ -2868,7 +2861,8 @@ th {
 .session-card-actions {
   display: flex;
   flex: none;
-  gap: 2px;
+  /* A pane header's own gap between its buttons. */
+  gap: 8px;
   margin-left: auto;
 }
 
@@ -2903,14 +2897,8 @@ th {
   color: var(--accent);
 }
 
-/* The fold and move buttons are a pane header's own buttons -- same
-   .secondary look and box, not a bespoke icon-button style. */
-.session-card-fold,
-.session-card-move {
-  padding: 2px 8px;
-  font-size: 12px;
-  min-width: 28px;
-}
+/* The fold and move buttons are a pane header's own: .secondary icon
+   buttons (button.icon-btn, at the end). */
 
 .session-card-body {
   /* Same 12px sides as a pane's own body (.aggregator-pane-body). */
@@ -3775,16 +3763,6 @@ th {
   color: var(--accent);
   white-space: nowrap;
 }
-/* In a tab, bare like the tab's own ✕, not a button within a button. */
-.aggregator-tab .pane-menu-button {
-  padding: 2px 6px;
-  border: none;
-  background: none;
-  color: inherit;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
-}
 .aggregator-tab.active .pane-refresh-on {
   color: var(--accent-text);
 }
@@ -3952,4 +3930,126 @@ th {
   border-radius: 50%;
   background: var(--accent);
   animation: agent-working-pulse 1.2s ease-in-out infinite;
+}
+
+/* ---- Icon buttons (components/Icon.tsx) ---- */
+
+/* Every small square button -- a pane's header and tab, the session card's
+   header: one 24px box with its icon centred, drawn on one grid. Text glyphs
+   (✎ ⋮ − ✕ ▲) took their width and height from the font, so the boxes came
+   out stretched sideways and uneven. 24px keeps a pane header 40px high,
+   which the dashboard counts on for a folded pane (DASHBOARD_HEADER_H). */
+button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  line-height: 0;
+}
+.icon-btn .icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.session-card-edit .icon {
+  width: 13px;
+  height: 13px;
+}
+/* In a tab, bare like the tab itself rather than a box inside its box. */
+.aggregator-tab button.icon-btn {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  margin-right: 3px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+}
+.aggregator-tab.active button.icon-btn {
+  color: var(--accent-text);
+}
+.aggregator-tab button.icon-btn .icon {
+  width: 13px;
+  height: 13px;
+}
+.aggregator-tab button.icon-btn:hover {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.aggregator-tab button.aggregator-tab-close:hover {
+  color: var(--error);
+}
+.aggregator-tab.active button.aggregator-tab-close:hover {
+  color: var(--accent-text);
+}
+
+/* ---- Session variables and view mode (§18.7) ---- */
+
+/* The session's variables, between its card and its panes: a dashboard's
+   shared controls (components/SessionVariables.tsx). */
+.session-variables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.session-variable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-variable .field-label {
+  margin: 0;
+}
+.session-variable-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+/* An input following a session variable: drawn as it is, not changeable
+   here, with where its value comes from beside it. */
+.bound-input {
+  display: contents;
+}
+.bound-note {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.bound-note.block {
+  display: block;
+  margin: -6px 0 10px;
+}
+/* A pane in view mode: how old its outputs are, and Refresh. */
+.view-mode-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.pane-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+/* "Mode" beside the Layout control, which it shares a row with: set apart,
+   so Edit | View doesn't read as two more layouts. */
+.session-card-mode-label {
+  margin: 0 0 0 14px;
 }

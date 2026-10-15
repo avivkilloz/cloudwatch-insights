@@ -20,6 +20,9 @@ import {
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { PaneMenuSlot } from "../components/paneMenuSlot";
+import Icon from "../components/Icon";
+import SessionVariables from "../components/SessionVariables";
+import { announceVariableChange, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "../panes/variables";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
 import { every, REFRESH_CHOICES } from "../panes/refresh";
@@ -1144,6 +1147,18 @@ export default function AggregatorPage() {
   // The session's auto-refresh, for every pane that can and hasn't one of its
   // own (§18.3, panes/refresh.tsx).
   const [refreshEvery, setRefreshEvery] = useSessionState<number>("refresh", 0);
+  // The session's variables (D60) and view mode (D61). A viewer always sees
+  // view mode and can't change either.
+  const [variables, setVariables] = useSessionState<Variables>(VARIABLES_KEY, {});
+  const [viewMode, setViewMode] = useSessionState<boolean>("viewMode", false);
+  const sessionRole = sessions.find((x) => x.id === scope?.id)?.role;
+  const isViewer = sessionRole === "viewer";
+  const defined = (variables && typeof variables === "object" ? variables : {}) as Variables;
+  function changeVariables(next: Variables, changed: VariableName[]) {
+    // This tab's panes re-run what they had run; other tabs only follow.
+    if (changed.length && scope?.id) announceVariableChange(scope.id);
+    setVariables(next);
+  }
   // Per session, like a pane's minimised state: folding one session's card
   // says nothing about another's.
   const [cardCollapsed, setCardCollapsed] = useSessionState<boolean>("cardCollapsed", false);
@@ -1347,6 +1362,28 @@ export default function AggregatorPage() {
               </button>
             ))}
           </div>
+          {/* Beside the layout, not a row of its own (the card only grows):
+              View hides every pane's inputs and buttons, a dashboard of
+              results (D61). A pane's ⚙ can show its own anyway. */}
+          <span className="field-label session-card-mode-label">Mode</span>
+          <div className="segmented" role="group" aria-label="Mode">
+            {(
+              [
+                [false, "Edit"],
+                [true, "View"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={label}
+                className={(isViewer || !!viewMode) === value ? "" : "secondary"}
+                aria-pressed={(isViewer || !!viewMode) === value}
+                disabled={isViewer}
+                onClick={() => setViewMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </CardRow>
         <CardRow label="Refresh">
           <select
@@ -1363,6 +1400,32 @@ export default function AggregatorPage() {
               </option>
             ))}
           </select>
+        </CardRow>
+        <CardRow label="Variables">
+          {/* Shared controls every pane with such an input follows (D60);
+              they're set in the bar under this card. */}
+          <>
+            {(["environment", "time"] as VariableName[]).map((name) =>
+              defined[name] === undefined ? (
+                <button
+                  key={name}
+                  className="secondary"
+                  disabled={isViewer}
+                  onClick={() =>
+                    changeVariables(
+                      { ...defined, [name]: name === "time" ? { preset: 3600, start: "", end: "" } : null },
+                      name === "time" ? [name] : [],
+                    )
+                  }
+                >
+                  + {VARIABLE_LABELS[name]}
+                </button>
+              ) : null,
+            )}
+            {defined.environment !== undefined && defined.time !== undefined && (
+              <span className="muted">Set in the bar under this card.</span>
+            )}
+          </>
         </CardRow>
       </CardSection>
       <CardSection>
@@ -1455,6 +1518,7 @@ export default function AggregatorPage() {
   return (
     <>
       {cardInRail ? (onScreen && railSlot ? createPortal(sessionCard, railSlot) : null) : sessionCard}
+      <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} />
 
       {open.length === 0 && (
         <div className="panel">
@@ -1495,12 +1559,12 @@ export default function AggregatorPage() {
                     screen, and a ⋮ on every tab would crowd them. */}
                 {shownPane?.id === s.id && <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />}
                 <button
-                  className="aggregator-tab-close"
+                  className="aggregator-tab-close icon-btn"
                   onClick={() => closePane(s.id)}
                   aria-label={`Close ${s.label}`}
                   title={`Close ${s.label}`}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </div>
             ))}
@@ -1610,7 +1674,7 @@ export default function AggregatorPage() {
                     <h3>{s.label}</h3>
                   )}
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       setRenaming(s.id);
@@ -1618,12 +1682,12 @@ export default function AggregatorPage() {
                     title={`Rename ${s.label}`}
                     aria-label={`Rename ${s.label}`}
                   >
-                    ✎
+                    <Icon name="pencil" />
                   </button>
                   {!dashboard && (
                     <>
                       <button
-                        className="secondary"
+                        className="secondary icon-btn"
                         disabled={i === 0}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1632,10 +1696,10 @@ export default function AggregatorPage() {
                         title={`Move ${s.label} ${back}`}
                         aria-label={`Move ${s.label} ${back}`}
                       >
-                        {layout === "columns" ? "◀" : "▲"}
+                        <Icon name={layout === "columns" ? "left" : "up"} />
                       </button>
                       <button
-                        className="secondary"
+                        className="secondary icon-btn"
                         disabled={i === open.length - 1}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1644,27 +1708,28 @@ export default function AggregatorPage() {
                         title={`Move ${s.label} ${forward}`}
                         aria-label={`Move ${s.label} ${forward}`}
                       >
-                        {layout === "columns" ? "▶" : "▼"}
+                        <Icon name={layout === "columns" ? "right" : "down"} />
                       </button>
                     </>
                   )}
-                  {/* The pane's ⋮ lands here. What's portalled into it
+                  {/* The pane's ⚙ lands here. What's portalled into it
                       bubbles through the pane, not this header, so a click
                       on it neither minimises nor starts a drag. */}
                   <span className="pane-menu-slot" ref={menuSlotRef(s.id)} />
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleMinimized(s.id);
                     }}
                     aria-label={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
+                    title={collapsed ? `Expand ${s.label}` : `Minimise ${s.label}`}
                     aria-expanded={!collapsed}
                   >
-                    {collapsed ? "+" : "−"}
+                    <Icon name={collapsed ? "plus" : "minus"} />
                   </button>
                   <button
-                    className="secondary"
+                    className="secondary icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       closePane(s.id);
@@ -1672,7 +1737,7 @@ export default function AggregatorPage() {
                     title={`Close ${s.label}`}
                     aria-label={`Close ${s.label}`}
                   >
-                    ✕
+                    <Icon name="close" />
                   </button>
                 </header>
                 )}

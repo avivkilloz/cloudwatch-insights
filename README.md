@@ -107,7 +107,7 @@ The app is organised around **sessions** rather than a fixed set of tabs.
   Templates** in Settings.
 - **Saved inputs** are smaller: one pane's inputs under a name. Every pane
   drawn from a manifest (DynamoDB, S3, Cognito, IoT, the HTTP client,
-  Base64, Diff, JWT, the API table) has them in its **⋮** (in the pane's
+  Base64, Diff, JWT, the API table) has them in its **⚙** (in the pane's
   header, or its tab): your saved inputs for that kind of pane, then **Save
   these inputs as…**. Picking one
   fills the pane you're in — and runs what picking those inputs by hand
@@ -155,7 +155,7 @@ from your picture's menu and is not a session; the strip stays above it.
   runs again over it. **Undo zoom** goes back one step at a time.
 - **Auto-refresh.** A pane that searches or fetches (CloudWatch, OpenSearch,
   IoT, DynamoDB, S3, Cognito, the API table) can run again by itself: pick
-  an interval under **Auto-refresh** in the pane's **⋮** ("↻ 30s" then shows
+  an interval under **Auto-refresh** in the pane's **⚙** ("↻ 30s" then shows
   beside it), or give the whole session one under **Refresh** in its card (a
   pane on "As the session" follows it). It runs only while the session is open on someone's screen, and once
   for everyone watching -- five tabs on one dashboard cause one run, whose
@@ -163,6 +163,23 @@ from your picture's menu and is not a session; the strip stays above it.
   query is billed by the data it scans); the others every 10 seconds. A
   refresh that keeps failing says why above the pane and tries less often.
   The agent can set it too ("refresh this every 5 minutes").
+- **Session variables.** A session can hold an **Environment** and a **Time
+  range** (the session card's Variables row adds them), set in a bar under
+  the card. Every pane with an environment picker or a time range follows
+  them, like a Grafana dashboard's variables: its own input shows the value,
+  greyed, saying "From the session's Environment", and changing the variable
+  runs again every pane that had run. **Unlink** beside the input gives a
+  pane its own value again; its **⚙ → Follow the session's Environment**
+  takes the variable back. A pane added later follows from the start. The
+  agent can set them too ("show the whole dashboard for IoT Prod, last 6
+  hours").
+- **View mode.** The session card's **Mode → View** turns the session into a
+  dashboard: every pane shows only its results, with when they were fetched
+  and **Refresh**; inputs and buttons are hidden. A pane's **⚙ → Inputs**
+  shows or hides its own regardless. Someone you share a session with as a
+  viewer always sees view mode, and an auto-refreshing dashboard refreshes
+  for them too -- run as them, when they can reach its environments; when
+  they can't, it says so and waits for someone who can.
 - **Clear.** A results card (CloudWatch's and OpenSearch's Results, IoT's,
   DynamoDB's items, S3's listing, Cognito's users, the API table's rows, the
   HTTP response, MQTT's messages) has **Clear** while it holds something: it
@@ -183,7 +200,7 @@ from your picture's menu and is not a session; the strip stays above it.
   Expand a certificate to see its attached policies (document included) and
   which things use it. Read-only — nothing in this tab creates, updates, or
   deletes anything in your AWS accounts. **Show examples** lists sample
-  queries for the mode, each with **Use**; the pane's **⋮** keeps a search (its
+  queries for the mode, each with **Use**; the pane's **⚙** keeps a search (its
   mode and query) under a name. An environment whose search failed is its
   own line under **Target errors**, above the others' results. Which rows
   are expanded is part of the session, so another member (or the agent)
@@ -219,7 +236,7 @@ from your picture's menu and is not a session; the strip stays above it.
   instead. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
-  HTTPS URL) buttons. The pane's **⋮** bookmarks an environment, bucket and
+  HTTPS URL) buttons. The pane's **⚙** bookmarks an environment, bucket and
   folder, as on DynamoDB.
 - **Cognito tab**: pick one environment and a user pool, then search users
   with a single `attribute:value` token (starts-with match, e.g.
@@ -310,12 +327,12 @@ from your picture's menu and is not a session; the strip stays above it.
   DynamoDB and S3 moved to manifests, IoT's saved searches and the HTTP
   client's saved requests did when they moved, and saved log queries did
   when CloudWatch and OpenSearch moved, and saved MQTT topics did when MQTT
-  moved (each pane's **⋮**). The per-service session tabs
+  moved (each pane's **⚙**). The per-service session tabs
   (CloudWatch/OpenSearch/IoT Sessions) are gone: a service is a pane rather
   than a session now, so nothing writes one, and the ones saved back then are
   listed under Templates — which is also where Add offers them.
   Saved inputs are renamed and deleted there, and saved and loaded from the
-  pane's own ⋮; session templates edit their JSON state directly.
+  pane's own ⚙; session templates edit their JSON state directly.
 - **Templates**, distinct from saved inputs: **⋮ → Save as
   template** on any session in the side panel keeps that session's *inputs* —
   selected environments, log groups, query text, time range, limit, sort,
@@ -816,7 +833,7 @@ inputs and its output stay visibly separate.
   its own.
 - **HTTP Client** — a small Postman-like tool: pick a method, enter a URL,
   set headers/body, and see the status, headers, and body that come back.
-  Requests can be saved and reloaded by name from the pane's **⋮** (headers and
+  Requests can be saved and reloaded by name from the pane's **⚙** (headers and
   body included), and renamed or deleted under **Library → Saved inputs**.
   The last request and its response are always offered to the agent's
   session chat, to ask why it came back the way it did; the agent can fill a
@@ -853,7 +870,7 @@ inputs and its output stay visibly separate.
   already shown. **Disconnect** ends it for everyone; so does nobody having
   the session open for two minutes; one person can hold five at once.
   **Publish** sends one message through IoT's data plane and needs no open
-  connection. Topics are kept with the pane's **⋮** (topics you
+  connection. Topics are kept with the pane's **⚙** (topics you
   saved before this moved there by themselves). The role needs
   `iot:DescribeEndpoint`, `iot:Connect`, `iot:Publish`, `iot:Subscribe` and
   `iot:Receive` (see the permissions policy above), and the IoT Core

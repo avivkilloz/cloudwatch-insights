@@ -92,6 +92,9 @@ const run = async () => {
   await page.waitForSelector(".rail");
   await newSession(page, "CloudWatch");
   await page.click(`${SHOWN} button:has-text("Dashboard")`);
+  // Folded, so one pane fits the window whatever rows the session card
+  // grows: this is about the scrollbar, not the card's height.
+  await page.click(`${SHOWN} [aria-label="Collapse the session card"]`);
   await page.waitForTimeout(300);
 
   const noScroll = await page.evaluate(() => {
@@ -101,6 +104,8 @@ const run = async () => {
   check(!noScroll.overflowing, "Starting point: one pane doesn't yet overflow the canvas vertically", JSON.stringify(noScroll));
   const canvasBefore = await canvasBox();
   const cwBefore = await box("CloudWatch");
+  // Unfolded again for its add buttons; only widths and x are compared below.
+  await page.click(`${SHOWN} [aria-label="Expand the session card"]`);
 
   // Enough panes, stacked by the app's own placement, to force vertical
   // overflow and bring the scrollbar in -- added to this same session via its

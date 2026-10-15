@@ -1065,8 +1065,19 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
   other tab's own, answered with the outputs, leaving nothing to fetch); it counts
   those now, and passed three runs out of three.
 
-Next: 3c-2 (view mode and session variables), detailed in PLATFORM_PLAN.md before it
-is built.
+#113 (the ⋮, Clear, the agent seen working) merged. This round's PR:
+- **Header buttons** are drawn icons in one 24px square (`components/Icon.tsx`);
+  the pane's settings open from a gear. The user found the glyph buttons stretched
+  and uneven.
+- **3c-2** (PLATFORM_PLAN.md §18.7, D60-D62): session variables (Environment, Time
+  range; automatic binding with Unlink, the user's choice), view mode (session,
+  per pane, always for a viewer), and a viewer's tab refreshing a dashboard as the
+  viewer when they can reach it (the user's choice).
+- Tests: backend `test_session_variables.py` (3) and the viewer refresh in
+  `test_pane_refresh.py`; smoke77 (23), failing against the old frontend; smoke76
+  checks every header button is the same square with an icon.
+
+Next: 3c-3 (Home → a session), detailed in PLATFORM_PLAN.md before it is built.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1236,10 +1247,9 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3c-2 (view mode and session variables), then 3c-3 (Home → a session),
-   each detailed in PLATFORM_PLAN.md §18 before it is built. With view mode,
-   decide how a viewer watches a refreshing dashboard (today a viewer can't
-   refresh).
+1. 3c-3 (Home → a session), detailed in PLATFORM_PLAN.md §18 before it is built.
+   3c-2's follow-ups if wanted: more kinds of variable (text, a choice), and a
+   variable bound to a plugin's own input type.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
 3. **Platform agent, phase 3.**

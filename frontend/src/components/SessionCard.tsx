@@ -1,4 +1,5 @@
 import { ReactNode, useRef, useState } from "react";
+import Icon from "./Icon";
 
 /**
  * A session's own card: what it is (name and description, both editable in
@@ -115,22 +116,22 @@ export default function SessionCard({
         <div className="session-card-actions">
           {!inRail && (
             <button
-              className="session-card-fold secondary"
+              className="session-card-fold secondary icon-btn"
               onClick={stop(onToggleCollapsed)}
               aria-expanded={!folded}
               aria-label={folded ? "Expand the session card" : "Collapse the session card"}
               title={folded ? "Expand" : "Collapse"}
             >
-              {folded ? "+" : "−"}
+              <Icon name={folded ? "plus" : "minus"} />
             </button>
           )}
           <button
-            className="session-card-move secondary"
+            className="session-card-move secondary icon-btn"
             onClick={stop(onMove)}
             aria-label={inRail ? "Move the session card back above the panes" : "Move the session card to the side panel"}
             title={inRail ? "Move back above the panes" : "Move to the side panel"}
           >
-            {inRail ? "⇥" : "⇤"}
+            <Icon name={inRail ? "from-rail" : "to-rail"} />
           </button>
         </div>
       </div>
@@ -152,7 +153,7 @@ export default function SessionCard({
                 <div className="session-card-text">
                   <h2 className="session-card-title">{title}</h2>
                   <button className="session-card-edit" onClick={() => setEditing("title")} aria-label="Rename the session" title="Rename">
-                    ✎
+                    <Icon name="pencil" />
                   </button>
                 </div>
               )}
@@ -180,7 +181,7 @@ export default function SessionCard({
                     aria-label={hasDescription ? "Edit the description" : "Add a description"}
                     title={hasDescription ? "Edit the description" : "Add a description"}
                   >
-                    ✎
+                    <Icon name="pencil" />
                   </button>
                 </div>
               )}

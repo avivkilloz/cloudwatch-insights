@@ -45,6 +45,7 @@ from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
 from ..panes import runs as pane_runs
+from ..panes import variables as pane_variables
 from . import tokens
 from .panes import (
     _visible_environment,
@@ -189,6 +190,19 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     every = state.get(f"{pane_id}.refresh")
     if isinstance(every, (int, float)):
         out["refresh_every"] = int(every) or "off"
+    manifest = pane_manifest.get(type_)
+    if manifest is not None:
+        # Which inputs take their value from the session's variables (D60):
+        # set one and the pane stops following, so it's said up front.
+        follows = pane_variables.follows(state, pane_id, manifest)
+        if follows:
+            out["from_session"] = follows
+        unlinked = pane_variables.unlinked(state, pane_id)
+        if unlinked:
+            out["unlinked_from"] = unlinked
+    shown = state.get(f"{pane_id}.{PANE_INPUTS_KEY}")
+    if shown in ("shown", "hidden"):
+        out["inputs_shown"] = shown == "shown"
     said = _text_outputs(state, kind, pane_id)
     if said:
         out["outputs"] = said
@@ -312,10 +326,31 @@ def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail
     members_out = _participants(db, row)
     if len(members_out) > 1:
         out["members"] = members_out
+    variables = pane_variables.defined(state)
+    if variables:
+        out["variables"] = _describe_variables(db, variables)
+    if state.get(VIEW_MODE_KEY):
+        out["view_mode"] = True
     if detail:
         out["active_pane"] = state.get("activePane")
         if state.get(SESSION_REFRESH_KEY):
             out["refresh_every"] = state[SESSION_REFRESH_KEY]
+    return out
+
+
+# The session's view mode (D61), and a pane's own override of it.
+VIEW_MODE_KEY = "viewMode"
+PANE_INPUTS_KEY = "inputs"
+
+
+def _describe_variables(db: Session, variables: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if pane_variables.ENVIRONMENT in variables:
+        value = variables[pane_variables.ENVIRONMENT]
+        connection = db.get(models.Connection, value) if isinstance(value, int) else None
+        out["environment"] = {"id": value, "name": connections.label(connection) if connection else None}
+    if pane_variables.TIME in variables and isinstance(variables[pane_variables.TIME], dict):
+        out["time_range"] = variables[pane_variables.TIME]
     return out
 
 
@@ -551,6 +586,11 @@ def _add_pane(state: dict, kind: PaneKind, title: Optional[str]) -> str:
         pane_id: (title or "").strip() or live_store.next_title(kind.label, taken),
     }
     state["activePane"] = pane_id
+    # A pane added to a session with variables takes them, as it does when
+    # added by hand (D60).
+    manifest = pane_manifest.get(kind.type)
+    if manifest is not None:
+        pane_variables.apply(state, pane_id, manifest)
     return pane_id
 
 
@@ -791,6 +831,155 @@ async def set_refresh(session_id: str, every: str, pane_id: Optional[str] = None
         return _describe_session(db, row, user.id, detail=True)
 
 
+def _time_presets() -> list[Any]:
+    """The presets a pane's time range offers: what a Time range variable may be."""
+    out: list[Any] = []
+    for manifest in pane_manifest.manifests().values():
+        preset = pane_variables.targets(manifest).get(pane_variables.TIME, {})
+        for key, part in preset.items():
+            if part == "preset":
+                spec = next((i for i in manifest.inputs if i.key == key), None)
+                out += [c for c in (spec.choices if spec else []) if c not in out]
+    return out
+
+
+def _time_variable(time_range: Any, start: Optional[str], end: Optional[str]) -> dict[str, Any]:
+    presets = _time_presets()
+    if str(time_range).strip().lower() == "custom":
+        if not start or not end:
+            raise InputError('A custom time range needs start and end, as "YYYY-MM-DDTHH:mm" in the user\'s local time.')
+        return {"preset": "custom", "start": start, "end": end}
+    seconds = _every(time_range)
+    if seconds not in presets:
+        offered = ", ".join(_say_seconds(p) for p in presets if p != "custom")
+        raise InputError(f"{time_range!r} isn't one of the time ranges panes offer: {offered}, or custom.")
+    return {"preset": seconds, "start": "", "end": ""}
+
+
+def _say_seconds(seconds: int) -> str:
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds % size == 0:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
+
+
+def _follow_variables(state: dict, user: models.User, pane_id: str, cleared: list[str]) -> list[str]:
+    """Copies the variables a pane follows into its inputs, clearing what
+    each change resets, as a person's pick would. The input keys changed."""
+    manifest = pane_manifest.get(_pane_type(state, pane_id))
+    kind = KINDS.get(_pane_type(state, pane_id))
+    if manifest is None or kind is None:
+        return []
+    changed = pane_variables.apply(state, pane_id, manifest)
+    values = {k: state.get(input_key(kind, pane_id, k)) for k in changed}
+    for key in changed:
+        _reset(state, kind, pane_id, key, values[key], values, cleared)
+    return changed
+
+
+@mcp.tool()
+async def set_variables(
+    session_id: str,
+    environment: Optional[Any] = None,
+    time_range: Optional[Any] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    remove: Optional[list[str]] = None,
+) -> dict:
+    """Sets the session's variables -- a dashboard's shared controls, shown in a bar under the session card -- and
+    copies them into every pane that follows them: `environment` (an AWS environment, by id or name as get_context
+    lists them) into every pane's environment input, `time_range` (15m, 1h, 1d... or "custom" with `start` and `end`
+    as "YYYY-MM-DDTHH:mm", the user's local time) into every pane's time range. A pane unlinked from one keeps its
+    own value. `remove` drops variables by name (environment, time); the panes keep the values they have. Like
+    set_pane_inputs it runs nothing: run_pane the panes it lists to bring their results up to date."""
+    with _acting() as (db, user, caller):
+        rc = RunContext(db=db, user=user, timezone=caller.timezone)
+        wanted: dict[str, Any] = {}
+        if environment is not None:
+            wanted[pane_variables.ENVIRONMENT] = _visible_environment(rc, environment)
+        if time_range is not None:
+            wanted[pane_variables.TIME] = _time_variable(time_range, start, end)
+        dropped = [n for n in (remove or [])]
+        unknown = [n for n in dropped if n not in pane_variables.NAMES]
+        if unknown:
+            raise InputError(f"There is no variable {', '.join(unknown)}; they are: {', '.join(pane_variables.NAMES)}.")
+        if not wanted and not dropped:
+            raise InputError("Say an environment, a time_range, or variables to remove.")
+        cleared: dict[str, list[str]] = {}
+        changed: dict[str, list[str]] = {}
+
+        def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
+            variables = {k: v for k, v in pane_variables.defined(state).items() if k not in dropped}
+            state[pane_variables.VARIABLES_KEY] = {**variables, **wanted}
+            for pane_id in _pane_ids(state):
+                cleared[pane_id] = []
+                keys = _follow_variables(state, user, pane_id, cleared[pane_id])
+                if keys:
+                    changed[pane_id] = keys
+
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
+        for pane_id, keys in cleared.items():
+            _clear_outputs(db, row, pane_id, keys)
+        out = _describe_session(db, row, user.id, detail=True)
+        full = _full(db, row)
+        if changed:
+            had_run = [p for p in changed if pane_values(full, p).get("ranAt")]
+            out["note"] = (
+                "Copied into " + ", ".join(f"{_pane_title(full, p)} ({', '.join(k)})" for p, k in changed.items()) + ". "
+                + (
+                    f"Nothing ran: run_pane {', '.join(had_run)} to bring their results up to date."
+                    if had_run
+                    else "Nothing ran."
+                )
+            )
+        else:
+            out["note"] = "No pane's inputs changed."
+        return out
+
+
+@mcp.tool()
+async def link_pane(session_id: str, pane_id: str, variable: str, follow: bool = True) -> dict:
+    """Makes a pane follow a session variable (environment or time) again -- its inputs take the variable's value
+    now -- or, with follow=false, keep its own value from now on. Runs nothing."""
+    if variable not in pane_variables.NAMES:
+        raise InputError(f"There is no variable {variable}; they are: {', '.join(pane_variables.NAMES)}.")
+    with _acting() as (db, user, caller):
+        cleared: list[str] = []
+
+        def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
+            _pane(state, pane_id)
+            current = set(pane_variables.unlinked(state, pane_id))
+            if follow:
+                current.discard(variable)
+            else:
+                current.add(variable)
+            state[pane_variables.unlinked_key(pane_id)] = sorted(current)
+            if follow:
+                _follow_variables(state, user, pane_id, cleared)
+
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
+        _clear_outputs(db, row, pane_id, cleared)
+        return {"session_id": row.client_id, "pane": _describe_pane(_full(db, row), pane_id, detail=True)}
+
+
+@mcp.tool()
+async def set_view_mode(session_id: str, view: bool, pane_id: Optional[str] = None) -> dict:
+    """View mode turns a session into a dashboard: panes show their results without their inputs and buttons
+    (D61). Without pane_id it is the session's; with pane_id it overrides the session for that pane (view=false
+    shows that pane's inputs even in a dashboard). A viewer member always sees view mode."""
+    with _acting() as (db, user, caller):
+
+        def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
+            if pane_id is None:
+                state[VIEW_MODE_KEY] = bool(view)
+            else:
+                _pane(state, pane_id)
+                state[f"{pane_id}.{PANE_INPUTS_KEY}"] = "hidden" if view else "shown"
+
+        row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
+        return _describe_session(db, row, user.id, detail=True)
+
+
 def _refresh_floor(kind: PaneKind) -> Optional[int]:
     from ..panes import refresh as pane_refresh
 
@@ -838,6 +1027,7 @@ def _apply_inputs(
     pane_id: str,
     inputs: dict[str, Any],
     cleared: Optional[list[str]] = None,
+    unlinked: Optional[list[str]] = None,
 ) -> PaneKind:
     """The inputs written into the state, with what each change resets: in
     the state for inputs and views, and -- since outputs have their own
@@ -863,31 +1053,25 @@ def _apply_inputs(
             continue
         current = untag(state.get(input_key(kind, pane_id, key))) or []
         converted[key] = _convert(kind, key, sorted(set(current) | set(value)), rc)
+    # An input that follows a session variable, set to a value of its own:
+    # the pane stops following that variable, as a person unlinking it and
+    # choosing would (D60) -- otherwise the next change to the variable would
+    # quietly overwrite what was asked for here.
+    manifest = pane_manifest.get(kind.type)
+    if manifest is not None:
+        follows = pane_variables.follows(state, pane_id, manifest)
+        for key in converted:
+            variable = pane_variables.variable_of(manifest, key)
+            if variable and variable in follows and state.get(input_key(kind, pane_id, key)) != converted[key]:
+                state[pane_variables.unlinked_key(pane_id)] = sorted({*pane_variables.unlinked(state, pane_id), variable})
+                if unlinked is not None and variable not in unlinked:
+                    unlinked.append(variable)
     for key, value in converted.items():
         stored = input_key(kind, pane_id, key)
         changed = state.get(stored) != value
         state[stored] = value
-        # What a change to it clears, as the same pick in the pane does: a new
-        # table's info and items, a new bucket's listing and position.
-        if not changed:
-            continue
-        for ref in kind.resets.get(key, ()):
-            part, _, ref_key = ref.partition(".")
-            if part == "in" and ref_key in converted:
-                continue  # set in this same call: that value stands
-            if part == "view":
-                state[f"{pane_id}.{ref}"] = kind.view_defaults.get(ref_key)
-            elif part == "out":
-                if cleared is not None:
-                    cleared.append(ref_key)
-            else:
-                state.pop(f"{pane_id}.{ref}", None)
-        # A choice that sets others (IoT's mode puts its own default query
-        # in), unless this call set them itself.
-        sets = kind.choice_sets.get(key, {}).get(value, {}) if isinstance(value, (str, int, bool)) else {}
-        for other, set_to in sets.items():
-            if other not in converted:
-                state[input_key(kind, pane_id, other)] = set_to
+        if changed:
+            _reset(state, kind, pane_id, key, value, converted, cleared)
     if (state.get("layout") or "tabs") == "tabs":
         state["activePane"] = pane_id
     # And not folded to its header in the other layouts: a run into a
@@ -897,6 +1081,30 @@ def _apply_inputs(
     if pane_id in minimized:
         state["minimized"] = tag_set(m for m in minimized if m != pane_id)
     return kind
+
+
+def _reset(
+    state: dict, kind: PaneKind, pane_id: str, key: str, value: Any, converted: dict, cleared: Optional[list[str]]
+) -> None:
+    """What a change to an input clears, as the same pick in the pane does: a
+    new table's info and items, a new bucket's listing and position."""
+    for ref in kind.resets.get(key, ()):
+        part, _, ref_key = ref.partition(".")
+        if part == "in" and ref_key in converted:
+            continue  # set in this same call: that value stands
+        if part == "view":
+            state[f"{pane_id}.{ref}"] = kind.view_defaults.get(ref_key)
+        elif part == "out":
+            if cleared is not None:
+                cleared.append(ref_key)
+        else:
+            state.pop(f"{pane_id}.{ref}", None)
+    # A choice that sets others (IoT's mode puts its own default query
+    # in), unless this call set them itself.
+    sets = kind.choice_sets.get(key, {}).get(value, {}) if isinstance(value, (str, int, bool)) else {}
+    for other, set_to in sets.items():
+        if other not in converted:
+            state[input_key(kind, pane_id, other)] = set_to
 
 
 def _convert(kind: PaneKind, key: str, value: Any, rc: RunContext) -> Any:
@@ -913,12 +1121,13 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
         if found is not None:
             before = pane_values(found.state, pane_id) if pane_id in _pane_ids(found.state) else {}
         cleared: list[str] = []
+        unlinked: list[str] = []
         row, kind = _mutate(
             db,
             user,
             caller,
             session_id,
-            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs, cleared),
+            lambda s, _r, _m: _apply_inputs(s, user, db, caller, pane_id, inputs, cleared, unlinked),
             ORIGIN,
         )
         _clear_outputs(db, row, pane_id, cleared)
@@ -934,6 +1143,10 @@ async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict[str, Any])
             if kind.run or kind.background
             else "Only the inputs changed."
         )
+        if unlinked:
+            out["note"] += (
+                f" It no longer follows the session's {', '.join(unlinked)} variable (link_pane follows it again)."
+            )
         return out
 
 
