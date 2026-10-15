@@ -981,7 +981,7 @@ the database instead of a repo:
   instead of one per router.
 - **Per-type permissions:** today's fixed booleans (`logs_enabled`, `iot_enabled`…)
   can't scale to plugins. They become rows (group × pane type or plugin), with the
-  existing columns migrated in.
+  existing columns migrated in. _Built in 3d-1 (§19.1, D65): rows per pane type._
 - **The agent:**
   - It sees schemas, credential *names* and *types*, never values.
   - Side-effecting Actions are marked as such in their manifest and go through the

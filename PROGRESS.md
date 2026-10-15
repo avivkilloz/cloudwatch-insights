@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, 3c-3 (Home → a session) and the variables in the session card._
+_Last updated: 2026-10-16, 3d-1 (access per pane type)._
 
 ## Platform plan
 
@@ -1112,8 +1112,21 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
   old frontend; smoke78 (variables folded and in the side panel), smoke77 and
   smoke49 updated.
 
-Next: 3d (permissions, categories and a first new pane), detailed in
-PLATFORM_PLAN.md before it is built.
+#116 merged. This round's PR:
+- **A folded session card is its header alone** (the user's report): the
+  variables' controls in the folded header were clutter; to change one, expand.
+- **3d-1, access per pane type** (PLATFORM_PLAN.md §19.1, D64-D65; 3d is three
+  PRs, the user's choice): `group_pane_grants`, one check (`pane_access.py`) for
+  the pane list, actions, requests, the HTTP Send and the agent; the old
+  booleans kept as shorthand in the API and migrated once into grants, so
+  nobody gains or loses anything; Users -> Groups -> Panes is a checkbox per
+  pane type under Services and Tools, with All / None, and the Platform agent
+  its own row.
+- Tests: backend `test_pane_grants.py` (7); smoke80 (11), failing against the
+  old frontend; smoke78 updated (nothing in the folded header).
+
+Next: 3d-2, the catalogue with categories (§19.2), then 3d-3, admin-defined
+connection types and a Prometheus pane from a manifest alone.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1283,8 +1296,9 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3d (per-type permissions, the catalogue with categories, a first new
-   pane), detailed in PLATFORM_PLAN.md before it is built. Follow-ups if
+1. 3d-2 (the catalogue with categories) and 3d-3 (admin-defined connection
+   types, a Prometheus pane), detailed in PLATFORM_PLAN.md §19.2 before each
+   is built. Follow-ups if
    wanted: more kinds of variable (text, a choice), a variable bound to a
    plugin's own input type, and an admin-set group default home page.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and

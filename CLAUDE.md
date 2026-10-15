@@ -539,13 +539,25 @@ migration later.
 
 **Access control is per group, never per user.** A user belongs to one
 `UserGroup`, which carries its identities (who it is on each kind of
-connection -- its AWS role, D31), the visible environments and one
-boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
-`/api/auth/me` returns those booleans so the frontend can decide what to offer.
+connection -- its AWS role, D31), the visible environments and **one grant
+per pane type** (D65, §19.1: `group_pane_grants`; the Admin group needs none).
+`pane_access.py` is the one answer -- `allowed`/`require`, called by
+`/api/pane-types`, the action and request endpoints (`run_handler`,
+`run_request`), the HTTP client's Send and the agent's `available_kinds`; never
+read a group boolean for a pane again. The old booleans (`logs_enabled`,
+`tools_enabled`, …) are shorthand in the API only: read as "has any pane whose
+manifest `flag` names it", written by granting or revoking those panes;
+`pane_types` is the exact list and wins. They were migrated into grants once
+(`pane_grants_migrated`), and a manifest's `flag` is optional -- a pane type
+without one (a plugin's) is granted to no group until an admin ticks it in
+Users → Groups → Panes. `agent_enabled` stays a boolean: the agent isn't a
+pane. `/api/auth/me` returns `pane_types` (and the booleans) so the frontend
+can decide what to offer (`enabledFor` in `paneTypes.tsx`).
+The paragraph below is the history of how the routers came to check at all.
 The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
 `_flagged`), since the agent must never reach further than its user's UI
 would -- **and so do the per-service routes now** (`resolve.require_flag`,
-called at the top of every AWS-calling endpoint left in `tools.py`, right
+(now `pane_access.require`), called at the top of every AWS-calling endpoint left in `tools.py`, right
 where `resolve_environment`/`resolve_role_name` already were; a ported
 pane's actions -- every AWS call now, MQTT's included -- get it from
 `routers/panes.run_handler`, and the action endpoint
