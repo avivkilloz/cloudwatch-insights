@@ -11,7 +11,7 @@ import datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from app import aws_client, models, presence
+from app import aws_client, models, pane_outputs, presence
 from app.db import SessionLocal
 from app.main import app
 from app.panes import runs
@@ -67,7 +67,15 @@ def _forget_tab(tab_id: str) -> None:
 
 
 def _state(client_id: str, c: TestClient = client) -> dict:
-    return c.get(f"/api/live-sessions/{client_id}").json()["state"]
+    """The session's state with its panes' outputs back under `out.` keys --
+    the shape these tests were written against; outputs have their own
+    records now (§18.2), and come beside the state."""
+    body = c.get(f"/api/live-sessions/{client_id}").json()
+    state = dict(body["state"])
+    for pane, record in (body.get("outputs") or {}).items():
+        for key, value in record["values"].items():
+            state[f"{pane}.out.{key}"] = value
+    return state
 
 
 def _run_row(run_id: str) -> models.PaneRun:
@@ -212,7 +220,7 @@ def test_results_arriving_dont_reopen_a_closed_session(cloudwatch):
     with SessionLocal() as db:
         row = db.query(models.LiveSession).filter(models.LiveSession.client_id == sid).one()
         assert row.closed_at is not None
-        assert len(row.state[f"{PANE}.out.results"][0]["rows"]) == 1
+        assert len(pane_outputs.values_of(db, row, PANE)["results"][0]["rows"]) == 1
     _forget_tab(tab)
 
 

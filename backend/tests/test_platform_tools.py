@@ -12,7 +12,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import aws_client, iot_client, live_store, models
+from app import aws_client, iot_client, live_store, models, pane_outputs
 from app.db import SessionLocal
 from app.main import app
 from app.panes import runs as pane_runs
@@ -71,9 +71,20 @@ def call_error(c: TestClient, token: str, name: str, **arguments) -> str:
 
 
 def _row(client_id: str) -> models.LiveSession:
+    """The row, its state showing its panes' outputs under `out.` keys as it
+    did before they had their own records (§18.2) -- detached, so nothing
+    here is written back."""
     db = SessionLocal()
     try:
-        return live_store.get(db, _admin().id, client_id)
+        row = live_store.get(db, _admin().id, client_id)
+        if row is not None:
+            merged = dict(row.state or {})
+            for pane, record in pane_outputs.read(db, row).items():
+                for key, value in record["values"].items():
+                    merged[f"{pane}.out.{key}"] = value
+            db.expunge(row)
+            row.state = merged
+        return row
     finally:
         db.close()
 
@@ -743,7 +754,7 @@ def test_run_pane_runs_on_the_server_and_puts_the_rows_in_the_pane(mcp, monkeypa
 
 def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch):
     _fake_cloudwatch(monkeypatch, rows=4)
-    monkeypatch.setattr(live_store, "BROWSER_STATE_BYTES", 3000)
+    monkeypatch.setattr(pane_outputs, "OUTPUT_BYTES", 3000)
     token = _token()
     env = _environment()
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "logs-cloudwatch"}])["session_id"]
@@ -758,9 +769,10 @@ def test_a_run_too_big_for_a_pane_is_cut_down_rather_than_lost(mcp, monkeypatch)
         inputs={"logGroupSelection": {str(env): ["/app"]}},
     )
     assert "cut down" in out["note"]
-    state = _row(session).state
-    assert 0 < len(state["logs-cloudwatch.out.results"][0]["rows"]) < 4
-    assert live_store.state_bytes(state) <= 3000
+    with SessionLocal() as db:
+        values = pane_outputs.values_of(db, live_store.get(db, _admin().id, session), "logs-cloudwatch")
+    assert 0 < len(values["results"][0]["rows"]) < 4
+    assert pane_outputs.output_bytes(values) <= 3000
 
 
 def test_a_run_that_needs_its_inputs_says_which(mcp):
@@ -878,3 +890,22 @@ def test_list_options_lists_the_logs_pickers_choices_level_by_level(mcp, monkeyp
     assert [o["value"] for o in indices["options"]] == ["logs-1", "audit"] and asked == ["d.example"]
     assert "one level" in call_error(mcp, token, "list_options", session_id=session, pane_id="logs-cloudwatch",
                                      input="logGroupSelection", parent={"connection": env})
+
+
+def test_what_get_session_shows_of_an_input_set_pane_inputs_takes_back(mcp):
+    # Shown the query as the rows its editor keeps, a model sent `query: []`
+    # back, was refused, and the turn ended with no answer.
+    token = _token()
+    session = call(mcp, token, "create_session", title="t", panes=[{"kind": "api-table"}])["session_id"]
+    set_ = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": {"page": "2"}})
+    assert set_["pane"]["inputs"]["query"] == {"page": "2"}
+    shown = call(mcp, token, "get_session", session_id=session)["panes"][0]["inputs"]["query"]
+    assert shown == {"page": "2"}
+    for sent, kept in (
+        (shown, {"page": "2"}),
+        ([], {}),
+        ([{"id": 1, "key": "limit", "value": "5"}, {"id": 2, "key": "", "value": ""}], {"limit": "5"}),
+    ):
+        out = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": sent})
+        assert out["pane"]["inputs"]["query"] == kept
+    assert "e.g." in call_error(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": "x"})

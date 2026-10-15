@@ -48,10 +48,21 @@ async def get_context(ctx: Context) -> dict:
     return CONTEXT
 
 
+# Sessions whose pane run_pane started -- what the answer check reads back.
+RUNNING: set[str] = set()
+
+
 @stub.tool()
 async def get_session(session_id: str, ctx: Context) -> dict:
     _auth(ctx)
-    return {"session_id": session_id, "title": "Checkout", "panes": [{"pane_id": "iot", "kind": "iot"}]}
+    run = {"status": "running"} if session_id in RUNNING else {"status": "not running"}
+    return {"session_id": session_id, "title": "Checkout", "panes": [{"pane_id": "iot", "kind": "iot", "run": run}]}
+
+
+@stub.tool()
+async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict, ctx: Context) -> dict:
+    _auth(ctx)
+    return {"session_id": session_id, "pane": {"pane_id": pane_id, "inputs": inputs}, "note": "Only the inputs changed; nothing ran."}
 
 
 @stub.tool()
@@ -65,6 +76,7 @@ async def run_pane(session_id: str, pane_id: str, ctx: Context, inputs: dict | N
     _auth(ctx)
     if session_id == "no-such-session":
         raise ToolError("There is no session with id 'no-such-session'.")
+    RUNNING.add(session_id)
     return {"session_id": session_id, "pane_id": pane_id, "output": "aGk="}
 
 
@@ -132,7 +144,7 @@ def test_a_turn_calls_the_tools_with_the_users_token_and_streams_what_happened(s
     assert events[0] == {"type": "tool_call", "id": "turn-context", "name": "get_context", "args": {}, "preamble": True}
     calls = [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")]
     assert calls == ["get_context", "create_session", "run_pane"]
-    results = [e for e in events if e["type"] == "tool_result"]
+    results = [e for e in events if e["type"] == "tool_result" and e["name"] != "check_answer"]
     assert all(r["ok"] for r in results)
     # The session a tool touched rides on its result, for the browser to follow.
     assert [r.get("session_id") for r in results] == [None, None, "s-new", "s-new"]
@@ -216,7 +228,7 @@ def test_a_session_chat_tells_the_model_which_session_it_is_about(settings):
 def test_a_session_chat_starts_from_the_session_as_it_is_now(settings):
     fake_llm.REQUESTS.clear()
     events = _events(settings, "hello", focus={"session_id": "s1", "title": "Checkout"})
-    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble")]
+    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble") and e["name"] != "check_answer"]
     assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("get_session", {"session_id": "s1"})]
     # With the message they were read for, not in the system prompt.
     sent = fake_llm.REQUESTS[0]["messages"]
@@ -373,3 +385,71 @@ def test_a_turn_that_says_nothing_ends_with_a_readable_error(settings):
     assert events[-1]["type"] == "error" and "stopped without answering" in events[-1]["message"]
     # Asked once to carry on, not more.
     assert len(fake_llm.REQUESTS) == 2
+
+
+def test_a_step_that_announces_a_run_with_a_period_and_stops_is_asked_to_carry_on(settings):
+    # "Let me reconnect to IoT Test and subscribe to the topic again." -- and
+    # the turn stopped; the user had to ask "did you do it?".
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "announce plain")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["name"] for c in calls] == ["run_pane"]
+    nudge = fake_llm.REQUESTS[1]["messages"][-1]["content"]
+    assert "Let me search now." in nudge and "didn't make that call" in nudge
+    assert "Searched:" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_after_a_failed_call_the_model_is_told_what_failed(settings):
+    # Refused a `query: []`, a model said nothing, twice, and the turn ended
+    # "ran the steps above but didn't write an answer".
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "fumble")
+    calls = [e for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert [c["args"]["session_id"] for c in calls] == ["no-such-session", "s1"]
+    nudges = [r["messages"][-1]["content"] for r in fake_llm.REQUESTS if str(r["messages"][-1].get("content")).startswith(fake_llm.NUDGE_MARK)]
+    assert len(nudges) == 1 and "failed" in nudges[0] and "no-such-session" in nudges[0]
+    assert "Ran it on s1 instead" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_a_turn_that_stops_after_a_failure_says_what_failed(settings):
+    events = _events(settings, "fumble silent")
+    notice = next(e for e in events if e["type"] == "notice")
+    assert "failed" in notice["message"] and "no-such-session" in notice["message"]
+
+
+def test_an_answer_claiming_what_nothing_did_is_checked_and_redone(settings):
+    # Asked to connect, an agent filled the topics in and said "connected and
+    # listening" -- three turns running, until the user pointed at the pane.
+    RUNNING.clear()
+    fake_llm.CHECKS.clear()
+    events = _events(settings, "pretend connect")
+    checks = [e for e in events if e["type"] == "tool_result" and e["name"] == "check_answer"]
+    assert [c["ok"] for c in checks] == [False, True]
+    # Each its own step: the browser matches a result to its call by id.
+    assert len({c["id"] for c in checks}) == 2
+    assert "isn't running" in checks[0]["summary"]
+    # Shown as steps of the platform's own, not the agent's.
+    assert all(e.get("preamble") for e in events if e["type"] == "tool_call" and e["name"] == "check_answer")
+    calls = [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert calls == ["set_pane_inputs", "run_pane"]
+    answer = _answer(events)
+    assert "Connected now" in answer and "is connected and listening" not in answer
+    assert not [e for e in events if e["type"] == "notice"] and events[-1] == {"type": "done"}
+    # The check saw what ran and the session afterwards, not the agent's words alone.
+    evidence = fake_llm.CHECKS[-1]["messages"][-1]["content"]
+    assert "called run_pane" in evidence and '"status": "running"' in evidence.replace('":"', '": "')
+
+
+def test_an_answer_that_still_claims_it_after_the_redo_carries_what_the_check_found(settings):
+    RUNNING.clear()
+    events = _events(settings, "pretend connect stubborn")
+    notice = next(e for e in events if e["type"] == "notice")
+    assert "check" in notice["message"] and "isn't running" in notice["message"]
+    # One redo, not more.
+    assert len([e for e in events if e["type"] == "tool_result" and e["name"] == "check_answer"]) == 2
+
+
+def test_the_check_can_be_turned_off(settings):
+    fake_llm.CHECKS.clear()
+    events = _events(Settings(**{**settings.__dict__, "check": False}), "pretend connect")
+    assert not fake_llm.CHECKS and not [e for e in events if e.get("name") == "check_answer"]

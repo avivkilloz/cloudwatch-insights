@@ -199,6 +199,15 @@ def _usable_credential(rc: RunContext, value: Any) -> Optional[int]:
     return found.id
 
 
+def agent_value(spec: Input, stored: Any) -> Any:
+    """A stored input in the shape `convert` takes it back in, so what the
+    agent reads it can write. The two differ only where the pane keeps rows
+    for its editor: a headers input is name -> value to the agent."""
+    if spec.kind == "headers" and isinstance(stored, list):
+        return {str(r.get("key")): r.get("value", "") for r in stored if isinstance(r, dict) and r.get("key")}
+    return stored
+
+
 def convert(spec: Input, value: Any, rc: RunContext) -> Any:
     """The agent's value for an input, checked and put into the shape the
     browser stores it in."""
@@ -287,8 +296,15 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
             return sorted({_visible_environment(rc, v) for v in value})
         return sorted({_visible_connection(rc, v, spec.connection_type or "") for v in value})
     if kind == "headers":
+        # Taken as the object get_session shows (`agent_value`), or as the
+        # rows the pane stores: shown the rows, a model sent `[]` back and was
+        # refused, and the turn ended there.
+        if value is None or value == []:
+            value = {}
+        if isinstance(value, list) and all(isinstance(r, dict) for r in value):
+            value = {r.get("key", r.get("name")): r.get("value", "") for r in value if r.get("key", r.get("name"))}
         if not isinstance(value, dict):
-            raise InputError(f"{spec.key} must be an object of name -> value.")
+            raise InputError(f'{spec.key} must be an object of name -> value, e.g. {{"page": "2"}} ({{}} for none).')
         rows = [{"id": i + 1, "key": str(k), "value": str(v)} for i, (k, v) in enumerate(value.items())]
         # The editor always ends in an empty row to type the next header into.
         rows.append({"id": len(rows) + 1, "key": "", "value": ""})
@@ -352,6 +368,9 @@ class PaneKind:
     # Its main action runs in the background, polled by the server into the
     # pane (D51): run_pane starts it there and waits on it.
     background: bool = False
+    # The shortest auto-refresh interval, in seconds, for a kind that can
+    # refresh by itself (§18.3); None for one that can't.
+    refresh_floor: Optional[int] = None
 
     def input(self, key: str) -> Optional[Input]:
         return next((i for i in self.inputs if i.key == key), None)
@@ -364,6 +383,7 @@ class PaneKind:
             "inputs": [i.describe() for i in self.inputs],
             "run": self.run_help,
             **({"inspect_row": self.detail_help or "Shows one row of the last run in full."} if self.rows else {}),
+            **({"refresh_floor": self.refresh_floor} if self.refresh_floor else {}),
             **({"stop_pane": "Stops a run still going."} if self.background else {}),
             **(
                 {"views": [
@@ -776,7 +796,14 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
         choice_sets={i.key: i.choice_sets for i in manifest.inputs if i.choice_sets},
         aliases={i.legacy_key: i.key for i in manifest.agent_inputs() if i.legacy_key and i.legacy_key != i.key},
         background=bool(manifest.main_action() and manifest.main_action().poll),
+        refresh_floor=_refresh_floor(manifest),
     )
+
+
+def _refresh_floor(manifest: pane_manifest.Manifest) -> Optional[int]:
+    from ..panes import refresh as pane_refresh  # it reaches the routers, which import this module
+
+    return pane_refresh.floor_seconds(manifest) if manifest.refresh_action() is not None else None
 
 
 KINDS: dict[str, PaneKind] = {m.id: _kind(m) for m in pane_manifest.manifests().values()}

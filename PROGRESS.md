@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-14, Phase 3b-4 (charts)._
+_Last updated: 2026-10-15, the answer check and 3c-1 (results store, auto-refresh)._
 
 ## Platform plan
 
@@ -1029,23 +1029,30 @@ that member; each now does (`"upsert"`, `"access"`, `"delete"`), so it shows up,
 takes effect or leaves at once. smoke70 (fails on the old code, each check
 against its own part of the fix) and a test in `test_session_members.py`.
 
-3b-4 (charts) merged as #110. This round's PR carries three things (PLATFORM_PLAN.md
-§16.14):
-- **Two chart fixes the user reported.** `@message` as a time series's series drew a
-  line and a legend entry per log line. Series now offers only columns with at most 20
-  values. Raw rows over time are folded into bars of one width ("Per 5m").
-- **Zoom by dragging,** the user's second question. Drag across the histogram or a
-  time-series chart in CloudWatch/OpenSearch: the range becomes what was dragged and
-  the query runs again; Undo zoom goes back.
-- **3b-5, MQTT on the server** (D54). The connection is a background run that every
-  tab and member sees. Topics changed while connected reconnect as whoever changed
-  them. Disconnect ends it, and so does two minutes with nobody looking. Five per
-  person. Publish is a person's action. The agent connects and reads. Saved topics
-  moved into saved inputs, and the Library's MQTT tab is gone. Every pane is now
-  drawn from its manifest.
+#111 (charts, zoom, 3b-5 MQTT) merged. This round's PR carries:
+- **The agent, after a conversation where it said "connected" three times and never
+  was** (PLATFORM_PLAN.md §17):
+  - It can now read a pane's run status, and inputs in the shape it writes them.
+  - The turn guard catches "Let me…" with no call, and a failed call's nudge says
+    what failed.
+  - Every answer is checked against what ran and redone once (D55), shown as a step.
+  - Replayable scenarios in `platform-agent/evals` run against a real model.
+- **3c-1** (§18):
+  - A pane's results live in their own store, written only by the server and
+    announced per pane (D21). A poll or refresh no longer resends the whole
+    session, and the 4 MiB limit is per pane.
+  - Auto-refresh: per pane and per session, run once for everyone watching, and
+    only while someone has the session on screen.
+  - The MQTT presign route is gone (D49).
+- Tests: backend 371, agent 35. Full browser run 57 of 59: smoke31's two styling
+  checks fail as they do on main, and smoke49's "given the room back" width
+  check failed once and passed the three times it was run alone (dashboard code
+  this round didn't touch). The agent's model requests use the turn's own HTTP
+  client now: with the newer `openai` a fresh install resolves, every agent test
+  after the first failed with "the handler is closed".
 
-Next: 3c (sessions as live dashboards), detailed in PLATFORM_PLAN.md before it is
-built. Its first PR also removes `/api/tools/mqtt/presigned-url` (D49).
+Next: 3c-2 (view mode and session variables), detailed in PLATFORM_PLAN.md before it
+is built.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1215,10 +1222,13 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3c (sessions as live dashboards: view mode, session variables,
-   auto-refresh), detailed in PLATFORM_PLAN.md before it is built; with it, the
-   presign route D49 kept for one release goes.
-2. **Platform agent, phase 3.**
+1. 3c-2 (view mode and session variables), then 3c-3 (Home → a session),
+   each detailed in PLATFORM_PLAN.md §18 before it is built. With view mode,
+   decide how a viewer watches a refreshing dashboard (today a viewer can't
+   refresh).
+2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
+   add a scenario for every conversation the agent gets wrong.
+3. **Platform agent, phase 3.**
    - Approval for side effects: LangGraph interrupts, surfaced as an
      approve/deny prompt in the chat; then `send_http_request`, MQTT publish,
      closing and deleting sessions as tools behind it.
@@ -1229,12 +1239,12 @@ assistant's and are gone.
    - Worth doing alongside: the per-service routers checking the page flags
      themselves (CLAUDE.md, "Access control"), and a real-model evaluation
      of the prompt once the user has one wired.
-3. Between phases, pick up the user's batches of UI issues — that has been
+4. Between phases, pick up the user's batches of UI issues — that has been
    the rhythm of every round.
-3. If the user picks one of the dashboard ideas above, the column grid is a
+5. If the user picks one of the dashboard ideas above, the column grid is a
    stored-shape change: `dashboardRects` would need a migration (CLAUDE.md,
    "Old state shapes are migrated on load").
-4. Optional, only if the user wants them: prune the junk templates from the dev
+6. Optional, only if the user wants them: prune the junk templates from the dev
    database; refresh the templates context after a delete in Settings; decide
    whether CI should run the browser suites (it does not — they need a backend,
    a seeded Postgres and an admin login, which is its own piece of work).

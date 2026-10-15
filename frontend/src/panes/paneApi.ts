@@ -20,6 +20,9 @@ export interface RunOptions {
   inputs?: Values;
   /** A running background run started again because its `restart_on` inputs changed. */
   restart?: boolean;
+  /** Outputs the input change that set this run off made stale, cleared in
+   * the same server write as its results (D21), so the two can't cross. */
+  clear?: string[];
 }
 
 export interface PaneApi {

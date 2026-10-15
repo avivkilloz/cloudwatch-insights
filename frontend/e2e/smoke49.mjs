@@ -111,8 +111,8 @@ const run = async () => {
       moveInset: [Math.round(c.right - move.right), Math.round(move.top - c.top)],
     };
   });
-  check(JSON.stringify(form.labels) === JSON.stringify(["Name", "Description", "Services", "Tools", "Layout", "Members"]),
-    "The card's rows are its name, description, services, tools, layout and members", JSON.stringify(form.labels));
+  check(JSON.stringify(form.labels) === JSON.stringify(["Name", "Description", "Services", "Tools", "Layout", "Refresh", "Members"]),
+    "The card's rows are its name, description, services, tools, layout, refresh and members", JSON.stringify(form.labels));
   check(form.labelLefts.length === 1 && form.valueLefts.length === 1, "…every label in one column and every value in the next",
     JSON.stringify(form));
   check(form.sections === 4, "…in four sections: what it is, what it holds, how it's laid out, who's on it",
@@ -150,7 +150,7 @@ const run = async () => {
   await page.waitForSelector(CARD);
   check((await page.locator(`${CARD} [aria-label="Expand the session card"]`).count()) === 1, "…and stays folded, kept with the session");
   await page.click(`${CARD} [aria-label="Expand the session card"]`);
-  check((await page.locator(`${CARD} .session-card-row`).count()) === 6, "…until it's expanded again");
+  check((await page.locator(`${CARD} .session-card-row`).count()) === 7, "…until it's expanded again");
   const inset = await page.evaluate(() => {
     const h = document.querySelector(".agent-dock .agent-panel-head").getBoundingClientRect();
     const p = document.querySelector('.agent-dock [aria-label="Account menu"]').getBoundingClientRect();

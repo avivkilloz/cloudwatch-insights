@@ -22,6 +22,7 @@ import {
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
 import { subscribeLiveEvents } from "./liveEvents";
+import { applyOutputs, dropOutputs, outputsVersion } from "./outputs";
 import { migratePaneKeys } from "../panes/manifest";
 
 /** Which panes a session can hold. Values are stored, so renaming one orphans
@@ -123,8 +124,20 @@ function migrateLogsSplit(s: PersistedSession): PersistedSession {
 /** The server does the same on every read and write; this covers the copy
  * kept in IndexedDB, and a remote session merged in before its next read. */
 function migratePanes(s: PersistedSession): PersistedSession {
-  const state = migratePaneKeys(s.state);
+  const state = withoutOutputs(migratePaneKeys(s.state));
   return state === s.state ? s : { ...s, state };
+}
+
+/** A pane's outputs live in the outputs store, not the state (D21,
+ * sessions/outputs.ts): a copy from before that -- IndexedDB, an old row --
+ * leaves them behind here; the server has moved them already, and sends them
+ * beside the state. */
+function withoutOutputs(state: Record<string, unknown>): Record<string, unknown> {
+  const stale = Object.keys(state).filter((k) => /^[^.]+\.out\./.test(k));
+  if (!stale.length) return state;
+  const next = { ...state };
+  for (const k of stale) delete next[k];
+  return next;
 }
 
 /** One page's session becomes an Aggregator holding that page. */
@@ -462,7 +475,20 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         }
         const id = event.client_id;
         if (!id) return;
-        if (event.origin === "agent" && event.kind === "upsert") markAgentActive(id);
+        if (event.origin === "agent" && (event.kind === "upsert" || event.kind === "outputs")) markAgentActive(id);
+        if (event.kind === "outputs") {
+          // One pane's results, versioned on their own (D21): fetched alone,
+          // without the session -- a refresh or a poll used to make every
+          // tab fetch the whole session.
+          const pane = event.pane;
+          if (!pane || outputsVersion(id, pane) >= (event.version ?? 0)) return;
+          if (!workspaceRef.current.sessions.some((s) => s.id === id)) return;
+          api
+            .getPaneOutputs(id, [pane])
+            .then((got) => applyOutputs(id, got))
+            .catch(catchUpLater);
+          return;
+        }
         if (event.kind === "upsert") {
           if ((sync.versionOf(id) ?? -1) >= (event.version ?? 0)) return;
           fetchAndReceive(id);
@@ -705,6 +731,9 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
   // closed pane's results would ride along in the session forever.
   const dropState = useCallback((sessionId: string, prefix: string) => {
     touched.current = true;
+    // Its outputs too, here; the server drops its record when the save
+    // without the pane arrives.
+    if (prefix.endsWith(".") && !prefix.slice(0, -1).includes(".")) dropOutputs(sessionId, prefix.slice(0, -1));
     setWorkspace((w) => {
       const session = w.sessions.find((s) => s.id === sessionId);
       if (!session || !Object.keys(session.state).some((k) => k.startsWith(prefix))) return w;

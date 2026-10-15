@@ -61,18 +61,21 @@ backend/app/
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
+  pane_outputs.py    the one write path for a pane's outputs, apart from the state (D21)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
   presence.py        which tabs are connected (tab_presence), so which sessions are watched
   platform_tools/    what the platform agent can do, over MCP at /mcp (see below)
   panes/             pane manifests: manifests/*.yaml, manifest.py (the schema), state.py
                      (v2 key migration), live.py (live functions' Python twins),
-                     handlers.py, runs.py (background runs, D51), timewindow.py
+                     handlers.py, runs.py (background runs, D51), refresh.py (auto-refresh,
+                     §18.3), timewindow.py
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
 backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch/MQTT faked, for e2e
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
-                     streamed /chat), dev/fake_llm.py (scripted stand-in model), tests/
+                     streamed /chat, check.py the answer check), dev/fake_llm.py (scripted
+                     stand-in model and check), tests/, evals/ (scenarios for a real model)
 
 frontend/src/
   App.tsx            shell: rail column (brand, sessions, page info, account), scrolling body, mounted sessions
@@ -121,8 +124,8 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **A background run** (`poll: {handler, stop}`, CloudWatch's Run; D51,
   §16.9.1) isn't the browser's to poll: the action starts the queries,
   stores a `pane_runs` row and writes `out.run`, and a task on the server
-  polls them into the session through `live_store.mutate(..., reopen=False)`
-  (origin `"run"`) -- so every tab, member and the agent see one stream, and
+  polls them into the pane's outputs through `pane_outputs.write` (origin
+  `"run"`) -- so every tab, member and the agent see one stream, and
   a reload carries on. It polls **only while the session is watched**
   (`presence.watched`: a participant's connected tab, recorded from the
   event stream, with the session open in their workspace -- or an agent
@@ -274,6 +277,48 @@ closed one's inputs. Anything keyed per pane (rects, minimised, AI
 registration) goes by id; anything asking "what kind is this" goes through
 `paneType()`. The Panes card only adds; closing is the pane's own ✕.
 
+**A pane's outputs are not session state** (D21, PLATFORM_PLAN.md §18.2).
+They are one record per (session, pane) in `pane_outputs`, versioned on
+their own, written only by the server -- the action endpoint (given
+`session`/`pane`, it stores what it ran: `routers/panes.apply_outputs`, the
+browser's old rules of resets, Load more's append/sum and `ranAt`/
+`resultsVersion`), background runs, the agent, refresh -- and announced as
+`{kind: "outputs", pane, version}`, after which a tab GETs that one pane's
+outputs. The session's version doesn't move, so a 1-second poll or a refresh
+no longer resends the whole session or makes someone's save a 409. Session
+reads carry `outputs` beside `state`; `out.*` keys found in a state (old
+rows, an old tab, IndexedDB) move into a record when the pane has none and
+are dropped when it has one (a record is newer), on every write, no marker.
+A session write that drops a pane drops its record (ids are reused). The
+browser keeps them in `sessions/outputs.ts` -- not IndexedDB, not the sync
+fingerprint, not templates -- and a pane reads them with `usePaneOutputs`.
+- An action for a pane the server hasn't saved yet answers **409 before
+  running anything**; the browser flushes and asks again. (Flushing before
+  every action made each one a round trip slower.)
+- A reply carries the pane's stored outputs as `__outputs`: the asking
+  tab's own write comes back with its origin, so its event is skipped as an
+  echo, and the tab takes the reply instead. The refresh answer carries
+  `outputs` for the same reason. A viewer's clicks aren't stored: the reply
+  is theirs, shown in their tab only (`setLocal`).
+- An input change's `out.` resets go to the server as `clear` on the first
+  action they set off (one write, so they can't cross), or alone
+  (`POST …/outputs/{pane}/clear`); the agent's `set_pane_inputs` clears the
+  same way.
+
+**Auto-refresh** (R4, D22, §18.3; `panes/refresh.tsx`, `app/panes/refresh.py`).
+A pane's `<pane>.refresh` (seconds; 0 off; unset follows the session's
+`refresh`) is session state -- synced, kept by templates, set by the agent's
+`set_refresh`. The timer is the tab's: only while the session is on screen
+and the tab visible, jittered, asking at once when overdue, backing off by
+the failures on the pane's outputs (`refresh: {failures, error, at}`). The
+run is the server's: `POST /api/panes/{type}/refresh` decides under the
+record's lock -- fresh (within 80% of the interval), another refresh under
+way, a run going -- and otherwise runs `Manifest.refresh_action()` (main, or
+the request; never `effects: external`, live or a stream) with the session's
+stored inputs, as the caller. Floors: 10 s, 60 s for `cost: per_run`
+(CloudWatch); env vars only raise them. A viewer can't refresh (3c-2 decides
+viewer dashboards).
+
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
 `"<paneId>.<key>"` — the pane's id, so two panes of one kind stay apart. It
@@ -333,9 +378,11 @@ relays the turn. The agent calls `/mcp` with that token, so every tool acts as
 that user with their group's environments and role. The agent never sees the
 cookie and the browser never sees the token; keep it that way.
 - Tools change sessions only through `live_store.mutate`/`create` (lock,
-  version, announce with origin `"agent"`), which is how open panes follow the
-  agent live. A run happens *between* two mutates -- inputs, then results --
-  never holding the row lock while AWS answers.
+  version, announce with origin `"agent"`), and a pane's results only through
+  `pane_outputs.write`, which is how open panes follow the agent live. A run
+  happens *between* two writes -- inputs, then results -- never holding a
+  lock while AWS answers. The agent's readers see outputs through `_full`
+  (the state with each pane's outputs back under `out.`).
 - `platform_tools/panes.py` builds `KINDS` from the manifests (inputs, help,
   flag) and the registries of what only code can say (`HANDLERS`, `IMPLIES`,
   `ROW_LISTERS`, `DETAILERS`, by the names manifests use). For a pane still
@@ -344,9 +391,8 @@ cookie and the browser never sees the token; keep it that way.
   move with the page: rename a key and the agent silently writes the old one.
   A ported pane's keys come from its manifest (`input_key`/`output_key`). The
   MCP tests pin the shapes.
-- What a run writes must fit under the *browser's* 4 MiB cap
-  (`BROWSER_STATE_BYTES`), not just the server's, or the browser drops the
-  results on its next save; `_write_results` trims to fit.
+- A pane's outputs may hold 4 MiB (`pane_outputs.OUTPUT_BYTES`); every
+  writer trims to fit with `pane_outputs.fit` (the longest list halved).
 - The agent can't know a dashboard's pixel width, so `arrange_dashboard`
   leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
   first time it measures the canvas, then clears it.
@@ -1006,6 +1052,31 @@ fixed where it happens:
   answer with nothing in their panes. A Global turn is unlimited (Follow
   opens whatever it writes to). And filling or running a pane unfolds it
   if it was minimised, as it already made it the active tab.
+- **What the agent reads it can write back, and it can see a run.** A pane's
+  description (`_describe_pane`, under `get_session` and every change tool)
+  gives inputs in the shape `set_pane_inputs` takes (`panes.agent_value`: a
+  headers input as name -> value, not the editor's rows -- shown the rows, a
+  model sent `query: []` back and was refused), a background pane's `run`
+  (running / stopped by whom / "not running: run_pane starts it (Connect)")
+  and its short text `outputs` ("Connected to … as …"). `set_pane_inputs`
+  says "Only the inputs changed; nothing ran." Without these, a model filled
+  the MQTT tester in and reported it connected, three turns running.
+- **Every answer is checked against what the turn ran** (`check.py`, D55,
+  PLATFORM_PLAN.md §17): one more model call reads the request, the turn's
+  calls and results, the sessions it touched as they are *after* the answer
+  (read by the platform, so "connected" meets the pane's run status) and the
+  answer, and says ok / not_done / unsupported. A failed answer is retracted
+  and redone once (not after a grounding redo); a second miss stands with a
+  notice. The check is the platform's own step in the chat (`check_answer`,
+  `preamble`, so never replayed in history), never blocks a turn (a failed or
+  unreadable check passes), runs on a per-turn HTTP client (langchain_openai
+  shares one per base URL, and a kept-alive connection from another event
+  loop failed the next check), and is `AGENT_CHECK`/`AGENT_CHECK_MODEL`
+  (Helm `agent.check`). The guard's nudge also catches "Let me reconnect…."
+  ending on a period before the turn has called anything, and after a failed
+  call it quotes the failure. Scenarios to try a real model against live in
+  `platform-agent/evals` (its README); add one for every conversation the
+  agent gets wrong.
 - **No per-service tuning of the agent.** Services and tools will be added
   by plugins, so the agent must never need a new prompt line, script or
   hint to use one. The prompt names no service (the kinds come from
@@ -1046,7 +1117,12 @@ fixed where it happens:
   the agent and the fake model running (`frontend/e2e/README.md`). A run the
   server polls can't be faked in the page, so the suites serve the backend as
   `uvicorn dev.fake_aws:app`: accounts starting "0000" are answered there
-  (smoke69), every other account goes to AWS as before.
+  (smoke69), every other account goes to AWS as before; a `.fake` HTTP host
+  answers with what a suite `PUT /api/dev/fake-http` there; and
+  `harness.mockPaneActions` (which fakes an action's AWS part in the page)
+  hands its result to `/api/dev/store-result`, which stores it with the
+  server's own code -- results are the server's to store, and one faked in
+  the page alone never reaches a second tab.
 - **Testing:** backend is pytest against a **real Postgres** (`backend/tests`,
   one file per area; `conftest.py` resets the schema and logs in as admin before
   each test) — so give it its **own database** (`cloudwatch_insights_test`),

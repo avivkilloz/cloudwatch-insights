@@ -16,6 +16,7 @@
  */
 
 import { ApiError, LiveSession, api } from "../api";
+import { applyOutputs } from "./outputs";
 import { PersistedSession, capSession, decode, encode } from "./storage";
 
 /** How long to let changes settle before writing to the server. Longer than
@@ -50,8 +51,10 @@ function toWire(session: PersistedSession, position: number) {
 }
 
 /** And back: re-tagging the server's plain JSON rebuilds the Sets and Maps the
- * pages expect. */
+ * pages expect. Its panes' outputs, which come beside the state (D21), go to
+ * the outputs store on the way: every row this browser takes in passes here. */
 export function fromWire(row: LiveSession): PersistedSession {
+  applyOutputs(row.client_id, row.outputs);
   return {
     id: row.client_id,
     type: row.type,
@@ -210,6 +213,9 @@ export class WorkspaceSync {
    * workspace gets, so a row written by an older writer arrives in today's
    * shape. */
   receive(row: LiveSession, migrate: (s: PersistedSession) => PersistedSession = (s) => s): void {
+    // Outputs are versioned on their own (D21): newer ones are taken even
+    // from a row whose state this browser already has.
+    applyOutputs(row.client_id, row.outputs);
     const known = this.versions.get(row.client_id);
     if (known !== undefined && known >= row.version) return;
     const remote = migrate(fromWire(row));
@@ -301,6 +307,7 @@ export class WorkspaceSync {
       this.synced.set(session.id, print);
       this.versions.set(session.id, saved.version);
       this.bases.set(session.id, session);
+      applyOutputs(session.id, saved.outputs);
       return true;
     } catch (err) {
       // Someone else wrote first. Fetch theirs and merge; the merged session

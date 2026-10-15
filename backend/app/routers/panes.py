@@ -13,11 +13,11 @@ import json
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, connections, credential_types, live_store, masking, models, tools_http_client
+from .. import auth, connections, credential_types, live_store, masking, models, pane_outputs, tools_http_client
 from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
@@ -34,12 +34,19 @@ def _allowed(user: models.User, manifest: pane_manifest.Manifest) -> bool:
 
 @router.get("/pane-types")
 def list_pane_types(current_user: models.User = Depends(auth.get_current_user)) -> list[dict[str, Any]]:
-    """Every pane type the caller's group may use, as its manifest says."""
-    return [
-        m.model_dump(by_alias=True, exclude_none=True)
-        for m in pane_manifest.manifests().values()
-        if _allowed(current_user, m)
-    ]
+    """Every pane type the caller's group may use, as its manifest says --
+    with `refresh` (its shortest interval) when it can refresh by itself."""
+    from ..panes import refresh as pane_refresh
+
+    out = []
+    for m in pane_manifest.manifests().values():
+        if not _allowed(current_user, m):
+            continue
+        body = m.model_dump(by_alias=True, exclude_none=True)
+        if m.refresh_action() is not None:
+            body["refresh"] = {"floor": pane_refresh.floor_seconds(m)}
+        out.append(body)
+    return out
 
 
 class ActionRun(BaseModel):
@@ -55,11 +62,22 @@ class ActionRun(BaseModel):
     # A running background run started again because its `restart_on`
     # inputs changed (D54): what it had shown is kept.
     restart: bool = False
+    # Outputs an input change made stale (its `resets`), cleared in the same
+    # write as this action's results, so the two can't land out of order.
+    clear: list[str] = []
 
 
 class RunStop(BaseModel):
     session: str
     pane: str
+
+
+class PaneRefresh(BaseModel):
+    session: str
+    pane: str
+    # The interval the asking tab runs at: what "fresh enough" is judged by.
+    every: int
+    timezone: Optional[str] = None
 
 
 def run_handler(
@@ -176,9 +194,12 @@ def run_action(
     payload: ActionRun,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = Header(default=None, alias="X-Sync-Origin", max_length=64),
 ) -> dict[str, Any]:
     """Runs a manifest action that needs the server, returning its outputs.
-    The browser writes them into the pane, as it does any run's results."""
+    Given the session and pane it ran for, it also stores them there (D21,
+    §18.2) -- the one place a pane's results are written, for every tab and
+    member at once -- and returns what the pane now holds as `__outputs`."""
     manifest = pane_manifest.get(type_id)
     if manifest is None or not _allowed(current_user, manifest):
         raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
@@ -186,11 +207,110 @@ def run_action(
     inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
     if action is not None and action.poll is not None and manifest.state == "v2":
         return _start_run(db, current_user, manifest, action, payload, inputs)
+    _unsaved(db, current_user, manifest, payload)
     if action is not None and action.request is not None:
-        return run_request(db, current_user, manifest, action, payload.inputs)
-    if action is not None and action.handler is not None and manifest.state == "v2":
-        return run_handler(db, current_user, manifest, action, inputs, payload.cursor)
-    raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")
+        result = run_request(db, current_user, manifest, action, payload.inputs)
+    elif action is not None and action.handler is not None and manifest.state == "v2":
+        result = run_handler(db, current_user, manifest, action, inputs, payload.cursor)
+    else:
+        raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")
+    stored = _store(db, current_user, manifest, action, payload, result, origin)
+    return {**result, "__outputs": stored} if stored is not None else result
+
+
+def apply_outputs(
+    values: dict,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    result: dict[str, Any],
+    load_more: bool = False,
+    clear: tuple[str, ...] = (),
+) -> None:
+    """An action's result written into a pane's outputs, as the pane always
+    did it in the browser: a request replaces them all; a handler sets what
+    it returned, Load more appending or summing (`page`); the action's `out.`
+    resets cleared first (not on Load more), and a fresh run of what the
+    pane is for stamps `ranAt` and a new `resultsVersion` (which clears the
+    selection). Load more keeps both, so checked rows stay checked."""
+    keys = {o.key for o in manifest.outputs}
+    stale = list(clear)
+    if not load_more:
+        stale += [ref.split(".", 1)[1] for ref in action.resets or [] if ref.startswith("out.")]
+    if action.request is not None:
+        stale += list(keys)
+    for key in stale:
+        if key != "resultsVersion":
+            values.pop(key, None)
+    page = action.page
+    for key, value in result.items():
+        if key not in keys:
+            continue
+        if load_more and page is not None and key in page.append:
+            values[key] = [*(values.get(key) or []), *(value or [])]
+        elif load_more and page is not None and key in page.sum:
+            values[key] = _number(_number(values.get(key)) + _number(value))
+        else:
+            values[key] = value
+    if not load_more and (action.main or action.page is not None or action.request is not None):
+        values["ranAt"] = live_store.now_ms()
+        values["resultsVersion"] = int(values.get("resultsVersion") or 0) + 1
+    pane_outputs.fit(values)
+
+
+def _number(value: Any) -> float | int:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return int(number) if number.is_integer() else number
+
+
+# Says "save the session first, then ask again": a pane added a moment ago is
+# still in the browser's debounced save. Checked before anything runs, so the
+# retry doesn't run it twice.
+PANE_NOT_SAVED = "This pane isn't saved yet: save the session and run it again."
+
+
+def _unsaved(db: Session, user: models.User, manifest: pane_manifest.Manifest, payload: ActionRun) -> None:
+    if not payload.session or not payload.pane or manifest.state != "v2":
+        return
+    row, _ = live_store.reachable(db, user.id, payload.session)
+    if row is None or payload.pane not in ((row.state or {}).get("services") or []):
+        raise HTTPException(status_code=409, detail=PANE_NOT_SAVED)
+
+
+def _store(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    payload: ActionRun,
+    result: dict[str, Any],
+    origin: Optional[str],
+) -> Optional[dict]:
+    """Stores an action's outputs in the pane it ran for -- if it says which,
+    returns any (a picker's options are the tab's, D47), and the caller may
+    edit. A viewer's clicks show in their own tab only, as they always did."""
+    if not payload.session or not payload.pane or manifest.state != "v2":
+        return None
+    keys = {o.key for o in manifest.outputs}
+    if not payload.clear and not any(k in keys for k in result):
+        return None
+    row, member = live_store.reachable(db, user.id, payload.session)
+    if row is None or (member is not None and member.permission == "viewer"):
+        return None
+    load_more = payload.cursor is not None
+    try:
+        record, _ = pane_outputs.write(
+            db,
+            row,
+            payload.pane,
+            lambda values: apply_outputs(values, manifest, action, result, load_more, tuple(payload.clear)),
+            origin,
+        )
+    except pane_outputs.OutputError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    return {"version": record.version, "values": record.data}
 
 
 def _pane_of(db: Session, user: models.User, manifest: pane_manifest.Manifest, session: Optional[str], pane: Optional[str]):
@@ -247,3 +367,21 @@ def stop_run(
     except runs.RunError as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
     return {"stopped": stopped}
+
+
+@router.post("/panes/{type_id}/refresh")
+def refresh_pane(
+    type_id: str,
+    payload: PaneRefresh,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+    origin: Optional[str] = Header(default=None, alias="X-Sync-Origin", max_length=64),
+) -> dict[str, Any]:
+    """Runs a pane again if it's due -- once, however many tabs ask (§18.3)."""
+    from ..panes import refresh as pane_refresh
+
+    manifest = pane_manifest.get(type_id)
+    if manifest is None or not _allowed(current_user, manifest):
+        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
+    row, member = _pane_of(db, current_user, manifest, payload.session, payload.pane)
+    return pane_refresh.refresh(db, current_user, row, member, manifest, payload.pane, payload.every, payload.timezone, origin)

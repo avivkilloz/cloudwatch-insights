@@ -179,8 +179,11 @@ const run = async () => {
       "iot.maxResults": 50, "iot.thingResults": groups(env.id).slice(0, 1), "iot.ranAt": Date.now() - 3600_000, "iot.resultsVersion": 3,
     },
   });
-  check(put.status === 200 && put.body.state["iot.in.connections"]?.__cwiSet?.[0] === env.id && put.body.state["iot.out.thingResults"],
-    "The server moves an old IoT session to the new keys", JSON.stringify(Object.keys(put.body?.state ?? {})));
+  // Its results move further: into the pane's own record, beside the state (D21).
+  check(put.status === 200 && put.body.state["iot.in.connections"]?.__cwiSet?.[0] === env.id
+    && put.body.outputs?.iot?.values?.thingResults && !Object.keys(put.body.state).some((k) => k.includes(".out.")),
+    "The server moves an old IoT session to the new keys, its results to the pane's record",
+    JSON.stringify(Object.keys(put.body?.state ?? {})));
   await page.reload();
   await page.click('.rail-row:has(.rail-row-label:text-is("Old IoT"))');
   await page.waitForSelector(`${SHOWN} .result-row-summary:has-text("robot-1")`);

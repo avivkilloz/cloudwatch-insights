@@ -152,6 +152,21 @@ from your picture's menu and is not a session; the strip stays above it.
   CloudWatch or OpenSearch, drag across the stretch you want: the pane's time
   range becomes exactly that (a custom range, to the second) and the query
   runs again over it. **Undo zoom** goes back one step at a time.
+- **Auto-refresh.** A pane that searches or fetches (CloudWatch, OpenSearch,
+  IoT, DynamoDB, S3, Cognito, the API table) can run again by itself: pick
+  an interval with **↻** beside its first card's title, or give the whole
+  session one under **Refresh** in its card (a pane on "Session" follows
+  it). It runs only while the session is open on someone's screen, and once
+  for everyone watching -- five tabs on one dashboard cause one run, whose
+  results reach them all. CloudWatch refreshes at most once a minute (each
+  query is billed by the data it scans); the others every 10 seconds. A
+  refresh that keeps failing says why above the pane and tries less often.
+  The agent can set it too ("refresh this every 5 minutes").
+- **Results are each pane's own.** A run's results are stored per pane on
+  the server, apart from the session's inputs and layout: a refresh or a
+  stream updates only that pane in every open tab, a session can hold
+  several large result sets at once, and typing a query while results arrive
+  never collides with them.
 - **IoT session**: pick one or more environments, then search either **Things**
   (the same "Advanced search" syntax as the AWS console — by name,
   attributes, connectivity, shadow values, group membership, and more) or
@@ -372,9 +387,21 @@ Anything that reaches outside the platform, like sending an HTTP request, it
 fills in for you to send yourself; asking before doing such things is the
 next step. The Global conversation isn't kept across a reload yet.
 
+Every answer is checked before it's left standing: the platform compares
+it with what the turn actually ran -- the calls the agent made, what came
+back, and the sessions it touched as they are afterwards -- and shows that
+as a step ("Checked the answer against what ran"). An answer that claims
+something nothing did ("connected" when the pane isn't running), or doesn't
+do what was asked, is taken back and redone once; if the redo still doesn't
+hold up, it stays with a warning under it saying what the check found. It
+costs one more model call per answer (`agent.check` in Helm turns it off or
+gives it a model of its own).
+
 It needs a LiteLLM proxy (or anything OpenAI-compatible) and a model that is
 good at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
-[DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional).
+[DEPLOYMENT.md](./DEPLOYMENT.md#the-platform-agent-optional). To try a model
+or a prompt change against conversations it has got wrong before, run the
+scenarios in `platform-agent/evals` (its README).
 
 ## Users, groups & login
 

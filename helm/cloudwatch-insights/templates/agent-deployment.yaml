@@ -66,6 +66,12 @@ spec:
             - name: AGENT_MAX_TOKENS
               value: {{ .Values.agent.maxTokens | quote }}
             {{- end }}
+            - name: AGENT_CHECK
+              value: {{ ternary "on" "off" .Values.agent.check.enabled | quote }}
+            {{- if .Values.agent.check.model }}
+            - name: AGENT_CHECK_MODEL
+              value: {{ .Values.agent.check.model | quote }}
+            {{- end }}
             {{- if .Values.agent.serviceKey.existingSecret }}
             - name: AGENT_SERVICE_KEY
               valueFrom:

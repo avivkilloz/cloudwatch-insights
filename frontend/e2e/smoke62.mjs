@@ -8,8 +8,12 @@
 //     covered by backend/tests/test_pane_manifests.py);
 //   - with a reply, the rows are a table of every column; checking rows makes
 //     Export about them and offers them to the agent;
-//   - inputs and rows are the session's: they come back after a reload, under
-//     the v2 keys.
+//   - inputs are the session's, under the v2 keys, and rows are the pane's own
+//     record on the server (D21): both come back after a reload.
+//
+// The reply comes from the backend served as `uvicorn dev.fake_aws:app`, which
+// answers a `.fake` host with what the suite put there: the server stores the
+// rows itself now, so a reply faked in the page would never reach it.
 import { check, clearWorkspace, launch, newSession, openApp, report, SHOWN } from "./harness.mjs";
 
 const ENV = "e2e-Partner";
@@ -80,18 +84,19 @@ const run = async () => {
   await page.click(`${SHOWN} button:text-is("Fetch")`);
   await page.waitForSelector(`${SHOWN} .error-text`, { timeout: 40000 });
   check(
-    JSON.stringify(sent[0]) ===
-      JSON.stringify({ inputs: { connection: conn.id, path: "/orders", query: [{ id: 1, key: "status", value: "open" }], rowsAt: "data.items" } }),
-    "Fetch sends the connection's id, the path, the query rows and where the rows are",
+    JSON.stringify(sent[0]?.inputs) ===
+      JSON.stringify({ connection: conn.id, path: "/orders", query: [{ id: 1, key: "status", value: "open" }], rowsAt: "data.items" }) &&
+      sent[0]?.pane === "api-table" && !!sent[0]?.session,
+    "Fetch sends the connection's id, the path, the query rows and where the rows are -- for this pane of this session",
     JSON.stringify(sent),
   );
   const error = await page.locator(`${SHOWN} .error-text`).innerText();
   check(error.includes("e2e-partner.invalid"), "An unreachable host is the backend's own readable sentence", error);
 
   // ---- 4. a reply, as rows
-  await page.route("**/api/panes/api-table/actions/fetch", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ rows: ROWS, response: { data: { items: ROWS } } }) }),
-  );
+  const fake = await api(page, "PATCH", `/connections/${conn.id}`, { config: { base_url: "https://e2e-partner.fake/v1" } });
+  const put = await api(page, "PUT", `/dev/fake-http?path=${encodeURIComponent("/orders")}`, { data: { items: ROWS } });
+  check(fake.status === 200 && put.status === 200, "Precondition: the backend serves dev.fake_aws, and the connection is its", JSON.stringify([fake, put]));
   await page.click(`${SHOWN} button:text-is("Fetch")`);
   await page.waitForSelector(`${SHOWN} .manifest-table table`);
   const headers = await page.locator(`${SHOWN} .manifest-table th`).allInnerTexts();
@@ -116,11 +121,11 @@ const run = async () => {
   // ---- 5. the session keeps them
   await page.waitForTimeout(2000); // the debounced save
   const live = (await api(page, "GET", "/live-sessions")).body[0];
-  check(live.state["api-table.in.path"] === "/orders" && live.state["api-table.out.rows"]?.length === 12,
-    "Inputs and rows are saved under the v2 keys", JSON.stringify(Object.keys(live.state)));
-  check(!("api-table.out.response" in live.state) || live.state["api-table.out.resultsVersion"] === 1,
-    "…with the run's results version beside them", String(live.state["api-table.out.resultsVersion"]));
-  await page.unroute("**/api/panes/api-table/actions/fetch");
+  const stored = live.outputs?.["api-table"]?.values ?? {};
+  check(live.state["api-table.in.path"] === "/orders" && stored.rows?.length === 12 && !Object.keys(live.state).some((k) => k.includes(".out.")),
+    "Inputs are saved under the v2 keys, and rows in the pane's own record, not the session's state",
+    JSON.stringify(Object.keys(live.state)));
+  check(stored.resultsVersion === 1, "…with the run's results version beside them (the failed Fetch stored none)", String(stored.resultsVersion));
   await page.reload();
   await page.waitForSelector(`${SHOWN} .manifest-table table`);
   check((await page.locator(`${SHOWN} input[aria-label="Path"]`).inputValue()) === "/orders" &&

@@ -57,9 +57,11 @@ const run = async () => {
         "Looked at what you can reach",
         "Created session “Base64”",
         "Ran a pane",
+        // And every answer is checked against what ran (check.py, D55).
+        "Checked the answer against what ran",
       ]),
     "Each step it took is listed, in order, in words", JSON.stringify(steps));
-  check((await lastTurn(page, ".agent-step-ok").count()) === 4, "…each one marked as done");
+  check((await lastTurn(page, ".agent-step-ok").count()) === 5, "…each one marked as done");
   const answer = await lastTurn(page, ".agent-answer").innerText();
   check(answer.includes("aGVsbG8gYWdlbnQ="), "Its answer streams in, carrying the result", answer);
 

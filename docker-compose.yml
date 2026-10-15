@@ -68,6 +68,9 @@ services:
       # Empty leaves them to the model (see helm values: agent.temperature).
       AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-}
       AGENT_MAX_TOKENS: ${AGENT_MAX_TOKENS:-}
+      # Each answer checked against what ran (on/off), by this model or AGENT_MODEL.
+      AGENT_CHECK: ${AGENT_CHECK:-on}
+      AGENT_CHECK_MODEL: ${AGENT_CHECK_MODEL:-}
     depends_on:
       - backend
 

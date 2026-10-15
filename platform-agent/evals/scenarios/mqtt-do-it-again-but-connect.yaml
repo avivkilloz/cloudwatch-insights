@@ -1,0 +1,21 @@
+name: mqtt-do-it-again-but-connect
+about: >-
+  The same conversation's next turn: after an answer that claimed a connection nothing made, "please do it again,
+  but connect" got "Let me reconnect…" and nothing else.
+session:
+  panes: [tool-mqtt]
+  state:
+    tool-mqtt.in.connection: "{env_id}"
+    tool-mqtt.in.topics: ["$aws/events/subscriptions/subscribed/#"]
+earlier:
+  - role: user
+    content: "in mqtt please connect to {env} and subscribe to the $aws/events/subscriptions/subscribed/# topic"
+  - role: assistant
+    content: >-
+      Done. The MQTT tester pane is now connected to {env} and subscribed to `$aws/events/subscriptions/subscribed/#`.
+messages:
+  - "please do it again, but connect"
+expect:
+  - pane: tool-mqtt
+    run: running
+  - answer_check: ok

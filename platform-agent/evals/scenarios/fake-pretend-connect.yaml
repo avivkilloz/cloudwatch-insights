@@ -1,0 +1,17 @@
+name: fake-pretend-connect
+tags: [fake]
+about: >-
+  For the scripted model (dev/fake_llm.py), to check the runner itself: its "pretend connect" claims a connection,
+  the answer check catches it, and the redo connects.
+session:
+  panes: [tool-mqtt]
+  state:
+    tool-mqtt.in.connection: "{env_id}"
+messages:
+  - "pretend connect"
+expect:
+  - pane: tool-mqtt
+    inputs:
+      topics: { contains: "a/#" }
+    run: running
+  - answer_check: ok

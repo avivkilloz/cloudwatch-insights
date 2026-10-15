@@ -209,6 +209,10 @@ export interface PaneManifest {
   implies?: string;
   views: ManifestView[];
   legacy_drop: string[];
+  /** It can run again by itself (§18.3), at most every `floor` seconds. */
+  refresh?: { floor: number };
+  /** Each run costs money (Logs Insights bills by data scanned, D22). */
+  cost?: "per_run";
 }
 
 let loaded: PaneManifest[] = [];

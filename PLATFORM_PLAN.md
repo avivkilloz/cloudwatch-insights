@@ -1120,7 +1120,9 @@ foundation the next one needs.
       unchanged. MQTT moves its connection server-side.
   - **3c, sessions as live dashboards:** view mode, session variables,
     auto-refresh with coalescing, and Home → session (R2–R4, §4.6). R1 holds
-    throughout, and each step's browser suites check it.
+    throughout, and each step's browser suites check it. Three PRs (D56, §18):
+    3c-1 (results in their own store, auto-refresh) built 2026-10-15; then view
+    mode and variables; then Home.
   - **3d, permissions, categories and a first new pane:**
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).
@@ -1213,6 +1215,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D52 | 2026-10-14 | **The log-volume histogram counts every match: always for OpenSearch, on request for CloudWatch** (§16.11). OpenSearch adds a date-histogram aggregation to the same search. CloudWatch runs a second, counting query only while the pane's Histogram toggle is on (off by default). | The user's choice. Counting from the returned rows would cover only the newest 100 and couldn't show when a spike began. OpenSearch's count is free, but CloudWatch bills per GB scanned, and a second query scans the log groups again. |
 | D53 | 2026-10-14 | **A chart on table-like results is picked in the pane, not fixed by its manifest** (§16.11). Type, x, y, series and aggregate are chosen from the result's own columns, and stored as a view key (D48). So it syncs to every member, templates keep it, and the agent sets it with `set_pane_view`. | The user's choice. The API table's columns aren't known until it runs, so a manifest-fixed chart couldn't chart it. The builder (Phase 4) will add manifest-defined charts on top. |
 | D54 | 2026-10-14 | **An MQTT connection is a background run, held by the server** (§16.13). It follows D51's rule: open while someone is looking, closed 2 minutes after the last viewer leaves, at most 5 open per user. The pane's topics are an input, and changing them while connected reconnects as whoever changed them, keeping the messages. Publishing is a person's action (`effects: external`); the agent can connect and read, but not publish. | D6 moved the connection to the server, and D51 already answered "only while someone is looking" the way the user wanted. A stream is just a run whose poll is the connection's buffer. The 2 minutes are the plan's (§4.4) "closes a couple of minutes after the last viewer leaves". |
+| D55 | 2026-10-15 | **Every answer of the agent's is checked against what its turn ran** (§17). One more model call reads the request, the turn's tool calls and what they returned, the sessions it touched as they are after the answer, and the answer, and says ok, not done, or unsupported. A failed answer is taken back and redone once; a second miss stands with what was found under it. Alongside, replayable scenarios run against the real model on demand. | The user's choice, over a check only on turns that changed something, scenarios only, or a second supervising agent. The prompt already forbade claiming what no tool showed, and the agent claimed an MQTT connection three turns running anyway. The root cause was facts the agent couldn't read (§17.1); the check is for the next kind of miss, and costs one call per answer. |
+| D56 | 2026-10-15 | **3c ships as three PRs: auto-refresh first** (with results moving to their own store, D21), then view mode and session variables, then Home → a session (§18). | The user's choice. The store is what makes a refresh cheap: without it, every refresh resends the whole session to every tab. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3239,6 +3243,231 @@ Where the build departed from §16.13, and what came with it:
       its re-run with narrower bars, Undo zoom.
 
     Both fail against the frontend on main.
+
+## 17. Checking the agent's work (D55)
+
+_Written 2026-10-15, after a conversation in which the agent said it had connected
+the MQTT tester three turns running, and never had._
+
+### 17.1 What went wrong, and the fixes that needed no judge
+
+Traced turn by turn, each failure had a cause in what the agent could read or in how
+a turn ends, not in the model alone:
+
+- **"Connected and listening", from filling the topics in.** `set_pane_inputs`
+  doesn't run anything, and its description says so. But neither its result nor
+  `get_session` said whether the pane's run was going: a run's status and the "Connected
+  to…" line weren't lists, so the description left them out. Now a background pane
+  reports its `run` (running, stopped and by whom, or "not running: run_pane starts it
+  (Connect)") and its short text `outputs`. `set_pane_inputs` says "Only the inputs
+  changed; nothing ran."
+- **`query: []`, refused, then silence.** `get_session` showed the API table's query as
+  the rows its editor keeps, and the model sent that shape back. Inputs are now
+  described in the shape `set_pane_inputs` takes (`agent_value`), and the stored rows and
+  `[]` are accepted too. The nudge after a failed call quotes the failure. A turn that
+  still stops there says what failed, not "ran the steps but didn't write an answer".
+- **"Let me reconnect … again." and nothing.** The guard only caught an announced step
+  ending on a colon. It now also catches a last sentence that says what the agent is
+  about to do ("Let me…", "I'll…"), ending on a period, while the turn has called
+  nothing.
+
+### 17.2 The check (D55)
+
+- **What it reads:**
+  - the request in the user's words;
+  - the turn's ledger (each call's arguments, cut to 300 characters, and what it
+    returned, cut to 600);
+  - the sessions the turn touched, read by the platform after the answer (6,000
+    characters each, at most three);
+  - the answer.
+
+  The after-read is what lets "connected" be checked against the pane, not against the
+  agent's memory.
+- **What it says:** JSON, `{"verdict": "ok" | "not_done" | "unsupported", "problems":
+  […]}`.
+  - "Unsure" is ok.
+  - Style is not its business.
+  - An answer that says plainly it couldn't is ok.
+- **What happens:**
+  - A failed answer is taken back (the same retract the grounding check uses), and the
+    agent is told what was found, once per turn. A turn the grounding check already
+    redid isn't redone again.
+  - A second miss stands, with the problems under it.
+  - The check is a step of the platform's own in the chat ("Checked the answer against
+    what ran"). It isn't sent back in the history.
+- **It never blocks.**
+  - A check that fails or can't be read leaves the answer as it is, logged.
+  - It runs on its own HTTP client, made per turn.
+- **Settings:**
+  - `AGENT_CHECK` (on by default) and `AGENT_CHECK_MODEL` (the agent's model unless set);
+    in Helm, `agent.check`.
+  - It runs at temperature 0, not streamed, capped at 600 tokens.
+- **Cost:** one model call per answered turn, and one more when an answer is redone.
+
+### 17.3 Scenarios
+
+`platform-agent/evals`: each scenario gives
+- a session to start from;
+- earlier turns, if any;
+- the messages;
+- what the session must hold afterwards: inputs, a run's status, view keys, and the
+  check's verdict.
+
+The runner:
+- drives `/api/agent/chat` the way the browser does;
+- runs as a user in an `evals` group, so with an ordinary user's access;
+- repeats each scenario and reports a pass rate.
+
+It is seeded from the conversation above. A `fake`-tagged scenario checks the runner on
+the scripted model. It isn't in CI: it needs a model and costs money. It is for trying
+a model or a prompt before users meet the failure again.
+
+### 17.4 Not done, on purpose
+
+- **A second, supervising agent.** It would double the cost and latency, and it would
+  have had the same blind spot: the facts it needed weren't readable.
+- **Checking only turns that changed something.** It misses the turn that should have
+  acted and didn't.
+
+## 18. Phase 3c in detail: sessions as live dashboards
+
+_Detailed 2026-10-15. Three PRs (D56): **3c-1** results in their own store, and
+auto-refresh; **3c-2** view mode and session variables; **3c-3** Home → a
+session._
+
+### 18.1 Why the store comes first
+
+Today every result is a key in the session's state (`<pane>.out.<key>`). So:
+- every write of one, whether a 1-second poll, a Load more, or a run, resends
+  the whole session;
+- every other tab then GETs the whole session and merges it key by key;
+- a session over 4 MiB has *every* pane's results dropped by the browser's
+  `capSession`.
+
+Auto-refresh would turn each of those into a timer. Results also make the
+session's version move, so a refresh landing while someone types a query
+makes their save a 409 to merge.
+
+### 18.2 The store (3c-1, D21)
+
+- **`pane_outputs`**: one record per (session, pane). It holds the pane's output
+  values (results, `run`, `ranAt`, `resultsVersion`), a version of its own, and
+  `updated_at`. It is deleted with its session (cascade), and with its pane: a
+  session write that drops a pane from `services` drops its record, since pane ids
+  are reused.
+- **One writer: the server.** `pane_outputs.write(db, row, pane, change, origin)`
+  locks the record, edits a copy, checks the size and bumps the version. It
+  announces `{kind: "outputs", client_id, pane, version, origin}` to every
+  participant on commit. It never touches the session's own version. The writers:
+  - **The action endpoint**, given `session` and `pane`, runs a `request` or
+    `handler` action and stores its outputs itself. It applies the action's
+    `resets` and `page` rules (append, sum), and `ranAt` and `resultsVersion` on a
+    fresh run, as the browser used to. It returns them with the result. A caller
+    who can't edit gets the result back and nothing stored, which is how a
+    viewer's clicks already behaved.
+  - **Background runs** (`runs._write`).
+  - **The agent** (`run_pane`).
+  - **Clears.** An input change's `resets` of `out.` keys go as `clear` on the
+    first action they trigger, or alone (`POST …/outputs/{pane}/clear`). The
+    agent's `set_pane_inputs` clears the same way.
+- **Size.** Each pane may hold 4 MiB, the old whole-session budget, with the same
+  halving of the longest list past it. The session state's 4 MiB now holds
+  inputs, views and the chat only.
+- **Reading.** Every session GET carries `outputs: {pane: {version, values}}`
+  beside `state`, and `GET …/outputs?pane=` reads one pane. A tab fetches a
+  pane's outputs on its event, and only when the version is newer than its own.
+- **Migration.** `<pane>.out.*` keys found in stored state (old rows, an old tab's
+  PUT, an IndexedDB copy) are moved into a pane's record if it has none, and
+  dropped from the state otherwise: a record already there is newer. It happens on
+  read and on every write, with no marker, like the v2 key migration.
+- **The browser** keeps outputs in a store beside the workspace. It is not in
+  IndexedDB, not in the sync fingerprint and not in templates, and is filled from
+  GETs and events. A pane reads its outputs from there. It writes them only
+  through the API, applying what comes back.
+
+### 18.3 Auto-refresh (3c-1, R4)
+
+- **Settings.**
+  - Per pane: `<pane>.refresh`, in seconds; 0 is off; unset follows the session.
+  - Per session: `refresh`. Both live in the session's state, so they sync,
+    templates keep them, and the agent sets them (`set_refresh`).
+- **Who can refresh.** A pane can refresh when its main action isn't
+  `effects: external`, `live`, or a stream (a poll with `append`). That covers
+  the API table, the AWS panes, CloudWatch and OpenSearch, but not Send, MQTT
+  or the tools worked out as you type.
+- **When a tab asks for a refresh.**
+  - The timer runs only while the session is on screen and the tab is visible.
+  - On return, a refresh that is overdue (by its `ranAt`) is asked for at once.
+  - Each ask is jittered by up to 2 s, so tabs don't arrive together.
+- **Coalesced on the server** (`POST /api/panes/{type}/refresh`).
+  - Under the record's lock, a refresh is skipped when:
+    - the results are fresher than 80% of the interval;
+    - another refresh started less than an interval ago;
+    - a run is going.
+  - Otherwise the refresh marks `refreshing` and runs the main action with the
+    session's stored inputs, as the caller. The result reaches every tab through
+    the store's event.
+  - Five tabs watching cause one run.
+- **Floors** (D22):
+  - 10 s by default, and 60 s for a pane type that declares `cost: per_run`
+    (CloudWatch: Logs Insights bills each query by data scanned).
+  - `REFRESH_FLOOR_SECONDS` and `REFRESH_FLOOR_COSTLY_SECONDS` raise them.
+  - The picker offers nothing below the floor, and says what a per-run pane costs.
+- **Failures** are counted on the record (`refresh: {failures, error}`), so every
+  viewer sees why. The interval doubles per failure, up to an hour, and a success
+  resets it.
+- **Viewers.** A viewer can't refresh in 3c-1, the same as they can't run; view
+  mode (3c-2) is where a viewer-watched dashboard is decided.
+
+### 18.4 Tests
+
+- **Backend:**
+  - the store's write path, version and event;
+  - migration of `out.*` from state;
+  - a dropped pane's record going;
+  - the action endpoint storing, and append and clear;
+  - runs and agent writes;
+  - refresh coalescing, floors and failures;
+  - a viewer refused;
+  - the session's version unmoved by results.
+- **Browser:**
+  - a results write reaches another tab without a session refetch;
+  - an input typed while results arrive isn't lost;
+  - auto-refresh runs once for two tabs, pauses while the session is hidden, and
+    shows a failure;
+  - the existing suites unchanged.
+
+### 18.5 3c-1 as built
+
+Where the build departed from §18.2–§18.4, and what it found:
+
+- **No waiting for a save before each run.** A stored action for a pane the
+  server doesn't have yet answers 409 *before running anything*; the browser saves
+  and asks again. Saving before every action first made each one a round trip
+  slower; S3's folder click was the one a suite caught.
+- **Replies carry the stored outputs** (`__outputs` on an action, `outputs` on a
+  refresh). A write's event carries the writer's origin, and the asking tab skips
+  it as its own echo: a refresh that failed was stored, shown in every other tab,
+  and missing from the tab that asked.
+- **The agent reads outputs as before**, through `_full`, the state with each
+  pane's record back under `out.`. Its writers go through the store, and an
+  input's `out.` resets are cleared there.
+- **The test helpers read the same way** (`_state`, `_row`), so the existing
+  assertions keep checking the same values. New tests pin that the state holds
+  none.
+- **Suites can no longer fake a result in the page alone**: another tab never
+  sees it. `dev/fake_aws` answers `.fake` HTTP hosts (`PUT /api/dev/fake-http`),
+  and `harness.mockPaneActions` hands what it fakes to `/api/dev/store-result`,
+  which stores it with the server's own `apply_outputs`.
+- **The MQTT presign route is gone**, one release after the port, as D49 said.
+  Its probe stays, for the server's own connect errors.
+- **Checked:**
+  - Backend: `test_pane_outputs.py` (6) and `test_pane_refresh.py` (7).
+  - Browser: smoke75 (11 checks): two tabs, one run per interval; the other tab
+    fetching only the pane's outputs; nothing off screen; the session default; a
+    failure shown; typing through a refresh.
+  - The cross-tab suites (smoke62, 66, 67, 69, 71) were updated for results
+    beside the state.
 
 ## 12. Research sources
 

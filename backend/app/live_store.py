@@ -28,7 +28,7 @@ from typing import Any, Callable, Optional, TypeVar
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import models
+from . import models, pane_outputs
 from .panes import state as pane_state
 from .live_events import notify
 
@@ -204,11 +204,12 @@ def create(db: Session, user_id: int, title: str, state: dict, origin: Optional[
         type=SESSION_TYPE,
         title=next_title(title.strip() or "Session", taken),
         position=(last + 1) if last is not None else 0,
-        state=pane_state.migrate(state),
+        state={},
         truncated=False,
         version=0,
     )
     db.add(row)
+    row.state = pane_outputs.move_out(db, row, pane_state.migrate(state))
     commit_write(db, row, origin)
     return row
 
@@ -249,6 +250,10 @@ def mutate(
     state = pane_state.migrate(copy.deepcopy(row.state or {}))
     try:
         result = change(state, row, member)
+        # Outputs live in their panes' records (D21, §18.2): any a row still
+        # carries move there, and a pane `change` removed loses its record.
+        state = pane_outputs.move_out(db, row, state)
+        pane_outputs.prune(db, row, state.get("services") or [])
         _check_size(state)
     except Exception:
         db.rollback()

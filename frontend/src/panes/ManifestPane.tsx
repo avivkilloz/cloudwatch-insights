@@ -13,8 +13,10 @@
  *   every change and never stored: the inputs are, and they come back the
  *   same. A `run_on: click` one keeps its last result in memory too;
  * - a server action's outputs (a declarative request, or a handler such as
- *   DynamoDB's scan) under "<pane>.out.<key>", with `ranAt`/`resultsVersion`
- *   beside them, as every run's results are; Load more appends to them;
+ *   DynamoDB's scan), with `ranAt`/`resultsVersion` beside them, in the
+ *   pane's own record on the server (D21, sessions/outputs.ts) -- not the
+ *   session's state: the server stores them, applying Load more's append and
+ *   an input's resets, and every tab follows them by the pane's own version;
  * - how the pane looks (expanded rows) under "<pane>.view.<key>", synced like
  *   the inputs so the agent or another member can show you something (D48);
  * - a picker's options in this component's memory, never the session (D47).
@@ -25,11 +27,12 @@
  */
 
 import { Dispatch, ReactNode, SetStateAction, useEffect, useId, useMemo, useRef, useState } from "react";
-import { api, CredentialSummary, Environment, readableError, Target } from "../api";
+import { api, ApiError, CredentialSummary, Environment, PaneOutputs, readableError, Target } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
+import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
 import { usePaneAddress, useSessions, useSessionState } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
 import { IndicesPicker, LogGroupsPicker, TimeRange } from "./GroupedPicker";
@@ -53,6 +56,7 @@ import HttpResponseView from "./HttpResponseView";
 import { LogsView, RunNote, SortControl } from "./LogsView";
 import { StreamView, TopicsEditor } from "./StreamView";
 import { ChartItem, HistogramView } from "./chart/ChartView";
+import { RefreshFailure, RefreshPicker, useAutoRefresh } from "./refresh";
 import SavedInputsMenu from "./SavedInputsMenu";
 import { render } from "./template";
 
@@ -123,10 +127,6 @@ function useStoredInput(input: ManifestInput): [unknown, Dispatch<SetStateAction
   return useSessionState<unknown>(`in.${input.key}`, () => defaultOf(input));
 }
 
-function useStoredOutput(output: ManifestOutput): [unknown, Dispatch<SetStateAction<unknown>>] {
-  return useSessionState<unknown>(`out.${output.key}`, undefined);
-}
-
 function useStoredView(view: ManifestView): [unknown, Dispatch<SetStateAction<unknown>>] {
   return useSessionState<unknown>(`view.${view.key}`, () => view.default ?? null);
 }
@@ -175,12 +175,22 @@ function Rendered({ m }: { m: PaneManifest }) {
     else setSecret((prev) => ({ ...prev, [key]: value }));
   }
 
-  const storedOutputs = m.outputs.map((o) => [o, useStoredOutput(o)] as const);
+  const address = usePaneAddress();
+  // Outputs live beside the session, not in it (D21, sessions/outputs.ts):
+  // written by the server, for every tab and member at once. A pane outside
+  // a session keeps its own, in this tab.
+  const outputsAt = address.session ?? `local:${m.id}`;
+  const held = usePaneOutputs(outputsAt, address.pane);
   const storedViews = (m.views ?? []).map((v) => [v, useStoredView(v)] as const);
-  // Undefined until a run, so a pane that never runs anything on the server
-  // (Base64) adds nothing to its session.
-  const [resultsVersion, setResultsVersion] = useSessionState<number | undefined>("out.resultsVersion", undefined);
-  const [ranAt, setRanAt] = useSessionState<number | undefined>("out.ranAt", undefined);
+  const resultsVersion = held.resultsVersion as number | undefined;
+  const ranAt = held.ranAt as number | undefined;
+  const refresh = useAutoRefresh(
+    m,
+    address.session,
+    address.pane,
+    held,
+    hasTimeRange(m) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+  );
 
   const live = useLiveOutputs(m, inputs);
   const [clicked, setClicked] = useState<Outputs>({});
@@ -192,7 +202,6 @@ function Rendered({ m }: { m: PaneManifest }) {
   const errorsPlaced = useMemo(() => placedErrors(m), [m]);
   const targets = useTargets(m);
   const [examplesOpen, setExamplesOpen] = useState<Record<string, boolean>>({});
-  const address = usePaneAddress();
   const { flushAll } = useSessions();
   // A background run's id from its Run's reply until the server's write of
   // it arrives (a moment later, through the event stream): the button stays
@@ -200,7 +209,7 @@ function Rendered({ m }: { m: PaneManifest }) {
   const [awaiting, setAwaiting] = useState<string | null>(null);
 
   const outputs: Values = {};
-  for (const [o, [value]] of storedOutputs) if (value !== undefined) outputs[o.key] = value;
+  for (const o of m.outputs) if (held[o.key] !== undefined) outputs[o.key] = held[o.key];
   Object.assign(outputs, live, clicked);
   const views: Values = {};
   for (const [v, [value]] of storedViews) views[v.key] = value;
@@ -231,15 +240,33 @@ function Rendered({ m }: { m: PaneManifest }) {
     }
   }
 
+  /** Changes an output in this tab only: what the server doesn't store (a
+   * viewer's clicks) or hasn't answered yet (a reset). */
   function setOutput(key: string, value: SetStateAction<unknown>) {
-    storedOutputs.find(([o]) => o.key === key)?.[1][1](value);
+    setLocal(outputsAt, address.pane, (values) => {
+      const next = typeof value === "function" ? (value as (prev: unknown) => unknown)(values[key]) : value;
+      if (Object.is(values[key], next)) return values;
+      const out = { ...values };
+      if (next === undefined) delete out[key];
+      else out[key] = next;
+      return out;
+    });
+  }
+
+  /** What the server stored for this pane, from an action's own reply. */
+  function took(result: Values): boolean {
+    const stored = result.__outputs as PaneOutputs | undefined;
+    if (!stored) return false;
+    applyOutputs(outputsAt, { [address.pane]: stored });
+    return true;
   }
 
   function setView(key: string, value: unknown) {
     storedViews.find(([v]) => v.key === key)?.[1][1](value);
   }
 
-  /** Clears one `resets` entry (`in.search`, `out.items`, `view.expanded`). */
+  /** Clears one `resets` entry (`in.search`, `out.items`, `view.expanded`):
+   * an output only on screen -- the caller has the server clear it too. */
   function clear(ref: string) {
     const dot = ref.indexOf(".");
     const part = ref.slice(0, dot);
@@ -248,8 +275,7 @@ function Rendered({ m }: { m: PaneManifest }) {
       const input = m.inputs.find((i) => i.key === key);
       if (input) setInputValue(key, defaultOf(input));
     } else if (part === "out") {
-      if (key === "ranAt") setRanAt(undefined);
-      else if (key !== "resultsVersion") setOutput(key, undefined);
+      if (key !== "resultsVersion") setOutput(key, undefined);
     } else if (part === "view") {
       setView(key, (m.views ?? []).find((v) => v.key === key)?.default ?? null);
     }
@@ -268,6 +294,7 @@ function Rendered({ m }: { m: PaneManifest }) {
     }
     const next: Values = { ...inputs, ...changes };
     for (const [key, value] of Object.entries(changes)) setInputValue(key, value);
+    const cleared: string[] = [];
     for (const key of Object.keys(changes)) {
       if (Object.is(inputs[key], changes[key])) continue;
       for (const ref of m.inputs.find((i) => i.key === key)?.resets ?? []) {
@@ -275,6 +302,7 @@ function Rendered({ m }: { m: PaneManifest }) {
         // that value stands.
         if (ref.startsWith("in.") && ref.slice(3) in changes) continue;
         clear(ref);
+        if (ref.startsWith("out.") && held[ref.slice(4)] !== undefined) cleared.push(ref.slice(4));
         if (ref.startsWith("in.")) {
           const input = m.inputs.find((i) => i.key === ref.slice(3));
           if (input) next[input.key] = defaultOf(input);
@@ -284,8 +312,17 @@ function Rendered({ m }: { m: PaneManifest }) {
     const ran: string[] = [];
     for (const action of m.actions) {
       if (!(action.on_change ?? []).some((k) => k in changes && !Object.is(inputs[k], changes[k]))) continue;
+      // The first action this sets off clears the stale outputs in the same
+      // write as its own results; with none, they're cleared on their own.
+      const first = ran.length === 0 && !isLoader(m, action) && !action.live && !action.poll;
       ran.push(action.id);
-      run(action, { inputs: next });
+      run(action, { inputs: next, ...(first && cleared.length ? { clear: cleared.splice(0) } : {}) });
+    }
+    if (cleared.length && address.session) {
+      api.clearPaneOutputs(address.session, address.pane, cleared).then(
+        (stored) => applyOutputs(outputsAt, { [address.pane]: stored }),
+        () => undefined, // a viewer's, or a pane not saved yet: it's cleared on screen
+      );
     }
     // A connection going with the old topics reconnects with the new ones,
     // as whoever changed them -- never under the identity of whoever
@@ -309,6 +346,27 @@ function Rendered({ m }: { m: PaneManifest }) {
     const message = missingInput(action, args);
     if (message) throw new Error(message);
     return api.runPaneAction(m.id, action.id, plain(args) as Values);
+  }
+
+  /** Where the server stores what an action returns: this pane of its
+   * session. */
+  function storedIn(opts: RunOptions): { session: string; pane: string; clear?: string[] } | undefined {
+    if (!address.session) return undefined;
+    return { session: address.session, pane: address.pane, ...(opts.clear?.length ? { clear: opts.clear } : {}) };
+  }
+
+  /** An action the server stores the outputs of. A pane added a moment ago
+   * is still in the debounced save, and the server says so (409) before
+   * running anything: save, and ask again -- waiting for a save before every
+   * action made each one a round trip slower. */
+  async function runStored(action: ManifestAction, sent: Values, cursor: unknown, where: ReturnType<typeof storedIn>) {
+    try {
+      return await api.runPaneAction(m.id, action.id, sent, cursor, where);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 409 && where)) throw e;
+      await flushAll();
+      return api.runPaneAction(m.id, action.id, sent, cursor, where);
+    }
   }
 
   async function run(action: ManifestAction, opts: RunOptions = {}) {
@@ -347,19 +405,24 @@ function Rendered({ m }: { m: PaneManifest }) {
         const started = (result.run as RunState | undefined)?.id;
         if (started && run_?.id !== started) setAwaiting(started);
       } else if (action.request) {
-        const result = await api.runPaneAction(m.id, action.id, sent);
-        for (const [o, [, set]] of storedOutputs) set(result[o.key]);
-        setRanAt(Date.now());
-        setResultsVersion((v) => (v || 0) + 1);
+        const result = await runStored(action, sent, undefined, storedIn(opts));
+        if (!took(result)) {
+          for (const o of m.outputs) setOutput(o.key, result[o.key]);
+          setOutput("ranAt", Date.now());
+          setOutput("resultsVersion", (v: unknown) => (Number(v) || 0) + 1);
+        }
       } else if (action.handler) {
         const loader = isLoader(m, action);
         if (!loadMore) for (const ref of action.resets ?? []) clear(ref);
         if (loader) setOptions((prev) => ({ ...prev, [action.id]: undefined }));
-        const result = await api.runPaneAction(m.id, action.id, sent, loadMore ? opts.cursor : undefined);
+        // A picker's options are the tab's own (D47): nothing to store.
+        const where = loader ? undefined : storedIn(opts);
+        const result = await runStored(action, sent, loadMore ? opts.cursor : undefined, where);
         if (loader) {
           setOptions((prev) => ({ ...prev, [action.id]: (result.options as Option[] | undefined) ?? [] }));
           return;
         }
+        if (took(result)) return;
         const page = action.page;
         for (const [key, value] of Object.entries(result)) {
           if (!m.outputs.some((o) => o.key === key)) continue;
@@ -375,8 +438,8 @@ function Rendered({ m }: { m: PaneManifest }) {
         // version (which clears the row selection). Load more keeps both, so
         // the rows you checked stay checked; describing a table is neither.
         if (!loadMore && (action.main || action.page)) {
-          setRanAt(Date.now());
-          setResultsVersion((v) => (v || 0) + 1);
+          setOutput("ranAt", Date.now());
+          setOutput("resultsVersion", (v: unknown) => (Number(v) || 0) + 1);
         }
       }
     } catch (e) {
@@ -414,9 +477,22 @@ function Rendered({ m }: { m: PaneManifest }) {
   const first = m.layout.findIndex((card) => card.title !== undefined && shown(card.when, pane));
   return (
     <div>
+      <RefreshFailure state={refresh} />
       {m.layout.map((card, i) =>
         shown(card.when, pane) ? (
-          <CardView key={i} card={card} pane={pane} saved={i === first ? <SavedInputsMenu pane={pane} /> : null} />
+          <CardView
+            key={i}
+            card={card}
+            pane={pane}
+            saved={
+              i === first ? (
+                <>
+                  <RefreshPicker m={m} state={refresh} />
+                  <SavedInputsMenu pane={pane} />
+                </>
+              ) : null
+            }
+          />
         ) : null,
       )}
     </div>

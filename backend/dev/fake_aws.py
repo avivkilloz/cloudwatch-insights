@@ -18,6 +18,11 @@ What it answers, all of it deterministic:
 - MQTT: an in-process broker. Every second `fake/robot-1/telemetry` gets
   `{"seq": n, "temp": ...}`; a message published to any topic reaches every
   fake connection subscribed to a matching filter.
+- HTTP APIs: a host ending in `.fake` answers here, with what a suite put
+  for that path (`PUT /api/dev/fake-http?path=/orders`, the JSON body) or a
+  404. The API table's Fetch used to be faked in the page, but its results
+  are stored by the server now (D21), and a reply faked in one tab never
+  reached the store or the session's other tabs.
 """
 
 from __future__ import annotations
@@ -28,7 +33,13 @@ import re
 import threading
 from typing import Any, Optional
 
-from app import aws_client, iot_client, mqtt_client, opensearch_client
+from fastapi import Body, Depends, Request
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from urllib.parse import urlparse
+
+from app import auth, aws_client, iot_client, mqtt_client, opensearch_client, tools_http_client
+from app.db import get_db
 from app.main import app  # noqa: F401 - what uvicorn serves
 
 FAKE_PREFIX = "0000"
@@ -291,3 +302,75 @@ def _telemetry() -> None:
 mqtt_client.connect = _connect
 iot_client.publish = _publish
 threading.Thread(target=_telemetry, name="fake-mqtt-telemetry", daemon=True).start()
+
+
+
+# ---------------------------------------------------------------- HTTP APIs
+
+_replies: dict[str, Any] = {}
+_real_send = tools_http_client.send_request
+
+
+def _send(method: str, url: str, headers=None, body=None, timeout: float = tools_http_client.REQUEST_TIMEOUT_SECONDS) -> dict:
+    import json
+
+    parsed = urlparse(url)
+    if not (parsed.hostname or "").endswith(".fake"):
+        return _real_send(method, url, headers=headers, body=body, timeout=timeout)
+    path = parsed.path
+    found = next((v for k, v in _replies.items() if path == k or path.endswith(k)), None)
+    status, text = (200, "OK") if found is not None else (404, "Not Found")
+    return {
+        "status_code": status,
+        "status_text": text,
+        "headers": [{"key": "content-type", "value": "application/json"}],
+        "body": json.dumps(found if found is not None else {"message": f"nothing at {path}"}),
+        "body_truncated": False,
+        "elapsed_ms": 1,
+    }
+
+
+@app.put("/api/dev/fake-http", include_in_schema=False)
+def put_fake_reply(path: str, reply: Any = Body(...), _user=Depends(auth.get_current_user)) -> dict:
+    """What a `.fake` host answers at `path` from now on."""
+    _replies[path] = reply
+    return {"path": path}
+
+
+tools_http_client.send_request = _send
+
+
+
+# ---------------------------------------------------------------- results faked in the page
+
+
+class _StoreResult(BaseModel):
+    type: str
+    action: str
+    session: str
+    pane: str
+    cursor: Any = None
+    clear: list[str] = []
+    result: dict[str, Any] = {}
+
+
+@app.post("/api/dev/store-result", include_in_schema=False)
+def store_result(
+    payload: _StoreResult,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(auth.get_current_user),
+) -> Optional[dict]:
+    """Stores what a suite faked as an action's reply, as the action endpoint
+    stores a real one (D21): only the AWS part of an action is faked in the
+    page (harness.mockPaneActions); storing it is the server's own code."""
+    from app.panes import manifest as pane_manifest
+    from app.routers import panes as panes_router
+
+    manifest = pane_manifest.get(payload.type)
+    action = next((a for a in manifest.actions if a.id == payload.action), None) if manifest else None
+    if action is None:
+        return None
+    run = panes_router.ActionRun(session=payload.session, pane=payload.pane, cursor=payload.cursor, clear=payload.clear)
+    panes_router._unsaved(db, user, manifest, run)  # 409 until the browser's save lands
+    return panes_router._store(db, user, manifest, action, run, payload.result, request.headers.get("x-sync-origin"))

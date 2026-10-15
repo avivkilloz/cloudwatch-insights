@@ -67,13 +67,22 @@ const run = async () => {
   await clearWorkspace(page);
   await page.reload();
   await page.waitForSelector(".rail");
-  await page.route("**/api/panes/api-table/actions/fetch", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ rows: ROWS, response: { items: ROWS } }) }),
-  );
+  // The rows from the backend served as dev.fake_aws (a `.fake` host answers
+  // with what's put there): the server stores a pane's results itself (D21),
+  // so a reply faked in this page would never reach the session's other tab.
+  for (const e of (await api(page, "GET", "/environments")).body ?? [])
+    if (e.name === "e2e-chart-api") await api(page, "DELETE", `/environments/${e.id}`);
+  const apiEnv = (await api(page, "POST", "/environments", { name: "e2e-chart-api" })).body;
+  const conn = (await api(page, "POST", `/environments/${apiEnv.id}/connections`, {
+    type_id: "http_api", name: "api", config: { base_url: "https://e2e-chart.fake/v1" },
+  })).body;
+  await api(page, "PUT", `/dev/fake-http?path=${encodeURIComponent("/orders")}`, ROWS);
 
   // ---- 1. a chart picked beside the title, the library fetched only then
   await newSession(page, "API table");
   await page.waitForTimeout(800);
+  await page.selectOption(`${SHOWN} select[aria-label="Connection"]`, String(conn.id));
+  await page.fill(`${SHOWN} input[aria-label="Path"]`, "/orders");
   await page.click(`${SHOWN} button:text-is("Fetch")`);
   await page.waitForSelector(TYPE(ROWS_CARD));
   check((await page.inputValue(TYPE(ROWS_CARD))) === "" && (await page.locator(`${ROWS_CARD} .chart-section`).count()) === 0,

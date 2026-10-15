@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from urllib.parse import urlparse
 
-from .. import auth, connections, credential_store, credential_types, iot_mqtt_signer, masking, models, schemas, tools_http_client
+from .. import auth, connections, credential_store, credential_types, masking, models, schemas, tools_http_client
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_identity, resolve_identity_values, resolve_target
+from ..resolve import ResolveError, require_flag, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
@@ -91,33 +91,3 @@ def _through_target(
         raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None
     except credential_types.CredentialTypeError as e:
         raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None
-
-
-@router.post("/mqtt/presigned-url", response_model=schemas.MqttPresignedUrlResponse)
-def get_mqtt_presigned_url(
-    payload: schemas.MqttPresignedUrlRequest,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user),
-):
-    try:
-        require_flag(current_user, "tools_enabled", "Tools")
-        environment = resolve_target(db, payload.environment_id, current_user)
-        identity = resolve_identity(db, environment, current_user)
-    except ResolveError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    try:
-        result = iot_mqtt_signer.build_presigned_ws_url(environment.account_id, environment.region, identity)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Failed to build MQTT connection URL: {e}") from e
-
-    diagnostic = iot_mqtt_signer.probe_presigned_url(result["url"])
-
-    return schemas.MqttPresignedUrlResponse(
-        endpoint=result["endpoint"],
-        url=result["url"],
-        expires_in=iot_mqtt_signer.DEFAULT_EXPIRES_SECONDS,
-        diagnostic_status_code=diagnostic["status_code"],
-        diagnostic_body=diagnostic["body"],
-        diagnostic_headers=diagnostic["headers"],
-    )

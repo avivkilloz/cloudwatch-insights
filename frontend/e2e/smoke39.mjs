@@ -57,6 +57,11 @@ const run = async () => {
   // by more than the gap once the nw handle grows it up-left.
   const cwStart = await page.locator(HEADER("CloudWatch")).boundingBox();
   await dragTo(page, cwStart, cwStart.x + 560, cwStart.y + 400);
+  // That leaves the nw handle near the window's bottom, where a drag scrolls
+  // the canvas (section 2) and the resize lands somewhere else: it was just
+  // clear of it until the session card grew a row (Refresh). Bring it up.
+  await page.evaluate(() => document.querySelector(".content").scrollBy(0, 300));
+  await page.waitForTimeout(200);
   const cwBefore = await box("CloudWatch");
   const nw = await page.locator(HANDLE("CloudWatch", "nw")).boundingBox();
   await dragTo(page, nw, nw.x - 60, nw.y - 40);
