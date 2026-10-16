@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, 3d-1 (access per pane type)._
+_Last updated: 2026-10-16, 3d-2 (the catalogue with categories)._
 
 ## Platform plan
 
@@ -1125,8 +1125,18 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - Tests: backend `test_pane_grants.py` (7); smoke80 (11), failing against the
   old frontend; smoke78 updated (nothing in the folded header).
 
-Next: 3d-2, the catalogue with categories (§19.2), then 3d-3, admin-defined
-connection types and a Prometheus pane from a manifest alone.
+#117 merged. This round's PR:
+- **3d-2, the catalogue with categories** (PLATFORM_PLAN.md §19.2, D66):
+  categories as data with a fixed key, an admin's placement pinning a pane,
+  deleting moving the panes, favourites and hidden per person; the five lists
+  of panes (default page, Add list, strip, session card, group form) all read
+  one catalogue; Settings -> Catalogue to arrange it; the agent's
+  `get_context` gives each kind its category.
+- Tests: backend `test_catalogue.py` (8) and a `get_context` case; smoke81
+  (13), failing against the old frontend.
+
+Next: 3d-3, admin-defined connection types and a Prometheus pane from a
+manifest alone (§19.3), detailed before it is built.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1296,9 +1306,8 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3d-2 (the catalogue with categories) and 3d-3 (admin-defined connection
-   types, a Prometheus pane), detailed in PLATFORM_PLAN.md §19.2 before each
-   is built. Follow-ups if
+1. 3d-3 (admin-defined connection types, a Prometheus pane), detailed in
+   PLATFORM_PLAN.md §19.3 before it is built. Follow-ups if
    wanted: more kinds of variable (text, a choice), a variable bound to a
    plugin's own input type, and an admin-set group default home page.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
