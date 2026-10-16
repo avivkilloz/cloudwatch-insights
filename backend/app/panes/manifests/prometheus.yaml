@@ -1,0 +1,120 @@
+id: prometheus
+label: Prometheus
+order: 200
+group: Services
+# Its own category (D66): created the first time a pane suggests it.
+category: Observability
+# No flag (D65): granted to no group until an admin ticks it.
+about: >-
+  Runs a PromQL range query against a Prometheus connection over a time range and shows the series as a time-series
+  chart and a table, one row per series and timestamp.
+description: Query Prometheus with PromQL and chart the series.
+help: >-
+  Pick a Prometheus connection, write a PromQL query and a time range, and Run: every series comes back as a line on
+  the chart and as rows in the table under it. Requests are signed with your group's identity on that connection.
+state: v2
+rendered: true
+# Built from this file alone (D67): the connection type it reaches is
+# declared here, seeded once, then an admin's to edit.
+connection_types:
+  - id: prometheus
+    label: Prometheus
+    description: A Prometheus server's HTTP API, at its base URL (e.g. https://prometheus.example.com).
+inputs:
+  - key: connection
+    type: connection
+    connection_type: prometheus
+    label: Connection
+    help: The Prometheus connection to query.
+  - key: query
+    type: text
+    label: PromQL
+    rows: 3
+    placeholder: rate(http_requests_total[5m])
+    default: "up"
+    help: 'A PromQL expression, e.g. up, or sum by (job) (rate(http_requests_total[5m])).'
+  - key: preset
+    type: choice
+    default: 3600
+    help: How far back to query, in seconds, or "custom" to use customStart/customEnd.
+    choices: [300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800, custom]
+    choice_labels:
+      "300": Last 5 minutes
+      "900": Last 15 minutes
+      "1800": Last 30 minutes
+      "3600": Last 1 hour
+      "10800": Last 3 hours
+      "21600": Last 6 hours
+      "43200": Last 12 hours
+      "86400": Last 1 day
+      "259200": Last 3 days
+      "604800": Last 7 days
+      custom: Custom range…
+  - key: customStart
+    type: text
+    default: ""
+    help: 'Start of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+  - key: customEnd
+    type: text
+    default: ""
+    help: 'End of a custom range, in the user''s local time: "YYYY-MM-DDTHH:mm".'
+actions:
+  - id: run
+    main: true
+    run_label: Run
+    busy_label: Running…
+    requires: { connection: Choose a connection first., query: Write a query first. }
+    request:
+      method: GET
+      connection: connection
+      fixed_path: /api/v1/query_range
+      window: { preset: preset, start: customStart, end: customEnd }
+      params:
+        query: { input: query }
+        start: { window: start }
+        end: { window: end }
+        step: { window: step }
+      # query_range answers {data: {result: [{metric: {...}, values: [[t, "v"], ...]}]}}:
+      # a row per series and timestamp, the series' labels as columns and as one name.
+      rows:
+        at: data.result
+        explode: values
+        spread: metric
+        labels: { column: series, from: metric }
+        columns:
+          time: { from: "0", as: time }
+          value: { from: "1", as: number }
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+    inspect: true
+    config: { chart: chart }
+  - key: response
+    render: json
+views:
+  - key: chart
+    kind: chart
+    default: { type: timeseries, x: time, y: value, agg: avg, series: series }
+layout:
+  - title: Query
+    items:
+      - input: connection
+      - input: query
+      - toolbar:
+          - time_range: { preset: preset, start: customStart, end: customEnd }
+          - action: run
+  - title: Series
+    clear: [rows, response]
+    when: { output: rows, present: true }
+    aside:
+      - chart: rows
+    items:
+      - chart: rows
+      - output: rows
+# The rows of its list output, as the pane draws them: no code for the agent
+# to look at one either.
+inspect:
+  help: Shows one row of the last run in full.
+agent:
+  run: Runs the range query over the time range and shows the series in the pane; you get the row count and a sample.

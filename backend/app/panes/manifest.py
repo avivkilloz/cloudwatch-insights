@@ -353,6 +353,23 @@ class AgentInfo(_Strict):
     run: str = ""
 
 
+class ConnectionTypeField(_Strict):
+    key: str
+    label: str
+    help: str = ""
+    required: bool = False
+
+
+class ConnectionTypeDecl(_Strict):
+    """A connection type the pane needs (D67): an HTTP API of a kind, seeded
+    when missing and then an admin's to edit. Its Base URL is always there."""
+
+    id: str
+    label: str
+    description: str = ""
+    fields: list[ConnectionTypeField] = []
+
+
 class Manifest(_Strict):
     id: str
     label: str
@@ -362,6 +379,8 @@ class Manifest(_Strict):
     # The catalogue category it suggests (D66), by the category's key; its
     # group when absent. Only until an admin places it (catalogue.py).
     category: Optional[str] = None
+    # Connection types this pane reaches that may not exist yet (D67).
+    connection_types: list[ConnectionTypeDecl] = []
     # The group switch that covered it before access was per pane type (D65):
     # read once, to migrate those switches into grants, and to keep them as
     # shorthand in the API. A pane type without one is granted one by one.

@@ -389,11 +389,13 @@ async def get_context() -> dict:
                 }
                 for t in _environments(db, user)
             ],
-            # HTTP API connections, for a pane's `connection` input (the API
-            # table): names and base URLs, never an identity.
+            # Every HTTP connection (D67), for a pane's `connection` input of
+            # its type -- the API table's HTTP APIs, a Prometheus pane's
+            # Prometheus servers: names, types and base URLs, never an identity.
             "http_apis": [
-                {"id": t["id"], "name": t["label"], "base_url": t["config"].get("base_url")}
-                for t in connections.targets(db, user, connections.HTTP_API)
+                {"id": t["id"], "name": t["label"], "type": t["type_id"], "base_url": t["config"].get("base_url")}
+                for t in connections.targets(db, user)
+                if t["type_id"] != connections.AWS
             ],
             # Each with the catalogue category it's listed under (D66), so
             # "a tool for X" can be answered from what the person sees.
