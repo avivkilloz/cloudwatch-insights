@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, the direction after Phase 3 (PLATFORM_PLAN.md §20, D68–D74)._
+_Last updated: 2026-10-16, the direction after Phase 3 (PLATFORM_PLAN.md §20, D68–D79) and the 4a plan (§21, D80)._
 
 ## Platform plan
 
@@ -1155,8 +1155,12 @@ yes, iframes opaque and marked), workflows kept as pipelines on their own page
 with doors to and from sessions, the Builder a per-group grant with code safe
 by where it runs, the agent building through the same definitions, and
 **the store repo** -- what's built here written through to git in exactly a
-plugin repo's format, never a deployment's values or state. Phase 4 is now
-4a (the store repo) then 4b (workflows).
+plugin repo's format, never a deployment's values or state. Then, from the
+user's questions: the workflow screens (D75), published templates made portable
+by the Environment variable (D76), refresh "on open" for dashboards (D77),
+namespaced ids `<namespace>:<name>` (D78), and the first audience -- the user's
+own teams, as groups (D79). Phase 4 is now 4a (the store repo, with run on
+open; detailed in §21, D80), 4b (workflows), 4c (published templates).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1326,10 +1330,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 4a, the store repo (PLATFORM_PLAN.md §20.4, §20.5), then 4b,
-   workflows (§5, §20.2) -- each detailed in PLATFORM_PLAN.md before it is
-   built. §20.6's open questions (templates in the store, ids against
-   installed plugins, the first audience) are settled as they come up. Follow-ups if wanted:
+1. Phase 4a as planned in PLATFORM_PLAN.md §21 (the store repo, and run on
+   open), once the user has read it; then 4b, workflows (§5, §20.2, §20.7),
+   detailed before it is built. §20.6's open question (who a scheduled run
+   acts as) is settled before triggers. Follow-ups if wanted:
    Prometheus instant queries and label pickers, more kinds of variable. Follow-ups if
    wanted: more kinds of variable (text, a choice), a variable bound to a
    plugin's own input type, and an admin-set group default home page.
