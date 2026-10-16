@@ -60,7 +60,9 @@ const V = ".session-body:not([hidden])";
   check(JSON.stringify(groups) === JSON.stringify(["New session", "Platform"]),
     "Home leads with the new-session card, then the platform's pages", JSON.stringify(groups));
   const paneGroups = await page.locator('.home > .panel:has(> h2:text-is("New session")) h3').allTextContents();
-  check(JSON.stringify(paneGroups) === JSON.stringify(["Services", "Tools"]),
+  // The catalogue's categories (D66): Services and Tools first, then any a
+  // pane brought (Prometheus' Observability).
+  check(JSON.stringify(paneGroups.slice(0, 2)) === JSON.stringify(["Services", "Tools"]),
     "…and what goes in a session is grouped into services and tools", JSON.stringify(paneGroups));
   const platformCards = await page.locator('.home > .panel:has(> h2:text-is("Platform")) .home-card-title').allTextContents();
   check(!platformCards.includes("Aggregator") && platformCards.includes("Agent"),

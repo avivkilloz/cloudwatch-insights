@@ -178,7 +178,7 @@ const TPL = `Template under Add ${Date.now()}`;
   await page.click(".session-bar-add");
   await page.waitForSelector(".session-add-menu");
   const menuHeadings = await page.locator(".session-add-heading").allTextContents();
-  check(JSON.stringify(menuHeadings) === JSON.stringify(["Services", "Tools", "Templates"]),
+  check(menuHeadings[0] === "Services" && menuHeadings[1] === "Tools" && menuHeadings[menuHeadings.length - 1] === "Templates",
     "The strip's ＋ offers templates last, after the one-click services and tools", JSON.stringify(menuHeadings));
   check((await page.locator(`.session-add-template:has-text("${TPL}")`).count()) === 1,
     "…including the one just saved");

@@ -111,7 +111,8 @@ const run = async () => {
       moveInset: [Math.round(c.right - move.right), Math.round(move.top - c.top)],
     };
   });
-  check(JSON.stringify(form.labels) === JSON.stringify(["Name", "Description", "Services", "Tools", "Layout", "Mode", "Refresh", "Variables", "Members"]),
+  // An add row per catalogue category (D66): Observability is Prometheus'.
+  check(JSON.stringify(form.labels) === JSON.stringify(["Name", "Description", "Services", "Tools", "Observability", "Layout", "Mode", "Refresh", "Variables", "Members"]),
     "The card's rows are its name, description, services, tools, layout, mode, refresh, variables and members", JSON.stringify(form.labels));
   check(form.labelLefts.length === 1 && form.valueLefts.length === 1, "…every label in one column and every value in the next",
     JSON.stringify(form));
@@ -150,7 +151,7 @@ const run = async () => {
   await page.waitForSelector(CARD);
   check((await page.locator(`${CARD} [aria-label="Expand the session card"]`).count()) === 1, "…and stays folded, kept with the session");
   await page.click(`${CARD} [aria-label="Expand the session card"]`);
-  check((await page.locator(`${CARD} .session-card-row`).count()) === 9, "…until it's expanded again");
+  check((await page.locator(`${CARD} .session-card-row`).count()) === 10, "…until it's expanded again");
   const inset = await page.evaluate(() => {
     const h = document.querySelector(".agent-dock .agent-panel-head").getBoundingClientRect();
     const p = document.querySelector('.agent-dock [aria-label="Account menu"]').getBoundingClientRect();

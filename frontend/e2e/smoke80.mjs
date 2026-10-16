@@ -50,16 +50,16 @@ const run = async () => {
   check(services.includes("CloudWatch") && services.includes("IoT"), "…and each service", JSON.stringify(services));
   check((await page.locator(`${ROW_OF("Agent")} .checkbox-item`).innerText()).includes("Platform agent"),
     "The Platform agent is a row of its own");
-  check((await page.locator(`${EDITOR} input[type=checkbox]:checked`).count()) === tools.length + services.length,
+  check((await page.locator(`${EDITOR} .group-panes input:checked`).count()) === (await page.locator(`${EDITOR} .group-panes input`).count()) &&
+    !(await page.locator(`${ROW_OF("Agent")} input`).isChecked()),
     "A new group starts with every pane type, ticked where it can be seen (and not the agent)");
 
   await page.locator(`${EDITOR} .session-card-section:has(h3:text-is("Panes"))`).screenshot({ path: `${SHOT}/80-panes.png` });
 
-  // Only Base64: None on both rows, then the one tick.
+  // Only Base64: None on every row, then the one tick.
   await page.fill("#group-name", GROUP);
-  await page.click(`${ROW_OF("Services")} button:text-is("None")`);
-  await page.click(`${ROW_OF("Tools")} button:text-is("None")`);
-  check((await page.locator(`${ROW_OF("Tools")} input:checked, ${ROW_OF("Services")} input:checked`).count()) === 0,
+  for (const none of await page.locator(`${EDITOR} .group-panes-toggle button:text-is("None")`).all()) await none.click();
+  check((await page.locator(`${EDITOR} .group-panes input:checked`).count()) === 0,
     "None on a row unticks it");
   await page.locator(`${ROW_OF("Tools")} .checkbox-item:has-text("Base64") input`).check();
   await page.click(`${EDITOR} .credential-view-foot button:text-is("Create")`);
