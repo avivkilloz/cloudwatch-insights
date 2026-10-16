@@ -30,6 +30,11 @@ is going:
   re-run), **chat** with people and with agents, and a **code** section
   (code-server with Claude, working in the context of the session). These four
   already exist as placeholder pages in `pages/pageTypes.tsx`.
+- **What's built here is kept as a plugin** (PLATFORM_PLAN.md §20.4, D70): pane
+  types, steps, workflows, credential and connection types made in the platform
+  are written through to a git repo in exactly a plugin repo's format; never a
+  deployment's values or state (credentials, connections, users, sessions, runs),
+  which stay in Postgres.
 - **A platform agent** that acts on the platform itself — creating and filling
   sessions, driving the tools — not only answering questions about what is open.
 

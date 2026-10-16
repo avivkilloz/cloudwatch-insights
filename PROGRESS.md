@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, 3d-3 (connection types, Prometheus from a manifest)._
+_Last updated: 2026-10-16, the direction after Phase 3 (PLATFORM_PLAN.md §20, D68–D74)._
 
 ## Platform plan
 
@@ -1147,8 +1147,16 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - Tests: backend `test_connection_types.py` (13); smoke82 (13), failing
   against the old frontend.
 
-Phase 3 is done with this. Next: Phase 4 (workflows), detailed in
-PLATFORM_PLAN.md before it is built.
+Phase 3 is done with this. Before Phase 4 the user asked, sincerely, whether
+the platform was becoming "Grafana with an agent and live sessions", and set
+out where they want it to go; the discussion is recorded as PLATFORM_PLAN.md
+§20 (D68–D74): the pane contract as what "a pane can be anything" means (media
+yes, iframes opaque and marked), workflows kept as pipelines on their own page
+with doors to and from sessions, the Builder a per-group grant with code safe
+by where it runs, the agent building through the same definitions, and
+**the store repo** -- what's built here written through to git in exactly a
+plugin repo's format, never a deployment's values or state. Phase 4 is now
+4a (the store repo) then 4b (workflows).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1318,9 +1326,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 4, workflows (PLATFORM_PLAN.md §5): the blob store, definitions and
-   recorded runs, the Workflows page, the agent starting and reading runs,
-   the approval step -- detailed before it is built. Follow-ups if wanted:
+1. Phase 4a, the store repo (PLATFORM_PLAN.md §20.4, §20.5), then 4b,
+   workflows (§5, §20.2) -- each detailed in PLATFORM_PLAN.md before it is
+   built. §20.6's open questions (templates in the store, ids against
+   installed plugins, the first audience) are settled as they come up. Follow-ups if wanted:
    Prometheus instant queries and label pickers, more kinds of variable. Follow-ups if
    wanted: more kinds of variable (text, a choice), a variable bound to a
    plugin's own input type, and an admin-set group default home page.
