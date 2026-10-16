@@ -65,20 +65,15 @@ const run = async () => {
     .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
   check(heights.length >= 8 && heights.every((h) => h === 28), "Every control in those rows is the same height", JSON.stringify(heights));
 
-  // The variables belong to the card: folded, its header keeps their
-  // controls; moved to the side panel, they go with it, and it folds there.
-  await page.click(`${CARD} [aria-label="Collapse the session card"]`);
-  const foldedEnv = `${CARD} .session-card-head select[aria-label="Session environment"]`;
-  await page.waitForSelector(foldedEnv);
-  await page.selectOption(foldedEnv, { index: 1 });
-  const picked = await page.inputValue(foldedEnv);
-  check(picked !== "" && (await page.locator(`${CARD} [aria-label="Collapse the session card"]`).count()) === 0,
-    "Folded, the card's header still sets the variables, without unfolding it");
-  await page.click(`${CARD} [aria-label="Expand the session card"]`);
-  // The row's own control fetches the environments again before it can show one.
-  await page.waitForFunction((sel) => document.querySelector(sel)?.options.length > 1, `${CARD} select[aria-label="Session environment"]`);
-  check((await page.inputValue(`${ROW_OF("Variables")} select[aria-label="Session environment"]`)) === picked, "…the same value its row shows");
+  // The variables belong to the card: there is no bar of their own; folded,
+  // the card is put away and its variables with it (expand to change one);
+  // moved to the side panel, they go with it, and it folds there too.
   check((await page.locator(`${SHOWN} .session-variables`).count()) === 0, "There is no separate variables bar under the card");
+  await page.click(`${CARD} [aria-label="Collapse the session card"]`);
+  check((await page.locator(`${CARD} select[aria-label="Session environment"]`).count()) === 0 &&
+    (await page.locator(`${CARD} .session-card-folded-title`).count()) === 1,
+    "Folded, the card shows only its header: no variables there");
+  await page.click(`${CARD} [aria-label="Expand the session card"]`);
   await page.click(`${CARD} .session-card-move`);
   const RAIL_CARD = ".rail-session-slot .session-card";
   await page.waitForSelector(`${RAIL_CARD} select[aria-label="Session environment"]`);
@@ -86,13 +81,13 @@ const run = async () => {
     "Moved to the side panel, the variables go with the card");
   await page.click(`${RAIL_CARD} [aria-label="Collapse the session card"]`);
   check((await page.locator(`${RAIL_CARD} .session-card-row`).count()) === 0 &&
-    (await page.locator(`${RAIL_CARD} .session-card-head select[aria-label="Session environment"]`).count()) === 1,
-    "…and it folds there, keeping them in its header");
+    (await page.locator(`${RAIL_CARD} select`).count()) === 0,
+    "…and it folds there, to its header alone");
   const head = await page.locator(`${RAIL_CARD} .session-card-head`).evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return [...el.querySelectorAll("button, select")].every((c) => { const b = c.getBoundingClientRect(); return b.left >= r.left && b.right <= r.right + 0.5; });
+    return [...el.querySelectorAll("button")].every((c) => { const b = c.getBoundingClientRect(); return b.left >= r.left && b.right <= r.right + 0.5 && b.top < r.top + 20; });
   });
-  check(head, "…all of it inside the side panel");
+  check(head, "…its buttons on the header's one line, inside the side panel");
   await page.click(`${RAIL_CARD} [aria-label="Expand the session card"]`);
   await page.click(`${RAIL_CARD} .session-card-move`);
   await page.waitForSelector(ROW_OF("Members"));

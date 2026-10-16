@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from urllib.parse import urlparse
 
-from .. import auth, connections, credential_store, credential_types, masking, models, schemas, tools_http_client
+from .. import auth, connections, credential_store, credential_types, masking, models, pane_access, schemas, tools_http_client
 from ..db import get_db
-from ..resolve import ResolveError, require_flag, resolve_identity_values, resolve_target
+from ..resolve import ResolveError, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
@@ -18,7 +18,7 @@ def send_http_request(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     try:
-        require_flag(current_user, "tools_enabled", "Tools")
+        pane_access.require(current_user, "tool-http", "the HTTP client")
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

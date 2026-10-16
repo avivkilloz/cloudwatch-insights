@@ -164,6 +164,9 @@ class UserGroupCreate(UserGroupBase):
     # Environment ids this group can see (ignored for the Admin group, which
     # always sees every environment regardless of this list).
     environment_ids: list[int] = []
+    # Exactly the pane types it may use (D65). Left out, the booleans above
+    # are taken as shorthand for them, as they always meant.
+    pane_types: Optional[list[str]] = None
 
 
 class UserGroupUpdate(BaseModel):
@@ -179,6 +182,9 @@ class UserGroupUpdate(BaseModel):
     tools_enabled: Optional[bool] = None
     agent_enabled: Optional[bool] = None
     environment_ids: Optional[list[int]] = None
+    # Exactly the pane types it may use (D65); wins over the booleans above,
+    # which are shorthand for grants of the panes that name them.
+    pane_types: Optional[list[str]] = None
 
 
 class UserGroupOut(UserGroupBase):
@@ -187,6 +193,9 @@ class UserGroupOut(UserGroupBase):
     is_admin: bool
     environment_ids: list[int] = []
     user_count: int = 0
+    # The pane types it may use (every one, for the Admin group). The
+    # booleans are worked out from these.
+    pane_types: list[str] = []
 
 
 class UserBase(BaseModel):
@@ -223,6 +232,8 @@ class UserOut(BaseModel):
     aggregator_enabled: bool
     tools_enabled: bool
     agent_enabled: bool = False
+    # The pane types the user's group may use (D65): what the catalogue offers.
+    pane_types: list[str] = []
 
 
 class LoginRequest(BaseModel):

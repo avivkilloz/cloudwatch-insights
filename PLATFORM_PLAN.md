@@ -981,7 +981,7 @@ the database instead of a repo:
   instead of one per router.
 - **Per-type permissions:** today's fixed booleans (`logs_enabled`, `iot_enabled`…)
   can't scale to plugins. They become rows (group × pane type or plugin), with the
-  existing columns migrated in.
+  existing columns migrated in. _Built in 3d-1 (§19.1, D65): rows per pane type._
 - **The agent:**
   - It sees schemas, credential *names* and *types*, never values.
   - Side-effecting Actions are marked as such in their manifest and go through the
@@ -1123,7 +1123,8 @@ foundation the next one needs.
     throughout, and each step's browser suites check it. Three PRs (D56, §18):
     3c-1 (results in their own store, auto-refresh) built 2026-10-15; 3c-2
     (view mode and variables) 2026-10-15; 3c-3 (Home) 2026-10-16.
-  - **3d, permissions, categories and a first new pane:**
+  - **3d, permissions, categories and a first new pane** (three PRs, D64,
+    §19):
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
@@ -1224,6 +1225,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D61 | 2026-10-15 | **View mode hides a pane's inputs and actions and keeps its outputs**: a session setting, a per-pane override in its ⚙, and always on for a viewer member (§18.7). | R2's two levels. A viewer can't change inputs anyway, so showing them was only clutter. |
 | D62 | 2026-10-15 | **A viewer's tab refreshes a dashboard as the viewer, when they can reach every connection the pane uses** (§18.7). Otherwise nothing runs, and nothing is recorded as a failure. | The user's choice, over editors only or the owner's access lent to viewers. Everyone still acts as themselves, and a dashboard watched only by viewers still refreshes. |
 | D63 | 2026-10-16 | **Home → a session is per user, set from the session's ⋮, and the brand is the way there** (§18.9). "Start new session…" keeps the catalogue; a session that's gone leaves the default page with a note, and the setting is cleared when the note is dismissed. The session variables move into the session card (the user's report). | R3. The brand is what every app treats as "home"; the catalogue is what you start things from, so it stays one click away whatever home is. |
+| D64 | 2026-10-16 | **3d ships as three PRs: per-type permissions first** (3d-1), then the catalogue with categories (3d-2), then admin-defined connection types with a Prometheus pane built from a manifest alone (3d-3) (§19). | The user's choice. Access first: the catalogue is display-only once access stops riding on "Tools", and a new pane type needs grants before anyone but an admin can try it. |
+| D65 | 2026-10-16 | **A group's access to panes is one row per pane type** (`group_pane_grants`), checked by one function for the browser, the agent and every handler. The old booleans stay in the API as shorthand -- read from the grants, written as grants -- and are migrated once, so nobody gains or loses anything. A pane type no group has been granted is an admin's alone until one is. | §8's "rows (group × pane type)". The shorthand keeps scripts and the agent's tests working; a new pane type arriving with access for everyone would be a grant nobody made (D15's rule). |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3673,9 +3676,58 @@ conversation should change.
 
 **Variables in the card (the user's report, same PR).** The bar under the
 card read as a stray card and stayed behind when the card moved to the side
-panel. The variables are set in the card's Variables row now; folded, the
-card's header keeps their controls, so a folded dashboard can still be driven;
-and the card folds in the side panel too.
+panel. The variables are set in the card's Variables row now, and the card
+folds in the side panel too. (Their controls were kept in the folded card's
+header for a round; the user found that clutter -- to change one, expand the
+card -- and they went.)
+
+## 19. Phase 3d in detail: access per pane type, the catalogue, a new kind of connection
+
+_Detailed 2026-10-16. Three PRs (D64)._
+
+### 19.1 3d-1: per-type permissions (D65)
+
+**Today:** a group has one boolean per page (`logs_enabled`, `iot_enabled`,
+`tools_enabled`, …); a manifest names the one it needs (`flag:`), and five
+places read it (`/api/pane-types`, the action and request endpoints, the HTTP
+client's Send, the agent's `available_kinds`). "Tools" is one switch for six
+panes, and a plugin's pane would need a new column.
+
+**Built:**
+- **`group_pane_grants`** (group, pane type), unique per pair, deleted with the
+  group. `pane_access.py` is the one place that answers "may this group use
+  this pane type": the Admin group always, any other group when it has the
+  row. Every check site calls it (`allowed`, `require`).
+- **The booleans become shorthand.** `UserGroupOut`/`UserOut` still carry
+  them, worked out from the grants (on when the group has any pane with that
+  flag), and a create or update that sets one grants or revokes every pane
+  that names it. `pane_types` is the exact list, on both, and wins when both
+  are sent. `agent_enabled` stays a boolean: the agent isn't a pane.
+- **Migrated once** (a `Settings` marker, `pane_grants_migrated`): each
+  group gets a grant for every pane whose manifest flag it had on -- what it
+  could use before, exactly.
+- **A manifest's `flag` is optional now**, kept only to say which old switch
+  covered it. A pane type with no flag (3d-3's Prometheus) is granted to no
+  group until an admin does it.
+- **Users → Groups**: the Pages section becomes **Panes**, a checkbox per
+  pane type under Services and Tools (from the manifests' groups), and the
+  Platform agent its own row. The Admin group says "Every pane".
+- **`/api/auth/me`** gives `pane_types`; the catalogue offers exactly those.
+
+**Not in 3d-1:** a group × pane-type grid across all groups at once (one
+group's form is where access is edited today), per-action permissions (read
+vs run), and grants per plugin -- a plugin's panes are granted one by one
+until there are plugins.
+
+### 19.2 3d-2 and 3d-3 (to be detailed)
+
+- **3d-2, the catalogue with categories (§4.8, R6):** Settings → Catalogue
+  (categories as data, admin placement surviving upgrades), favourites and
+  hiding per person, the Add menu and the default page built from it.
+- **3d-3, a new kind of connection:** admin-defined connection types in the
+  credential-type editor, and a **Prometheus** pane (the user's choice) built
+  from a manifest alone on one: a PromQL query, a time range, a time-series
+  chart and a table, auto-refresh.
 
 ## 12. Research sources
 

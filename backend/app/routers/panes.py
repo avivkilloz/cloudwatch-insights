@@ -17,19 +17,18 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, connections, credential_types, live_store, masking, models, pane_outputs, tools_http_client
+from .. import auth, connections, credential_types, live_store, masking, models, pane_access, pane_outputs, tools_http_client
 from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
 from ..panes import runs
-from ..resolve import ResolveError, require_flag, resolve_identity_values, resolve_target
+from ..resolve import ResolveError, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api", tags=["panes"])
 
 
 def _allowed(user: models.User, manifest: pane_manifest.Manifest) -> bool:
-    group = user.group
-    return group is not None and (group.is_admin or bool(getattr(group, manifest.flag, False)))
+    return pane_access.allowed(user.group, manifest.id)
 
 
 @router.get("/pane-types")
@@ -91,10 +90,10 @@ def run_handler(
     """A handler action (§16.3.1), for the browser and the agent alike: the
     group's flag, the manifest's `requires`, then the handler, whose own
     checks (connection, identity) answer in sentences a user can act on."""
-    # The group's flag, whoever is asking: the action endpoint and the agent
+    # The group's grant of this pane type (D65), whoever is asking: the action endpoint and the agent
     # both check it first, but a handler never runs without it either.
     try:
-        require_flag(user, manifest.flag, manifest.label)
+        pane_access.require(user, manifest.id, manifest.label)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     # An input never set is its default, as the pane shows it: a pane the
@@ -134,7 +133,7 @@ def run_request(
     from ..platform_tools.panes import InputError, request_rows
 
     try:
-        require_flag(user, manifest.flag, manifest.label)
+        pane_access.require(user, manifest.id, manifest.label)
     except ResolveError as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
     spec = action.request or {}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import audit, auth, connections, credential_store, models, schemas
+from .. import audit, auth, connections, credential_store, models, pane_access, schemas
 from ..db import get_db
 
 router = APIRouter(prefix="/api/user-groups", tags=["user-groups"])
@@ -10,6 +10,8 @@ router = APIRouter(prefix="/api/user-groups", tags=["user-groups"])
 def _group_out(db: Session, group: models.UserGroup) -> schemas.UserGroupOut:
     environment_ids = [link.environment_id for link in group.environment_links]
     user_count = db.query(models.User).filter(models.User.group_id == group.id).count()
+    # Access to panes is the grants (D65); the booleans are what they add up to.
+    flags = pane_access.legacy_flags(group)
     return schemas.UserGroupOut(
         id=group.id,
         name=group.name,
@@ -17,18 +19,24 @@ def _group_out(db: Session, group: models.UserGroup) -> schemas.UserGroupOut:
         # the old shape had for it.
         role_name=connections.group_role_name(db, group),
         is_admin=group.is_admin,
-        logs_enabled=group.logs_enabled,
-        opensearch_enabled=group.opensearch_enabled,
-        iot_enabled=group.iot_enabled,
-        tables_enabled=group.tables_enabled,
-        buckets_enabled=group.buckets_enabled,
-        cognito_enabled=group.cognito_enabled,
+        **flags,
         aggregator_enabled=group.aggregator_enabled,
-        tools_enabled=group.tools_enabled,
         agent_enabled=group.agent_enabled,
         environment_ids=environment_ids,
         user_count=user_count,
+        pane_types=sorted(pane_access.granted(group)),
     )
+
+
+def _set_panes(db: Session, group: models.UserGroup, pane_types: list[str] | None, flags: dict) -> None:
+    """The exact list when one is sent, else the booleans as shorthand."""
+    try:
+        if pane_types is not None:
+            pane_access.set_grants(db, group, pane_types)
+        else:
+            pane_access.apply_legacy(db, group, flags)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
 
 
 def _set_environment_access(db: Session, group: models.UserGroup, environment_ids: list[int]) -> None:
@@ -52,11 +60,12 @@ def create_user_group(
 ):
     if db.query(models.UserGroup).filter(models.UserGroup.name == payload.name).first():
         raise HTTPException(status_code=400, detail="A group with that name already exists")
-    data = payload.model_dump(exclude={"environment_ids", "role_name"})
+    data = payload.model_dump(exclude={"environment_ids", "role_name", "pane_types"})
     group = models.UserGroup(**data)
     db.add(group)
     db.flush()
     _set_environment_access(db, group, payload.environment_ids)
+    _set_panes(db, group, payload.pane_types, {f: data[f] for f in pane_access.LEGACY_FLAGS})
     if payload.role_name:
         connections.set_group_role(db, _admin, group, payload.role_name)
     db.commit()
@@ -76,6 +85,10 @@ def update_user_group(
         raise HTTPException(status_code=404, detail="Group not found")
     data = payload.model_dump(exclude_unset=True)
     environment_ids = data.pop("environment_ids", None)
+    pane_types = data.pop("pane_types", None)
+    flags = {f: data[f] for f in pane_access.LEGACY_FLAGS if f in data}
+    if pane_types is not None or flags:
+        _set_panes(db, group, pane_types, flags)
     if "role_name" in data:
         connections.set_group_role(db, _admin, group, data.pop("role_name"))
     for key, value in data.items():

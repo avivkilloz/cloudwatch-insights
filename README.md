@@ -164,9 +164,7 @@ from your picture's menu and is not a session; the strip stays above it.
   refresh that keeps failing says why above the pane and tries less often.
   The agent can set it too ("refresh this every 5 minutes").
 - **Session variables.** A session can hold an **Environment** and a **Time
-  range**, added and set in the session card's **Variables** row (and in the
-  card's header while it's folded, so a folded dashboard can still be
-  driven). Every pane with an environment picker or a time range follows
+  range**, added and set in the session card's **Variables** row. Every pane with an environment picker or a time range follows
   them, like a Grafana dashboard's variables: its own input shows the value,
   greyed, saying "From the session's Environment", and changing the variable
   runs again every pane that had run. **Unlink** beside the input gives a
@@ -452,13 +450,14 @@ control:
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
-- **Which pages** are visible (CloudWatch, OpenSearch, IoT, DynamoDB, S3,
-  Cognito, Tools — CloudWatch and OpenSearch are two permissions rather than
-  one, since they are two pages and two sets of credentials and a group's
-  accounts may have no OpenSearch domain at all. A database written before
-  they were split starts each group's OpenSearch flag at whatever its logs
-  flag said, so nobody gains a page they were not given.
-  Settings itself is handled separately, see below).
+- **Which panes** it can use: a checkbox per pane type, under **Services**
+  and **Tools** (with **All** / **None** for each), in **Settings → Users →
+  Groups → Panes**. Each tool is its own permission now -- "Tools" used to be
+  one switch for all six -- and a pane a group hasn't been given isn't
+  offered to its members, can't be run by them, and isn't a kind the agent
+  can use for them. An existing group keeps exactly the panes it had. The
+  **Platform agent** is a checkbox of its own there too, off for a new group.
+  Settings itself is handled separately, see below.
 
 Everything about the current user lives behind their **picture** (or their
 initials), at the end of the strip — or of the docked agent panel's header:

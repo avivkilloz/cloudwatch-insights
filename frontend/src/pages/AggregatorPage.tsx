@@ -1308,7 +1308,6 @@ export default function AggregatorPage() {
       }}
       onDescribe={setDescription}
       onMove={() => setPanesInRail(!cardInRail)}
-      folded={<SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} removable={false} />}
     >
       {/* Two rows rather than one long one -- ten buttons in a single line
           reads as an undifferentiated list, and "a search page" and "a tool"
@@ -1405,9 +1404,9 @@ export default function AggregatorPage() {
         </CardRow>
         <CardRow label="Variables">
           {/* Each defined one with its control and ✕, each other as "+ …":
-              set here, where the session is set up (and in the header while
-              the card is folded), not in a bar of their own under it. */}
-          <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} removable />
+              set here, where the session is set up, not in a bar of their own
+              under it. Folded, the card is put away, variables with it. */}
+          <SessionVariables variables={defined} onChange={changeVariables} readOnly={isViewer} />
           {(["environment", "time"] as VariableName[])
             .filter((name) => defined[name] === undefined)
             .map((name) => (

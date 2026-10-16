@@ -335,9 +335,9 @@ Detailer = Callable[[RunContext, dict, dict], Awaitable[dict]]
 class PaneKind:
     type: str
     label: str
-    # The UserGroup column that allows this kind -- the same one that shows
-    # it in the UI (enabledFor in paneTypes.tsx).
-    flag: str
+    # The old group switch that covered it (D65): only informational now --
+    # access is the group's grant of this kind's type (pane_access.py).
+    flag: Optional[str]
     about: str
     inputs: tuple[Input, ...]
     run: Optional[Runner] = None
@@ -824,8 +824,10 @@ def output_key(kind: PaneKind, pane_id: str, key: str) -> str:
 
 
 def available_kinds(user: models.User) -> list[PaneKind]:
-    group = user.group
-    return [k for k in KINDS.values() if group is not None and getattr(group, k.flag, False)]
+    # The same grants the browser's pane list and every handler go by (D65).
+    from .. import pane_access
+
+    return [k for k in KINDS.values() if pane_access.allowed(user.group, k.type)]
 
 
 def kind_for(user: models.User, type_: str) -> PaneKind:

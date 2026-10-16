@@ -11,8 +11,7 @@ import Icon from "./Icon";
  * It lives either at the top of the body or in the side panel (the corner
  * button, per browser, `railSlot.ts`), and stays wherever it was put -- in the
  * side panel even while that's hidden -- until it's moved back. It folds to
- * its header in either place; folded, the header keeps the session's name and
- * its variables' controls, so a dashboard folded away can still be driven.
+ * its header and the session's name in either place.
  */
 
 /** One row: its label, and whatever it holds. */
@@ -39,7 +38,6 @@ export default function SessionCard({
   onRename,
   onDescribe,
   onMove,
-  folded: foldedExtra,
   children,
 }: {
   title: string;
@@ -52,8 +50,6 @@ export default function SessionCard({
   onRename: (title: string) => void;
   onDescribe: (description: string) => void;
   onMove: () => void;
-  /** What the header holds while folded, after the name (the variables). */
-  folded?: ReactNode;
   children: ReactNode;
 }) {
   const [editing, setEditing] = useState<"title" | "description" | null>(null);
@@ -118,12 +114,6 @@ export default function SessionCard({
         <span className="session-card-kicker">Session</span>
         {/* Folded, the name is all that's left to say which session this is. */}
         {folded && <span className="session-card-folded-title">{title}</span>}
-        {folded && foldedExtra && (
-          // Its controls are used, not clicked through to the header.
-          <div className="session-card-folded-extra" onClick={(e) => e.stopPropagation()}>
-            {foldedExtra}
-          </div>
-        )}
         <div className="session-card-actions">
           <button
             className="session-card-fold secondary icon-btn"

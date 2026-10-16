@@ -236,10 +236,11 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   it while the pane refreshes. Suites open it with `harness.openPaneMenu`.
 - **Session variables** (D60, §18.7; `panes/variables.ts` and its twin
   `app/panes/variables.py`): `variables: {environment?, time?}` at the
-  session's level, added and set in the card's Variables row, and in its
-  header while it's folded (`components/SessionVariables.tsx`; a bar of their
-  own under the card read as a stray card and was left behind when the card
-  moved to the side panel). Binding is by input type, never per
+  session's level, added and set in the card's Variables row
+  (`components/SessionVariables.tsx`; a bar of their own under the card read
+  as a stray card and was left behind when the card moved to the side panel).
+  Folded, the card is its header alone -- to change a variable, expand it (the
+  user's call: controls in the folded header were clutter). Binding is by input type, never per
   pane: Environment binds every AWS `connection`/`connections` input, Time
   range a layout `time_range`'s three inputs. **Automatic**: every pane
   follows unless `<pane>.unlinked` names the variable. The value is *copied*
@@ -538,13 +539,25 @@ migration later.
 
 **Access control is per group, never per user.** A user belongs to one
 `UserGroup`, which carries its identities (who it is on each kind of
-connection -- its AWS role, D31), the visible environments and one
-boolean per page (`logs_enabled`, `opensearch_enabled`, `iot_enabled`, …).
-`/api/auth/me` returns those booleans so the frontend can decide what to offer.
+connection -- its AWS role, D31), the visible environments and **one grant
+per pane type** (D65, §19.1: `group_pane_grants`; the Admin group needs none).
+`pane_access.py` is the one answer -- `allowed`/`require`, called by
+`/api/pane-types`, the action and request endpoints (`run_handler`,
+`run_request`), the HTTP client's Send and the agent's `available_kinds`; never
+read a group boolean for a pane again. The old booleans (`logs_enabled`,
+`tools_enabled`, …) are shorthand in the API only: read as "has any pane whose
+manifest `flag` names it", written by granting or revoking those panes;
+`pane_types` is the exact list and wins. They were migrated into grants once
+(`pane_grants_migrated`), and a manifest's `flag` is optional -- a pane type
+without one (a plugin's) is granted to no group until an admin ticks it in
+Users → Groups → Panes. `agent_enabled` stays a boolean: the agent isn't a
+pane. `/api/auth/me` returns `pane_types` (and the booleans) so the frontend
+can decide what to offer (`enabledFor` in `paneTypes.tsx`).
+The paragraph below is the history of how the routers came to check at all.
 The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
 `_flagged`), since the agent must never reach further than its user's UI
 would -- **and so do the per-service routes now** (`resolve.require_flag`,
-called at the top of every AWS-calling endpoint left in `tools.py`, right
+(now `pane_access.require`), called at the top of every AWS-calling endpoint left in `tools.py`, right
 where `resolve_environment`/`resolve_role_name` already were; a ported
 pane's actions -- every AWS call now, MQTT's included -- get it from
 `routers/panes.run_handler`, and the action endpoint
@@ -1274,8 +1287,8 @@ fixed where it happens:
   from its own API on mount. Every control in those rows is 28px high, and
   the members are one grid with the invite row, so a member's permission and
   ✕ sit over the invite's select and button. It folds to its header (`cardCollapsed`, per session like a
-  minimised pane), in the body and in the side panel alike; folded, the
-  header keeps the name and the variables' controls (`folded`). PageInfo is
+  minimised pane), in the body and in the side panel alike, to its header
+  and the session's name. PageInfo is
   only for non-session pages now. The description is the top-level state key
   `description` (`SESSION_DESCRIPTION_KEY`): it syncs, templates keep it,
   `start()` takes it (and a category), and the agent's `_describe_session`
