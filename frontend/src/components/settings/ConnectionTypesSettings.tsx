@@ -3,6 +3,7 @@ import { api, ConnectionType, ConnectionTypeDraft, readableError } from "../../a
 import { CardRow } from "../SessionCard";
 import Icon from "../Icon";
 import { rowProps, Section, ViewHead } from "./settingsLayout";
+import { StoreBadge, useStoreNamespace } from "./StoreSettings";
 
 /*
  * Settings → Environments → Types (PLATFORM_PLAN.md §19.3, D67): the kinds of
@@ -38,6 +39,7 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const namespace = useStoreNamespace();
 
   async function refresh() {
     try {
@@ -132,13 +134,17 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
               {draft.existing ? (
                 <span className="credential-static">{draft.id}</span>
               ) : (
-                <input
-                  id="connection-type-id"
-                  type="text"
-                  value={draft.id}
-                  placeholder="e.g. grafana"
-                  onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-                />
+                <div className="store-id">
+                  {/* What's made here is named in the store's namespace (D78). */}
+                  {namespace && <span className="store-id-prefix">{namespace}:</span>}
+                  <input
+                    id="connection-type-id"
+                    type="text"
+                    value={draft.id}
+                    placeholder="e.g. grafana"
+                    onChange={(e) => setDraft({ ...draft, id: e.target.value })}
+                  />
+                </div>
               )}
             </CardRow>
             <CardRow label="Name">
@@ -238,7 +244,9 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
           <tbody>
             {types.map((t) => (
               <tr key={t.id} data-connection-type={t.id} {...rowProps(() => start(t))}>
-                <td>{t.label}</td>
+                <td>
+                  {t.label} <StoreBadge state={t.store_state} />
+                </td>
                 <td>{t.fields.map((f) => f.label).join(", ")}</td>
                 <td>{originText(t)}</td>
                 <td>{t.connections}</td>

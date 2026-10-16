@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, the direction after Phase 3 (PLATFORM_PLAN.md §20, D68–D79) and the 4a plan (§21, D80)._
+_Last updated: 2026-10-16, Phase 4a (the store repo, run on open; PLATFORM_PLAN.md §21)._
 
 ## Platform plan
 
@@ -1162,6 +1162,30 @@ namespaced ids `<namespace>:<name>` (D78), and the first audience -- the user's
 own teams, as groups (D79). Phase 4 is now 4a (the store repo, with run on
 open; detailed in §21, D80), 4b (workflows), 4c (published templates).
 
+**4a is built** (PLATFORM_PLAN.md §21, as built in §21.10):
+- **The store repo.** `store.py` (kinds, config, `record`, the outbox writer,
+  restore, conflicts, status) and `gitrepo.py` (a private shallow clone driven
+  through the git CLI; token by `GIT_ASKPASS`, key by `GIT_SSH_COMMAND`,
+  masked; https/ssh only). Credential and connection types are written through
+  on every save (`store.record` in their routes, before the commit), committed
+  as the admin, pushed by one replica at a time (advisory lock), retried while
+  git is away, restored on start, adopted the first time a repo is set;
+  conflicts flagged and resolved in **Settings → Store** (Keep this
+  platform's / Take the repo's, after comparing both). New ids are
+  `<namespace>:<name>` (the editors show the prefix); types not yet pushed or
+  in conflict carry a badge in their lists. Helm `backend.store.git` (an
+  existing Secret, an emptyDir for the clone), and `git`/`openssh-client` in
+  the backend image; DEPLOYMENT.md has the section.
+- **Run on open.** `<pane>.refreshOnOpen` / the session's `refreshOnOpen`:
+  the refresh route takes `fresh` (seconds) and runs only if the outputs are
+  older; the tab asks once per arrival. In the pane's ⚙ and the session
+  card's Refresh row; the agent's `set_refresh` takes `on_open`.
+- Tests: backend `test_store.py` (24, real git against a bare repo) and five
+  new in `test_pane_refresh.py`; browser `smoke83` (the store) and `smoke84`
+  (run on open), each failing against the old frontend. `dev/fake_aws.py`
+  gained `GET /api/dev/fake-http/hits` and `POST /api/dev/age-outputs` for
+  smoke84.
+
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
 `platform-agent/app/prompt.py`), the agent image building in CI (no Docker
@@ -1330,9 +1354,9 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 4a as planned in PLATFORM_PLAN.md §21 (the store repo, and run on
-   open), once the user has read it; then 4b, workflows (§5, §20.2, §20.7),
-   detailed before it is built. Scheduled and webhook runs act as
+1. Phase 4b, workflows (PLATFORM_PLAN.md §5, §20.2, §20.7), detailed in the
+   plan before it is built -- definitions kept in the store from the start
+   (a `Kind` entry), runs recorded, the Workflows page, the run page. Scheduled and webhook runs act as
    the workflow's owner (D81).
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.

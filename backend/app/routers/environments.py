@@ -361,6 +361,7 @@ def _type_out(db: Session, t: models.ConnectionType) -> schemas.ConnectionTypeOu
         identity_types=t.identity_types or [], builtin=t.builtin, origin=t.origin,
         connections=db.query(models.Connection).filter(models.Connection.type_id == t.id).count(),
         needed_by=connections.needed_by(t.id),
+        store_state=next(iter(db.query(models.StoreItem.state).filter_by(kind="connection_type", item_id=t.id)), (None,))[0],
     )
 
 
@@ -378,10 +379,10 @@ def _type_guard(fn):
 
 @types_router.post("", response_model=schemas.ConnectionTypeOut, status_code=201)
 def create_connection_type(
-    payload: schemas.ConnectionTypeIn, db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)
+    payload: schemas.ConnectionTypeIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
 ):
     """A new HTTP API of a kind (D67): a base URL and the fields given."""
-    row = _type_guard(lambda: connections.save_type(db, None, payload.model_dump()))
+    row = _type_guard(lambda: connections.save_type(db, None, payload.model_dump(), admin))
     return _type_out(db, row)
 
 
@@ -390,15 +391,15 @@ def update_connection_type(
     type_id: str,
     payload: schemas.ConnectionTypeIn,
     db: Session = Depends(get_db),
-    _admin: models.User = Depends(auth.require_admin),
+    admin: models.User = Depends(auth.require_admin),
 ):
-    row = _type_guard(lambda: connections.save_type(db, type_id, payload.model_dump()))
+    row = _type_guard(lambda: connections.save_type(db, type_id, payload.model_dump(), admin))
     return _type_out(db, row)
 
 
 @types_router.delete("/{type_id}", status_code=204)
-def delete_connection_type(type_id: str, db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)):
-    _type_guard(lambda: connections.delete_type(db, type_id))
+def delete_connection_type(type_id: str, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    _type_guard(lambda: connections.delete_type(db, type_id, admin))
     return None
 
 

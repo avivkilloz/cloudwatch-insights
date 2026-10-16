@@ -98,11 +98,16 @@ def refresh(
     every: int,
     timezone: Optional[str],
     origin: Optional[str],
+    fresh: Optional[int] = None,
 ) -> dict[str, Any]:
     """Runs the pane again if it's due, or says why not -- with what the
     pane now holds: the asking tab hears no event of its own write (it
-    carries the tab's origin), so the outputs come back with the answer."""
-    outcome = _refresh(db, user, row, member, manifest, pane, every, timezone, origin)
+    carries the tab's origin), so the outputs come back with the answer.
+
+    `fresh` is a run on open (D77): due when the outputs are older than that
+    many seconds (or there are none), whatever the interval -- so switching
+    back to a session, or five members arriving together, runs it once."""
+    outcome = _refresh(db, user, row, member, manifest, pane, every, timezone, origin, fresh)
     db.expire_all()
     return {**outcome, "outputs": pane_outputs.read(db, row, [pane]).get(pane)}
 
@@ -117,8 +122,10 @@ def _refresh(
     every: int,
     timezone: Optional[str],
     origin: Optional[str],
+    fresh: Optional[int] = None,
 ) -> dict[str, Any]:
     from ..routers import panes as panes_router  # it imports this module
+    from . import handlers as pane_handlers
 
     action = manifest.refresh_action()
     if action is None:
@@ -126,6 +133,13 @@ def _refresh(
     if member is not None and member.permission == "viewer" and unreachable(db, user, manifest, stored_inputs(row, manifest, pane)):
         return _outcome(False, "unreachable", pane_outputs._record(db, row, pane))
     every = max(int(every), floor_seconds(manifest))
+    if fresh is not None:
+        # A pane whose required inputs aren't set has nothing to run on open:
+        # not a failure, nothing to back off from.
+        inputs = {**{i.key: i.default for i in manifest.inputs if i.default is not None},
+                  **stored_inputs(row, manifest, pane)}
+        if pane_handlers.missing(action.requires, inputs):
+            return _outcome(False, "not_ready", pane_outputs._record(db, row, pane))
 
     # Decided under the record's lock, and the decision committed, before the
     # run: another tab asking a moment later sees it and stands back.
@@ -133,7 +147,8 @@ def _refresh(
     values = record.data or {}
     now = datetime.datetime.utcnow()
     ran_at = values.get("ranAt")
-    if isinstance(ran_at, (int, float)) and live_store.now_ms() - ran_at < every * 1000 * FRESH_SHARE:
+    window_ms = max(int(fresh), floor_seconds(manifest)) * 1000 if fresh is not None else every * 1000 * FRESH_SHARE
+    if isinstance(ran_at, (int, float)) and live_store.now_ms() - ran_at < window_ms:
         db.commit()
         return _outcome(False, "fresh", record)
     if record.refreshing_at is not None and now - record.refreshing_at < datetime.timedelta(

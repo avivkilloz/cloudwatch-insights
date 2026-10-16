@@ -62,6 +62,8 @@ export interface ConnectionType {
   /** How many connections are of it, and which panes reach it: why it can't be deleted. */
   connections: number;
   needed_by: string[];
+  /** Where it stands in the store repo (D70); null when the store doesn't keep it. */
+  store_state?: StoreState | null;
 }
 
 /** An HTTP connection type as an admin saves it (D67): its Base URL is always there. */
@@ -333,6 +335,55 @@ export interface CredentialType {
   builtin: boolean;
   in_use: number;
   has_test: boolean;
+  store_state?: StoreState | null;
+}
+
+/** An item's place in the store repo (PLATFORM_PLAN.md §21): pushed, waiting
+ * to be, or edited in the repo since this platform last wrote it. */
+export type StoreState = "synced" | "pending" | "conflict" | "error";
+
+export interface StoreItem {
+  kind: string;
+  noun: string;
+  item_id: string;
+  label: string;
+  path: string;
+  state: StoreState;
+  error: string | null;
+}
+
+/** Settings → Store. Never a token or key: `auth` says which kind is set. */
+export interface StoreStatus {
+  configured: boolean;
+  source: "helm" | "settings" | null;
+  locked: boolean;
+  url: string | null;
+  branch: string | null;
+  path: string | null;
+  namespace: string | null;
+  author_domain: string | null;
+  username: string | null;
+  known_hosts: string | null;
+  credential_id: number | null;
+  credential_name: string | null;
+  auth: "token" | "ssh key" | "none" | null;
+  problem: string | null;
+  last_sync_at: string | null;
+  last_error: string | null;
+  pending: number;
+  items: StoreItem[];
+  restored?: string[];
+}
+
+export interface StoreDraft {
+  url: string;
+  branch: string;
+  path: string;
+  namespace: string;
+  author_domain: string;
+  username: string;
+  credential_id: number | null;
+  known_hosts: string;
 }
 
 export type CredentialTypeDraft = Pick<CredentialType, "id" | "label" | "description" | "fields" | "output_template" | "inject" | "http_test">;
@@ -651,6 +702,19 @@ export const api = {
     req<{ output: unknown }>("/credential-types/preview", { method: "POST", body: JSON.stringify(payload) }),
   /** Admins get Credential[]; anyone else CredentialSummary[] (what their group can use). */
   listCredentials: <T extends Credential | CredentialSummary = Credential>() => req<T[]>("/credentials"),
+  getStore: () => req<StoreStatus>("/store"),
+  putStore: (draft: StoreDraft) => req<StoreStatus>("/store", { method: "PUT", body: JSON.stringify(draft) }),
+  deleteStore: () => req<void>("/store", { method: "DELETE" }),
+  syncStore: () => req<StoreStatus>("/store/sync", { method: "POST" }),
+  storeSides: (kind: string, itemId: string) =>
+    req<{ mine: string | null; theirs: string | null; path: string }>(
+      `/store/items/${encodeURIComponent(kind)}/${encodeURIComponent(itemId)}`,
+    ),
+  resolveStoreItem: (kind: string, itemId: string, take: "mine" | "theirs") =>
+    req<StoreStatus>(`/store/items/${encodeURIComponent(kind)}/${encodeURIComponent(itemId)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ take }),
+    }),
   createCredential: (payload: {
     name: string;
     type_id: string;
@@ -689,10 +753,15 @@ export const api = {
   listClosedLiveSessions: () => req<LiveSessionSummary[]>("/live-sessions/closed"),
   getLiveSession: (clientId: string) => req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}`),
   /** Asks for a pane to run again if it's due -- once, however many tabs ask (§18.3). */
-  refreshPane: (type: string, session: string, pane: string, every: number, timezone?: string) =>
+  /** `fresh` instead of `every` is a run on open (D77): due when the outputs
+   * are older than that many seconds. */
+  refreshPane: (type: string, session: string, pane: string, every: number, timezone?: string, fresh?: number) =>
     req<{ refreshed: boolean; reason: string; version: number | null; error?: string; outputs?: PaneOutputs | null }>(
       `/panes/${encodeURIComponent(type)}/refresh`,
-      { method: "POST", body: JSON.stringify({ session, pane, every, ...(timezone ? { timezone } : {}) }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ session, pane, every, ...(timezone ? { timezone } : {}), ...(fresh ? { fresh } : {}) }),
+      },
     ),
   /** Some panes' outputs, after an "outputs" event says they're newer (D21). */
   getPaneOutputs: (clientId: string, panes: string[]) =>

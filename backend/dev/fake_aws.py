@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from urllib.parse import urlparse
 
-from app import auth, aws_client, iot_client, mqtt_client, opensearch_client, tools_http_client
+from app import auth, aws_client, iot_client, models, mqtt_client, opensearch_client, tools_http_client
 from app.db import get_db
 from app.main import app  # noqa: F401 - what uvicorn serves
 
@@ -308,6 +308,7 @@ threading.Thread(target=_telemetry, name="fake-mqtt-telemetry", daemon=True).sta
 # ---------------------------------------------------------------- HTTP APIs
 
 _replies: dict[str, Any] = {}
+_hits: dict[str, int] = {}
 _real_send = tools_http_client.send_request
 
 
@@ -318,6 +319,7 @@ def _send(method: str, url: str, headers=None, body=None, timeout: float = tools
     if not (parsed.hostname or "").endswith(".fake"):
         return _real_send(method, url, headers=headers, body=body, timeout=timeout)
     path = parsed.path
+    _hits[path] = _hits.get(path, 0) + 1
     found = next((v for k, v in _replies.items() if path == k or path.endswith(k)), None)
     status, text = (200, "OK") if found is not None else (404, "Not Found")
     return {
@@ -335,6 +337,30 @@ def put_fake_reply(path: str, reply: Any = Body(...), _user=Depends(auth.get_cur
     """What a `.fake` host answers at `path` from now on."""
     _replies[path] = reply
     return {"path": path}
+
+
+@app.get("/api/dev/fake-http/hits", include_in_schema=False)
+def fake_hits(path: str, _user=Depends(auth.get_current_user)) -> dict:
+    """How many requests a `.fake` host has had at `path`: how a suite counts
+    the runs a pane made (run on open, smoke84)."""
+    return {"path": path, "hits": _hits.get(path, 0)}
+
+
+@app.post("/api/dev/age-outputs", include_in_schema=False)
+def age_outputs(session: str, pane: str, seconds: int, db: Session = Depends(get_db), user=Depends(auth.get_current_user)) -> dict:
+    """Makes a pane's last run `seconds` older, as time passing would: a suite
+    can't wait out a freshness window."""
+    from app import live_store
+
+    row = db.query(models.LiveSession).filter(
+        models.LiveSession.user_id == user.id, models.LiveSession.client_id == session
+    ).one()
+    record = db.query(models.PaneOutput).filter_by(session_id=row.id, pane_id=pane).one()
+    data = dict(record.data or {})
+    data["ranAt"] = int(data.get("ranAt") or live_store.now_ms()) - seconds * 1000
+    record.data = data
+    db.commit()
+    return {"ranAt": data["ranAt"]}
 
 
 tools_http_client.send_request = _send

@@ -15,6 +15,7 @@ import {
 } from "../../api";
 import { CardRow, CardSection } from "../SessionCard";
 import { rowProps, Section, ViewHead, ViewSwitch } from "./settingsLayout";
+import { StoreBadge, useStoreNamespace } from "./StoreSettings";
 
 /*
  * Settings → Credentials (PLATFORM_PLAN.md §13.6): one tab, switching between
@@ -637,6 +638,7 @@ function TypesView({ switcher }: { switcher: ReactNode }) {
   const [sample, setSample] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const namespace = useStoreNamespace();
 
   async function refresh() {
     try {
@@ -822,7 +824,11 @@ function TypesView({ switcher }: { switcher: ReactNode }) {
           <Section title="Details">
             <CardRow label="Id">
               {draft.isNew ? (
-                <input id="type-id" type="text" value={draft.id} placeholder="acme_api" onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
+                <div className="store-id">
+                  {/* What's made here is named in the store's namespace (D78). */}
+                  {namespace && <span className="store-id-prefix">{namespace}:</span>}
+                  <input id="type-id" type="text" value={draft.id} placeholder="acme_api" onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
+                </div>
               ) : (
                 <code className="credential-static">{draft.id}</code>
               )}
@@ -1090,7 +1096,7 @@ function TypesView({ switcher }: { switcher: ReactNode }) {
   const row = (t: CredentialType) => (
     <tr key={t.id} data-credential-type={t.id} {...rowProps(() => start(t))}>
       <td>
-        <span className="credential-name">{t.label}</span>
+        <span className="credential-name">{t.label}</span> <StoreBadge state={t.store_state} />
         {t.description && <div className="muted">{t.description}</div>}
       </td>
       <td>

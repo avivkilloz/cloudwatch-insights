@@ -437,6 +437,63 @@ ever taken to mean "no credentials".
 Local development (`docker-compose.yml`) uses a fixed key that is in the
 repository: fine for trying things out, never for anything real.
 
+## The store repo: what's built in the platform, kept in git
+
+The credential and connection types admins define (and, as they arrive,
+workflows, steps and panes) are written to a git repo of your choosing, in a
+plugin repo's layout (`plugin.yaml`, `credential-types/`, `connection-types/`;
+PLATFORM_PLAN.md §20.4, §21). So they survive the database, can move between
+deployments, and can be installed elsewhere as a plugin.
+
+**What is in it, and what never is.** Only definitions: what a plugin could
+ship. Never a credential's values, environments or connections, users, groups,
+grants, sessions or runs -- those stay in Postgres. **The repo is not a
+backup of the database**: a deployment lost with its database gets its
+definitions back from the repo, not its sessions, and its credentials come
+back as empty slots to fill in again. Keep backing Postgres up.
+
+**Configure it in Helm** (or leave it unset and an admin sets it in Settings →
+Store; Helm's is the one that restores a brand-new cluster on its own):
+
+```bash
+kubectl create secret generic cloudwatch-insights-store \
+  --from-literal=token=<a token that can push to the repo>
+# or, over SSH:
+#   --from-file=ssh-privatekey=./id_ed25519 --from-file=known_hosts=./known_hosts
+```
+
+```yaml
+backend:
+  store:
+    git:
+      url: https://github.com/acme/platform-store.git   # or ssh://… / git@host:path
+      branch: main
+      path: ""            # a folder in the repo; empty is its root
+      namespace: devops   # required: what's made here is named devops:<name>
+      username: x-access-token   # sent with a token (oauth2 for GitLab)
+      existingSecret: cloudwatch-insights-store
+```
+
+- **How it writes.** Every save lands in the database at once and is committed
+  to the repo right after, as the admin who saved it (`<username>@<authorDomain>`).
+  An unreachable repo never blocks a save: the item shows "Not pushed" and the
+  backend retries; Settings → Store says why, and has Sync now.
+- **On every start** the backend fetches the repo and brings in whatever it
+  holds that the database lacks. The first time a repo is configured, the
+  types this deployment already had are added to it in one commit.
+- **Edits in the repo** are never overwritten: the next change of that item
+  here is reported as a conflict in Settings → Store, where both versions are
+  shown and an admin keeps one. (Pulling repo edits in by themselves is later.)
+- **Ids.** New types are named `<namespace>:<name>`; built-ins and types made
+  before the store keep their ids. The namespace can't change once something is
+  named in it.
+- **Secrets.** The token or key is read from the mounted Secret for each git
+  command and handed to git through `GIT_ASKPASS`/`GIT_SSH_COMMAND` -- never a
+  URL or an argument -- and masked in every log line. A URL with credentials
+  in it is refused, and only `https` and `ssh` are allowed.
+- **The image needs `git` and `openssh-client`** (the backend Dockerfile
+  installs both). The clone is a cache in an `emptyDir`, re-made on start.
+
 ## Upgrading to connections and group identities (Phase 2)
 
 The first start of this version migrates, once (PLATFORM_PLAN.md §14.5):

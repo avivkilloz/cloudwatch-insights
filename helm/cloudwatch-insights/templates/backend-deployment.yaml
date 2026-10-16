@@ -107,6 +107,33 @@ spec:
               value: {{ .Values.backend.masterKey.keyId | quote }}
             {{- end }}
             {{- end }}
+            # The store repo's clone lives here (an emptyDir: it's a cache,
+            # re-made from the repo on every start).
+            - name: STORE_WORKDIR
+              value: /var/lib/platform-store
+            {{- with .Values.backend.store.git }}
+            {{- if .url }}
+            {{- if not .namespace }}
+            {{- fail "backend.store.git.namespace is required with backend.store.git.url: what's made in the platform is named <namespace>:<name>." }}
+            {{- end }}
+            - name: STORE_GIT_URL
+              value: {{ .url | quote }}
+            - name: STORE_GIT_BRANCH
+              value: {{ .branch | default "main" | quote }}
+            - name: STORE_GIT_PATH
+              value: {{ .path | quote }}
+            - name: STORE_NAMESPACE
+              value: {{ .namespace | quote }}
+            - name: STORE_AUTHOR_DOMAIN
+              value: {{ .authorDomain | default "platform.local" | quote }}
+            - name: STORE_GIT_USERNAME
+              value: {{ .username | quote }}
+            {{- if .existingSecret }}
+            - name: STORE_GIT_SECRET_DIR
+              value: /etc/platform-store
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -118,5 +145,23 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          volumeMounts:
+            - name: store-work
+              mountPath: /var/lib/platform-store
+            {{- if and .Values.backend.store.git.url .Values.backend.store.git.existingSecret }}
+            - name: store-secret
+              mountPath: /etc/platform-store
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
+      volumes:
+        - name: store-work
+          emptyDir: {}
+        {{- if and .Values.backend.store.git.url .Values.backend.store.git.existingSecret }}
+        - name: store-secret
+          secret:
+            secretName: {{ .Values.backend.store.git.existingSecret }}
+            # Read by the backend's own user (1000); the pod runs nothing else.
+            defaultMode: 0444
+        {{- end }}

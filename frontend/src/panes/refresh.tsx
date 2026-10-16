@@ -10,6 +10,13 @@
  * for everyone watching (five tabs, one run) and every tab follows the result
  * through the pane's outputs. A failure is on the outputs too, so every
  * viewer sees why, and the interval doubles with each one, up to an hour.
+ *
+ * Run on open (D77, §21.8) is the other half: `<pane>.refreshOnOpen` (or the
+ * session's `refreshOnOpen`) is a freshness window in seconds, and when the
+ * session comes on screen in a visible tab -- opened, switched to, landed on,
+ * or the browser tab come back to -- each such pane asks once. The server
+ * runs it only if its outputs are older than the window, so switching back
+ * and forth, or five members arriving together, runs it once.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -20,6 +27,8 @@ import { PaneManifest } from "./manifest";
 import { Values } from "./paneApi";
 
 export const REFRESH_CHOICES = [10, 30, 60, 300, 900, 3600];
+/** "If older than" windows a run on open offers. */
+export const ON_OPEN_CHOICES = [60, 300, 900, 3600];
 const MAX_BACKOFF_SECONDS = 3600;
 
 export function every(seconds: number): string {
@@ -50,6 +59,12 @@ export interface RefreshState {
   interval: number;
   failures: number;
   error: string | null;
+  /** Run on open: the pane's own window (undefined: follows the session's). */
+  openOwn: number | undefined;
+  setOpenOwn: (seconds: number | undefined) => void;
+  sessionOpen: number;
+  /** The window it runs on open with (0: off). */
+  openWindow: number;
 }
 
 interface Failure {
@@ -72,6 +87,31 @@ export function useAutoRefresh(m: PaneManifest, session: string | null, pane: st
   const ranAt = typeof held.ranAt === "number" ? held.ranAt : 0;
   const asked = useRef(0);
   const [tick, setTick] = useState(0);
+  const [openOwn, setOpenOwnState] = useSessionState<number | undefined>("refreshOnOpen", undefined);
+  const sessionOpen = Number(useSessionValue<number>("refreshOnOpen") ?? 0) || 0;
+  const chosenOpen = openOwn !== undefined && openOwn !== null ? Number(openOwn) : sessionOpen;
+  const openWindow = m.refresh && chosenOpen > 0 ? chosenOpen : 0;
+  // Set on each arrival (off screen or hidden -> on screen and visible), and
+  // spent by the one ask it causes. It waits for the window rather than being
+  // dropped: on a load, the session's state can arrive after the pane is on
+  // screen.
+  const arrived = useRef(false);
+  const present = !!session && onScreen && visible;
+
+  useEffect(() => {
+    if (present) arrived.current = true;
+    else arrived.current = false;
+  }, [present]);
+
+  useEffect(() => {
+    if (!present || !openWindow || !session || !arrived.current) return;
+    arrived.current = false;
+    asked.current = Date.now();
+    api
+      .refreshPane(m.id, session, pane, 0, timezone, openWindow)
+      .then((answer) => answer.outputs && applyOutputs(session, { [pane]: answer.outputs }))
+      .catch(() => undefined);
+  }, [present, openWindow, session, pane, m.id, timezone]);
 
   useEffect(() => {
     // A viewer's tab asks too (D62): the server runs it as the viewer when they
@@ -104,6 +144,10 @@ export function useAutoRefresh(m: PaneManifest, session: string | null, pane: st
     interval,
     failures,
     error: failure?.error ?? null,
+    openOwn: openOwn ?? undefined,
+    setOpenOwn: (seconds) => setOpenOwnState(seconds),
+    sessionOpen,
+    openWindow,
   };
 }
 
@@ -137,6 +181,26 @@ export function RefreshSection({ m, state }: { m: PaneManifest; state: RefreshSt
           ? `Runs again by itself while the session is open, at most every ${every(floor)}. Each run is a query billed by the data it scans.`
           : `Runs again by itself while the session is open, at most every ${every(floor)}.`}
       </div>
+      <label className="pane-menu-field">
+        <select
+          aria-label="Run on open"
+          value={state.openOwn === undefined ? "session" : String(state.openOwn)}
+          onChange={(e) => state.setOpenOwn(e.target.value === "session" ? undefined : Number(e.target.value))}
+        >
+          <option value="session">
+            On open: as the session ({state.sessionOpen ? `if older than ${every(state.sessionOpen)}` : "off"})
+          </option>
+          <option value="0">On open: off</option>
+          {ON_OPEN_CHOICES.map((s) => (
+            <option key={s} value={String(s)}>
+              On open, if older than {every(s)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="pane-menu-note muted">
+        Runs once when someone opens the session, unless what it shows is newer than that.
+      </div>
     </>
   );
 }
@@ -144,6 +208,13 @@ export function RefreshSection({ m, state }: { m: PaneManifest; state: RefreshSt
 /** Beside the ⋮ while the pane refreshes by itself, so that shows without
  * opening the menu. */
 export function RefreshBadge({ state }: { state: RefreshState }) {
+  if (!state.interval && state.openWindow) {
+    return (
+      <span className="pane-refresh-on" title={`Runs when the session is opened, if older than ${every(state.openWindow)}`}>
+        ↻ on open
+      </span>
+    );
+  }
   if (!state.interval) return null;
   return (
     <span className="pane-refresh-on" title={`Refreshes every ${every(state.interval)}`}>

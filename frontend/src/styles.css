@@ -4245,3 +4245,53 @@ button.icon-btn {
   margin: 4px 0 0;
   font-size: 12px;
 }
+
+/* Settings → Store (PLATFORM_PLAN.md §21): a new type's id under the store's
+   namespace, a list item's place in the repo, and a conflict's two sides. */
+.store-id {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 560px;
+}
+.store-id input {
+  flex: 1;
+  min-width: 0;
+}
+.store-id-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-dim);
+}
+.store-badge {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.store-badge-pending {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.store-badge-conflict {
+  color: var(--error);
+  border-color: var(--error);
+}
+.store-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 12px;
+}
+.store-sides h4 {
+  margin: 0 0 6px;
+}
+.store-sides pre {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  font-size: 12px;
+}
+.store-locked {
+  margin-top: 0;
+}

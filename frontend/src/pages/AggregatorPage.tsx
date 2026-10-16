@@ -25,7 +25,7 @@ import SessionVariables from "../components/SessionVariables";
 import { announceVariableChange, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "../panes/variables";
 import SessionCard, { CardRow, CardSection } from "../components/SessionCard";
 import { SESSION_DESCRIPTION_KEY } from "../sessions/start";
-import { every, REFRESH_CHOICES } from "../panes/refresh";
+import { every, ON_OPEN_CHOICES, REFRESH_CHOICES } from "../panes/refresh";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
@@ -1149,6 +1149,7 @@ export default function AggregatorPage() {
   // The session's auto-refresh, for every pane that can and hasn't one of its
   // own (§18.3, panes/refresh.tsx).
   const [refreshEvery, setRefreshEvery] = useSessionState<number>("refresh", 0);
+  const [refreshOnOpen, setRefreshOnOpen] = useSessionState<number>("refreshOnOpen", 0);
   // The session's variables (D60) and view mode (D61). A viewer always sees
   // view mode and can't change either.
   const [variables, setVariables] = useSessionState<Variables>(VARIABLES_KEY, {});
@@ -1397,6 +1398,20 @@ export default function AggregatorPage() {
             {REFRESH_CHOICES.map((seconds) => (
               <option key={seconds} value={String(seconds)}>
                 Every {every(seconds)}
+              </option>
+            ))}
+          </select>
+          <select
+            className="session-card-refresh"
+            aria-label="Run panes on open"
+            title="Panes that can run by themselves run once when someone opens the session, unless what they show is newer than this. A pane can set its own."
+            value={String(refreshOnOpen || 0)}
+            onChange={(e) => setRefreshOnOpen(Number(e.target.value))}
+          >
+            <option value="0">On open: off</option>
+            {ON_OPEN_CHOICES.map((seconds) => (
+              <option key={seconds} value={String(seconds)}>
+                On open, if older than {every(seconds)}
               </option>
             ))}
           </select>

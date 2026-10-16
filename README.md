@@ -163,6 +163,13 @@ from your picture's menu and is not a session; the strip stays above it.
   query is billed by the data it scans); the others every 10 seconds. A
   refresh that keeps failing says why above the pane and tries less often.
   The agent can set it too ("refresh this every 5 minutes").
+- **Run on open.** For a dashboard that should be current when you arrive
+  rather than tick all day: under the same **⚙** (or the session card's
+  **Refresh** row), "On open, if older than 5m" runs the pane once whenever
+  someone opens the session or switches to it -- unless what it shows is
+  newer than that, so switching back and forth, or a team arriving together,
+  runs it once. "↻ on open" shows beside the ⚙. The agent can set it too
+  ("run these on open").
 - **Session variables.** A session can hold an **Environment** and a **Time
   range**, added and set in the session card's **Variables** row. Every pane with an environment picker or a time range follows
   them, like a Grafana dashboard's variables: its own input shows the value,
@@ -828,6 +835,20 @@ Add a Prometheus connection to an environment (its Base URL, e.g.
 connection of their own: each is an HTTP API with a Base URL and the plain
 fields you add (a secret belongs in a credential). Built-in types can't be
 changed, and a type that connections use or a pane reaches can't be deleted.
+
+## The store repo
+
+Admins can point the platform at a git repo (**Settings → Store**, or the
+deployment's Helm values -- DEPLOYMENT.md) to keep what they build in it:
+credential and connection types today, workflows and panes as they arrive.
+Each save is committed to the repo as whoever saved it, in a plugin repo's
+layout, so the definitions outlive the database and can move to another
+deployment. Credential values, connections, users and sessions never go there.
+
+New types are named under the store's namespace (`devops:grafana`). If the
+repo can't be reached, saving still works: the type shows **Not pushed** until
+it can. If someone edits a file in the repo and the same type here, the store
+shows a **Conflict** with both versions side by side, and you keep one.
 
 ## Tools
 

@@ -65,6 +65,8 @@ backend/app/
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
+  store.py           the store repo: what's built here, written through to git as a plugin (§21)
+  gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   pane_outputs.py    the one write path for a pane's outputs, apart from the state (D21)
   live_events.py     pg_notify on write, one LISTEN per replica, fan-out to event streams
@@ -409,7 +411,14 @@ stored inputs, as the caller. Floors: 10 s, 60 s for `cost: per_run`
 (CloudWatch); env vars only raise them. A viewer's tab refreshes too, as the
 viewer, only when they can reach every connection the pane's inputs name
 (`refresh.unreachable`; otherwise "unreachable", nothing written, D62).
-Set in the pane's ⚙, the session's on its card.
+Set in the pane's ⚙, the session's on its card. **Run on open** (D77, §21.8)
+is its other half: `<pane>.refreshOnOpen` (or the session's
+`refreshOnOpen`) is a freshness window in seconds; when the session comes on
+screen in a visible tab, each such pane asks once, with `fresh` instead of
+`every`, and the server runs it only if its outputs are older than that
+(the same lock and rules; a pane whose required inputs aren't set answers
+`not_ready`, no failure). The ask waits for the window rather than being
+dropped: on a load the state can arrive after the pane is on screen.
 
 **Session state is one bag per session, keyed by pane.** `useSessionState(key,
 initial)` inside a `SessionKeyScope prefix={paneId}` reads and writes
@@ -613,6 +622,42 @@ on startup (only ones safe to backfill — nullable or with a server default) an
 wrong for rows that already exist, do a one-shot backfill in `main.py` keyed on
 that return value (see `user_groups.opensearch_enabled`), never an unconditional
 UPDATE on every start.
+
+**The store repo** (D70, D78, D80, PLATFORM_PLAN.md §20.4, §21; `store.py`,
+`gitrepo.py`, `routers/store.py`, Settings → Store). What admins define --
+credential and connection types today; workflows, steps and panes as they
+come -- is written through to a git repo in exactly a plugin repo's layout,
+never a deployment's values or state.
+- **Items stay in their own tables**; `store_items` tracks each (its file, the
+  blob last written or read, `state`), and a change is queued in
+  `store_outbox` **in the change's own transaction**: every save path calls
+  `store.record(db, kind, id, op, actor)` before its commit (a no-op without a
+  store). A new kind is one `Kind` entry (`dump`/`load`/`remove`), nothing else.
+- **One writer at a time**: `flush()` takes a Postgres advisory lock, syncs a
+  private shallow clone (fetch, hard reset -- a cache, never the truth),
+  applies the outbox in order, commits as whoever saved, pushes, and replays
+  on a refused push. A remote file that isn't the recorded blob is a
+  **conflict** -- never overwritten; Settings → Store compares and resolves
+  (Keep mine sets the expected blob to theirs and queues a write). Git
+  unreachable: the rows wait, items say `pending` with why, `store.manager`
+  retries with backoff (kicked after each commit), Sync now tries at once.
+- **Restore** (`store.startup()`, at import in `main.py` after the built-ins
+  and manifest types): what the repo holds and the database lacks is loaded,
+  unless a delete of it is pending; a seeded manifest type is overwritten by
+  the repo's edited copy; the first time a repo is configured, what was here
+  is queued as one commit ("adopted", a Settings marker per url/branch/path).
+  The session doesn't autoflush: anything that queries what it just added
+  flushes first.
+- **Ids** (D78): with a store, a new type is `<namespace>:<name>`
+  (`store.full_id`, which the create routes call); built-ins and older ids
+  stay bare. `:`, because `.` splits a pane id from its keys.
+- **Config**: Helm env (`STORE_GIT_*`, a secret dir with `token` or
+  `ssh-privatekey`/`known_hosts`) wins and locks Settings; else Settings keys
+  `store.*`, its credential resolved through `credential_store.resolve()` as
+  the admin who chose it. Only https/ssh (`file://` only with
+  `STORE_GIT_ALLOW_FILE_URLS`, which pytest and the dev stack set); a URL with
+  credentials is refused; the token goes through `GIT_ASKPASS`, a key through
+  `GIT_SSH_COMMAND`, both masked. Tests run against real git (a bare repo).
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is
