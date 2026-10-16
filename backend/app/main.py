@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, connections, credential_store, credential_types, masking, models, pane_access
+from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access
 from .db import Base, SessionLocal, engine, ensure_columns
 from .panes import runs as pane_runs
 from .panes import saved as pane_saved
@@ -14,6 +14,7 @@ from .platform_tools import server as platform_server
 from .routers import (
     agent,
     auth,
+    catalogue as catalogue_router,
     credentials,
     environments,
     live_sessions,
@@ -64,6 +65,8 @@ try:
     # Once per database: the per-page booleans become grants per pane type (D65).
     for _line in pane_access.migrate(_bootstrap_db):
         logging.getLogger("pane_access").warning("Migrated %s", _line)
+    # The categories the panes suggest, the first time each is suggested (D66).
+    catalogue.ensure_categories(_bootstrap_db)
     # Once per database: the per-pane saved stores become saved inputs (D46).
     for _line in pane_saved.migrate_saved_shortcuts(_bootstrap_db):
         logging.getLogger("saved_inputs").warning("Migrated %s", _line)
@@ -123,6 +126,7 @@ app.include_router(live_sessions.router)
 app.include_router(agent.router)
 app.include_router(tools.router)
 app.include_router(saved_inputs.router)
+app.include_router(catalogue_router.router)
 
 
 @app.get("/api/health")

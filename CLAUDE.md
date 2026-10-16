@@ -349,6 +349,23 @@ fingerprint, not templates -- and a pane reads them with `usePaneOutputs`.
   (`POST …/outputs/{pane}/clear`); the agent's `set_pane_inputs` clears the
   same way.
 
+**The catalogue** (D66, §19.2; `catalogue.py`, `routers/catalogue.py`,
+`sessions/catalogue.tsx`) is how panes are offered, everywhere: the default
+page, the side panel's Add list, the strip's +, a session's card and the group
+form all read `useCatalogue()` -- never group panes by `group` again. Categories
+are rows with a fixed `key` (what a manifest's `category:`, else its `group`,
+suggests) and a `name` an admin can change -- so a rename doesn't make the next
+start recreate the old one (`ensure_categories` creates only a suggested key
+that's missing). An admin's arrangement (`PUT /api/catalogue/layout`, the whole
+thing) places every pane in it, pinning it against a manifest's later
+suggestion; deleting a category places its panes in another. Favourites and
+hidden are each person's (`catalogue_preferences`): Favourites first in the
+shorter lists (not on the default page, where each card has its star), hidden
+left out until "Show hidden". `GET /api/catalogue` gives each person only the
+panes their group may use and drops empty categories except for an admin.
+Access isn't here: moving a pane never changes who can use it. A suite that
+arranges it puts it back (smoke81), or later suites see a different order.
+
 **Home → a session** (R3, D63, §18.9). Per user, on `users`
 (`home_session_id` -- the row's id, a client_id being only unique per owner --
 and `home_session_title` for the note once it's gone; no foreign key, users

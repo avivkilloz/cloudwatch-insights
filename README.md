@@ -179,6 +179,14 @@ from your picture's menu and is not a session; the strip stays above it.
   viewer always sees view mode, and an auto-refreshing dashboard refreshes
   for them too -- run as them, when they can reach its environments; when
   they can't, it says so and waits for someone who can.
+- **The catalogue.** Panes are offered under categories -- Services and
+  Tools to start with -- on the default page, in the side panel's Add list,
+  the strip's + and a session's card. An admin arranges them in **Settings →
+  Catalogue**: new categories, renaming, ordering, and moving each pane up,
+  down or to another category (deleting a category asks where its panes go).
+  Each person can **star** a pane type (the ☆ on its card on the default page)
+  to put it first in their lists, under Favourites, or **hide** one they never
+  use; **Show hidden** brings the hidden ones back to the default page.
 - **A session as your home page.** A session's **⋮ → Set as my home page**
   makes the brand at the top of the side panel open it -- and signing in, or
   reloading on the default page, lands there too (a closed one is reopened).

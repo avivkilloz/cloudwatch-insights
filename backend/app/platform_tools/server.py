@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import connections, credential_store, live_store, models, pane_outputs, schemas
+from .. import catalogue, connections, credential_store, live_store, models, pane_outputs, schemas
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
@@ -360,6 +360,7 @@ async def get_context() -> dict:
     allows (with every input each kind takes), and the session they were looking at when they asked, if any. Call this
     first."""
     with _acting() as (db, user, caller):
+        categories = catalogue.category_of(db)
         zone_name = caller.timezone or "UTC"
         now = datetime.datetime.now(datetime.timezone.utc)
         try:
@@ -394,7 +395,9 @@ async def get_context() -> dict:
                 {"id": t["id"], "name": t["label"], "base_url": t["config"].get("base_url")}
                 for t in connections.targets(db, user, connections.HTTP_API)
             ],
-            "pane_kinds": [k.describe() for k in available_kinds(user)],
+            # Each with the catalogue category it's listed under (D66), so
+            # "a tool for X" can be answered from what the person sees.
+            "pane_kinds": [{**k.describe(), "category": categories.get(k.type)} for k in available_kinds(user)],
             # Names and types only, never a value: what a pane's credential
             # input can be set to.
             "credentials": [

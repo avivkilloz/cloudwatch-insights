@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { defaultSessionName, useStartSession } from "../sessions/start";
-import { GROUP_BLURB, GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { GROUP_BLURB } from "../sessions/registry";
+import { useCatalogue } from "../sessions/catalogue";
+import Icon from "../components/Icon";
 import { PAGES } from "./pageTypes";
 
 /**
@@ -34,7 +36,11 @@ export default function HomePage() {
   // Which category it's filed in; none unless one is picked.
   const [categoryId, setCategoryId] = useState<number | null>(null);
 
-  const panes = SESSION_TYPES.filter((t) => t.enabledFor(user));
+  const catalogue = useCatalogue();
+  // Hidden pane types are left out unless asked for (D66): one person's own tidying.
+  const [showHidden, setShowHidden] = useState(false);
+  // In the catalogue's order, which is the order the cards are in.
+  const panes = catalogue.categories.flatMap((c) => c.types);
   const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
 
   function setCount(type: SessionType, n: number) {
@@ -127,18 +133,48 @@ export default function HomePage() {
           />
         </label>
 
-        {GROUP_ORDER.map((group) => {
-          const inGroup = panes.filter((t) => t.group === group);
-          if (inGroup.length === 0) return null;
+        {/* The catalogue's categories, in the order an admin gave them (D66);
+            Favourites aren't a group of their own here, where each card has
+            its own star -- in the shorter lists they come first. */}
+        {catalogue.groups({ withHidden: showHidden, withFavourites: false }).map(({ name: group, types: inGroup }) => {
           return (
             <div key={group}>
               <h3 style={{ margin: "14px 0 2px", fontSize: 13 }}>{group}</h3>
-              <p className="muted home-group-blurb">{GROUP_BLURB[group]}</p>
+              {group in GROUP_BLURB && <p className="muted home-group-blurb">{GROUP_BLURB[group as keyof typeof GROUP_BLURB]}</p>}
               <div className="home-cards">
                 {inGroup.map((t) => {
                   const n = counts[t.type] ?? 0;
+                  const favourite = catalogue.favourites.includes(t.type);
+                  const hidden = catalogue.hidden.includes(t.type);
                   return (
-                    <div key={t.type} className={`home-card${n > 0 ? " picked" : ""}`}>
+                    <div
+                      key={t.type}
+                      data-pane-type={t.type}
+                      className={`home-card${n > 0 ? " picked" : ""}${hidden ? " hidden-type" : ""}`}
+                    >
+                      {/* One person's own layer over the catalogue: a star puts
+                          it first in the shorter lists, hiding leaves it out
+                          of them. */}
+                      <div className="home-card-marks">
+                        <button
+                          className={`icon-btn home-card-mark${favourite ? " on" : ""}`}
+                          onClick={() => catalogue.setFavourite(t.type, !favourite)}
+                          aria-pressed={favourite}
+                          aria-label={favourite ? `Unstar ${t.label}` : `Star ${t.label}`}
+                          title={favourite ? "Starred: first in your lists. Unstar" : "Star: first in your lists"}
+                        >
+                          <Icon name="star" />
+                        </button>
+                        <button
+                          className={`icon-btn home-card-mark home-card-mark-hide${hidden ? " on" : ""}`}
+                          onClick={() => catalogue.setHidden(t.type, !hidden)}
+                          aria-pressed={hidden}
+                          aria-label={hidden ? `Show ${t.label} again` : `Hide ${t.label}`}
+                          title={hidden ? "Hidden from your lists. Show it again" : "Hide from your lists"}
+                        >
+                          <Icon name="hide" />
+                        </button>
+                      </div>
                       {/* The card itself adds one -- the biggest target on it,
                           and the thing you most likely came to do; the stepper
                           below is for setting an exact number, or taking one
@@ -188,6 +224,12 @@ export default function HomePage() {
           );
         })}
 
+        {catalogue.hidden.length > 0 && (
+          <button className="link-button home-show-hidden" onClick={() => setShowHidden(!showHidden)}>
+            {showHidden ? "Leave out the hidden ones" : `Show hidden (${catalogue.hidden.length})`}
+          </button>
+        )}
+        {catalogue.error && <p className="error-text">{catalogue.error}</p>}
         <p className="muted" style={{ margin: "14px 0 0", fontSize: 12 }}>
           {total === 0
             ? "Nothing chosen — Create makes an empty session you can fill from inside it."

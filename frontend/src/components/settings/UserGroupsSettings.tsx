@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, ApiError, ConnectionType, Credential, EnvironmentRecord, GroupIdentity, readableError, UserGroup } from "../../api";
 import { manifests } from "../../panes/manifest";
+import { useCatalogue } from "../../sessions/catalogue";
 import { CardRow } from "../SessionCard";
 import { accepts } from "./EnvironmentsSettings";
 import { rowProps, Section, TagPicker, ViewHead } from "./settingsLayout";
@@ -29,16 +30,6 @@ type Draft = {
 
 const NEW_ROLE = "new-role";
 
-/** Every pane type there is, under the catalogue's groups -- what a group can
- * be granted. The Admin group's list is every manifest, so this is complete
- * wherever an admin opens it. */
-function paneGroups(): { group: string; panes: { id: string; label: string }[] }[] {
-  const all = manifests();
-  return (["Services", "Tools", "Platform"] as const)
-    .map((group) => ({ group, panes: all.filter((m) => m.group === group).map((m) => ({ id: m.id, label: m.label })) }))
-    .filter((g) => g.panes.length > 0);
-}
-
 /** Credentials a group can use (D15): its own, global ones granted to it, or any for the Admin group. */
 function usableBy(group: { id: number | null; is_admin?: boolean }, c: Credential): boolean {
   if (group.is_admin) return true;
@@ -47,6 +38,7 @@ function usableBy(group: { id: number | null; is_admin?: boolean }, c: Credentia
 }
 
 export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode }) {
+  const catalogue = useCatalogue();
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [envs, setEnvs] = useState<EnvironmentRecord[]>([]);
   const [types, setTypes] = useState<ConnectionType[]>([]);
@@ -251,7 +243,12 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
               <span className="credential-static">Every pane</span>
             </CardRow>
           ) : (
-            paneGroups().map(({ group, panes }) => {
+            // Under the catalogue's categories (D66), hidden ones too: the
+            // admin's catalogue holds every pane type, so this is all of them.
+            catalogue
+              .groups({ withHidden: true, withFavourites: false })
+              .map(({ name: group, types }) => ({ group, panes: types.map((t) => ({ id: t.type as string, label: t.label })) }))
+              .map(({ group, panes }) => {
               const ids = new Set(panes.map((p) => p.id));
               const rest = draft.pane_types.filter((t) => !ids.has(t));
               return (

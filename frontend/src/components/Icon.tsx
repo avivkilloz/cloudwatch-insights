@@ -20,7 +20,9 @@ export type IconName =
   | "right"
   | "to-rail"
   | "from-rail"
-  | "home";
+  | "home"
+  | "star"
+  | "hide";
 
 // Generated: eight teeth between radii 5.2 and 6.9 around (8, 8).
 const GEAR =
@@ -43,6 +45,9 @@ const PATHS: Record<IconName, string> = {
   "to-rail": "M2.5 3 V13 M13.5 8 H5.5 M8.5 5 L5.5 8 L8.5 11",
   "from-rail": "M13.5 3 V13 M2.5 8 H10.5 M7.5 5 L10.5 8 L7.5 11",
   home: "M2.5 7.5 L8 2.75 L13.5 7.5 M4 6.25 V13.25 H12 V6.25 M6.75 13.25 V9.5 H9.25 V13.25",
+  star: "M8 2.25 L9.7 5.8 L13.5 6.3 L10.7 8.9 L11.45 12.75 L8 10.85 L4.55 12.75 L5.3 8.9 L2.5 6.3 L6.3 5.8 Z",
+  // An eye, struck through: hide this from my lists.
+  hide: "M1.75 8 C3.5 5 5.6 3.75 8 3.75 C10.4 3.75 12.5 5 14.25 8 C12.5 11 10.4 12.25 8 12.25 C5.6 12.25 3.5 11 1.75 8 Z M8 6.25 A1.75 1.75 0 1 0 8 9.75 A1.75 1.75 0 1 0 8 6.25 M2.5 13.5 L13.5 2.5",
 };
 
 export default function Icon({ name }: { name: IconName }) {

@@ -359,6 +359,9 @@ class Manifest(_Strict):
     # Where it comes in the catalogue and in the agent's list of kinds.
     order: int = 100
     group: Literal["Services", "Tools", "Platform"] = "Tools"
+    # The catalogue category it suggests (D66), by the category's key; its
+    # group when absent. Only until an admin places it (catalogue.py).
+    category: Optional[str] = None
     # The group switch that covered it before access was per pane type (D65):
     # read once, to migrate those switches into grants, and to keep them as
     # shorthand in the API. A pane type without one is granted one by one.

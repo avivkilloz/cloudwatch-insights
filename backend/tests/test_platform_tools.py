@@ -909,3 +909,12 @@ def test_what_get_session_shows_of_an_input_set_pane_inputs_takes_back(mcp):
         out = call(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": sent})
         assert out["pane"]["inputs"]["query"] == kept
     assert "e.g." in call_error(mcp, token, "set_pane_inputs", session_id=session, pane_id="api-table", inputs={"query": "x"})
+
+
+def test_get_context_gives_each_kind_its_catalogue_category(mcp):
+    # The category it's listed under (D66) -- renamed by an admin, the new name.
+    tools = next(c for c in client.get("/api/catalogue").json()["categories"] if c["name"] == "Tools")
+    client.put(f"/api/catalogue/categories/{tools['id']}", json={"name": "Utilities"})
+    kinds = {k["kind"]: k for k in call(mcp, _token(), "get_context")["pane_kinds"]}
+    assert kinds["tool-base64"]["category"] == "Utilities"
+    assert kinds["iot"]["category"] == "Services"

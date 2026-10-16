@@ -21,6 +21,7 @@ import Sidebar from "./components/Sidebar";
 import UserMenu from "./components/UserMenu";
 import { SessionScopeProvider, SessionsProvider, SessionType, useSessions } from "./sessions/SessionContext";
 import { TemplatesProvider } from "./sessions/templates";
+import { CatalogueProvider } from "./sessions/catalogue";
 import { PersistedSession } from "./sessions/storage";
 import { setManifests } from "./panes/manifest";
 import { registerManifestPanes } from "./sessions/paneTypes";
@@ -101,22 +102,25 @@ export default function App() {
 
   return (
     <PaneTypesGate userId={user.id}>
-      <SessionsProvider userId={user.id}>
-        {/* Templates are offered in two places -- the panel's catalogue and the
-            strip's ＋ -- so they are fetched once here rather than per list. */}
-        <TemplatesProvider>
-          {/* One conversation with the agent, for the page and the dock alike. */}
-          <AgentProvider>
-            <AppShell
-              appTitle={appTitle}
-              appLogoUrl={settings.app_logo_url}
-              theme={theme}
-              onThemeChange={setTheme}
-              onSettingsChange={setSettings}
-            />
-          </AgentProvider>
-        </TemplatesProvider>
-      </SessionsProvider>
+      {/* The catalogue panes are offered from (D66), for every list of them. */}
+      <CatalogueProvider>
+        <SessionsProvider userId={user.id}>
+          {/* Templates are offered in two places -- the panel's catalogue and the
+              strip's ＋ -- so they are fetched once here rather than per list. */}
+          <TemplatesProvider>
+            {/* One conversation with the agent, for the page and the dock alike. */}
+            <AgentProvider>
+              <AppShell
+                appTitle={appTitle}
+                appLogoUrl={settings.app_logo_url}
+                theme={theme}
+                onThemeChange={setTheme}
+                onSettingsChange={setSettings}
+              />
+            </AgentProvider>
+          </TemplatesProvider>
+        </SessionsProvider>
+      </CatalogueProvider>
     </PaneTypesGate>
   );
 }

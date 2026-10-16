@@ -4134,3 +4134,98 @@ button.icon-btn {
   gap: 6px;
   font-size: 12px;
 }
+
+/* ---- The catalogue (D66): a card's star and hide, Show hidden ---- */
+/* In the card's corner, over the title's row: shown on hover or focus, and
+   always while on, so a starred card says so at a glance. */
+.home-card-marks {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+}
+.home-card-marks button.home-card-mark {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  opacity: 0;
+}
+.home-card:hover .home-card-mark,
+.home-card-mark:focus-visible,
+.home-card-mark.on {
+  opacity: 1;
+}
+.home-card-mark.on {
+  color: var(--accent);
+}
+.home-card-mark.on .icon path {
+  fill: currentColor;
+}
+/* The hide mark's eye isn't filled: a filled eye is a blot. */
+.home-card-mark-hide.on .icon path {
+  fill: none;
+}
+.home-card-mark .icon {
+  width: 14px;
+  height: 14px;
+}
+.home-card.hidden-type {
+  opacity: 0.6;
+}
+.home-card-open .home-card-title {
+  padding-right: 44px;
+}
+.home-show-hidden {
+  margin-top: 10px;
+}
+
+/* Settings -> Catalogue (D66): a category per bordered section, its panes a
+   list with up / down and where to move each. */
+.catalogue-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.catalogue-category-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.catalogue-panes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.catalogue-pane {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 520px;
+}
+.catalogue-pane-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.catalogue-pane select {
+  width: 160px;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+.catalogue-inline,
+.catalogue-new {
+  margin: 4px 0 8px;
+}
+.catalogue-empty {
+  margin: 0;
+  font-size: 12.5px;
+}

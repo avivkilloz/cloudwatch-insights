@@ -4,7 +4,7 @@ import { LiveSessionSummary } from "../api";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { BrandInfo, BrandMark } from "./Brand";
 import { PersistedSession } from "../sessions/storage";
-import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { useCatalogue } from "../sessions/catalogue";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
 import AgentWorking from "./AgentWorking";
@@ -69,6 +69,7 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
+  const { groups: catalogueGroups } = useCatalogue();
 
   // Which row is being renamed in place. Started from the row's ⋮ or from a
   // double-click on its name.
@@ -557,13 +558,13 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
               or tool you clicked, named after it. Anything more -- several
               panes, or a name of your own -- is the card on the home page,
               which is what the row above goes to. */}
-          {GROUP_ORDER.map((group) => {
-            const inGroup = SESSION_TYPES.filter((t) => t.group === group && t.enabledFor(user));
-            if (inGroup.length === 0) return null;
+          {/* The catalogue's own categories (D66), Favourites first, hidden
+              pane types left out. */}
+          {catalogueGroups().map(({ name, types }) => {
             return (
-              <div key={group}>
-                <div className="rail-heading">{group}</div>
-                {inGroup.map((t) => (
+              <div key={name}>
+                <div className="rail-heading">{name}</div>
+                {types.map((t) => (
                   <button
                     key={t.type}
                     className="rail-row rail-row-type"

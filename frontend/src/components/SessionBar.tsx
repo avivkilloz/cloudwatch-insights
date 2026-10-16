@@ -3,7 +3,7 @@ import { BrandInfo, BrandMark } from "./Brand";
 import { useAuth } from "../AuthContext";
 import { useAgent } from "../agent/AgentContext";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
-import { GROUP_ORDER, SESSION_TYPES } from "../sessions/registry";
+import { useCatalogue } from "../sessions/catalogue";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
 import AgentWorking from "./AgentWorking";
@@ -41,6 +41,7 @@ export default function SessionBar({
   const { templates } = useTemplates();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
+  const { groups: catalogueGroups } = useCatalogue();
   // Set when the current tab is being renamed in place, from the ⋮ below.
   const [renaming, setRenaming] = useState(false);
 
@@ -149,13 +150,11 @@ export default function SessionBar({
               </button>
               {/* The same offer the panel's Add list makes, for when the panel
                   is hidden: one click for a session on that one service or tool. */}
-              {GROUP_ORDER.map((group) => {
-                const inGroup = SESSION_TYPES.filter((t) => t.group === group && t.enabledFor(user));
-                if (inGroup.length === 0) return null;
+              {catalogueGroups().map(({ name, types }) => {
                 return (
-                  <div key={group}>
-                    <div className="session-add-heading">{group}</div>
-                    {inGroup.map((t) => (
+                  <div key={name}>
+                    <div className="session-add-heading">{name}</div>
+                    {types.map((t) => (
                       <button
                         key={t.type}
                         className="session-add-item"
