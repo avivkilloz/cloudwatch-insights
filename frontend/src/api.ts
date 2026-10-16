@@ -102,6 +102,14 @@ export interface UserGroup {
   pane_types: string[];
 }
 
+/** The catalogue panes are picked from (D66): its categories in order, each
+ * with the pane types the caller may use, and their own favourites and hidden. */
+export interface Catalogue {
+  categories: { id: number; name: string; pane_types: string[] }[];
+  favourites: string[];
+  hidden: string[];
+}
+
 /** The user's home page (R3, D63): a session they can reach, or the title of
  * one that's gone (deleted, or no longer shared with them), or neither. */
 export interface HomeSession {
@@ -695,6 +703,17 @@ export const api = {
     req<LiveSession>(`/live-sessions/${encodeURIComponent(clientId)}/close`, { method: "POST" }),
   deleteLiveSession: (clientId: string) =>
     req<void>(`/live-sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+  getCatalogue: () => req<Catalogue>("/catalogue"),
+  setCataloguePreference: (paneType: string, pref: { favourite?: boolean; hidden?: boolean }) =>
+    req<Catalogue>(`/catalogue/preferences/${encodeURIComponent(paneType)}`, { method: "PUT", body: JSON.stringify(pref) }),
+  createCatalogueCategory: (name: string) =>
+    req<Catalogue>("/catalogue/categories", { method: "POST", body: JSON.stringify({ name }) }),
+  renameCatalogueCategory: (id: number, name: string) =>
+    req<Catalogue>(`/catalogue/categories/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  deleteCatalogueCategory: (id: number, moveTo: number) =>
+    req<Catalogue>(`/catalogue/categories/${id}?move_to=${moveTo}`, { method: "DELETE" }),
+  setCatalogueLayout: (categories: { id: number; pane_types: string[] }[]) =>
+    req<Catalogue>("/catalogue/layout", { method: "PUT", body: JSON.stringify({ categories }) }),
   getHomeSession: () => req<HomeSession>("/live-sessions/home"),
   setHomeSession: (clientId: string) =>
     req<HomeSession>(`/live-sessions/${encodeURIComponent(clientId)}/home`, { method: "PUT" }),

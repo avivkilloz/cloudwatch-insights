@@ -33,6 +33,7 @@ import { domainLabel, PaneSelection, PaneSelectionContext } from "../components/
 import { publishSelection } from "../agent/selection";
 import { useAgent } from "../agent/AgentContext";
 import { PANE_TYPES } from "../sessions/paneTypes";
+import { useCatalogue } from "../sessions/catalogue";
 
 type ServiceId = string;
 /** How the open panes are arranged.
@@ -477,6 +478,7 @@ export default function AggregatorPage() {
   // entry under the pane's own id and name.
   const kinds = catalogue();
   const available = kinds.filter((s) => s.enabledFor(user));
+  const { groups: catalogueGroups } = useCatalogue();
   const open = services.flatMap((id) => {
     const def = kinds.find((s) => s.id === paneType(id, paneTypes));
     return def ? [{ ...def, id, type: def.id, label: paneTitle(id, paneTypes, paneTitles) }] : [];
@@ -1309,17 +1311,14 @@ export default function AggregatorPage() {
       onDescribe={setDescription}
       onMove={() => setPanesInRail(!cardInRail)}
     >
-      {/* Two rows rather than one long one -- ten buttons in a single line
-          reads as an undifferentiated list, and "a search page" and "a tool"
-          are different kinds of thing to reach for. Each only ever adds: a
-          session can hold several panes of one kind, so there's no single
-          pane a toggle could mean. Closing is the pane's own ✕. */}
+      {/* A row per catalogue category (D66), Favourites first, rather than
+          one long line -- ten buttons in a single line reads as an
+          undifferentiated list. Each only ever adds: a session can hold
+          several panes of one kind, so there's no single pane a toggle could
+          mean. Closing is the pane's own ✕. */}
       <CardSection>
-        {[
-          { heading: "Services", ids: kinds.filter((x) => x.group === "Services") },
-          { heading: "Tools", ids: kinds.filter((x) => x.group === "Tools") },
-        ].map((group) => {
-          const shown = group.ids.filter((x) => available.some((a) => a.id === x.id));
+        {catalogueGroups().map((g) => ({ heading: g.name, ids: g.types.map((t) => t.type as string) })).map((group) => {
+          const shown = available.filter((a) => group.ids.includes(a.id)).sort((a, b) => group.ids.indexOf(a.id) - group.ids.indexOf(b.id));
           if (shown.length === 0) return null;
           return (
             <CardRow label={group.heading} key={group.heading}>

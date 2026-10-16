@@ -8,6 +8,7 @@ import SavedItemsPage from "./SavedItemsPage";
 import CredentialsSettings from "../components/settings/CredentialsSettings";
 import EnvironmentsSettings from "../components/settings/EnvironmentsSettings";
 import UserGroupsSettings from "../components/settings/UserGroupsSettings";
+import CatalogueSettings from "../components/settings/CatalogueSettings";
 import { ViewSwitch } from "../components/settings/settingsLayout";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -27,7 +28,8 @@ type Section =
   | "app"
   | "environments"
   | "users"
-  | "credentials";
+  | "credentials"
+  | "catalogue";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
@@ -46,6 +48,8 @@ const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   // Credentials and their types are one tab, switched inside it: a ninth tab
   // wrapped "Credential types" onto two lines.
   { id: "credentials", label: "Credentials" },
+  // The categories panes are offered under (D66). Access is Users → Groups.
+  { id: "catalogue", label: "Catalogue" },
 ];
 
 
@@ -297,6 +301,8 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       {isAdmin && section === "credentials" && <CredentialsSettings />}
 
       {isAdmin && section === "environments" && <EnvironmentsSettings />}
+
+      {isAdmin && section === "catalogue" && <CatalogueSettings />}
 
       {isAdmin && section === "users" && usersView === "groups" && (
         <UserGroupsSettings switcher={<ViewSwitch views={USER_VIEWS} view={usersView} onChange={setUsersView} />} />
