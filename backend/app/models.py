@@ -180,7 +180,8 @@ class ConnectionType(Base):
     """What it takes to reach one kind of system: its public settings (the
     same field schema as credential types) and which credential types a
     group may use as its identity there. Built-ins are seeded rows
-    (connections.BUILTINS); admin-defined ones arrive with Phase 3."""
+    (connections.BUILTINS); any other is an HTTP API of a kind (D67), made
+    by an admin or shipped by the manifest of the pane that needs it."""
 
     __tablename__ = "connection_types"
 
@@ -190,6 +191,8 @@ class ConnectionType(Base):
     fields = Column(JSON, nullable=False, default=list)
     identity_types = Column(JSON, nullable=False, default=list)
     builtin = Column(Boolean, nullable=False, server_default="false")
+    # "manifest:<pane type>" for one a pane shipped; null for an admin's own.
+    origin = Column(String, nullable=True)
 
 
 class Connection(Base):

@@ -290,10 +290,19 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
 - **`sensitive` inputs** live in the component's memory only: never session
   state, templates, the agent. A pane whose inputs are all sensitive (JWT) has
   no agent run.
-- **A `request` action** (the API table's Fetch) runs server-side through
-  `routers/panes.run_request`: a GET on an `http_api` connection, the group's
-  identity applied only if one exists, the SSRF guard, the reply masked. The
-  agent runs the same function (D44).
+- **A `request` action** (the API table's Fetch, Prometheus' Run) runs
+  server-side through `routers/panes.run_request`: a GET on a connection of
+  any HTTP type -- the one its `connection` input names in `connection_type`
+  -- the group's identity applied only if one exists, the SSRF guard, the
+  reply masked. The agent runs the same function (D44). Declaratively, never
+  code (D67): `fixed_path`; `params`, each a literal, `{input: key}` or
+  `{window: start|end|step}` (epoch seconds over the inputs `window` names,
+  in the browser's `_tz`, ~240 steps); and `rows` (`extract_rows`: `at`,
+  `explode`, `columns` with `as: text|number|time`, `spread`, `labels` --
+  one `name{k="v"}` series column), or the API table's `rows_at` input.
+  **Prometheus** (`prometheus.yaml`) is the proof: no handler, no route, no
+  registry entry -- only its manifest, which also ships its connection type
+  (`connection_types:`) and suggests its catalogue category.
 - **A tab left open across a deploy** sees `version.json` change (vite writes
   it; nginx serves it `no-store`), says so, and reloads at the next page or
   session switch -- after `flushAll()`, or the cut-off debounced save loses
@@ -726,6 +735,17 @@ URL); a group's identity says *who* (D31).
   role without an external ID is a name. `_seal`/`_open` ask for the keyring
   only when there is something to encrypt or decrypt; without that, a
   deployment with no `PLATFORM_MASTER_KEYS` lost AWS on the upgrade.
+- **Connection types beyond AWS are HTTP APIs of a kind** (D67, §19.3):
+  a Base URL always first (`connections.BASE_URL_FIELD`; `is_http`), then
+  plain fields -- never secret, a secret is a credential -- and any
+  credential type with an `inject` as a group's identity. Admins make them in
+  Settings → Environments → Types (`ConnectionTypesSettings.tsx`; ids never
+  change, panes name them); a manifest's `connection_types:` are seeded once
+  when missing (`ensure_manifest_types`, `origin: "manifest:<pane>"`) and are
+  then the admin's to edit. Built-ins are locked; a type with connections, or
+  one a pane reaches (`needed_by`), can't be deleted; a field a connection
+  holds a value for can't be removed. `get_context`'s `http_apis` lists every
+  non-AWS connection with its `type`.
 - **The HTTP client's Target** (`http_api` connections, D33): `url` is then a
   path joined to the base URL server-side, signed with the group's identity
   there (or the connection's own), through the same SSRF guard.

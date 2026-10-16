@@ -111,7 +111,8 @@ const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
   check(offered[0] === "Start new session…", "The ＋ offers the way to start one", JSON.stringify(offered.slice(0, 2)));
   // Then the same shortcuts the panel's Add list holds, and your templates.
   const groups = await page.locator(".session-add-heading").allTextContents();
-  check(groups[0] === "Services" && groups[1] === "Tools" && groups.slice(2).every((g) => g === "Templates"),
+  const firstTemplate = groups.indexOf("Templates");
+  check(groups[0] === "Services" && groups[1] === "Tools" && (firstTemplate < 0 || groups.slice(firstTemplate).every((g) => g === "Templates")),
     "…then services, tools and templates", JSON.stringify(groups));
   const portalled = await page.evaluate(() =>
     document.querySelector(".session-add-menu").parentElement === document.body);

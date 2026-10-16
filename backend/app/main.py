@@ -58,6 +58,8 @@ try:
     bootstrap.ensure_admin_exists(_bootstrap_db)
     credential_types.ensure_builtins(_bootstrap_db)
     connections.ensure_builtins(_bootstrap_db)
+    # The connection types panes ship, the first time each is missing (D67).
+    connections.ensure_manifest_types(_bootstrap_db)
     # Once per database: environments become AWS connections with their own
     # ids, group roles become group identities (PLATFORM_PLAN.md §14.5).
     for _line in connections.migrate_legacy(_bootstrap_db):

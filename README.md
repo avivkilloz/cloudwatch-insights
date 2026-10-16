@@ -809,6 +809,26 @@ Insights has `StartQuery`/`GetQueryResults` — a search is a single
 synchronous request, so there's no "Stop" button or polling for that
 backend.
 
+## Prometheus
+
+A **Prometheus** pane runs a PromQL range query against a Prometheus
+connection over a time range (or the session's Time range variable) and shows
+every series on a time-series chart -- drag across it to zoom -- and in a
+table under it, one row per series and point (time, value, the series' name
+and its labels). It auto-refreshes like any pane and the agent can run it.
+
+It's built from its manifest alone: the Prometheus connection type comes with
+it (Settings → Environments → **Types**, "From the Prometheus pane"), and it's
+listed under its own **Observability** category. Like any pane type added
+later, no group has it until an admin ticks it in **Users → Groups → Panes**.
+Add a Prometheus connection to an environment (its Base URL, e.g.
+`https://prometheus.example.com`), and a credential if it needs signing.
+
+**Settings → Environments → Types** is where admins define kinds of
+connection of their own: each is an HTTP API with a Base URL and the plain
+fields you add (a secret belongs in a credential). Built-in types can't be
+changed, and a type that connections use or a pane reaches can't be deleted.
+
 ## Tools
 
 Small, independent developer utilities. Each one is its own **session type**:

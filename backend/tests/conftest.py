@@ -46,6 +46,8 @@ def _clean_database():
         admin_group.role_name = TEST_ROLE_NAME
         db.commit()
         credential_types.ensure_builtins(db)
+        connections.ensure_builtins(db)
+        connections.ensure_manifest_types(db)
         # The role becomes the Admin group's default AWS identity, the way
         # the startup migration does it for a real database (§14.5).
         connections.migrate_legacy(db)

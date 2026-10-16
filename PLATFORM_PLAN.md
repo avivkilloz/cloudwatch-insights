@@ -1124,7 +1124,7 @@ foundation the next one needs.
     3c-1 (results in their own store, auto-refresh) built 2026-10-15; 3c-2
     (view mode and variables) 2026-10-15; 3c-3 (Home) 2026-10-16.
   - **3d, permissions, categories and a first new pane** (three PRs, D64,
-    §19):
+    §19; built 2026-10-16):
     - Per-type permissions replace the boolean flags.
     - The catalogue with categories (§4.8, R6).
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
@@ -1228,6 +1228,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D64 | 2026-10-16 | **3d ships as three PRs: per-type permissions first** (3d-1), then the catalogue with categories (3d-2), then admin-defined connection types with a Prometheus pane built from a manifest alone (3d-3) (§19). | The user's choice. Access first: the catalogue is display-only once access stops riding on "Tools", and a new pane type needs grants before anyone but an admin can try it. |
 | D65 | 2026-10-16 | **A group's access to panes is one row per pane type** (`group_pane_grants`), checked by one function for the browser, the agent and every handler. The old booleans stay in the API as shorthand -- read from the grants, written as grants -- and are migrated once, so nobody gains or loses anything. A pane type no group has been granted is an admin's alone until one is. | §8's "rows (group × pane type)". The shorthand keeps scripts and the agent's tests working; a new pane type arriving with access for everyone would be a grant nobody made (D15's rule). |
 | D66 | 2026-10-16 | **The catalogue's categories are data, matched to a pane's suggestion by a fixed key; an admin's placement pins the pane; favourites and hiding are each person's** (§19.2). Renaming a category changes its name, never its key; deleting one moves its panes to another; arranging the catalogue places every pane in it. | §4.8 and R6. A key apart from the name is what lets an admin rename "Tools" without a restart bringing "Tools" back for the panes that suggest it. |
+| D67 | 2026-10-16 | **A connection type beyond AWS is an HTTP API of a kind: a base URL, the fields an admin (or the manifest that needs it) adds, and any credential type that says how to sign a request.** Admins define them in Settings → Environments → Types; a manifest can ship the type its pane needs, seeded once and an admin's to edit. A declarative request can name a fixed path, query parameters from inputs or the pane's time window, and rows to read out of nested replies -- enough for Prometheus from a manifest alone (§19.3). | 3d's proof: a pane on a system the platform has no code for. HTTP covers most of what plugins will reach; a type that needs a protocol of its own (SQL, gRPC) waits for plugins with code (Phase 7). |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3756,12 +3757,44 @@ group form's Panes.
 **Not in 3d-2:** icons for categories, personal categories, tags and search,
 and workflows in the catalogue (Phase 4).
 
-### 19.3 3d-3 (to be detailed)
+### 19.3 3d-3: a new kind of connection, and a pane from a manifest alone (D67)
 
-- **A new kind of connection:** admin-defined connection types in the
-  credential-type editor, and a **Prometheus** pane (the user's choice) built
-  from a manifest alone on one: a PromQL query, a time range, a time-series
-  chart and a table, auto-refresh.
+**Today:** connection types are rows (`connection_types`) but only the two
+built-ins exist, AWS and HTTP API; a declarative `request` (the API table's
+Fetch) reads its path and query from inputs and its rows from one list.
+
+**Built:**
+- **Admin-defined connection types** (Settings → Environments → Types, a
+  switch as Credentials | Types is). Every one is HTTP: a **Base URL** first
+  (always, checked like the HTTP API's), then the plain fields the admin
+  adds (key, label, help, required -- never secret: secrets are
+  credentials), and any credential type with an `inject` as a group's
+  identity there. Built-ins stay locked; a type in use by a connection, or
+  needed by a pane, can't be deleted.
+- **A manifest can ship the type its pane needs** (`connection_types:` in
+  the manifest), seeded at startup when missing, marked as the pane's, and
+  then the admin's to rename or add fields to -- the way a plugin will
+  arrive with what it reaches.
+- **A request names more, declaratively** (still no code in a manifest):
+  - the connection's type comes from its input's `connection_type` -- any
+    HTTP type, not only `http_api`;
+  - `fixed_path` beside the path input;
+  - `params`: each query parameter from an input, a literal, or the pane's
+    time window (`window: start | end | step`, worked out as the browser's
+    zone says, the step about 240 points across);
+  - `rows`: where the list is (`at`), an item's list to make one row per
+    element (`explode`), columns read by position or path (`columns`,
+    as text, number or time), and an object spread into a column per key,
+    plus one text column naming the series (`labels`).
+- **Prometheus**, `prometheus.yaml` and nothing else: a Prometheus connection
+  type it ships, a PromQL query, a time range, a time-series chart over
+  `query_range` and the table under it, auto-refresh, the agent's run. It
+  suggests the **Observability** category, created by 3d-2's rule, and like
+  any pane without a flag is granted to no group until an admin does
+  (D65).
+
+**Not in 3d-3:** instant queries, Prometheus' own label pickers (a loader
+over `/api/v1/labels`), and types that aren't HTTP.
 
 ## 12. Research sources
 

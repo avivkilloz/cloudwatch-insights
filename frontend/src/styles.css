@@ -4229,3 +4229,19 @@ button.icon-btn {
   margin: 0;
   font-size: 12.5px;
 }
+
+/* Settings -> Environments -> Types (D67): a field per row, its key, label,
+   help and Required side by side. */
+.connection-type-field {
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 100%;
+}
+.connection-type-field input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+.connection-type-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+}

@@ -82,6 +82,29 @@ class ConnectionTypeOut(BaseModel):
     fields: list[dict[str, Any]] = []
     identity_types: list[str] = []
     builtin: bool = True
+    # "manifest:<pane type>" when a pane shipped it (D67); null for an admin's.
+    origin: Optional[str] = None
+    # How many connections are of this type, and which panes reach it: why it
+    # can't be deleted, said before anyone tries.
+    connections: int = 0
+    needed_by: list[str] = []
+
+
+class ConnectionTypeFieldIn(BaseModel):
+    key: str
+    label: str = ""
+    help: str = ""
+    required: bool = False
+
+
+class ConnectionTypeIn(BaseModel):
+    """An HTTP connection type (D67). `id` only when creating; its Base URL
+    field is always there and needn't be sent."""
+
+    id: Optional[str] = None
+    label: str
+    description: Optional[str] = None
+    fields: list[ConnectionTypeFieldIn] = []
 
 
 class TargetOut(BaseModel):

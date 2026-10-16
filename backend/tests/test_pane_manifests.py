@@ -310,7 +310,7 @@ def test_the_agent_fetches_into_the_pane(partner, mcp):
     # The admin can reach every connection, by its name as get_context lists it.
     token = _token()
     context = call(mcp, token, "get_context")
-    assert {"id": partner["conn"]["id"], "name": "Partner", "base_url": "https://api.example.com/v1"} in context["http_apis"]
+    assert {"id": partner["conn"]["id"], "name": "Partner", "type": "http_api", "base_url": "https://api.example.com/v1"} in context["http_apis"]
     session = call(mcp, token, "create_session", title="s", panes=[{"kind": "api-table"}])["session_id"]
     ran = call(
         mcp, token, "run_pane", session_id=session, pane_id="api-table",

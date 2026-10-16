@@ -58,10 +58,12 @@ const run = async () => {
   await page.selectOption(`${SETTINGS} [aria-label="Category for JWT"]`, { label: "Debugging" });
   await page.waitForSelector(`${CATEGORY("Debugging")} [data-pane-type="tool-jwt"]`);
   check((await page.locator(`${CATEGORY("Tools")} [data-pane-type="tool-jwt"]`).count()) === 0, "A pane moves to the category chosen for it");
-  await page.click(`${SETTINGS} [aria-label="Move Debugging up"]`);
-  await page.waitForTimeout(300);
-  await page.click(`${SETTINGS} [aria-label="Move Debugging up"]`);
-  await page.waitForTimeout(300);
+  // Up until it's first (a pane's own category, Observability, may be there too).
+  const categoryOrder = () => page.locator(`${SETTINGS} [data-category]`).evaluateAll((els) => els.map((e) => e.dataset.category));
+  for (let i = 0; i < 6 && (await categoryOrder())[0] !== "Debugging"; i++) {
+    await page.click(`${SETTINGS} [aria-label="Move Debugging up"]`);
+    await page.waitForTimeout(500);
+  }
   const order = await page.locator(`${SETTINGS} [data-category]`).evaluateAll((els) => els.map((e) => e.dataset.category));
   check(order[0] === "Debugging", "A category moves up", JSON.stringify(order));
   await page.click(`${SETTINGS} [aria-label="Rename Debugging"]`);

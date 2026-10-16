@@ -24,6 +24,8 @@ tester that there was no such thing.
 """
 
 import asyncio
+import datetime
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -74,6 +76,8 @@ class Input:
         if self.kind == "connections" and self.connection_type == "aws":
             type_name = _TYPE_NAMES["environments"]
         out: dict[str, Any] = {"key": self.key, "type": type_name, "help": self.help}
+        if self.kind in ("connection", "connections") and self.connection_type and self.connection_type != "aws":
+            out["connection_type"] = self.connection_type
         if self.choices:
             out["choices"] = list(self.choices)
         if self.minimum is not None:
@@ -97,7 +101,7 @@ _TYPE_NAMES = {
     "topics": "list of MQTT topic filters (+ one level, # the rest)",
     "headers": "object: name -> value",
     "credential": "credential name or id (get_context lists the ones the user can use)",
-    "connection": "connection id or name (get_context's http_apis)",
+    "connection": "connection id or name (get_context's http_apis, of this input's connection_type)",
     "connections": "list of connection ids or names",
 }
 
@@ -509,6 +513,88 @@ def request_rows(response: Any, rows_at: str) -> list[dict]:
         where = f"at {rows_at!r}" if rows_at else "itself"
         raise InputError(f"The reply {where} isn't a list, so there are no rows; set Rows at to where the list is.")
     return [row if isinstance(row, dict) else {"value": row} for row in listed]
+
+
+def _at(value: Any, path: str) -> Any:
+    """`_rows_at`, but None where nothing is: a column a reply leaves out."""
+    try:
+        return _rows_at(value, path)
+    except InputError:
+        return None
+
+
+def _as(value: Any, kind: str) -> Any:
+    if value is None:
+        return None
+    if kind == "number":
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(n) if n.is_integer() and abs(n) < 2**53 else n
+    if kind == "time":
+        # Epoch seconds (or milliseconds) as the ISO text every chart reads as time.
+        try:
+            t = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if t > 1e11:
+            t /= 1000
+        return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return value if isinstance(value, (str, int, float, bool)) else json.dumps(value)
+
+
+def _series_name(labels: Any) -> str:
+    """A labels object as one name -- `up{job="api"}`, the way Prometheus
+    writes a series -- so a chart has one column to tell series apart by."""
+    if not isinstance(labels, dict):
+        return "" if labels is None else str(labels)
+    name = str(labels.get("__name__", ""))
+    rest = ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items()) if k != "__name__")
+    return f"{name}{{{rest}}}" if rest else (name or "{}")
+
+
+def extract_rows(response: Any, spec: dict[str, Any]) -> list[dict]:
+    """Rows out of a reply as a manifest describes them (D67) -- data, never
+    code, so any manifest can say it:
+
+    - `at`: where the list is (a dotted path; digits index a list);
+    - `explode`: a list in each item to make one row per element of;
+    - `columns`: column -> {from: a path in the element, as: text|number|time};
+      without them an element that is an object is the row itself;
+    - `spread`: an object in each item whose keys become columns;
+    - `labels`: {column, from}: that object as one series name.
+    """
+    listed = _rows_at(response, str(spec.get("at") or ""))
+    if not isinstance(listed, list):
+        raise InputError(f"The reply at {spec.get('at')!r} isn't a list, so there are no rows.")
+    columns: dict[str, Any] = spec.get("columns") or {}
+    rows: list[dict] = []
+    for item in listed:
+        # The series' name, then its labels, after the element's own columns:
+        # a table reads time, value, series before the labels it came from.
+        shared: dict[str, Any] = {}
+        labels = spec.get("labels")
+        if isinstance(labels, dict) and labels.get("column"):
+            shared[labels["column"]] = _series_name(_at(item, str(labels.get("from") or "")))
+        if spec.get("spread"):
+            spread = _at(item, spec["spread"])
+            if isinstance(spread, dict):
+                shared.update({str(k): _as(v, "text") for k, v in spread.items() if str(k) not in shared})
+        elements = _at(item, spec["explode"]) if spec.get("explode") else [item]
+        for element in elements if isinstance(elements, list) else []:
+            row: dict[str, Any] = {}
+            if columns:
+                for name, column in columns.items():
+                    column = column if isinstance(column, dict) else {"from": column}
+                    row[name] = _as(_at(element, str(column.get("from", ""))), column.get("as", "text"))
+            elif isinstance(element, dict):
+                row.update(element)
+            else:
+                row["value"] = element
+            row.update({k: v for k, v in shared.items() if k not in row})
+            rows.append(row)
+    return rows
 
 
 def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:

@@ -53,6 +53,14 @@ BUILTINS: list[dict] = [
 
 MIGRATED_MARKER = "connections_migrated"
 
+# Every connection type but AWS is an HTTP API of a kind (D67): this first.
+BASE_URL_FIELD = {
+    "key": "base_url", "label": "Base URL", "kind": "text", "secret": False, "required": True,
+    "help": "Where requests go, e.g. https://prometheus.example.com",
+}
+_TYPE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+_FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
 
 class ConnectionConfigError(ValueError):
     """A request about a connection or identity that can't be done, said so a user can act."""
@@ -100,12 +108,126 @@ def validate_config(conn_type: models.ConnectionType, config: dict) -> dict:
             raise ConnectionConfigError(f"'{out['account_id']}' isn't an AWS account ID: that's digits only.")
         if not _REGION_RE.match(str(out["region"])):
             raise ConnectionConfigError(f"'{out['region']}' isn't an AWS region, e.g. eu-west-1.")
-    if conn_type.id == HTTP_API:
+    if is_http(conn_type):
         parsed = urlparse(str(out["base_url"]))
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise ConnectionConfigError("The base URL must start with http:// or https:// and name a host.")
         out["base_url"] = str(out["base_url"]).rstrip("/")
     return out
+
+
+def is_http(conn_type: models.ConnectionType) -> bool:
+    """Reached over HTTP at a base URL: the HTTP API and every type an admin
+    or a manifest defines (D67)."""
+    return any(f.get("key") == "base_url" for f in (conn_type.fields or []))
+
+
+def _type_fields(extra: list[dict]) -> list[dict]:
+    """A defined type's fields: the Base URL, then plain ones. Never secret --
+    a secret belongs in a credential, which the type's identities name."""
+    out, seen = [BASE_URL_FIELD], {"base_url"}
+    for f in extra:
+        key = str(f.get("key") or "").strip()
+        if key in seen:
+            raise ConnectionConfigError(f"Two fields are called {key}." if key != "base_url" else "Base URL is always there.")
+        if not _FIELD_KEY_RE.match(key):
+            raise ConnectionConfigError(f"'{key}' can't be a field's key: lowercase letters, digits and _, starting with a letter.")
+        label = str(f.get("label") or "").strip() or key
+        out.append({"key": key, "label": label, "kind": "text", "secret": False,
+                    "required": bool(f.get("required")), "help": str(f.get("help") or "")})
+        seen.add(key)
+    return out
+
+
+def ensure_manifest_types(db: Session) -> None:
+    """Seeds the connection types panes ship (D67) the first time each is
+    missing. An admin's edits to one stay: an existing row isn't touched."""
+    from .panes import manifest as pane_manifest
+
+    added = False
+    for m in pane_manifest.manifests().values():
+        for decl in m.connection_types:
+            if db.get(models.ConnectionType, decl.id) is not None:
+                continue
+            db.add(models.ConnectionType(
+                id=decl.id, label=decl.label, description=decl.description,
+                fields=_type_fields([f.model_dump() for f in decl.fields]),
+                identity_types=[ANY_INJECT], builtin=False, origin=f"manifest:{m.id}",
+            ))
+            added = True
+    if added:
+        db.commit()
+
+
+def needed_by(type_id: str) -> list[str]:
+    """The pane types whose manifests reach connections of this type."""
+    from .panes import manifest as pane_manifest
+
+    out = []
+    for m in pane_manifest.manifests().values():
+        if any(d.id == type_id for d in m.connection_types) or any(
+            getattr(i, "connection_type", None) == type_id for i in m.inputs
+        ):
+            out.append(m.label)
+    return out
+
+
+def save_type(db: Session, type_id: Optional[str], spec: dict) -> models.ConnectionType:
+    """Creates (`type_id` None, the id in `spec`) or edits an HTTP connection
+    type. Built-ins are locked; a type's id never changes -- panes name it."""
+    label = str(spec.get("label") or "").strip()
+    if not label:
+        raise ConnectionConfigError("A connection type needs a name.")
+    fields = _type_fields([f for f in spec.get("fields") or [] if f.get("key") != "base_url"])
+    if type_id is None:
+        new_id = str(spec.get("id") or "").strip()
+        if not _TYPE_ID_RE.match(new_id):
+            raise ConnectionConfigError(
+                f"'{new_id}' can't be a type's id: 2-40 lowercase letters, digits and _, starting with a letter."
+            )
+        if db.get(models.ConnectionType, new_id) is not None:
+            raise ConnectionConfigError(f"There is already a connection type {new_id}.")
+        row = models.ConnectionType(id=new_id, builtin=False, identity_types=[ANY_INJECT], origin=None)
+        db.add(row)
+    else:
+        row = db.get(models.ConnectionType, type_id)
+        if row is None:
+            raise ConnectionConfigError("That connection type doesn't exist any more.")
+        if row.builtin:
+            raise ConnectionConfigError(f"{row.label} is built in and can't be changed.")
+        # A field a connection still holds a value for stays: dropping it
+        # would make that connection fail its own next save.
+        removed = {f["key"] for f in row.fields or []} - {f["key"] for f in fields}
+        holding = [
+            c.name for c in db.query(models.Connection).filter(models.Connection.type_id == row.id)
+            if any((c.config or {}).get(k) not in (None, "") for k in removed)
+        ]
+        if holding:
+            raise ConnectionConfigError(
+                f"{', '.join(sorted(holding))} still {'has' if len(holding) == 1 else 'have'} a value for "
+                f"{', '.join(sorted(removed))}: clear it there first."
+            )
+    row.label = label
+    row.description = str(spec.get("description") or "").strip() or None
+    row.fields = fields
+    db.commit()
+    return row
+
+
+def delete_type(db: Session, type_id: str) -> None:
+    row = db.get(models.ConnectionType, type_id)
+    if row is None:
+        return
+    if row.builtin:
+        raise ConnectionConfigError(f"{row.label} is built in and can't be deleted.")
+    used = db.query(models.Connection).filter(models.Connection.type_id == type_id).count()
+    if used:
+        raise ConnectionConfigError(f"{used} connection{'s are' if used != 1 else ' is'} of this type: delete or change {'them' if used != 1 else 'it'} first.")
+    panes = needed_by(type_id)
+    if panes:
+        raise ConnectionConfigError(f"{', '.join(panes)} reach{'es' if len(panes) == 1 else ''} connections of this type, so it stays.")
+    db.delete(row)
+    db.commit()
 
 
 def join_url(base_url: str, path: str) -> str:

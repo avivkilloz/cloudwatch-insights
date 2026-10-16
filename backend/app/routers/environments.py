@@ -355,15 +355,51 @@ def test_connection(
 # ------------------------------------------------------------------- types and targets
 
 
+def _type_out(db: Session, t: models.ConnectionType) -> schemas.ConnectionTypeOut:
+    return schemas.ConnectionTypeOut(
+        id=t.id, label=t.label, description=t.description, fields=t.fields or [],
+        identity_types=t.identity_types or [], builtin=t.builtin, origin=t.origin,
+        connections=db.query(models.Connection).filter(models.Connection.type_id == t.id).count(),
+        needed_by=connections.needed_by(t.id),
+    )
+
+
 @types_router.get("", response_model=list[schemas.ConnectionTypeOut])
 def list_connection_types(db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)):
-    return [
-        schemas.ConnectionTypeOut(
-            id=t.id, label=t.label, description=t.description, fields=t.fields or [],
-            identity_types=t.identity_types or [], builtin=t.builtin,
-        )
-        for t in db.query(models.ConnectionType).order_by(models.ConnectionType.id)
-    ]
+    return [_type_out(db, t) for t in db.query(models.ConnectionType).order_by(models.ConnectionType.id)]
+
+
+def _type_guard(fn):
+    try:
+        return fn()
+    except connections.ConnectionConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+
+@types_router.post("", response_model=schemas.ConnectionTypeOut, status_code=201)
+def create_connection_type(
+    payload: schemas.ConnectionTypeIn, db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)
+):
+    """A new HTTP API of a kind (D67): a base URL and the fields given."""
+    row = _type_guard(lambda: connections.save_type(db, None, payload.model_dump()))
+    return _type_out(db, row)
+
+
+@types_router.put("/{type_id}", response_model=schemas.ConnectionTypeOut)
+def update_connection_type(
+    type_id: str,
+    payload: schemas.ConnectionTypeIn,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(auth.require_admin),
+):
+    row = _type_guard(lambda: connections.save_type(db, type_id, payload.model_dump()))
+    return _type_out(db, row)
+
+
+@types_router.delete("/{type_id}", status_code=204)
+def delete_connection_type(type_id: str, db: Session = Depends(get_db), _admin: models.User = Depends(auth.require_admin)):
+    _type_guard(lambda: connections.delete_type(db, type_id))
+    return None
 
 
 @targets_router.get("", response_model=list[schemas.TargetOut])

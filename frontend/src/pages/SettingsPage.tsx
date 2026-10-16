@@ -9,6 +9,7 @@ import CredentialsSettings from "../components/settings/CredentialsSettings";
 import EnvironmentsSettings from "../components/settings/EnvironmentsSettings";
 import UserGroupsSettings from "../components/settings/UserGroupsSettings";
 import CatalogueSettings from "../components/settings/CatalogueSettings";
+import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
 import { ViewSwitch } from "../components/settings/settingsLayout";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -61,6 +62,11 @@ interface Props {
   onSettingsChange: (settings: Settings) => void;
 }
 
+const ENV_VIEWS = [
+  ["environments", "Environments"],
+  ["types", "Types"],
+] as const;
+
 const USER_VIEWS = [
   ["users", "Users"],
   ["groups", "Groups"],
@@ -68,6 +74,7 @@ const USER_VIEWS = [
 
 export default function SettingsPage({ theme, onThemeChange, onSettingsChange }: Props) {
   const [usersView, setUsersView] = useState<"users" | "groups">("users");
+  const [envView, setEnvView] = useState<"environments" | "types">("environments");
   // The add form opens at the head of the list, as New group / New credential
   // open theirs: below a long list it was out of sight.
   const [addingUser, setAddingUser] = useState(false);
@@ -300,7 +307,14 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       {/* Each fetches its own data: nothing else on this page needs it. */}
       {isAdmin && section === "credentials" && <CredentialsSettings />}
 
-      {isAdmin && section === "environments" && <EnvironmentsSettings />}
+      {/* Environments and the kinds of connection they hold are one tab,
+          switched inside it, as Credentials and their Types are (D67). */}
+      {isAdmin && section === "environments" && envView === "environments" && (
+        <EnvironmentsSettings switcher={<ViewSwitch views={ENV_VIEWS} view={envView} onChange={setEnvView} />} />
+      )}
+      {isAdmin && section === "environments" && envView === "types" && (
+        <ConnectionTypesSettings switcher={<ViewSwitch views={ENV_VIEWS} view={envView} onChange={setEnvView} />} />
+      )}
 
       {isAdmin && section === "catalogue" && <CatalogueSettings />}
 

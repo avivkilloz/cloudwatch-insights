@@ -22,6 +22,8 @@ from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
 from ..panes import runs
+from ..panes import timewindow
+from ..panes.timewindow import TimeRangeError
 from ..resolve import ResolveError, resolve_identity_values, resolve_target
 
 router = APIRouter(prefix="/api", tags=["panes"])
@@ -119,6 +121,41 @@ def _query(value: Any) -> dict[str, str]:
     return {}
 
 
+# About this many points across the window, for a step worked out from it.
+_POINTS = 240
+
+
+def _params(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, str]:
+    """A request's `params` (D67): each query parameter a literal, an input
+    (`{input: key}`, left out while empty), or the pane's time window
+    (`{window: start|end|step}`, from the inputs `window` names, in the
+    browser's zone, epoch seconds)."""
+    params = spec.get("params") or {}
+    out: dict[str, str] = {}
+    span: Optional[tuple[int, int]] = None
+    for name, source in params.items():
+        if isinstance(source, dict) and "input" in source:
+            value = values.get(source["input"])
+            if value not in (None, ""):
+                out[name] = str(value)
+        elif isinstance(source, dict) and "window" in source:
+            if span is None:
+                keys = spec.get("window") or {}
+                span = timewindow.window(
+                    {
+                        "preset": values.get(keys.get("preset", "")),
+                        "customStart": values.get(keys.get("start", "")),
+                        "customEnd": values.get(keys.get("end", "")),
+                    },
+                    values.get("_tz"),
+                )
+            start, end = span
+            out[name] = str({"start": start, "end": end, "step": max(1, round((end - start) / _POINTS))}[source["window"]])
+        elif source is not None:
+            out[name] = str(source)
+    return out
+
+
 def run_request(
     db: Session,
     user: models.User,
@@ -126,11 +163,12 @@ def run_request(
     action: pane_manifest.ManifestAction,
     values: dict[str, Any],
 ) -> dict[str, Any]:
-    """A declarative HTTP request (§15.7): a GET on an HTTP API connection,
+    """A declarative HTTP request (§15.7, D67): a GET on a connection of any
+    HTTP type -- the API table's HTTP API, an admin's or a manifest's own --
     signed with the caller's group identity there (or the connection's own),
     through the SSRF guard, its reply masked and read as JSON. Returns the
     action's outputs: `rows` and `response`."""
-    from ..platform_tools.panes import InputError, request_rows
+    from ..platform_tools.panes import InputError, extract_rows, request_rows
 
     try:
         pane_access.require(user, manifest.id, manifest.label)
@@ -142,12 +180,23 @@ def run_request(
     connection_id = values.get(spec.get("connection", ""))
     if connection_id in (None, ""):
         raise HTTPException(status_code=400, detail="Pick a connection first.")
+    # The connection's type is its input's: the API table's HTTP API, or a
+    # type a pane reaches (Prometheus).
+    conn_input = next((i for i in manifest.inputs if i.key == spec.get("connection")), None)
+    type_id = (conn_input.connection_type if conn_input else None) or connections.HTTP_API
     try:
-        target = resolve_target(db, int(connection_id), user, type_id=connections.HTTP_API)
+        target = resolve_target(db, int(connection_id), user, type_id=type_id)
     except (ResolveError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
-    url = connections.join_url(target.config["base_url"], str(values.get(spec.get("path", "")) or ""))
+    if not connections.is_http(target.connection.type):
+        raise HTTPException(status_code=400, detail=f"{target.name} isn't reached over HTTP.")
+    path = spec.get("fixed_path") or str(values.get(spec.get("path", "")) or "")
+    url = connections.join_url(target.config["base_url"], path)
     query = _query(values.get(spec.get("query", "")))
+    try:
+        query.update(_params(spec, values))
+    except TimeRangeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
     if query:
         url += ("&" if "?" in url else "?") + urlencode(query)
     headers = {"Accept": "application/json"}
@@ -180,7 +229,10 @@ def run_request(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{target.name}'s reply isn't JSON: {body[:200]}") from None
     try:
-        rows = request_rows(response, str(values.get(spec.get("rows_at", "")) or ""))
+        if isinstance(spec.get("rows"), dict):
+            rows = extract_rows(response, spec["rows"])
+        else:
+            rows = request_rows(response, str(values.get(spec.get("rows_at", "")) or ""))
     except InputError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     return {"rows": rows, "response": response}
@@ -208,7 +260,7 @@ def run_action(
         return _start_run(db, current_user, manifest, action, payload, inputs)
     _unsaved(db, current_user, manifest, payload)
     if action is not None and action.request is not None:
-        result = run_request(db, current_user, manifest, action, payload.inputs)
+        result = run_request(db, current_user, manifest, action, inputs)
     elif action is not None and action.handler is not None and manifest.state == "v2":
         result = run_handler(db, current_user, manifest, action, inputs, payload.cursor)
     else:
