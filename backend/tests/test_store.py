@@ -458,7 +458,7 @@ def test_a_link_in_the_repo_reaches_no_file_of_the_servers(remote, tmp_path):
     """Whoever can push to the store repo must not be able to make the backend
     read or write a server file through a symlink."""
     outside = tmp_path / "server-secret.txt"
-    outside.write_text("id: devops:leak\nlabel: SERVER SECRET\nfields: []\n")
+    outside.write_text("id: devops:leak\nlabel: SERVER SECRET\nfields:\n- {key: token, label: Token}\n")
     other = tmp_path / "pusher"
     _git("clone", "--quiet", f"file://{remote}", str(other))
     (other / "credential-types").mkdir()
@@ -470,7 +470,19 @@ def test_a_link_in_the_repo_reaches_no_file_of_the_servers(remote, tmp_path):
     labels = {t["label"] for t in client.get("/api/credential-types").json()}
     assert "SERVER SECRET" not in labels
     assert "SERVER SECRET" not in client.get("/api/store").text
-    # And a write to that path doesn't go through to the file.
-    _credential_type("leak", "Mine")
-    _sync()
-    assert outside.read_text().startswith("id: devops:leak\nlabel: SERVER SECRET")
+
+
+def test_the_clone_never_writes_or_reads_through_a_link(tmp_path):
+    outside = tmp_path / "server-file.txt"
+    outside.write_text("untouched")
+    repo = gitrepo.Repo("file:///nowhere.git", "main", tmp_path / "clone", gitrepo.Auth())
+    (tmp_path / "clone" / "credential-types").mkdir(parents=True)
+    (tmp_path / "clone" / "credential-types" / "x.yaml").symlink_to(outside)
+    (tmp_path / "clone" / "linked").symlink_to(tmp_path)
+    for path in ("credential-types/x.yaml", "linked/server-file.txt"):
+        with pytest.raises(gitrepo.GitError):
+            repo.write(path, "overwritten")
+        with pytest.raises(gitrepo.GitError):
+            repo.read(path)
+    assert outside.read_text() == "untouched"
+    assert repo.files("credential-types") == []
