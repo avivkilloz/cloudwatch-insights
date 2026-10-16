@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, 3d-2 (the catalogue with categories)._
+_Last updated: 2026-10-16, 3d-3 (connection types, Prometheus from a manifest)._
 
 ## Platform plan
 
@@ -1135,8 +1135,20 @@ This round's PR, asked for after trying #112 (PLATFORM_PLAN.md §18.6):
 - Tests: backend `test_catalogue.py` (8) and a `get_context` case; smoke81
   (13), failing against the old frontend.
 
-Next: 3d-3, admin-defined connection types and a Prometheus pane from a
-manifest alone (§19.3), detailed before it is built.
+#118 merged. This round's PR:
+- **3d-3, a new kind of connection and a pane from a manifest alone**
+  (PLATFORM_PLAN.md §19.3, D67): connection types beyond AWS are HTTP APIs
+  of a kind, admin-defined in Settings -> Environments -> Types or shipped by
+  a pane's manifest; a declarative request takes a fixed path, parameters
+  from inputs or the time window, and rows out of nested replies; the
+  **Prometheus** pane is `prometheus.yaml` and nothing else -- its own
+  connection type, its own Observability category, granted to no group
+  until an admin does.
+- Tests: backend `test_connection_types.py` (13); smoke82 (13), failing
+  against the old frontend.
+
+Phase 3 is done with this. Next: Phase 4 (workflows), detailed in
+PLATFORM_PLAN.md before it is built.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
@@ -1306,8 +1318,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. 3d-3 (admin-defined connection types, a Prometheus pane), detailed in
-   PLATFORM_PLAN.md §19.3 before it is built. Follow-ups if
+1. Phase 4, workflows (PLATFORM_PLAN.md §5): the blob store, definitions and
+   recorded runs, the Workflows page, the agent starting and reading runs,
+   the approval step -- detailed before it is built. Follow-ups if wanted:
+   Prometheus instant queries and label pickers, more kinds of variable. Follow-ups if
    wanted: more kinds of variable (text, a choice), a variable bound to a
    plugin's own input type, and an admin-set group default home page.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
