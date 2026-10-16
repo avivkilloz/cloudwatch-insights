@@ -571,17 +571,19 @@ def extract_rows(response: Any, spec: dict[str, Any]) -> list[dict]:
     columns: dict[str, Any] = spec.get("columns") or {}
     rows: list[dict] = []
     for item in listed:
+        # The series' name, then its labels, after the element's own columns:
+        # a table reads time, value, series before the labels it came from.
         shared: dict[str, Any] = {}
-        if spec.get("spread"):
-            spread = _at(item, spec["spread"])
-            if isinstance(spread, dict):
-                shared.update({str(k): _as(v, "text") for k, v in spread.items()})
         labels = spec.get("labels")
         if isinstance(labels, dict) and labels.get("column"):
             shared[labels["column"]] = _series_name(_at(item, str(labels.get("from") or "")))
+        if spec.get("spread"):
+            spread = _at(item, spec["spread"])
+            if isinstance(spread, dict):
+                shared.update({str(k): _as(v, "text") for k, v in spread.items() if str(k) not in shared})
         elements = _at(item, spec["explode"]) if spec.get("explode") else [item]
         for element in elements if isinstance(elements, list) else []:
-            row = dict(shared)
+            row: dict[str, Any] = {}
             if columns:
                 for name, column in columns.items():
                     column = column if isinstance(column, dict) else {"from": column}
@@ -590,6 +592,7 @@ def extract_rows(response: Any, spec: dict[str, Any]) -> list[dict]:
                 row.update(element)
             else:
                 row["value"] = element
+            row.update({k: v for k, v in shared.items() if k not in row})
             rows.append(row)
     return rows
 

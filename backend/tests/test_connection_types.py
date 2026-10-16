@@ -123,6 +123,8 @@ def test_extract_rows_explodes_spreads_and_names_series():
         "time": "2023-11-14T22:13:20.000Z", "value": 1,
     }
     assert rows[1]["value"] == 0 and rows[2]["job"] == "db"
+    # The element's columns first, then the series and its labels.
+    assert list(rows[0])[:3] == ["time", "value", "series"]
     with pytest.raises(panes.InputError):
         panes.extract_rows({"data": {"result": {}}}, {"at": "data.result"})
 

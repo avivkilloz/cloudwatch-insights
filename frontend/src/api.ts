@@ -57,6 +57,19 @@ export interface ConnectionType {
   /** Credential type ids a group may use as its identity; "@inject" means any that can sign an HTTP request. */
   identity_types: string[];
   builtin: boolean;
+  /** "manifest:<pane type>" when a pane shipped it (D67); null for an admin's own. */
+  origin: string | null;
+  /** How many connections are of it, and which panes reach it: why it can't be deleted. */
+  connections: number;
+  needed_by: string[];
+}
+
+/** An HTTP connection type as an admin saves it (D67): its Base URL is always there. */
+export interface ConnectionTypeDraft {
+  id?: string;
+  label: string;
+  description: string | null;
+  fields: { key: string; label: string; help: string; required: boolean }[];
 }
 
 /** Who a group is on a kind of connection (D31): its default for a type (no connection_id) or an override. */
@@ -590,6 +603,11 @@ export const api = {
     req<EnvironmentRecord>(`/environments/${id}/groups`, { method: "PUT", body: JSON.stringify({ group_ids: groupIds }) }),
   deleteEnvironment: (id: number) => req<void>(`/environments/${id}`, { method: "DELETE" }),
   listConnectionTypes: () => req<ConnectionType[]>("/connection-types"),
+  createConnectionType: (draft: ConnectionTypeDraft) =>
+    req<ConnectionType>("/connection-types", { method: "POST", body: JSON.stringify(draft) }),
+  updateConnectionType: (id: string, draft: ConnectionTypeDraft) =>
+    req<ConnectionType>(`/connection-types/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(draft) }),
+  deleteConnectionType: (id: string) => req<void>(`/connection-types/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addConnection: (
     environmentId: number,
     payload: { type_id: string; name: string; config: Record<string, string>; credential_id?: number | null },

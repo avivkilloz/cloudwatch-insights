@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import {
   api,
   Connection,
@@ -200,7 +200,7 @@ function ConnectionRow({
 
 type Draft = { id: number | null; name: string; description: string; group_ids: number[] };
 
-export default function EnvironmentsSettings() {
+export default function EnvironmentsSettings({ switcher }: { switcher?: ReactNode }) {
   const [envs, setEnvs] = useState<EnvironmentRecord[]>([]);
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [types, setTypes] = useState<ConnectionType[]>([]);
@@ -449,7 +449,7 @@ export default function EnvironmentsSettings() {
   return (
     <div className="panel credential-list">
       <div className="credential-list-head">
-        <h2>Environments</h2>
+        {switcher ?? <h2>Environments</h2>}
         <span className="muted">Named places, each holding the connections people reach there.</span>
         <button onClick={() => start()}>New environment</button>
       </div>
