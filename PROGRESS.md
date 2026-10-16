@@ -1185,6 +1185,16 @@ open; detailed in §21, D80), 4b (workflows), 4c (published templates).
   (run on open), each failing against the old frontend. `dev/fake_aws.py`
   gained `GET /api/dev/fake-http/hits` and `POST /api/dev/age-outputs` for
   smoke84.
+- Found by the full run: run on open's row made a pane's ⚙ taller, and
+  opened low on a page its last items were out of reach (smoke65, smoke77);
+  `Popover` now passes the room under its button and the pane menu scrolls
+  within it. smoke20's add-buttons check compares before and after a reorder
+  (its fixed list went stale with Prometheus in 3d-3).
+- Backend 441 (`test_store.py` 26 with the symlink guard's two tests, both
+  failing without it). Full browser run 67 of 68 green, smoke31's two styling
+  checks failing as on main. The dev database had collected ~200 suite groups,
+  enough for smoke58's grant-to-every-group to push its own create/update rows
+  past the audit history's 200; they were cleared (dev data, not code).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
