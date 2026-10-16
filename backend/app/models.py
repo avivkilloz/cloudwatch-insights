@@ -67,6 +67,44 @@ class GroupPaneGrant(Base):
     pane_type = Column(String, nullable=False)
 
 
+class CatalogueCategory(Base):
+    """A category of the catalogue panes are picked from (PLATFORM_PLAN.md
+    §19.2, D66). `key` is what a manifest's suggestion matches, fixed at
+    creation; `name` is what people see, and an admin can change it."""
+
+    __tablename__ = "catalogue_categories"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=False, unique=True)
+    position = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class CataloguePlacement(Base):
+    """Where an admin put a pane type: it stays there whatever its manifest
+    suggests later, so an upgrade never undoes it."""
+
+    __tablename__ = "catalogue_placements"
+
+    pane_type = Column(String, primary_key=True)
+    category_id = Column(Integer, ForeignKey("catalogue_categories.id", ondelete="CASCADE"), nullable=False)
+    position = Column(Integer, nullable=False, server_default="0")
+
+
+class CataloguePreference(Base):
+    """One person's layer over the catalogue: a favourite, or one they hide."""
+
+    __tablename__ = "catalogue_preferences"
+    __table_args__ = (UniqueConstraint("user_id", "pane_type", name="uq_catalogue_preference"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pane_type = Column(String, nullable=False)
+    favourite = Column(Boolean, nullable=False, server_default="false")
+    hidden = Column(Boolean, nullable=False, server_default="false")
+
+
 class User(Base):
     __tablename__ = "users"
 

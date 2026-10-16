@@ -16,7 +16,7 @@ os.environ.setdefault("COOKIE_SECURE", "false")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, connections, credential_types, models, pane_access
+from app import bootstrap, catalogue, connections, credential_types, models, pane_access
 from app.db import Base, SessionLocal, engine
 from app.main import app
 
@@ -51,6 +51,7 @@ def _clean_database():
         connections.migrate_legacy(db)
         # As at startup: from here on, groups' pane access is grants (D65).
         pane_access.migrate(db)
+        catalogue.ensure_categories(db)
     finally:
         db.close()
 

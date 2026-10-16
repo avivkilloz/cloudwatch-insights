@@ -1227,6 +1227,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D63 | 2026-10-16 | **Home → a session is per user, set from the session's ⋮, and the brand is the way there** (§18.9). "Start new session…" keeps the catalogue; a session that's gone leaves the default page with a note, and the setting is cleared when the note is dismissed. The session variables move into the session card (the user's report). | R3. The brand is what every app treats as "home"; the catalogue is what you start things from, so it stays one click away whatever home is. |
 | D64 | 2026-10-16 | **3d ships as three PRs: per-type permissions first** (3d-1), then the catalogue with categories (3d-2), then admin-defined connection types with a Prometheus pane built from a manifest alone (3d-3) (§19). | The user's choice. Access first: the catalogue is display-only once access stops riding on "Tools", and a new pane type needs grants before anyone but an admin can try it. |
 | D65 | 2026-10-16 | **A group's access to panes is one row per pane type** (`group_pane_grants`), checked by one function for the browser, the agent and every handler. The old booleans stay in the API as shorthand -- read from the grants, written as grants -- and are migrated once, so nobody gains or loses anything. A pane type no group has been granted is an admin's alone until one is. | §8's "rows (group × pane type)". The shorthand keeps scripts and the agent's tests working; a new pane type arriving with access for everyone would be a grant nobody made (D15's rule). |
+| D66 | 2026-10-16 | **The catalogue's categories are data, matched to a pane's suggestion by a fixed key; an admin's placement pins the pane; favourites and hiding are each person's** (§19.2). Renaming a category changes its name, never its key; deleting one moves its panes to another; arranging the catalogue places every pane in it. | §4.8 and R6. A key apart from the name is what lets an admin rename "Tools" without a restart bringing "Tools" back for the panes that suggest it. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3719,12 +3720,45 @@ group's form is where access is edited today), per-action permissions (read
 vs run), and grants per plugin -- a plugin's panes are granted one by one
 until there are plugins.
 
-### 19.2 3d-2 and 3d-3 (to be detailed)
+### 19.2 3d-2: the catalogue with categories (§4.8, R6, D66)
 
-- **3d-2, the catalogue with categories (§4.8, R6):** Settings → Catalogue
-  (categories as data, admin placement surviving upgrades), favourites and
-  hiding per person, the Add menu and the default page built from it.
-- **3d-3, a new kind of connection:** admin-defined connection types in the
+**Today:** every pane type is a "Service" or a "Tool" (`group` in its
+manifest), and five places group them that way: the default page, the side
+panel's Add list, the strip's + menu, the session card's add rows and the
+group form's Panes.
+
+**Built:**
+- **Categories are data** (`catalogue_categories`: name, a fixed `key`,
+  position). A manifest suggests one (`category:`, else its `group`); a
+  suggestion that no category has is created at startup, keyed by it. The
+  key never changes, so renaming "Tools" to "Utilities" doesn't make the
+  next start create "Tools" again.
+- **An admin's placement pins a pane** (`catalogue_placements`: pane type,
+  category, position). Unplaced, a pane goes by its suggestion, after the
+  placed ones, in manifest order -- so a plugin upgrade never undoes where an
+  admin put a pane. Arranging the catalogue (`PUT /api/catalogue/layout`, the
+  whole arrangement) places every pane in it.
+- **Deleting a category moves its panes** to another one, as placements.
+- **Each person's layer** (`catalogue_preferences`): favourites, pinned at
+  the top of every list as their own "Favourites", and hidden pane types,
+  left out of the lists (the default page offers "Show hidden").
+- **One read** (`GET /api/catalogue`): the categories in order, each with
+  the pane types the caller may use (an empty one left out, except for an
+  admin arranging them), and the caller's favourites and hidden. The five
+  places above all draw from it (`useCatalogue`).
+- **Settings → Catalogue** (admins): categories in order -- rename, move up
+  and down, add, delete (choosing where its panes go) -- and each pane with
+  up / down and a category to move it to. Up and down rather than drag and
+  drop: one control per move, testable, and usable from a keyboard.
+- **The agent:** `get_context` gives each kind its category. The prompt
+  still names none.
+
+**Not in 3d-2:** icons for categories, personal categories, tags and search,
+and workflows in the catalogue (Phase 4).
+
+### 19.3 3d-3 (to be detailed)
+
+- **A new kind of connection:** admin-defined connection types in the
   credential-type editor, and a **Prometheus** pane (the user's choice) built
   from a manifest alone on one: a PromQL query, a time range, a time-series
   chart and a table, auto-refresh.
