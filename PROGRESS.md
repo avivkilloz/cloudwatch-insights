@@ -1332,11 +1332,8 @@ assistant's and are gone.
 
 1. Phase 4a as planned in PLATFORM_PLAN.md §21 (the store repo, and run on
    open), once the user has read it; then 4b, workflows (§5, §20.2, §20.7),
-   detailed before it is built. §20.6's open question (who a scheduled run
-   acts as) is settled before triggers. Follow-ups if wanted:
-   Prometheus instant queries and label pickers, more kinds of variable. Follow-ups if
-   wanted: more kinds of variable (text, a choice), a variable bound to a
-   plugin's own input type, and an admin-set group default home page.
+   detailed before it is built. Scheduled and webhook runs act as
+   the workflow's owner (D81).
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
 3. **Platform agent, phase 3.**

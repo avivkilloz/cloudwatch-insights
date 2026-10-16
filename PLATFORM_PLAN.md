@@ -16,7 +16,7 @@ _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1
 §15 (D37–D44, agreed 2026-10-08); its PR 1 is built. The rest of 3b is detailed in §16
 (D45–D50, agreed 2026-10-11). Phase 3 is done (2026-10-16); the direction after it
 -- the pane contract, workflows and sessions, the builder, and the store repo -- is
-§20 (D68–D79, agreed 2026-10-16), and Phase 4a is detailed in §21 (D80)._
+§20 (D68–D79, D81, agreed 2026-10-16), and Phase 4a is detailed in §21 (D80)._
 
 ---
 
@@ -1163,7 +1163,7 @@ foundation the next one needs.
 
 None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 
-2026-10-16: §20.6 (who a scheduled run acts as; the store's release version).
+2026-10-16: §20.6 (the store's release version; who a scheduled run acts as became D81).
 
 ## 11. Decision log
 
@@ -1252,6 +1252,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D78 | 2026-10-16 | **Plugin content is `<namespace>:<name>`; built-ins and existing ids stay bare; a plugin's namespace is its id, the store's is configured** (§20.9). | Two plugins (or a plugin and the store) can both ship a "prometheus". `:` because `.` splits a pane id from its keys and pane types are URL segments. |
 | D79 | 2026-10-16 | **The first audience is the user's own teams in one company: teams are groups, and nothing per person (sign-up, personal connections or types) is built for now** (§20.10). | The user's answer. Group policies already fit; a team admin role is the next need, later. |
 | D80 | 2026-10-16 | **4a writes through an outbox in the change's own transaction, by one writer at a time (an advisory lock) in a private shallow clone, with the `git` CLI; items stay in their own tables and are tracked by the blob last written or read, which is what conflicts are judged by** (§21). | A save can't come apart from its pending commit, two replicas can't race a push, and any git host works over HTTPS or SSH. Tracking by blob needs no history, so a shallow clone serves. |
+| D81 | 2026-10-16 | **A workflow run nobody started -- a schedule or a webhook -- acts as the workflow's owner**, named on the trigger and on each run it starts (§20.7). | The user's choice, over a service identity per group: no identity that is nobody's, and "access is per group" holds -- the owner's group is the one used. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -4003,10 +4004,7 @@ workflows:
 
 ### 20.6 Open
 
-- **Who a scheduled or webhook run acts as.** Nobody pressed Run. The leaning is
-  the workflow's owner, recorded on the trigger and shown on it; a service
-  identity per group is the alternative. Decided before triggers are built --
-  manual runs (4b) don't need it.
+- ~~Who a scheduled or webhook run acts as~~ -- **the workflow's owner** (D81).
 - The store's `plugin.yaml` version: commits don't change it; how a store is
   tagged as a release for another deployment to install is Phase 7's.
 
@@ -4033,6 +4031,11 @@ workflows:
   and time; the selected stage's resolved inputs, its outputs drawn by the pane
   renderers, its logs, and Approve / Deny on a waiting approval. The agent panel's
   Session tab is **This run** there: one conversation per run, that reads it.
+- **A run nobody started** -- a schedule, a webhook -- **acts as the workflow's
+  owner** (D81): their group, environments and identities, exactly as if they had
+  pressed Run. The trigger names whose access it uses, and so does every run it
+  starts; an owner who loses access to something makes the next run fail there,
+  as it would for them.
 - **Other ways in:** a workflow pane in a session (its parameters, Run, the last
   run, a link), a Workflows card on the default page, the agent listing and
   starting them; later, a mark in the rail while a run of yours is going.
