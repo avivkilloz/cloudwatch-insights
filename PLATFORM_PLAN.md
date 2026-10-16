@@ -14,7 +14,9 @@ and why.
 _Started 2026-10-04. Status: **agreed 2026-10-04**: D1–D29 and requirements R1–R6 (§11), and D30
 (2026-10-07). Phases 1 (§13) and 2 (§14, D31–D36) are built. Phase 3 is detailed in
 §15 (D37–D44, agreed 2026-10-08); its PR 1 is built. The rest of 3b is detailed in §16
-(D45–D50, agreed 2026-10-11)._
+(D45–D50, agreed 2026-10-11). Phase 3 is done (2026-10-16); the direction after it
+-- the pane contract, workflows and sessions, the builder, and the store repo -- is
+§20 (D68–D79, D81, agreed 2026-10-16), and Phase 4a is detailed in §21 (D80)._
 
 ---
 
@@ -937,7 +939,9 @@ handlers:
 ### 7.3 Internal: the builder
 
 A global **Builder** page, with the same output as a plugin (manifests), stored in
-the database instead of a repo:
+the database and written through to the store repo in a plugin repo's format
+(D70, §20.4); who may use it, and what the agent does in it, are D71 and D72
+(§20.3):
 
 - **Pane builder:** pick or define inputs (any type in §4.2, including dynamic ones),
   arrange them in cards, choose Actions, choose output renderers, and preview live.
@@ -1012,7 +1016,8 @@ choose their own dependencies**, with these rules:
 - **Installed only at install time, never at run time.**
   - Resolving and downloading happen when an admin installs or upgrades a plugin, or
     saves a builder step. The admin approves the dependency list alongside the
-    plugin's permissions.
+    plugin's permissions. _For builder steps, superseded by D71 (§20.3): a builder
+    chooses their own, pinned and hashed, from a mirror if an admin sets one._
   - A run never reaches PyPI. That keeps runs fast and repeatable, and keeps the
     runner's network egress to the hosts the plugin declared.
 - **Safer installs.**
@@ -1129,16 +1134,19 @@ foundation the next one needs.
     - The catalogue with categories (§4.8, R6).
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
       pane), to prove the model on something that isn't a port.
-- [ ] **Phase 4: Workflows.**
-  - The blob store (§8.2), which runs and artifacts need first.
-  - Definitions with parameters and steps, and recorded runs, run on the in-process
-    runner.
-  - The Workflows page (list, Build with parameters, run history, run detail) and the
-    subheader icon.
-  - The agent can start and read runs.
-  - The approval step, shared with the agent.
-- [ ] **Phase 5: The builder.** Declarative HTTP steps, composed steps, and the pane
-  builder with live preview.
+- [ ] **Phase 4: the store repo, then workflows** (re-planned 2026-10-16, D74, §20.5).
+  - **4a, the store repo** (D70, D78, D80; detailed in §21): what's built here
+    kept as a plugin, written through to git, restored on start; run on open
+    (D77) rides with it.
+  - **4b, workflows** (§5, D69, D75, §20.2, §20.7): the blob store (§8.2),
+    definitions in the store, recorded runs on the in-process runner, the
+    Workflows page, a workflow's page and the live run page, rerun from a stage,
+    the agent starting and reading runs, the approval step shared with the
+    agent, and the doors between runs and sessions.
+  - **4c, published templates** (D76, §20.8).
+- [ ] **Phase 5: The builder.** A per-group grant (D71); declarative HTTP steps,
+  composed steps, and the pane builder with live preview; the form and YAML
+  editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
   egress limits, and short-lived credentials per job. One venv per plugin version,
   built with uv from a locked `requirements.txt` at install time (§8.1). The
@@ -1154,6 +1162,8 @@ foundation the next one needs.
 ## 10. Open questions (to discuss)
 
 None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
+
+2026-10-16: §20.6 (the store's release version; who a scheduled run acts as became D81).
 
 ## 11. Decision log
 
@@ -1229,6 +1239,20 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D65 | 2026-10-16 | **A group's access to panes is one row per pane type** (`group_pane_grants`), checked by one function for the browser, the agent and every handler. The old booleans stay in the API as shorthand -- read from the grants, written as grants -- and are migrated once, so nobody gains or loses anything. A pane type no group has been granted is an admin's alone until one is. | §8's "rows (group × pane type)". The shorthand keeps scripts and the agent's tests working; a new pane type arriving with access for everyone would be a grant nobody made (D15's rule). |
 | D66 | 2026-10-16 | **The catalogue's categories are data, matched to a pane's suggestion by a fixed key; an admin's placement pins the pane; favourites and hiding are each person's** (§19.2). Renaming a category changes its name, never its key; deleting one moves its panes to another; arranging the catalogue places every pane in it. | §4.8 and R6. A key apart from the name is what lets an admin rename "Tools" without a restart bringing "Tools" back for the panes that suggest it. |
 | D67 | 2026-10-16 | **A connection type beyond AWS is an HTTP API of a kind: a base URL, the fields an admin (or the manifest that needs it) adds, and any credential type that says how to sign a request.** Admins define them in Settings → Environments → Types; a manifest can ship the type its pane needs, seeded once and an admin's to edit. A declarative request can name a fixed path, query parameters from inputs or the pane's time window, and rows to read out of nested replies -- enough for Prometheus from a manifest alone (§19.3). | 3d's proof: a pane on a system the platform has no code for. HTTP covers most of what plugins will reach; a type that needs a protocol of its own (SQL, gRPC) waits for plugins with code (Phase 7). |
+| D68 | 2026-10-16 | **The pane contract -- inputs, actions, outputs, views -- is what "a pane can be anything" means** (§20.1). Media and documents are panes like any other; an embedded page is allowed but opaque, sandboxed and marked as one the agent can't see; every pane says in text what it holds. | The user's direction: any kind of content in a shared session. Whatever speaks the contract is shared, agent-driven, templated and refreshed for nothing; an iframe as the usual way in would make the platform a tab manager. |
+| D69 | 2026-10-16 | **Workflows stay pipelines with stages on their own page (§5), sharing Actions and renderers with panes** (§20.2). A step is a pane's Action; a stage's outputs are drawn as a pane's; a run can be rerun from a stage, opened into a session, a session made into a workflow, and a workflow put in a session as one pane. | The user's model (Jenkins, n8n, Argo). Drawing a workflow as a session's panes was the wrong picture; the doors between them are the part worth having. |
+| D70 | 2026-10-16 | **What is built here is kept as a plugin: the platform writes it through to a store repo in exactly a plugin repo's format** (§20.4), configured in Helm or Settings, restored on start, never blocked by git. Only what a plugin can ship goes there -- never credential values, connections, users, grants, sessions or runs. | The user's call: definitions must survive the deployment going down. One format makes export a copy and lets another deployment install the store; deployment state stays in Postgres, which keeps its own backups. |
+| D71 | 2026-10-16 | **The Builder is a per-group grant, and a builder may write anything, code and dependencies included** (§20.3). Code runs in the isolated runner as the person running it, is handed no raw secret where the egress proxy can sign for it, and reaches other groups only through an admin's grant (D65). | The user's call over limiting code to admins. Safety from where code runs and whose access it uses, not from who wrote it; the grant that exists is the review point. |
+| D72 | 2026-10-16 | **The agent builds through the same definitions as the Builder's form and the YAML**, with generic tools: the schema and examples, validate, preview on a real connection as the user, save with the user confirming (§20.3). | It matters to the user that the agent helps build panes and workflows; one artifact with several editors is what kept the browser and the agent in step for actions. |
+| D73 | 2026-10-16 | **Editors: a form and the YAML first, a drag-and-drop graph later, all over one definition; where a node sits is kept apart from what the workflow means** (§20.2). | The user's choice. Kept apart, a moved box is never a change to the workflow in the store repo's history. |
+| D74 | 2026-10-16 | **Phase 4 splits: 4a the store repo, 4b workflows; then the builder (5), the runner and code (6), plugins (7)** (§20.5). | The store decides how definitions are kept from the first one; it's testable on its own with today's admin-defined types. |
+| D75 | 2026-10-16 | **Workflows have a global page (list, Workflows \| Runs), a page each (Build with parameters, history, definition, triggers, access), and a run page that is live and shared like a session but holds no panes, with its own "This run" chat** (§20.7). Who sees a workflow is a grant per group; a run acts as whoever started it. | The user's question of where workflows live. A run is watched together like a session; it is investigated in one through "Investigate in a session". |
+| D76 | 2026-10-16 | **A saved template stays its owner's; Publish makes it plugin content in the store and the catalogue, portable by binding its connection inputs to the Environment variable and dropping credential ids** (§20.8). | The user's idea: plugins that ship ready dashboards. Connection ids mean nothing in another deployment; session variables (D60) are what make a dashboard travel. |
+| D77 | 2026-10-16 | **Refresh gains "on open": a pane runs once when someone opens or switches to the session, only if its outputs are older than a freshness window**, decided by the server under the same lock and rules as interval refresh (§20.8, §21.8). | The user's request for dashboards. The window is what keeps tab switches and members arriving together from each running it again. |
+| D78 | 2026-10-16 | **Plugin content is `<namespace>:<name>`; built-ins and existing ids stay bare; a plugin's namespace is its id, the store's is configured** (§20.9). | Two plugins (or a plugin and the store) can both ship a "prometheus". `:` because `.` splits a pane id from its keys and pane types are URL segments. |
+| D79 | 2026-10-16 | **The first audience is the user's own teams in one company: teams are groups, and nothing per person (sign-up, personal connections or types) is built for now** (§20.10). | The user's answer. Group policies already fit; a team admin role is the next need, later. |
+| D80 | 2026-10-16 | **4a writes through an outbox in the change's own transaction, by one writer at a time (an advisory lock) in a private shallow clone, with the `git` CLI; items stay in their own tables and are tracked by the blob last written or read, which is what conflicts are judged by** (§21). | A save can't come apart from its pending commit, two replicas can't race a push, and any git host works over HTTPS or SSH. Tracking by blob needs no history, so a shallow clone serves. |
+| D81 | 2026-10-16 | **A workflow run nobody started -- a schedule or a webhook -- acts as the workflow's owner**, named on the trigger and on each run it starts (§20.7). | The user's choice, over a service identity per group: no identity that is nobody's, and "access is per group" holds -- the owner's group is the one used. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -3795,6 +3819,454 @@ Fetch) reads its path and query from inputs and its rows from one list.
 
 **Not in 3d-3:** instant queries, Prometheus' own label pickers (a loader
 over `/api/v1/labels`), and types that aren't HTTP.
+
+## 20. Direction after Phase 3 (agreed 2026-10-16, D68–D79)
+
+Phase 3 done, the user asked whether the platform was becoming "Grafana with an
+agent and live sessions", and set out where they want it to go: sessions anyone
+can start -- teams, single users, people outside an enterprise -- holding panes
+of any kind (tables, files, metrics, but also video, embedded pages, anything worth
+sharing), shared with people and an agent; workflows generic enough to do
+anything; and everything built inside the platform kept. This section is the
+outcome of that discussion. It refines §1–§8 rather than replacing them.
+
+### 20.1 What holds "anything" together: the pane contract (D68)
+
+"Anything" is a principle, not a design. What makes it one is the contract every
+pane already speaks: **inputs** (the shared truth, set by people and the agent),
+**actions** (one endpoint for both), **outputs** (written by the server,
+versioned, announced) and **views** (how it looks, also shared). Whatever fits it
+gets the rest for nothing: live sharing, the agent driving it, templates,
+variables, refresh, view mode, grants, and -- through its actions -- workflows.
+
+- **That is the difference from Grafana.** Grafana's panels are read-only views of
+  data sources; here metrics are one category of pane among panes that act
+  (DynamoDB, S3, IoT, MQTT, HTTP), with an agent that is a participant rather than a
+  sidebar.
+- **Kinds of content, by how well they fit:**
+  - *Media and documents* -- video, images, files, notes -- fit well and are cheap.
+    A video's position and playing state are inputs, so everyone watches in step
+    and the agent can say "02:14 is when it stopped" by setting it; a transcript as
+    an output is what lets the agent read what it can't watch.
+  - *An embedded page (iframe)* is opaque: no inputs or outputs, nothing for the
+    agent, nothing synced but its URL, each viewer loading it with their own
+    cookies, and many sites refuse to be framed. It is allowed, sandboxed and
+    **marked as one the agent can't see** -- a way out, not the way in. If iframes
+    became the usual way to bring things in, the platform would be a tab manager.
+- **Three tiers of pane**, matching §7.4: declarative manifests (safe anywhere,
+  fully legible to the agent); panes with code (Python in the isolated runner, or
+  sandboxed browser code speaking the contract over postMessage, §4.5); opaque
+  embeds.
+- **Every pane is legible to the agent**: it says in text what it holds -- the
+  describe and `inspect` panes already have, designed in for media and code panes
+  rather than left out.
+- **Panes that follow each other** (later): a row picked in one pane sets an input
+  in another -- a device chosen in IoT moving the MQTT topic, the logs' filter and
+  the camera's video. Session variables (§18.7) are the start of this.
+
+### 20.2 Workflows are pipelines; sessions are where you look into them (D69)
+
+§5 stands: a workflow is a **pipeline with stages**, run with parameters like a
+Jenkins or Argo build, on its own page (parameters form, run history, a run drawn as
+its stages with status, time and logs). It is never drawn as a session's panes.
+What it shares with panes, and the doors between the two:
+
+- **A step is an Action**, the same one a pane runs: "query CloudWatch", "scan a
+  table", a Prometheus range query, a builder's or a plugin's action -- each is a
+  step with no extra work.
+- **A stage's outputs are drawn by the pane renderers**: its table, JSON or chart
+  looks as it would in a pane. The run page resembles the stacked layout -- a card
+  per stage, folded to its status -- but it is the run page, not a session.
+- **Rerun** a run with the same or changed parameters, or **from a failed stage**.
+- **The doors:**
+  - *Run → session*: "Investigate this run" opens a session holding the stages'
+    outputs as panes, for people and the agent to dig into (§5's "cloned into a
+    session").
+  - *Session → workflow*: "Make this repeatable" drafts a definition from what was
+    done in a session, the inputs that were changed becoming its parameters; it is
+    finished in the editor, by hand or with the agent.
+  - *A workflow in a session*: one pane holding its parameters, Run, the last run's
+    status and a link to the run page.
+  - *The agent* starts, follows and reads runs, and helps write definitions (§20.3).
+- **Editors** (D73): a form and the YAML first; a drag-and-drop graph later, as a
+  third view of the same definition. A node's place on the canvas is kept apart
+  from what the workflow means (a `ui:` block or file of its own), so moving a box
+  is never a change to the workflow in a diff.
+
+### 20.3 The builder, code, and the agent as a builder (D71, D72)
+
+- **The Builder is a per-group grant**, like the agent (`agent_enabled`): whoever
+  has it builds whatever they want -- pane types, steps, workflows, credential and
+  connection types -- code and dependencies included (the user's call). §8.1's
+  admin approval of dependencies is dropped; the lockfile (pinned, hashed) stays,
+  and an admin may point installs at a package mirror.
+- **Safety comes from where code runs, not from who may write it:**
+  - Code runs in the isolated runner (Phase 6) **as the person running it** -- their
+    group, their connections, their access -- so a pane someone built reaches
+    nothing its user couldn't reach through the UI.
+  - **Code doesn't receive raw secrets where that can be avoided.** An HTTP
+    request goes out through the runner's egress proxy, which adds the
+    connection's credential for that connection's own host; AWS gets short-lived
+    STS credentials, egress limited to AWS. This is what stops the one real abuse:
+    a pane built to send the token of whoever runs it somewhere else.
+  - **Sharing is gated by the grants that already exist** (D65): a new pane type is
+    no group's until an admin grants it, so a builder uses their own work at once
+    and others get it when an admin says so. No new review mechanism.
+  - Until the runner exists, the builder offers declarative actions and CEL only;
+    code arrives with Phase 6.
+- **Logic, cheapest first** (§4.5, §7.3): declarative requests (D67) → CEL
+  expressions, evaluated alike in the browser and on the server → Python actions in
+  the runner → sandboxed browser code. Dynamic inputs are loaders (an action that
+  returns options, as log groups and indices already are); code on an input's
+  change is `on_change` and `run: live`.
+- **The agent builds through the same definition** (D72): the builder's form, the
+  YAML and the agent are three editors of one file, the way the browser and the
+  agent share one action endpoint. Its tools are generic -- read the manifest and
+  workflow schema with existing definitions as examples; validate a draft (the
+  strict schema's errors name the problem); preview it in a scratch session on a
+  real connection, as the user, and read what came back; save, with the user
+  confirming. No per-service hints (CLAUDE.md): if it can build Prometheus from the
+  schema and an error message, it can build anything. Declarative first is what
+  lets it check its own work mechanically and a person review it at a glance.
+
+### 20.4 The store repo: what's built is kept as a plugin (D70)
+
+Two uses of git, kept apart:
+
+| | Plugin sources (§7.2) | The store repo |
+|---|---|---|
+| Written by | the plugin's authors | **the platform**, on every save |
+| The platform | reads it, pinned to a tag or SHA | commits to it, and restores from it |
+| For | installing what others made | what was built here outliving the deployment |
+
+- **Only what a plugin can ship, in exactly a plugin repo's format** (§7.1): the
+  repo *is* a plugin -- `plugin.yaml` at its root, `panes/`, `credential-types/`,
+  `connection-types/`, `workflows/`, `steps/<id>/` with its code and
+  `requirements.txt`. So exporting is a copy, another deployment can install the
+  store as a plugin, and a builder's work moves between deployments by git.
+- **Never** a deployment's values or state, which stay in Postgres: credential
+  values, environments and connections, users and groups, grants, the catalogue's
+  arrangement, sessions, runs, audit records. After a restore, credentials, for
+  instance, are re-entered (or come from Vault or Secrets Manager once those exist).
+  So the repo complements a Postgres backup; it doesn't replace one -- a deployment
+  lost with its database gets its definitions back, not its sessions.
+- **Which items:** those made or changed here (origin local). Built-ins and an
+  installed plugin's items come from their own source and aren't written; a type a
+  manifest seeded (D67) is written once an admin changes it.
+- **Write-through:** the database is the working copy and what runs; every save
+  writes it and then commits the one file, as the user who saved it, with a message
+  saying what changed; a delete removes the file. Each item records the commit it
+  was based on.
+- **Never blocked by git:** unreachable, the save still lands, the item is marked
+  "not pushed" and a queue retries; the store's status shows what is pending.
+- **Restore on start:** anything in the repo the database lacks is loaded, and
+  anything pending is pushed.
+- **Configured** in Helm (`store.git`: url, branch, path, an `existingSecret` with a
+  token or SSH key, the commit author) -- then shown locked in Settings, as the
+  master key is -- or by an admin in Settings when Helm leaves it unset. Helm's is
+  what restores a new cluster with no database; a repo set only in Settings is
+  re-entered after a database loss, and then restores.
+- **Later:** edits made in the repo pulled in by webhook or polling, a conflict
+  found as session sync finds one (each item's base commit against the file's) and
+  flagged, never merged silently; and a **read-only mode**, where the deployment
+  takes its definitions from the repo and the UI can't edit them -- a dev
+  deployment builds and commits, production reads. GitOps for the platform's own
+  content, where it is wanted.
+
+### 20.5 The phases, re-planned (D74)
+
+The store decides how definitions are kept from the first one, so it comes before
+workflows:
+
+- **4a, the store repo** (detailed in §21): items tracked against the repo (the
+  file each one is, the hash last written or read, pushed or not); the store repo's
+  configuration (Helm and Settings); write-through through an outbox, restore on
+  start, conflicts flagged; namespaced ids for what is made from now on (D78).
+  What exists to store today is admin-defined credential and connection types, so
+  4a is testable on its own: define a type, see the commit; drop the database,
+  restart, it's back. Run on open (D77) rides with it -- small, independent, and
+  something to try on a dashboard.
+- **4b, workflows** as §5, §20.2 and §20.7: the blob store (§8.2), definitions in the
+  store, recorded runs on the in-process runner, the Workflows page, a workflow's
+  page and the live run page, rerun from a stage, the agent starting and reading
+  runs, the approval step shared with the agent, and the doors between runs and
+  sessions.
+- **4c, published templates** (D76, §20.8): Publish, made portable by the
+  Environment variable, into the store and the catalogue.
+- **5, the builder:** the per-group grant, the pane and step builders over declarative
+  actions and CEL, the form and YAML editors with live preview, and the agent's
+  build tools (§20.3).
+- **6, the runner and code**, as before, with the egress proxy injecting credentials.
+- **7, plugins and the marketplace**, as before; the store repo is installable as one.
+- **Later:** the drag-and-drop editor, media and document panes, embeds, panes that
+  follow each other, pulling edits from the store repo, read-only mode, workflow
+  triggers (cron, webhook), a team admin role.
+
+### 20.6 Open
+
+- ~~Who a scheduled or webhook run acts as~~ -- **the workflow's owner** (D81).
+- The store's `plugin.yaml` version: commits don't change it; how a store is
+  tagged as a release for another deployment to install is Phase 7's.
+
+### 20.7 Workflow screens (D75)
+
+- **The Workflows page** is a global page in the rail, like Home and Agent (the
+  placeholder in `pages/pageTypes.tsx`), never a session. It lists the workflows
+  the person may run: name, category (the catalogue's categories, §4.8), triggers,
+  the last run's status and time, a ★, and Run; search; and a **Workflows | Runs**
+  switch, Runs being recent runs across workflows (mine, running, failed).
+- **Who sees one** is a grant per group, as a pane type is (D65); a run acts as
+  whoever started it -- their environments in its pickers, every step through the
+  same access check a pane's action goes through.
+- **A workflow's page**: a header (name, description, **Run ▸**, ⋮); Run opens
+  **Build with parameters**, a form drawn by the same input components panes use,
+  dynamic pickers included; then run history (#, status, started by or which
+  trigger, parameters, duration), the definition (form | YAML, the graph later),
+  triggers and access.
+- **A run's page**: its own URL, **live and shared as a session is** (the same event
+  stream, so everyone watching sees it move) -- but not a session: no panes to add,
+  no layouts. A header (workflow and number, status, who, when, the parameters;
+  Cancel, Rerun ▾ with the same or changed parameters or from a failed stage,
+  **Investigate in a session**); the stages as a list (later a graph) with status
+  and time; the selected stage's resolved inputs, its outputs drawn by the pane
+  renderers, its logs, and Approve / Deny on a waiting approval. The agent panel's
+  Session tab is **This run** there: one conversation per run, that reads it.
+- **A run nobody started** -- a schedule, a webhook -- **acts as the workflow's
+  owner** (D81): their group, environments and identities, exactly as if they had
+  pressed Run. The trigger names whose access it uses, and so does every run it
+  starts; an owner who loses access to something makes the next run fail there,
+  as it would for them.
+- **Other ways in:** a workflow pane in a session (its parameters, Run, the last
+  run, a link), a Workflows card on the default page, the agent listing and
+  starting them; later, a mark in the rail while a run of yours is going.
+
+### 20.8 Templates as plugin content, and run on open (D76, D77)
+
+- **Templates** (D76). A person's saved templates stay theirs, in Postgres, as
+  today -- mostly scratch, and nobody wants them in a repo. **Publish** makes one
+  plugin content: written to the store, offered in the catalogue to whoever can
+  use every pane type it holds -- ready-made dashboards ("IoT fleet overview",
+  "Service health") are a good reason for a plugin to exist. Published, it must be
+  **portable**: a template's state names connection ids, which mean nothing in
+  another deployment, so Publish binds every connection input to the session's
+  **Environment variable** (D60) -- whoever opens it picks their environment once
+  and every pane follows -- and drops credential ids. Outputs are already left
+  out of templates. Session variables are what make a dashboard portable.
+- **Run on open** (D77). Refresh becomes a mode, per pane and as the session's
+  default: **off**, **on open**, **every N**, or **on open and every N**. On open
+  runs a pane once when someone opens the session or switches to it, **only if its
+  outputs are older than a freshness window** (the pane's setting, a default of a
+  few minutes) -- or every tab switch, and every member arriving together, would
+  run it again. The server decides under the pane's lock as it does for refresh
+  (§18.3): fresh, another refresh under way, a run going. Everything else carries
+  over: a viewer runs it as themselves and only when they can reach every
+  connection it names (D62), the per-run floor still applies, `effects: external`
+  never runs, and it is session state the agent can set.
+
+### 20.9 Namespaced ids (D78)
+
+- Every id of plugin content -- pane types, credential and connection types,
+  workflows, steps, templates -- is **`<namespace>:<name>`**. **Built-ins keep their
+  bare ids** (`iot`, `prometheus`, `aws_role`) as the implicit core namespace, so
+  nothing stored today changes; the types admins made before 4a keep theirs too
+  (ids never change once something points at them), and are written to the store
+  as they are.
+- **A plugin's namespace is its id**, unique in its registry (the registry's PR
+  review holds it to that). **The store's is set in its configuration** (`devops`,
+  say): what is made from 4a on is `devops:fleet_health`, and another deployment
+  installing this store gets it under that namespace, clear of its own store's.
+- **The separator is `:`** -- a `.` already splits a pane id from its keys
+  (`iot.in.query`), and pane types are path segments (`/api/panes/{type}/…`), so a
+  `/` would break those. A namespace is `[a-z][a-z0-9_-]{0,23}`.
+- Customising an installed item in the builder copies it into the store's
+  namespace; the original stays. Installing a namespace that exists is an upgrade
+  of the same plugin or refused, never an overwrite.
+- People see labels, not ids; two of one label are told apart by where they come
+  from ("Prometheus · acme-k8s").
+
+### 20.10 Who it's for first (D79)
+
+The user's DevOps team first, then backend, QA and embedded teams -- inside one
+company, under team policies. So:
+
+- **Teams are groups.** A team's workflows, templates and favourites come from
+  grants; access stays per group (CLAUDE.md), and nothing per person -- personal
+  connections, personal types, sign-up -- is built for now.
+- **Later, a team admin**: someone who grants within their own group, so not every
+  change goes through the platform's admins.
+- The teams pull towards different panes (embedded: devices, MQTT, logs from a
+  device; QA: HTTP, test runs, comparisons; backend: logs, databases) -- the
+  builder's first real uses and the first templates to publish should follow them.
+
+## 21. Phase 4a in detail: the store repo, and run on open
+
+Planned 2026-10-16 (D80), from §20.4, §20.9 and §20.8. One PR, testable on its
+own: what admins define today is written to git and comes back from it.
+
+### 21.1 What you can try
+
+- Point the platform at a repo (Helm, or Settings → Store when Helm leaves it
+  unset), define a credential type or a connection type, and see a commit for it
+  in the repo, as you, in a plugin repo's layout -- `plugin.yaml` listing it.
+- Change it, delete it: a commit each.
+- Make git unreachable, keep working: the type saves, shows "Not pushed", and goes
+  out when git is back.
+- Drop the database (or start a new deployment on the same repo), start: the
+  types are back. Credentials aren't -- by design (D70) -- and say so.
+- Edit a file in the repo by hand, then the same type in the platform: a conflict,
+  shown in Settings → Store, resolved by choosing a side; never a silent overwrite.
+- A pane set to **run on open** runs once when you open the session -- unless it
+  ran a minute ago -- and a dashboard of them is current when you arrive.
+
+### 21.2 The repo
+
+```
+<path>/
+  plugin.yaml                         id: <namespace>, name, version, contributes: {…}
+  credential-types/<name>.yaml
+  connection-types/<name>.yaml
+  # 4b on: workflows/, steps/<name>/; 4c: templates/; 5: panes/
+```
+
+- `plugin.yaml` is §7.1's: `id` is the store's namespace, `contributes` lists
+  every item, regenerated on each commit. Its `version` is left alone (§20.6).
+- A file is the item's definition and nothing else -- for a credential type its
+  label, description, fields, `version`, output template, `inject` and `http_test`;
+  for a connection type its label, description, fields and identity types. No
+  ids of rows, no users, no timestamps: those are the deployment's.
+- `<name>` is the id without its namespace; a pre-4a bare id (`grafana`) is its
+  own file name. A colon never reaches a file name.
+
+### 21.3 Namespaced ids, from now on (D78)
+
+- Credential and connection type ids accept `<namespace>:<name>`; the API's id
+  checks (`TYPE_ID_RE`, `_TYPE_ID_RE`) learn the prefix. Built-ins and existing
+  ids are untouched.
+- Creating one in Settings shows the store's namespace as a fixed prefix and asks
+  for the name; with no store configured, ids stay bare as today (a store
+  configured later writes them as they are).
+- Nothing else changes: a connection's `type_id`, a credential's, a manifest's
+  `connection_type` are ids like any other.
+
+### 21.4 Tracking what's in the store
+
+The items keep living in their own tables (`credential_types`,
+`connection_types`, and later workflows'); the store only tracks them, so no
+existing code changes how it reads a type.
+
+- **`store_items`**: `kind`, `item_id`, `path`, `blob` (the git hash of the file as
+  last written or read -- what conflicts are judged by), `state`
+  (`synced | pending | conflict | error`), `error`, `updated_at`.
+- **`store_outbox`**: one row per change, in order: `kind`, `item_id`, `op`
+  (`write | delete`), the file's content as it was saved, the user, `created_at`.
+  Written **in the same transaction as the change itself**, so a save and its
+  pending commit can't come apart.
+- **A registry of kinds** (`store.KINDS`): for each, its directory, `dump(row) ->
+  dict` and `load(dict) -> row` -- the one place that knows a kind's file. A kind
+  added later (workflows, templates, panes) is one entry.
+- **What's tracked:** anything saved through the admin API from 4a on, and, the
+  first time a store is configured, every non-built-in item that exists (one
+  commit, "Add what this deployment already had"). A manifest-seeded connection
+  type (D67) is tracked once an admin changes it -- from then on the repo's copy
+  is the edited one, and wins over the seed on a restore.
+
+### 21.5 Writing: one writer, through the outbox
+
+- **Any replica, one at a time**: a background task holds a Postgres advisory
+  lock while it works, the way background runs claim a lapsed heartbeat (D51), so
+  two replicas never push at once and a dead one's work is picked up.
+- **It works in a private clone** in the pod (an `emptyDir`; shallow, `--depth 1`),
+  never authoritative: `fetch`, reset to the remote branch, then for each outbox
+  row in order -- check for a conflict (below), write or remove the file,
+  regenerate `plugin.yaml`, commit as the user who saved it (`username
+  <username@{author domain}>`), the platform as committer -- then `push`. On a
+  rejected push (someone pushed meanwhile) it fetches and replays; files are per
+  item, so a replay only stops at a real conflict.
+- **A conflict**: the file in the remote isn't the `blob` the item last had (it was
+  edited in the repo since). The item turns `conflict`, its outbox rows wait, and
+  nothing is written over the other edit. Settings → Store shows both sides;
+  **Keep mine** writes ours, **Take theirs** loads the repo's into the database.
+- **Unreachable or refused** (network, auth, a protected branch): rows stay,
+  items say `pending` with the reason, the task retries with backoff, and
+  "Sync now" tries at once. A save is never blocked or failed by git.
+- **A new or empty repo or branch** gets a first commit with `plugin.yaml`.
+
+### 21.6 Restoring on start
+
+After `create_all` and the built-ins, before serving: fetch the branch and, for
+every file whose item the database lacks, load it (`state: synced`, its blob
+recorded) -- **unless an outbox `delete` for it is pending** (deleted here, not yet
+pushed), which wins. Then push what is pending. An item present on both sides
+with different content is left alone at 4a -- pulling the repo's edits in is
+later (§20.4) -- but the next save of it meets the conflict check. A store that
+can't be reached at start is reported (log and Settings), and the platform starts
+anyway.
+
+### 21.7 Configuration and secrets
+
+- **Helm** `store.git`: `url`, `branch` (default `main`), `path` (default the
+  root), `namespace`, `authorDomain`, and `existingSecret` holding either `token`
+  (HTTPS) or `ssh-privatekey` with `known_hosts`. Mounted, never inline; the chart
+  generates nothing (as with the master key, Argo CD renders without the cluster).
+  Set by Helm, Settings shows it locked.
+- **Settings → Store** (admins), when Helm leaves it unset: the same fields, the
+  token or key chosen from the credential store (an `api_token` or `ssh_key`
+  credential) -- through `credential_store.resolve()`, so checked, audited and
+  masked like any. Kept in the database, so after losing the database it is
+  entered again and then restores. Helm is the way to have a new cluster restore
+  itself.
+- **The token never touches a URL or an argument**: HTTPS goes through
+  `GIT_ASKPASS`, SSH through `GIT_SSH_COMMAND` with the key in a 0600 file in the
+  clone's directory; both registered with `masking.py`, and git's own messages
+  pass through `mask()` before they're logged or shown. A URL with credentials in
+  it (`https://user:token@…`) is refused.
+- **Only `https://` and `ssh://` (or `git@host:`)** -- the server fetches what an
+  admin types, so no `file://`, `http://` or `ext::`, and git runs with
+  `protocol.allow` limited to those (`file` only under the test flag the suites
+  and pytest set). The backend image gains `git` and `openssh-client`.
+
+### 21.8 Run on open (D77)
+
+- **`<pane>.refreshOnOpen`**: seconds of freshness, 0 off, unset following the
+  session's `refreshOnOpen` -- a key beside `refresh`, so `refresh` keeps its
+  meaning and nothing migrates. Session state, synced, kept by templates, set by
+  the agent (`set_refresh` gains `on_open`).
+- **The trigger is the tab's**: when the session comes on screen in a visible tab
+  -- opened, switched to, or landed on -- each pane with it set asks once.
+  **The decision is the server's**: the refresh route takes `fresh: seconds` for an
+  open and answers "fresh" when the outputs ran within it, under the same lock and
+  rules as an interval refresh (another under way, a run going, unreachable for a
+  viewer, the floor, never `effects: external`, a live pane or a stream). A pane
+  that never ran is stale; one whose required inputs are unset doesn't run.
+- **The ⚙'s Auto-refresh section** gains "On open, if older than [5 min]"; the
+  session card's Refresh row the same for its default. "↻ on open" shows beside a
+  pane's ⚙ as "↻ 30s" does.
+
+### 21.9 Tests and done
+
+- **Backend** (`test_store.py`), against **real git**: a bare repo in a temp dir
+  (`file://` under the test flag), no mocks of our own code --
+  - a type saved → one commit, as the user, the right file and `plugin.yaml`;
+    changed → a commit; deleted → the file gone;
+  - the repo unreachable → saved, `pending`, pushed when it's back, in order;
+  - the tables emptied → a restart restores them; a pending delete isn't
+    restored; credentials are not in the repo at all (every file grepped for a
+    secret the test set);
+  - an edit pushed from another clone → the next save is a `conflict`, nothing
+    overwritten; Keep mine and Take theirs each resolve it;
+  - two writers at once → one push each, no lost commit;
+  - the token never in a response, a log record, a commit, or `git remote -v`; a
+    URL with credentials and a `file://` URL refused;
+  - ids with and without a namespace; the existing types' ids unchanged;
+  - run on open: fresh within the window answers "fresh", stale runs once, five
+    asks at once run once, a viewer who can't reach it runs nothing.
+- **Browser** `smoke83` (Settings → Store, a type committed and its state shown,
+  Not pushed while the repo is away) and `smoke84` (run on open: a dashboard's
+  panes run when the session opens, not again on switching back within the
+  window), each failing against the old frontend. The dev stack serves a local
+  bare repo for them.
+- **Docs**: DEPLOYMENT.md (the repo, its secret, the namespace, what is and isn't
+  in it, restoring), CLAUDE.md, PROGRESS.md, §21.10 as built.
 
 ## 12. Research sources
 
