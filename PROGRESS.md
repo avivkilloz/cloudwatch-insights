@@ -1190,7 +1190,7 @@ open; detailed in §21, D80), 4b (workflows), 4c (published templates).
   `Popover` now passes the room under its button and the pane menu scrolls
   within it. smoke20's add-buttons check compares before and after a reorder
   (its fixed list went stale with Prometheus in 3d-3).
-- Backend 441 (`test_store.py` 26 with the symlink guard's two tests, both
+- Backend 442 (`test_store.py` 26 with the symlink guard's two tests, both
   failing without it). Full browser run 67 of 68 green, smoke31's two styling
   checks failing as on main. The dev database had collected ~200 suite groups,
   enough for smoke58's grant-to-every-group to push its own create/update rows
