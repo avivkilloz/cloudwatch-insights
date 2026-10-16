@@ -3765,7 +3765,7 @@ th {
 }
 .pane-menu-list {
   width: 240px;
-  max-height: 420px;
+  max-height: min(420px, var(--popover-room, 420px));
   overflow-y: auto;
 }
 .pane-menu-list button {

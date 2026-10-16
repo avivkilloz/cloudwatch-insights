@@ -4298,6 +4298,13 @@ As planned, with these settled in the building:
   visible -- and the ask waits for the window to be known (a load's state can
   come after the pane is on screen); a pane whose required inputs aren't set
   answers `not_ready`, not a failure.
+- **A pane's ⚙ never runs off the window**: its run-on-open row made the menu
+  taller, and opened low on a page its last items (saved inputs, the variables
+  it follows) sat below the window's edge, out of reach. `Popover` passes the
+  room left under its button (`--popover-room`), which the pane menu caps its
+  height to and scrolls within.
+- `smoke20`'s add-buttons check compares the buttons before and after panes
+  move, instead of a fixed list that went stale with Prometheus.
 - **Not built**: pulling repo edits in by themselves, read-only mode, tagging a
   store as a release (§20.6).
 

@@ -184,6 +184,7 @@ export function RefreshSection({ m, state }: { m: PaneManifest; state: RefreshSt
       <label className="pane-menu-field">
         <select
           aria-label="Run on open"
+          title="Runs once when someone opens the session, unless what it shows is newer than that."
           value={state.openOwn === undefined ? "session" : String(state.openOwn)}
           onChange={(e) => state.setOpenOwn(e.target.value === "session" ? undefined : Number(e.target.value))}
         >
@@ -198,9 +199,6 @@ export function RefreshSection({ m, state }: { m: PaneManifest; state: RefreshSt
           ))}
         </select>
       </label>
-      <div className="pane-menu-note muted">
-        Runs once when someone opens the session, unless what it shows is newer than that.
-      </div>
     </>
   );
 }

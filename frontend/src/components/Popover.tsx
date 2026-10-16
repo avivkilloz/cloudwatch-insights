@@ -38,7 +38,7 @@ export default function Popover({
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; room: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -50,7 +50,14 @@ export default function Popover({
     if (!button) return;
     const r = button.getBoundingClientRect();
     const w = menuRef.current?.offsetWidth || width;
-    setPos({ left: Math.max(4, Math.min(r.left, window.innerWidth - w - 8)), top: r.bottom + 4 });
+    // `room` is what's left of the window under the button: a menu that
+    // scrolls caps itself to it (`--popover-room`), or one opened low on the
+    // page ran off the bottom with its last items out of reach.
+    setPos({
+      left: Math.max(4, Math.min(r.left, window.innerWidth - w - 8)),
+      top: r.bottom + 4,
+      room: Math.max(120, window.innerHeight - r.bottom - 12),
+    });
   }, [width]);
 
   useLayoutEffect(() => {
@@ -97,7 +104,11 @@ export default function Popover({
       {open &&
         pos &&
         createPortal(
-          <div className={menuClass} ref={menuRef} style={{ left: pos.left, top: pos.top }}>
+          <div
+            className={menuClass}
+            ref={menuRef}
+            style={{ left: pos.left, top: pos.top, ["--popover-room" as string]: `${pos.room}px` }}
+          >
             {children(() => setOpen(false))}
           </div>,
           document.body,
