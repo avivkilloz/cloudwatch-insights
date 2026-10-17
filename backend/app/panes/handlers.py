@@ -763,11 +763,17 @@ def mqtt_poll(db: Session, user: models.User, inputs: dict[str, Any], _cursor: A
             lost = sub.conn.error() if sub is not None and sub.conn is not None else None
             if sub is not None:
                 messages.extend(sub.drain())
+            if mqtt_client.closed(h["key"]):
+                continue  # stopped while this poll ran: the tick sees the run stopped
             t, identity = _one(db, user, {"connection": h["connection"]})
             try:
-                sub = mqtt_client.open_subscription(h["key"], t.account_id, t.region, identity, h.get("topics") or [])
+                sub = mqtt_client.open_subscription(
+                    h["key"], t.account_id, t.region, identity, h.get("topics") or [], reopen=True
+                )
             except Exception as e:  # noqa: BLE001
                 raise HTTPException(status_code=502, detail=f"The connection was lost and couldn't be reopened: {e}") from None
+            if sub is None:
+                continue
             if lost:
                 out["status"] = f"Reconnected to {sub.endpoint} as {sub.client_id} ({lost})"
         messages.extend(sub.drain())
