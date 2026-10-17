@@ -387,8 +387,39 @@ export interface WorkflowParam {
   connection_type?: string;
 }
 
-export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-export type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped" | "cancelled";
+export type RunStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped" | "cancelled";
+
+/** A decision a person must make before a step runs (D88). In the pending
+ * list it also says which run it's in. */
+export interface WorkflowApproval {
+  id: number;
+  status: "pending" | "approved" | "denied" | "expired" | "cancelled";
+  message: string;
+  /** What the step will do: its resolved inputs, or a for_each's first items. */
+  details: { inputs?: Record<string, unknown>; count?: number; items?: Record<string, unknown>[] } | null;
+  by: "anyone" | "others" | "admins";
+  step_id: string | null;
+  run_id: number | null;
+  created_at: string | null;
+  expires_at: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  comment: string | null;
+  can_decide: boolean;
+  workflow_id?: string | null;
+  workflow_label?: string | null;
+  run_number?: number | null;
+  started_by?: string | null;
+}
+
+/** A file in the blob store (D91): a run's artifact, or a step's whole outputs. */
+export interface BlobRef {
+  id: string;
+  name: string;
+  size: number;
+  content_type: string;
+}
 
 export interface WorkflowRunStep {
   position: number;
@@ -401,6 +432,13 @@ export interface WorkflowRunStep {
   inputs?: unknown;
   outputs?: Record<string, unknown> | null;
   trimmed?: boolean;
+  /** The whole outputs, when the row holds them cut down (D91). */
+  outputs_blob?: string | null;
+  /** The most attempts one call took (`retry`). */
+  attempts: number;
+  /** Copied from the run this one reran from a later stage of (D90). */
+  reused: boolean;
+  approval?: WorkflowApproval;
 }
 
 /** A run. Its params, steps and outputs only when `readable` (D84): they came
@@ -419,11 +457,13 @@ export interface WorkflowRun {
   readable: boolean;
   cancel_requested: boolean;
   rerun_of: number | null;
+  rerun_from: string | null;
   params?: Record<string, unknown>;
   error?: string | null;
   steps?: WorkflowRunStep[];
   /** The workflow as it was when the run started (a run's own page only). */
   definition?: { parameters?: WorkflowParam[] };
+  artifacts?: (BlobRef & { position: number | null })[];
 }
 
 export interface Workflow {
@@ -792,11 +832,22 @@ export const api = {
   recentWorkflowRuns: (mine = false) => req<WorkflowRun[]>(`/workflow-runs${mine ? "?mine=true" : ""}`),
   getWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}`),
   cancelWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}/cancel`, { method: "POST" }),
-  rerunWorkflowRun: (runId: number, params?: Record<string, unknown>) =>
+  rerunWorkflowRun: (runId: number, params?: Record<string, unknown>, fromStep?: string) =>
     req<WorkflowRun>(`/workflow-runs/${runId}/rerun`, {
       method: "POST",
-      body: JSON.stringify(params ? { params } : {}),
+      body: JSON.stringify({
+        ...(params ? { params } : {}),
+        ...(fromStep ? { from_step: fromStep, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}),
+      }),
     }),
+  listApprovals: () => req<WorkflowApproval[]>("/approvals"),
+  decideApproval: (id: number, approve: boolean, comment?: string) =>
+    req<WorkflowRun>(`/approvals/${id}/${approve ? "approve" : "deny"}`, {
+      method: "POST",
+      body: JSON.stringify({ comment: comment || null }),
+    }),
+  /** A blob's download address: the backend checks who's asking (D91). */
+  blobUrl: (id: string) => `/api/blobs/${encodeURIComponent(id)}`,
   getStore: () => req<StoreStatus>("/store"),
   putStore: (draft: StoreDraft) => req<StoreStatus>("/store", { method: "PUT", body: JSON.stringify(draft) }),
   deleteStore: () => req<void>("/store", { method: "DELETE" }),

@@ -494,6 +494,58 @@ backend:
 - **The image needs `git` and `openssh-client`** (the backend Dockerfile
   installs both). The clone is a cache in an `emptyDir`, re-made on start.
 
+## Workflow files: the blob store
+
+Workflow runs hand on files -- artifacts, and a step's whole outputs when they
+are over the 1 MiB a database row keeps (PLATFORM_PLAN.md §8.2, §22.8). Those
+go to a blob store; Postgres keeps only who they belong to, their size and
+checksum, and every download goes through the backend, which checks that the
+person may read the run first.
+
+**Every backend replica must reach the same store.** The chart runs two by
+default, so choose one of:
+
+```yaml
+backend:
+  storage:
+    type: s3                    # recommended
+    s3:
+      bucket: my-platform-files
+      region: eu-west-1
+      endpoint: ""              # set for MinIO, Ceph or any S3-compatible server
+      prefix: ""                # a folder in the bucket
+```
+
+The backend writes as the platform's own AWS identity -- the service account's
+IRSA role, never a group's -- so give that role `s3:PutObject`, `s3:GetObject`
+and `s3:DeleteObject` on the bucket (or the prefix).
+
+```yaml
+backend:
+  storage:
+    type: filesystem
+    filesystem:
+      path: /data/files
+      persistence:
+        enabled: true
+        accessMode: ReadWriteMany   # EFS, Filestore, NFS, CephFS
+        storageClass: efs-sc
+        size: 50Gi
+        # existingClaim: my-claim   # or a claim you made yourself
+```
+
+A ReadWriteOnce volume (EBS) attaches to one node, so the chart refuses it with
+more than one replica. With persistence off (the default) each pod keeps its
+files in an `emptyDir`: fine for one replica trying it out; with more, a
+download served by another pod finds nothing, and the install notes say so.
+The volume must be writable by the backend's user (1000); on NFS-style
+volumes that means the export or access point's ownership.
+
+**Retention**: a run's files are kept `storage.retentionDays` (90) and cleaned
+up hourly; deleting a workflow deletes its runs' files. On S3, a lifecycle rule
+on the prefix is a sensible backstop. docker-compose keeps them on the
+`backend-files` volume.
+
 ## Upgrading to connections and group identities (Phase 2)
 
 The first start of this version migrates, once (PLATFORM_PLAN.md §14.5):

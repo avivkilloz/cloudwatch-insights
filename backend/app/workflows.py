@@ -20,20 +20,32 @@ Runs are run in-process (D85): started as `queued`, claimed by any replica
 (`FOR UPDATE SKIP LOCKED`) and run on a thread by `manager`, step by step, each
 step recorded as it goes. One whose replica went away (no heartbeat) is marked
 failed, not resumed. Cancel is looked for between steps and items.
+
+4b-2 (§22.8, D87-D93): a step may be a background run (polled here until it's
+done, or listened to for a while), wait on an approval -- always, when its
+action reaches outside the platform -- retry and time out, or write an
+artifact. A run waiting on an approval holds no thread: it is `waiting`, and a
+decision queues it again; it then carries on from its records, as a rerun from
+a stage does from the ones it copied.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
+import csv
 import datetime
 import functools
+import io
 import json
 import logging
 import os
 import re
 import socket
-from typing import Any, Literal, Optional
+import threading
+import time
+from typing import Any, Callable, Literal, Optional
 
 import yaml
 from cel_expr_python import cel
@@ -41,7 +53,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from . import connections, masking, models, pane_access, pane_outputs
+from . import blobs, connections, live_events, masking, models, pane_access, pane_outputs
 from .db import SessionLocal
 from .panes import manifest as pane_manifest
 from .resolve import ResolveError
@@ -59,6 +71,16 @@ HEARTBEAT_STALE_SECONDS = 300
 SCOPE = ("params", "steps", "item", "index", "run")
 REPLICA = f"{socket.gethostname()}:{os.getpid()}"
 FINISHED = ("succeeded", "failed", "cancelled")
+# A step's own end, whatever happened to the run around it: what a resumed
+# run (or a rerun from a later stage) reads back rather than runs again.
+STEP_DONE = ("succeeded", "failed", "skipped")
+# Each attempt's bound, unless the step says (D89): a call, a background run.
+CALL_TIMEOUT = 600.0
+BACKGROUND_TIMEOUT = 3600.0
+APPROVAL_TIMEOUT = 86400.0
+# A refusal is an answer: retrying it can only be refused again.
+REFUSED = (401, 403, 404)
+APPROVAL_DETAIL_ITEMS = 20
 
 
 class WorkflowError(ValueError):
@@ -96,6 +118,22 @@ class Param(_Strict):
     connection_type: Optional[str] = None
 
 
+class ApprovalSpec(_Strict):
+    """`approval:` on a step (D88): it waits for a person before it runs."""
+
+    message: Optional[str] = None
+    by: Literal["anyone", "others", "admins"] = "anyone"
+    timeout: float = Field(default=APPROVAL_TIMEOUT, ge=60, le=7 * 86400)
+
+
+class ArtifactSpec(_Strict):
+    """`artifact:` (D92): a file the run hands on, written to the blob store."""
+
+    name: str
+    value: Any
+    format: Literal["json", "csv", "text"] = "json"
+
+
 class Step(_Strict):
     id: str
     label: Optional[str] = None
@@ -103,9 +141,15 @@ class Step(_Strict):
     action: Optional[str] = None
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
     note: Optional[str] = None
+    artifact: Optional[ArtifactSpec] = None
+    approval: Optional[ApprovalSpec] = None
     if_: Optional[str] = Field(default=None, alias="if")
     for_each: Optional[Any] = None
     continue_on_error: bool = False
+    retry: int = Field(default=0, ge=0, le=5)
+    retry_delay: float = Field(default=5.0, ge=0, le=300)
+    timeout: Optional[float] = Field(default=None, ge=1, le=86400)
+    listen: Optional[float] = Field(default=None, ge=1, le=3600)
 
 
 class Definition(_Strict):
@@ -194,10 +238,19 @@ def check(definition: Definition, source: str = "") -> list[dict]:
             err(here, f"'{step.id}' can't be a step's id: lowercase letters, digits and _.")
         if step.id in earlier:
             err(here, f"Two steps are called {step.id}.")
-        if step.note is None and not (step.pane and step.action):
-            err(here, f"Step {step.id} needs a pane and an action, or a note.")
-        if step.note is not None and (step.pane or step.action or step.with_):
-            err(here, f"Step {step.id} is a note: it has no pane, action or with.")
+        is_pane = bool(step.pane or step.action or step.with_)
+        kinds = [k for k, there in (("a pane action", is_pane), ("a note", step.note is not None),
+                                    ("an artifact", step.artifact is not None)) if there]
+        if len(kinds) > 1:
+            err(here, f"Step {step.id} is {' and '.join(kinds)}: a step is one of them.")
+        elif not kinds and step.approval is None:
+            err(here, f"Step {step.id} needs a pane and an action, a note, an artifact or an approval.")
+        if is_pane and not (step.pane and step.action):
+            err(here, f"Step {step.id} needs both a pane and an action.")
+        if not is_pane:
+            for field in ("retry", "timeout", "listen"):
+                if field in step.model_fields_set:
+                    err(here + (field,), f"Step {step.id}: only a pane action has {field}.")
         if step.pane and step.action:
             for where, message in _check_action(step):
                 err(here + where, message)
@@ -219,6 +272,13 @@ def check(definition: Definition, source: str = "") -> list[dict]:
     return errors
 
 
+def _stream(action: pane_manifest.ManifestAction) -> bool:
+    """A background run that never says done (MQTT's connection): the manifest
+    says how long the agent waits on one -- `agent_wait` -- and only a stream
+    has that, since waiting on a query is waiting for its end."""
+    return action.poll is not None and action.poll.agent_wait is not None
+
+
 def _check_action(step: Step) -> list[tuple[tuple, str]]:
     """What's wrong with a step's pane, action and inputs, each with the field it's on."""
     manifest = pane_manifest.get(step.pane or "")
@@ -229,12 +289,12 @@ def _check_action(step: Step) -> list[tuple[tuple, str]]:
         known = ", ".join(a.id for a in manifest.actions if a.request is not None or a.handler)
         return [(("action",), f"Step {step.id}: {manifest.label} has no action '{step.action}' (it has: {known or 'none'}).")]
     out: list[tuple[tuple, str]] = []
-    if action.poll is not None:
-        out.append((("action",), f"Step {step.id}: {manifest.label}'s {action.id} runs in the background; steps like it come next (4b-2)."))
-    elif action.effects == "external":
-        out.append((("action",), f"Step {step.id}: {manifest.label}'s {action.id} acts outside the platform, which needs an approval step (4b-2)."))
-    elif action.request is None and not action.handler:
+    # A background run is waited for (D87); one reaching outside the platform
+    # waits for a person first (D88) -- `_gate` -- so neither is refused.
+    if action.request is None and not action.handler:
         out.append((("action",), f"Step {step.id}: {manifest.label}'s {action.id} runs in the browser, not on the server."))
+    if step.listen is not None and not _stream(action):
+        out.append((("listen",), f"Step {step.id}: {manifest.label}'s {action.id} finishes by itself; listen is for a connection that doesn't."))
     inputs = {i.key: i for i in manifest.inputs}
     for key in step.with_:
         if key not in inputs:
@@ -261,6 +321,11 @@ def _templates(step: Step) -> list[tuple[tuple, str]]:
     walk(step.with_, ("with",))
     if step.note is not None:
         out.append((("note",), step.note))
+    if step.artifact is not None:
+        out.append((("artifact", "name"), step.artifact.name))
+        walk(step.artifact.value, ("artifact", "value"))
+    if step.approval is not None and step.approval.message:
+        out.append((("approval", "message"), step.approval.message))
     if step.if_ is not None:
         out.append((("if",), step.if_))
     if isinstance(step.for_each, str):
@@ -424,6 +489,11 @@ def delete(db: Session, workflow_id: str, actor: models.User) -> None:
     row = db.get(models.Workflow, workflow_id)
     if row is None:
         return
+    # Its runs go with it (ON DELETE CASCADE), and so do their files: the rows
+    # would cascade, the bytes in the store wouldn't.
+    run_ids = [r.id for r in db.query(models.WorkflowRun.id).filter_by(workflow_id=workflow_id)]
+    if run_ids:
+        blobs.remove(db, db.query(models.Blob).filter(models.Blob.run_id.in_(run_ids)).all())
     db.delete(row)
     store.record(db, "workflow", workflow_id, "delete", actor)
     db.commit()
@@ -488,6 +558,39 @@ def start(db: Session, user: models.User, workflow: models.Workflow, given: dict
     if not can_run(db, user, workflow):
         raise WorkflowError(f"Your group may not run {workflow.label}.")
     params = coerce_params(db, user, workflow.definition, given)
+    return _create(db, user, workflow, workflow.definition, params, trigger=trigger, timezone=timezone,
+                   rerun_of=rerun_of)
+
+
+def rerun_from(db: Session, user: models.User, old: models.WorkflowRun, step_id: str, *,
+               timezone: Optional[str] = None) -> models.WorkflowRun:
+    """A new run of `old`'s definition and parameters from `step_id` on, the
+    stages before it copied as they were (D90): they ran against that
+    definition, so the new run does too, whatever the workflow says now."""
+    workflow = db.get(models.Workflow, old.workflow_id)
+    if workflow is None or not can_run(db, user, workflow):
+        raise WorkflowError("Your group may not run this workflow.")
+    if not can_read(user, old):
+        raise WorkflowError(f"Run #{old.number}'s stages aren't yours to see, so you can't rerun it from one.")
+    if old.status not in FINISHED:
+        raise WorkflowError(f"Run #{old.number} is still {old.status}; rerun it from a stage once it has finished.")
+    ids = [s.get("id") for s in old.definition.get("steps") or []]
+    if step_id not in ids:
+        raise WorkflowError(f"Run #{old.number} has no step {step_id}.")
+    # The asker's own reach: a connection in the parameters must be one they can use.
+    params = coerce_params(db, user, old.definition, old.params or {})
+    upto = ids.index(step_id)
+    copied = {s.position: s for s in run_steps(db, old) if s.position < upto}
+    unfinished = [s.step_id for s in copied.values() if s.status not in STEP_DONE]
+    if unfinished:
+        raise WorkflowError(f"Run #{old.number} didn't finish {', '.join(unfinished)}, which comes before {step_id}.")
+    return _create(db, user, workflow, old.definition, params, trigger="rerun", timezone=timezone or old.timezone,
+                   rerun_of=old.id, rerun_from=step_id, copied=copied)
+
+
+def _create(db: Session, user: models.User, workflow: models.Workflow, definition: dict, params: dict, *,
+            trigger: str, timezone: Optional[str], rerun_of: Optional[int], rerun_from: Optional[str] = None,
+            copied: Optional[dict[int, models.WorkflowRunStep]] = None) -> models.WorkflowRun:
     db.query(models.Workflow).filter_by(id=workflow.id).with_for_update().one()
     number = (
         db.query(models.WorkflowRun.number)
@@ -498,27 +601,54 @@ def start(db: Session, user: models.User, workflow: models.Workflow, given: dict
         or 0
     ) + 1
     run = models.WorkflowRun(
-        workflow_id=workflow.id, number=number, status="queued", params=params, definition=workflow.definition,
+        workflow_id=workflow.id, number=number, status="queued", params=params, definition=definition,
         started_by_id=user.id, started_by_name=user.username, group_id=user.group_id, trigger=trigger,
-        rerun_of=rerun_of, timezone=timezone,
+        rerun_of=rerun_of, rerun_from=rerun_from, timezone=timezone,
     )
     db.add(run)
     db.flush()
-    for position, step in enumerate(workflow.definition.get("steps") or []):
-        db.add(models.WorkflowRunStep(run_id=run.id, position=position, step_id=step["id"], label=step.get("label")))
+    for position, step in enumerate(definition.get("steps") or []):
+        record = models.WorkflowRunStep(run_id=run.id, position=position, step_id=step["id"], label=step.get("label"))
+        was = (copied or {}).get(position)
+        if was is not None:
+            record.status, record.inputs, record.outputs, record.trimmed = was.status, was.inputs, was.outputs, was.trimmed
+            record.error, record.started_at, record.finished_at = was.error, was.started_at, was.finished_at
+            record.attempts, record.reused = was.attempts, True
+            record.outputs_blob_id = _copy_blob(db, was.outputs_blob_id, run, user)
+        db.add(record)
     db.commit()
     manager.kick()
     return run
 
 
+def _copy_blob(db: Session, blob_id: Optional[str], run: models.WorkflowRun, user: models.User) -> Optional[str]:
+    """A copied stage's whole outputs, kept again for the new run: each run's
+    files are its own, to be cleaned up with it."""
+    if not blob_id:
+        return None
+    row = db.get(models.Blob, blob_id)
+    if row is None:
+        return None
+    try:
+        return blobs.put(db, blobs.read(row), name=row.name, content_type=row.content_type, kind=row.kind,
+                         run_id=run.id, position=row.position, owner_id=user.id, group_id=user.group_id).id
+    except blobs.BlobError:
+        log.warning("Couldn't copy blob %s into run %s", blob_id, run.id, exc_info=True)
+        return None
+
+
 def cancel(db: Session, run: models.WorkflowRun) -> None:
     if run.status in FINISHED:
         raise WorkflowError(f"Run #{run.number} has already {run.status}.")
-    if run.status == "queued":
-        _finish(db, run, "cancelled")
+    if run.status in ("queued", "waiting"):
+        # Nothing holds it: it ends here. A waiting step's approval goes with it.
+        for approval in db.query(models.Approval).filter_by(run_id=run.id, status="pending"):
+            approval.status, approval.decided_at = "cancelled", _now()
         for s in run_steps(db, run):
-            if s.status == "pending":
+            if s.status in ("pending", "waiting"):
                 s.status = "cancelled"
+        _finish(db, run, "cancelled")
+        _announce_approvals(db, run)
         db.commit()
         return
     run.cancel_requested = True
@@ -534,6 +664,170 @@ def run_steps(db: Session, run: models.WorkflowRun) -> list[models.WorkflowRunSt
     )
 
 
+# ------------------------------------------------------------------- approvals (D88)
+
+
+def may_decide(user: models.User, approval: models.Approval, run: Optional[models.WorkflowRun]) -> bool:
+    if run is None:
+        return False
+    if approval.decide_by == "admins":
+        return bool(user.group and user.group.is_admin)
+    if approval.decide_by == "others" and user.id == run.started_by_id:
+        return False
+    return can_read(user, run)
+
+
+def pending_for(db: Session, user: models.User) -> list[models.Approval]:
+    """What waits for this person's decision, oldest first."""
+    rows = db.query(models.Approval).filter_by(status="pending").order_by(models.Approval.id).all()
+    return [a for a in rows if may_decide(user, a, db.get(models.WorkflowRun, a.run_id) if a.run_id else None)]
+
+
+def _announce_approvals(db: Session, run: models.WorkflowRun) -> None:
+    """Tells everyone who might decide (whoever may read the run) that what
+    waits for them changed: the rail's count follows it. Ids only."""
+    groups = [g.id for g in db.query(models.UserGroup).filter(models.UserGroup.is_admin.is_(True))]
+    if run.group_id is not None:
+        groups.append(run.group_id)
+    users = {u.id for u in db.query(models.User.id).filter(models.User.group_id.in_(groups or [-1]))}
+    if run.started_by_id is not None:
+        users.add(run.started_by_id)
+    for uid in users:
+        live_events.notify(db, uid, "approvals", None, None, None)
+
+
+def decide(db: Session, user: models.User, approval_id: int, approve: bool, comment: Optional[str] = None) -> models.Approval:
+    """Approve (the run carries on) or deny (the step fails) -- once, by
+    someone the approval allows."""
+    approval = db.query(models.Approval).filter_by(id=approval_id).with_for_update().first()
+    run = db.query(models.WorkflowRun).filter_by(id=approval.run_id).with_for_update().first() if approval and approval.run_id else None
+    if approval is None or run is None or not can_read(user, run) and not may_decide(user, approval, run):
+        raise WorkflowError("There is no such approval for you.")
+    if not may_decide(user, approval, run):
+        raise PermissionError(
+            {"admins": "Only an admin may decide this one.",
+             "others": "Someone other than whoever started the run must decide this one."}.get(
+                approval.decide_by, "You may not decide this one.")
+        )
+    if approval.status != "pending":
+        raise WorkflowError(f"It has already been {approval.status}.")
+    approval.status = "approved" if approve else "denied"
+    approval.decided_by_id, approval.decided_by_name, approval.decided_at = user.id, user.username, _now()
+    approval.comment = (comment or "").strip()[:2000] or None
+    if approve:
+        run.status = "queued"
+    else:
+        said = f": {approval.comment}" if approval.comment else ""
+        _refuse(db, run, approval, f"Denied by {user.username}{said}")
+    _announce_approvals(db, run)
+    db.commit()
+    if approve or run.status == "queued":
+        manager.kick()
+    return approval
+
+
+def _refuse(db: Session, run: models.WorkflowRun, approval: models.Approval, message: str) -> None:
+    """A step that wasn't approved has failed: the run fails with it, or
+    carries on past it under `continue_on_error`."""
+    definition = Definition.model_validate(run.definition)
+    records = {s.position: s for s in run_steps(db, run)}
+    record = records.get(approval.position)
+    step = definition.steps[approval.position] if approval.position is not None and approval.position < len(definition.steps) else None
+    if record is not None:
+        record.status, record.error, record.finished_at = "failed", message, _now()
+    if step is not None and step.continue_on_error:
+        run.status = "queued"
+        return
+    for position, later in records.items():
+        if approval.position is not None and position > approval.position and later.status == "pending":
+            later.status = "cancelled"
+    _finish(db, run, "failed", f"Step {approval.step_id} failed: {message}")
+
+
+def _gate(step: Step, action: Optional[pane_manifest.ManifestAction]) -> Optional[ApprovalSpec]:
+    """The approval a step waits on: its own, or -- always, for an action that
+    reaches outside the platform -- one asked of whoever may read the run."""
+    if step.approval is not None:
+        return step.approval
+    if action is not None and action.effects == "external":
+        return ApprovalSpec()
+    return None
+
+
+def _ask(db: Session, run: models.WorkflowRun, step: Step, position: int, record: models.WorkflowRunStep,
+         gate: ApprovalSpec, scope: dict) -> None:
+    """Parks the step on an approval: what it will do, worked out now (and
+    again, the same, once approved), and who may say yes."""
+    manifest = pane_manifest.get(step.pane or "") if step.pane else None
+    action = next((a for a in manifest.actions if a.id == step.action), None) if manifest else None
+    details: dict[str, Any] = {}
+    if manifest is not None and action is not None:
+        if step.for_each is not None:
+            items = _items(step, scope)
+            details = {
+                "count": len(items),
+                "items": [_readable(manifest, _inputs(manifest, render(step.with_, {**scope, "item": it, "index": i})))
+                          for i, it in enumerate(items[:APPROVAL_DETAIL_ITEMS])],
+            }
+        else:
+            details = {"inputs": _readable(manifest, _inputs(manifest, render(step.with_, scope)))}
+    if gate.message:
+        message = _text(render(gate.message, scope))
+    elif manifest is not None and action is not None:
+        what = action.run_label or action.id
+        many = f", {details['count']} times" if "count" in details else ""
+        reach = " It acts outside the platform." if action.effects == "external" else ""
+        message = f"{manifest.label}: {what}{many}, as {run.started_by_name}.{reach}"
+    else:
+        message = f"Approve to carry on with {step.label or step.id}."
+    bounded, _ = _bounded(details)
+    db.add(models.Approval(
+        kind="workflow_step", run_id=run.id, position=position, step_id=step.id, message=message[:2000],
+        details=bounded, decide_by=gate.by, requested_by_id=run.started_by_id, group_id=run.group_id,
+        status="pending", expires_at=_now() + datetime.timedelta(seconds=gate.timeout),
+    ))
+    record.status, record.inputs = "waiting", bounded
+    run.status = "waiting"
+    _announce_approvals(db, run)
+    db.commit()
+
+
+def _readable(manifest: pane_manifest.Manifest, inputs: dict) -> dict:
+    """Inputs as a person deciding reads them: headers as name -> value (the
+    editor's rows, an empty one included, read as noise), empty ones left out."""
+    kinds = {i.key: i.type for i in manifest.inputs}
+    out: dict[str, Any] = {}
+    for key, value in inputs.items():
+        if kinds.get(key) == "headers" and isinstance(value, list):
+            value = {str(r.get("key")): r.get("value", "") for r in value if isinstance(r, dict) and r.get("key")}
+        if value in (None, "", [], {}):
+            continue
+        out[key] = value
+    return out
+
+
+def _expire(db: Session) -> list[int]:
+    """Approvals nobody decided in time: the step fails, as a denial would."""
+    rows = (
+        db.query(models.Approval)
+        .filter(models.Approval.status == "pending", models.Approval.expires_at < _now())
+        .with_for_update(skip_locked=True)
+        .all()
+    )
+    carry_on = False
+    for approval in rows:
+        run = db.get(models.WorkflowRun, approval.run_id) if approval.run_id else None
+        approval.status, approval.decided_at = "expired", _now()
+        if run is not None and run.status == "waiting":
+            _refuse(db, run, approval, "No one decided in time.")
+            _announce_approvals(db, run)
+            carry_on = carry_on or run.status == "queued"
+    db.commit()
+    if carry_on:
+        manager.kick()
+    return [a.id for a in rows]
+
+
 # ------------------------------------------------------------------- executing
 
 
@@ -546,7 +840,8 @@ def _finish(db: Session, run: models.WorkflowRun, status: str, error: Optional[s
 
 
 def claim(db: Session) -> Optional[int]:
-    """Takes the oldest queued run for this replica, if any."""
+    """Takes the oldest queued run for this replica, if any -- a new one, or one
+    a decision has let carry on (it keeps when it started)."""
     run = (
         db.query(models.WorkflowRun)
         .filter(models.WorkflowRun.status == "queued")
@@ -557,14 +852,16 @@ def claim(db: Session) -> Optional[int]:
     if run is None:
         db.rollback()
         return None
-    run.status, run.replica, run.started_at, run.heartbeat_at = "running", REPLICA, _now(), _now()
+    run.status, run.replica, run.heartbeat_at = "running", REPLICA, _now()
+    run.started_at = run.started_at or _now()
     db.commit()
     return run.id
 
 
 def sweep(db: Session) -> list[int]:
     """Marks failed the runs whose replica stopped beating: interrupted, not
-    resumed (D85) -- a step half done can't safely be done again by itself."""
+    resumed (D85) -- a step half done can't safely be done again by itself.
+    And expires the approvals nobody decided."""
     cutoff = _now() - datetime.timedelta(seconds=HEARTBEAT_STALE_SECONDS)
     stale = (
         db.query(models.WorkflowRun)
@@ -579,11 +876,12 @@ def sweep(db: Session) -> list[int]:
                 s.status = "cancelled" if s.status == "pending" else "failed"
                 s.error = s.error or ("Interrupted." if s.status == "failed" else None)
     db.commit()
+    _expire(db)
     return [r.id for r in stale]
 
 
 def execute(run_id: int) -> str:
-    """Runs a claimed run to its end, recording every step. Returns its status."""
+    """Runs a claimed run until it ends or waits, recording every step."""
     db = SessionLocal()
     try:
         run = db.get(models.WorkflowRun, run_id)
@@ -631,33 +929,62 @@ def _execute(db: Session, run: models.WorkflowRun, user: models.User) -> str:
     failed = False
     for position, step in enumerate(definition.steps):
         record = records[position]
+        if record.status in STEP_DONE:
+            # Done before this claim -- before an approval, or in the run this
+            # one reran from a later stage of (D90): read back, not run again.
+            scope["steps"][step.id] = {"status": record.status, "outputs": _whole_outputs(db, record)}
+            continue
         if _cancelled(db, run):
             for later in range(position, len(definition.steps)):
-                records[later].status = "cancelled"
+                if records[later].status not in STEP_DONE:
+                    records[later].status = "cancelled"
             _finish(db, run, "cancelled")
             db.commit()
             return run.status
-        record.status, record.started_at = "running", _now()
+        approved = None
+        if record.status == "waiting":
+            # Its approval was decided: a denial never queues it with the step
+            # still waiting (`_refuse`), so this one said yes.
+            approved = (
+                db.query(models.Approval)
+                .filter_by(run_id=run.id, position=position)
+                .order_by(models.Approval.id.desc())
+                .first()
+            )
+        else:
+            record.started_at = _now()
+        record.status, record.error = "running", None
         _beat(db, run)
         try:
-            if step.if_ is not None and not _truthy(_condition(step.if_, scope)):
-                record.status, record.finished_at = "skipped", _now()
-                scope["steps"][step.id] = {"status": "skipped", "outputs": {}}
-                db.commit()
-                continue
-            if step.for_each is not None:
-                outputs, inputs, item_failed = _run_each(db, run, user, step, scope)
+            if approved is None:
+                if step.if_ is not None and not _truthy(_condition(step.if_, scope)):
+                    record.status, record.finished_at = "skipped", _now()
+                    scope["steps"][step.id] = {"status": "skipped", "outputs": {}}
+                    db.commit()
+                    continue
+                gate = _gate(step, _action_of(step))
+                if gate is not None:
+                    _ask(db, run, step, position, record, gate, scope)
+                    return run.status
+            if step.pane is None and step.note is None and step.artifact is None:
+                # A bare approval: what it says is who said yes.
+                inputs, outputs, item_failed = (
+                    {}, {"approved_by": approved.decided_by_name if approved else None,
+                         "comment": approved.comment if approved else None}, None,
+                )
+            elif step.for_each is not None:
+                outputs, inputs, item_failed = _run_each(db, run, user, step, scope, record)
             else:
-                inputs, outputs = _run_one(db, run, user, step, scope)
+                inputs, outputs = _run_one(db, run, user, step, scope, record)
                 item_failed = None
-            record.inputs, record.trimmed = _bounded(inputs)
-            record.outputs, trimmed = _bounded(outputs)
-            record.trimmed = record.trimmed or trimmed
+            record.inputs, inputs_trimmed = _bounded(inputs)
+            whole = _keep_outputs(db, run, user, record, outputs)
+            record.trimmed = record.trimmed or inputs_trimmed
             if item_failed:
                 raise StepError(item_failed)
             record.status = "succeeded"
-            scope["steps"][step.id] = {"status": "succeeded", "outputs": record.outputs}
-        except (StepError, WorkflowError, ResolveError, HTTPException, pane_outputs.OutputError) as e:
+            scope["steps"][step.id] = {"status": "succeeded", "outputs": whole}
+        except (StepError, WorkflowError, ResolveError, HTTPException, pane_outputs.OutputError, blobs.BlobError) as e:
             message = masking.mask(str(getattr(e, "detail", e)))
             record.status, record.error = "failed", message
             scope["steps"][step.id] = {"status": "failed", "outputs": record.outputs or {}}
@@ -692,22 +1019,33 @@ def _truthy(value: Any) -> bool:
     return bool(value) and value not in ("false", "False", "0")
 
 
-def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict):
+def _action_of(step: Step) -> Optional[pane_manifest.ManifestAction]:
+    manifest = pane_manifest.get(step.pane or "") if step.pane else None
+    return next((a for a in manifest.actions if a.id == step.action), None) if manifest else None
+
+
+def _items(step: Step, scope: dict) -> list:
     items = _condition(step.for_each, scope)
     if not isinstance(items, list):
         raise StepError(f"Step {step.id}'s for_each must be a list; it is {type(items).__name__}.")
     if len(items) > MAX_ITEMS:
         raise StepError(f"Step {step.id}'s for_each has {len(items)} items; at most {MAX_ITEMS}.")
+    return items
+
+
+def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
+              record: models.WorkflowRunStep):
+    items = _items(step, scope)
     outputs, inputs, first_error = [], [], None
     for index, item in enumerate(items):
         if _cancelled(db, run):
             raise _Cancelled()
         here = {**scope, "item": item, "index": index}
         try:
-            one_inputs, one_outputs = _run_one(db, run, user, step, here)
+            one_inputs, one_outputs = _run_one(db, run, user, step, here, record)
             inputs.append(one_inputs)
             outputs.append(one_outputs)
-        except (StepError, WorkflowError, ResolveError, HTTPException) as e:
+        except (StepError, WorkflowError, ResolveError, HTTPException, blobs.BlobError) as e:
             message = masking.mask(str(getattr(e, "detail", e)))
             inputs.append(None)
             outputs.append({"error": message})
@@ -718,10 +1056,18 @@ def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Ste
     return {"items": outputs}, {"items": inputs}, first_error
 
 
-def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict) -> tuple[dict, dict]:
+def _inputs(manifest: pane_manifest.Manifest, given: Any) -> dict:
+    """What an action runs with: what the step gave, over the inputs' defaults."""
+    return {**{i.key: i.default for i in manifest.inputs if i.default is not None}, **(given or {})}
+
+
+def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
+             record: models.WorkflowRunStep) -> tuple[dict, dict]:
     if step.note is not None:
         text = _text(render(step.note, scope))
         return {}, {"text": text}
+    if step.artifact is not None:
+        return _artifact(db, run, user, step, scope, record)
     from .routers import panes as panes_router  # it imports a great deal
 
     manifest = pane_manifest.get(step.pane or "")
@@ -730,15 +1076,214 @@ def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step
         raise StepError(f"{step.pane}'s {step.action} doesn't exist any more.")
     # As the starter's own click would: the pane granted to their group (D65).
     pane_access.require(user, manifest.id, manifest.label)
-    given = render(step.with_, scope)
-    inputs = {**{i.key: i.default for i in manifest.inputs if i.default is not None}, **given}
+    # Worked out once, outside the retries (D89): an expression fails the same way every time.
+    inputs = _inputs(manifest, render(step.with_, scope))
     call_inputs = {**inputs, **({"_tz": run.timezone} if run.timezone else {})}
-    if action.request is not None:
-        result = panes_router.run_request(db, user, manifest, action, call_inputs)
+
+    if action.poll is not None:
+        def attempt() -> dict:
+            return _background(db, run, user, step, manifest, action, call_inputs)
+    elif action.request is not None:
+        def attempt() -> dict:
+            return _call(user.id, lambda d, u: panes_router.run_request(d, u, manifest, action, call_inputs),
+                         step.timeout or CALL_TIMEOUT)
     else:
-        result = panes_router.run_handler(db, user, manifest, action, call_inputs)
-    db.commit()  # a handler may have audited a credential's use
+        def attempt() -> dict:
+            return _call(user.id, lambda d, u: panes_router.run_handler(d, u, manifest, action, call_inputs),
+                         step.timeout or CALL_TIMEOUT)
+
+    result = _with_retries(db, run, step, record, attempt)
     return inputs, {k: v for k, v in (result or {}).items() if not k.startswith("__")}
+
+
+def _with_retries(db: Session, run: models.WorkflowRun, step: Step, record: models.WorkflowRunStep,
+                  attempt: Callable[[], dict]) -> dict:
+    tries = 0
+    while True:
+        tries += 1
+        record.attempts = max(record.attempts or 0, tries)
+        try:
+            return attempt()
+        except (StepError, HTTPException) as e:
+            status = getattr(e, "status_code", None)
+            if tries > step.retry or status in REFUSED:
+                raise
+            log.info("Workflow run %s step %s: attempt %s failed, retrying", run.id, step.id, tries)
+        deadline = time.monotonic() + step.retry_delay
+        while time.monotonic() < deadline:
+            if _cancelled(db, run):
+                raise _Cancelled()
+            time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+        _beat(db, run)
+
+
+def _call(user_id: int, fn: Callable[[Session, models.User], dict], timeout: float) -> dict:
+    """`fn` as the starter, on a thread of its own with a session of its own,
+    bounded by `timeout` (D89): a call can't be interrupted, so one past it is
+    left to finish and its result dropped. Its error comes back masked here --
+    a secret it resolved is registered in its own context, not the runner's."""
+    box: dict[str, Any] = {}
+
+    def work() -> None:
+        with SessionLocal() as db:
+            try:
+                box["value"] = fn(db, db.get(models.User, user_id))
+                db.commit()  # a handler may have audited a credential's use
+            except HTTPException as e:
+                db.rollback()
+                box["error"] = HTTPException(status_code=e.status_code, detail=masking.mask(str(e.detail)))
+            except ResolveError as e:
+                db.rollback()
+                box["error"] = HTTPException(status_code=403, detail=masking.mask(str(e)))
+            except Exception as e:  # noqa: BLE001 -- said in the step, never lost
+                db.rollback()
+                log.exception("A workflow step's call failed")
+                box["error"] = StepError(masking.mask(f"It failed on an unexpected error: {e}"))
+
+    thread = threading.Thread(target=contextvars.copy_context().run, args=(work,), name="workflow-call", daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise StepError(f"It took longer than {_seconds(timeout)}, so the run stopped waiting for it.")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value") or {}
+
+
+def _seconds(value: float) -> str:
+    value = int(round(value))
+    if value < 120:
+        return f"{value} s"
+    return f"{value // 60} min" if value < 7200 else f"{value // 3600} h"
+
+
+def _background(db: Session, run: models.WorkflowRun, user: models.User, step: Step,
+                manifest: pane_manifest.Manifest, action: pane_manifest.ManifestAction, inputs: dict) -> dict:
+    """A background run as a step (D87): started and polled here, as the
+    starter, until its poll says done; a stream is listened to for `listen`
+    seconds and stopped. The pane's own machinery (`pane_runs`, presence)
+    isn't used: there's no session and no one to watch it."""
+    from .panes import handlers
+    from .panes import runs as pane_runs
+    from .routers import panes as panes_router
+
+    started = _call(user.id, lambda d, u: panes_router.run_handler(d, u, manifest, action, inputs), CALL_TIMEOUT)
+    handles = started.pop("handles", []) or []
+    outputs = {k: v for k, v in started.items() if not k.startswith("__")}
+    if not any(pane_runs._live(h) for h in handles):
+        return outputs  # nothing started: its outputs say why (each environment's error)
+    stream = _stream(action)
+    limit = (step.listen or action.poll.agent_wait) if stream else (step.timeout or BACKGROUND_TIMEOUT)
+    deadline = time.monotonic() + float(limit)
+    poll, stop = handlers.ACTIONS[action.poll.handler], handlers.ACTIONS.get(action.poll.stop)
+    done = False
+    try:
+        while True:
+            pause = time.monotonic() + min(action.poll.every, max(0.0, deadline - time.monotonic()))
+            while time.monotonic() < pause:
+                if _cancelled(db, run):
+                    raise _Cancelled()
+                time.sleep(min(0.5, max(0.0, pause - time.monotonic())))
+            polled = _call(user.id, lambda d, u: poll(d, u, {"handles": handles}, None), CALL_TIMEOUT)
+            done = bool(polled.pop("done", False))
+            for key, most in action.poll.append.items():
+                if key in polled:
+                    outputs[key] = ((polled.pop(key) or []) + (outputs.get(key) or []))[:most]
+            outputs.update(polled)
+            _beat(db, run)
+            if done:
+                return outputs
+            if time.monotonic() >= deadline:
+                if stream:
+                    return outputs
+                raise StepError(f"It was still running after {_seconds(limit)}, so it was stopped.")
+    finally:
+        if not done and stop is not None:
+            try:
+                outputs.update(_call(user.id, lambda d, u: stop(d, u, {"handles": handles}, None) or {}, CALL_TIMEOUT))
+            except (StepError, HTTPException):
+                log.warning("Workflow run %s: stopping step %s failed", run.id, step.id, exc_info=True)
+
+
+def _artifact(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
+              record: models.WorkflowRunStep) -> tuple[dict, dict]:
+    """A file the run hands on (D92), in the blob store."""
+    spec = step.artifact
+    name = re.sub(r"[^\w.\- ]+", "_", os.path.basename(_text(render(spec.name, scope)).strip()))[:120].strip(". ")
+    if not name:
+        raise StepError(f"Step {step.id}'s artifact needs a name.")
+    value = render(spec.value, scope)
+    if spec.format == "json":
+        data, content_type = json.dumps(value, indent=2, default=str).encode(), "application/json"
+    elif spec.format == "text":
+        data, content_type = _text(value).encode(), "text/plain; charset=utf-8"
+    else:
+        data, content_type = _csv(step, value).encode(), "text/csv; charset=utf-8"
+    blob = blobs.put(db, data, name=name, content_type=content_type, kind="artifact", run_id=run.id,
+                     position=record.position, owner_id=user.id, group_id=run.group_id)
+    db.commit()
+    return {"name": name, "format": spec.format}, {"artifact": _blob_out(blob)}
+
+
+def _csv(step: Step, value: Any) -> str:
+    if not isinstance(value, list):
+        raise StepError(f"Step {step.id}'s artifact is csv, so its value must be a list of rows; it is {type(value).__name__}.")
+    out = io.StringIO()
+    if all(isinstance(r, dict) for r in value):
+        columns: list[str] = []
+        for row in value:
+            columns.extend(k for k in row if k not in columns)
+        writer = csv.DictWriter(out, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        for row in value:
+            writer.writerow({k: _text(v) for k, v in row.items()})
+    else:
+        writer = csv.writer(out)
+        for row in value:
+            writer.writerow([_text(v) for v in row] if isinstance(row, list) else [_text(row)])
+    return out.getvalue()
+
+
+def _blob_out(blob: models.Blob) -> dict:
+    return {"id": blob.id, "name": blob.name, "size": blob.size, "content_type": blob.content_type}
+
+
+def _keep_outputs(db: Session, run: models.WorkflowRun, user: models.User, record: models.WorkflowRunStep,
+                  outputs: Any) -> Any:
+    """Keeps a step's outputs: in the row while they fit its 1 MiB, else the
+    row holds them cut down and the blob store the whole (D91). Returns what
+    later steps see -- the whole, unless even the store couldn't take it."""
+    shown, trimmed = _bounded(outputs)
+    record.outputs, record.trimmed = shown, trimmed
+    if not trimmed:
+        return shown
+    try:
+        whole = json.loads(json.dumps(outputs, default=str))
+        if not isinstance(whole, dict):
+            whole = {"value": whole}
+        pane_outputs.fit(whole, blobs.MAX_BYTES)
+        data = json.dumps(whole, default=str).encode()
+        blob = blobs.put(db, data, name=f"{record.step_id}-outputs.json", content_type="application/json",
+                         kind="step_outputs", run_id=run.id, position=record.position, owner_id=user.id,
+                         group_id=run.group_id)
+        record.outputs_blob_id = blob.id
+        return whole
+    except (blobs.BlobError, pane_outputs.OutputError, TypeError, ValueError):
+        log.warning("Workflow run %s: step %s's whole outputs couldn't be kept", run.id, record.step_id, exc_info=True)
+        return shown
+
+
+def _whole_outputs(db: Session, record: models.WorkflowRunStep) -> Any:
+    """A recorded step's outputs as later steps see them: the whole, from the
+    blob store, when the row holds them cut down."""
+    if record.outputs_blob_id:
+        row = db.get(models.Blob, record.outputs_blob_id)
+        if row is not None:
+            try:
+                return json.loads(blobs.read(row))
+            except (blobs.BlobError, ValueError):
+                log.warning("Step %s's whole outputs couldn't be read back", record.id, exc_info=True)
+    return record.outputs or {}
 
 
 def _bounded(values: Any) -> tuple[Any, bool]:
@@ -746,16 +1291,16 @@ def _bounded(values: Any) -> tuple[Any, bool]:
     if values is None:
         return None, False
     try:
-        copy = json.loads(json.dumps(values, default=str))
+        copy_ = json.loads(json.dumps(values, default=str))
     except (TypeError, ValueError):
         return {"note": "These outputs couldn't be kept."}, True
-    if not isinstance(copy, dict):
-        copy = {"value": copy}
+    if not isinstance(copy_, dict):
+        copy_ = {"value": copy_}
     try:
-        trimmed = pane_outputs.fit(copy, STEP_OUTPUT_BYTES)
+        trimmed = pane_outputs.fit(copy_, STEP_OUTPUT_BYTES)
     except pane_outputs.OutputError:
         return {"note": f"These outputs were over {STEP_OUTPUT_BYTES} bytes, even cut down."}, True
-    return copy, trimmed
+    return copy_, trimmed
 
 
 def drain() -> list[int]:
@@ -782,12 +1327,14 @@ class Manager:
     replica; SKIP LOCKED gives each run to exactly one."""
 
     IDLE_SECONDS = 5.0
+    CLEAN_SECONDS = 3600.0
 
     def __init__(self) -> None:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._event: Optional[asyncio.Event] = None
         self._task: Optional[asyncio.Task] = None
         self._running: set[asyncio.Future] = set()
+        self._cleaned = 0.0
 
     @property
     def active(self) -> bool:
@@ -804,6 +1351,9 @@ class Manager:
             self._event.clear()
             try:
                 await asyncio.to_thread(_sweep_once)
+                if time.monotonic() - self._cleaned > self.CLEAN_SECONDS:
+                    self._cleaned = time.monotonic()
+                    await asyncio.to_thread(_clean_once)
                 while True:
                     run_id = await asyncio.to_thread(_claim_once)
                     if run_id is None:
@@ -832,6 +1382,16 @@ def _claim_once() -> Optional[int]:
     db = SessionLocal()
     try:
         return claim(db)
+    finally:
+        db.close()
+
+
+def _clean_once() -> None:
+    db = SessionLocal()
+    try:
+        blobs.clean(db)
+    except blobs.BlobError:
+        log.warning("Workflows: cleaning up the blob store failed", exc_info=True)
     finally:
         db.close()
 
@@ -867,12 +1427,17 @@ def summary(db: Session, run: models.WorkflowRun, user: models.User, detail: boo
         "readable": readable,
         "cancel_requested": bool(run.cancel_requested),
         "rerun_of": run.rerun_of,
+        "rerun_from": run.rerun_from,
     }
     if not readable:
         return out
     out["params"] = run.params
     out["error"] = run.error
     steps = run_steps(db, run)
+    approvals = {
+        a.position: a
+        for a in db.query(models.Approval).filter_by(run_id=run.id).order_by(models.Approval.id)
+    }
     out["steps"] = [
         {
             "position": s.position,
@@ -882,13 +1447,39 @@ def summary(db: Session, run: models.WorkflowRun, user: models.User, detail: boo
             "started_at": _iso(s.started_at),
             "finished_at": _iso(s.finished_at),
             "error": s.error,
-            **({"inputs": s.inputs, "outputs": s.outputs, "trimmed": bool(s.trimmed)} if detail else {}),
+            "attempts": s.attempts or 0,
+            "reused": bool(s.reused),
+            **({"approval": approval_out(approvals[s.position], user, run)} if s.position in approvals else {}),
+            **({"inputs": s.inputs, "outputs": s.outputs, "trimmed": bool(s.trimmed),
+                "outputs_blob": s.outputs_blob_id} if detail else {}),
         }
         for s in steps
     ]
     if detail:
         out["definition"] = run.definition
+        out["artifacts"] = [
+            {**_blob_out(b), "position": b.position}
+            for b in db.query(models.Blob).filter_by(run_id=run.id, kind="artifact").order_by(models.Blob.created_at)
+        ]
     return out
+
+
+def approval_out(approval: models.Approval, user: models.User, run: Optional[models.WorkflowRun]) -> dict[str, Any]:
+    return {
+        "id": approval.id,
+        "status": approval.status,
+        "message": approval.message,
+        "details": approval.details,
+        "by": approval.decide_by,
+        "step_id": approval.step_id,
+        "run_id": approval.run_id,
+        "created_at": _iso(approval.created_at),
+        "expires_at": _iso(approval.expires_at),
+        "decided_by": approval.decided_by_name,
+        "decided_at": _iso(approval.decided_at),
+        "comment": approval.comment,
+        "can_decide": approval.status == "pending" and may_decide(user, approval, run),
+    }
 
 
 def _iso(value: Optional[datetime.datetime]) -> Optional[str]:

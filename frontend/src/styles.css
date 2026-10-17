@@ -3396,6 +3396,7 @@ th {
 
 .credential-view-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -3468,6 +3469,19 @@ th {
   align-items: center;
   gap: 6px;
   width: 100%;
+}
+
+/* A row's control line is 28px (the label sits on it): the picker and the
+   "Admins only" beside it are that high, not a bare select's 36px. */
+.credential-grants > .muted {
+  font-size: 13px;
+  line-height: 28px;
+}
+
+.credential-grant-add {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
 }
 
 .credential-grant {
@@ -4400,6 +4414,117 @@ button.icon-btn {
   to {
     transform: rotate(360deg);
   }
+}
+/* 4b-2 (§22.8): waiting on an approval (D88), what waits for you, artifacts. */
+.run-status-waiting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.stage-waiting {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+.workflow-stage-mark {
+  font-size: 11px;
+}
+.workflow-stage-head .workflow-rerun-from {
+  margin-left: auto;
+}
+.workflow-approval,
+.workflow-waiting {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--panel-alt);
+}
+.workflow-approval-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.workflow-approval-message {
+  margin: 6px 0;
+}
+.workflow-approval-inputs {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+.workflow-approval-inputs > div {
+  display: grid;
+  grid-template-columns: minmax(80px, 140px) minmax(0, 1fr);
+  gap: 8px;
+}
+.workflow-approval-inputs dt {
+  color: var(--text-dim);
+}
+.workflow-approval-inputs dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.workflow-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.workflow-approval-comment {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 420px;
+}
+.workflow-waiting-head {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.workflow-waiting ul,
+.workflow-artifacts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.workflow-waiting li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.workflow-waiting li:first-child {
+  border-top: none;
+}
+.workflow-waiting-message {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.workflow-artifacts {
+  margin-top: 12px;
+}
+.workflow-artifacts li,
+.workflow-artifact-line {
+  margin: 4px 0;
+}
+/* The rail's count of approvals waiting for you, on the Workflows row (D93). */
+.rail-count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
 }
 .workflow-stage-detail {
   min-width: 0;

@@ -838,10 +838,10 @@ changed, and a type that connections use or a pane reaches can't be deleted.
 
 ## Workflows
 
-**Workflows** (a row of the side panel) are steps you run more than once, the
-same way each time: parameters, then a list of steps, each one an action a pane
-already has -- a DynamoDB scan, a Prometheus query, an IoT search -- or a note
-summing up. Steps can depend on earlier ones (`{{ steps.scan.outputs.items }}`),
+**Workflows** (the row at the top of the side panel) are steps you run more
+than once, the same way each time: parameters, then a list of steps, each one
+an action a pane already has -- a DynamoDB scan, a Prometheus query, a
+CloudWatch query, an HTTP request -- or a note summing up, or a file to hand on. Steps can depend on earlier ones (`{{ steps.scan.outputs.items }}`),
 run only `if` something holds, run once per item with `for_each`, and carry on
 past a failure with `continue_on_error`.
 
@@ -856,8 +856,24 @@ past a failure with `continue_on_error`.
   **Check** points at the line of any mistake before saving. **Access** says
   which groups may run it. With a store repo set up, each workflow is kept
   there as written, comments and all.
+- **Approvals**: a step can wait for a person (`approval:`), and one that
+  reaches outside the platform -- the HTTP client's Send, MQTT's Publish --
+  always does. Whoever may decide sees it on the run page, with what the step
+  will do and **Approve** / **Deny**; the Workflows row counts what waits for
+  you. `by: others` asks for someone other than whoever started the run,
+  `by: admins` for an admin. Nobody deciding within a day fails the step.
+- **Long-running steps**: a CloudWatch query is waited for until it finishes;
+  an MQTT connection is listened to for `listen` seconds, then closed.
+  `timeout` bounds a step, and `retry` tries a failed one again (not one that
+  was refused).
+- **Rerun from here**: on a finished run, any stage reruns the workflow from
+  there, the stages before it copied as they were.
+- **Files**: an `artifact:` step writes a file -- JSON, CSV from rows, or
+  text -- that the run page offers to download. A step whose outputs are too
+  big to show whole keeps them all for later steps and for "Download all".
+  Run files are kept 90 days.
 - The agent can list, run and read workflows too ("run the table check on
-  Prod").
+  Prod"); a step needing approval waits for you, never the agent.
 
 ## The store repo
 

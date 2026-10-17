@@ -1259,6 +1259,13 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D84 | 2026-10-17 | **Admins define workflows (until the Builder grant); groups are granted to run them; a run acts as its starter, and its inputs and outputs are seen only by the starter's group and admins** (§22.3). | Outputs come from the starter's environments; another group granted the workflow may not reach them. |
 | D85 | 2026-10-17 | **Runs are run in-process by any replica, claimed with SKIP LOCKED, recorded step by step; an interrupted run is marked failed, not resumed** (§22.4). | The isolated runner is Phase 6. Resuming half a run safely needs idempotent steps; rerunning is one click. |
 | D86 | 2026-10-17 | **4b-1's run page shows outputs as a table or JSON, and is addressed as `?run=<id>`** (§22.5). | The pane renderers need a pane; they come with Investigate in a session (4b-3). A link is what makes a run shareable. |
+| D87 | 2026-10-17 | **A step over a background run waits for it on the runner's own thread**: started and polled as the starter until done; a stream (a poll with `agent_wait`, MQTT) listens for `listen` seconds and is then stopped; cancel and timeout stop it with the action's own stop (§22.8). | A run has no session and nobody watching, so the pane's background machinery (presence, `pane_runs`) has nothing to hold on to; the action's own start, poll and stop handlers are the whole of it. |
+| D88 | 2026-10-17 | **Approvals are one general record (`approvals`); a step waits on one when it says `approval:` or when its action is `effects: external` (always)**; the run then holds no thread (`waiting`) and a decision resumes or fails it. Who decides: whoever may read the run (default), `others` (not the starter) or `admins`; unanswered by its `timeout` (24 h) it expires. The agent's external actions use the same record next, with their card in the chat (§22.8). | An external effect is a person's decision, in a workflow as from the agent. A thread parked for a day would be lost on any restart; a record isn't. |
+| D89 | 2026-10-17 | **`retry` retries the call only, never its expressions or a refusal (401/403/404); `timeout` bounds each attempt** -- a call past it is abandoned and its result dropped, since a running call can't be interrupted (§22.8). | Retrying what can only fail the same way again is noise; a refusal is an answer. |
+| D90 | 2026-10-17 | **Rerun from a stage is a new run of the old run's definition and parameters, the steps before it copied as they were** -- only for someone who may read the old run; resuming after an approval is the same mechanism: a run carries on from its records (§22.8). | The stages before were run against that definition; rerunning them against a newer one would mix two workflows in one run. |
+| D91 | 2026-10-17 | **The blob store (§8.2, D7) is `blobs.py`, filesystem or S3, chosen in Helm's `storage:`; Postgres keeps the metadata and every download is checked against it**. A step's outputs over 1 MiB keep their cut-down copy in the row and the whole (to 64 MiB) as a blob, which later steps and a resumed run read whole (§22.8). | Large outputs were cut for every reader, later steps included. |
+| D92 | 2026-10-17 | **Artifacts are a step kind (`artifact:` a name, a value, json/csv/text) written to the blob store and downloaded from the run page; run blobs are kept 90 days by default** (§22.8). | A file is what a run hands on: an export, a report. |
+| D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -4434,7 +4441,8 @@ stage's rows, rerun, a member's view.
 
 As planned, with these settled in the building:
 - **Where it is**: a **Workflows** row in the rail, under Add and shown whether
-  or not the Add list is open, besides the home page's Platform card.
+  or not the Add list is open, besides the home page's Platform card (moved to
+  the top of the rail in 4b-2, D93).
 - **Checks point at the field**, not the step: a wrong action at its `action:`
   line, an unknown input at its key under `with`.
 - **A note is its own step kind** (`note:`): what a workflow says at the end
@@ -4452,6 +4460,62 @@ As planned, with these settled in the building:
   found two (smoke65). Its place (list, a workflow, a run) is kept in state.
 - **The suites' "open session" rows skip `.rail-row-page`**: the Workflows row
   is a rail row, not a session (smoke22, 27, 29, 44 counted it as one).
+
+### 22.8 4b-2: the harder steps (planned and built 2026-10-17, D87–D93)
+
+- **A background-run step** (D87): a pane action with `poll` (CloudWatch's Run)
+  is a step like any other. The runner starts it, polls it every `poll.every`
+  seconds as the starter until its poll says done -- outputs replaced, or added
+  to for an `append` output -- and records what came back. A **stream** (a poll
+  with `agent_wait`: MQTT's Connect) never finishes, so the step **listens** for
+  `listen` seconds (the action's `agent_wait` unless given), then stops it and
+  keeps what arrived. Cancel and `timeout` stop it with the action's own stop.
+  A step's connection isn't a `pane_runs` row, so MQTT's `max_running` (five a
+  person) doesn't count it; `listen` bounds it (an hour at most).
+- **Approvals** (D88): one table, `approvals`, general enough for the agent's
+  external actions next: what is asked (`message`), what it will do (`details`:
+  the step's resolved inputs), who may decide, until when, and the decision
+  (approved / denied / expired / cancelled, by whom, with a comment).
+  - **A step waits on one** when it says `approval:` -- a bare gate is a step
+    with only `approval:` -- or, always, when its action is `effects: external`
+    (the HTTP client's Send, MQTT's Publish), which become steps this way.
+  - `approval: { message, by, timeout }`: `by` is `anyone` who may read the run
+    (the default: the starter, their group, admins), `others` (the same, not the
+    starter: a second pair of eyes) or `admins`; `timeout` is how long it waits
+    (default a day).
+  - **Waiting holds no thread**: the step and the run are `waiting`; Approve
+    queues the run again and the runner carries on from its records; Deny or
+    expiry fails the step (`continue_on_error` carries on past it). Cancel while
+    waiting cancels the approval.
+  - Whoever may decide hears of it live (the event kind `approvals`): the rail's
+    Workflows row counts what waits for you; the run page shows Approve / Deny
+    with the details. The agent sees that a run waits; deciding is never its.
+- **`retry` and `timeout`** (D89), on any pane step: `retry` (0–5) more attempts
+  after `retry_delay` seconds (default 5) -- of the call alone, once its inputs
+  are worked out, and not after a refusal (401, 403, 404). `timeout` bounds each
+  attempt: a call (default 10 minutes) runs on a thread of its own and is
+  abandoned past it; a background run (default an hour) is stopped. A step
+  records how many attempts it took.
+- **Rerun from a stage** (D90): from any finished run, by someone who may read
+  it: a new run of the old run's *definition* and parameters, the stages before
+  the chosen one copied as they were (marked as reused), the rest run anew.
+  Resuming after an approval is the same: a run carries on from its records,
+  reading earlier stages' outputs back.
+- **The blob store** (D91, §8.2, D7): `blobs.py`, `filesystem` (a directory;
+  the chart refuses ReadWriteOnce with more than one replica) or `s3` (any
+  S3-compatible store, the platform's own AWS identity -- IRSA on EKS). Rows in
+  `blobs` (key, size, sha256, content type, owner, group, what it belongs to,
+  expiry); a download is the backend's, after the run's own read check
+  (`GET /api/blobs/{id}`). A step's outputs over 1 MiB keep their cut-down copy
+  in the row (what the page shows, `trimmed`) and the whole, up to 64 MiB, as a
+  blob, which later steps and a resumed run read whole; "Download all".
+- **Artifacts** (D92): `artifact: { name, value, format }` (`json`, `csv` for
+  a list of rows, `text`), written to the blob store, listed on the run page
+  and the step, downloaded by anyone who may read the run. Run blobs are kept
+  `STORAGE_RETENTION_DAYS` (90), cleaned up hourly by the runner; a deleted
+  workflow's runs take theirs with them.
+- **The rail** (D93): the platform's own pages -- Workflows now -- sit under the
+  brand, above Sessions.
 
 ## 12. Research sources
 

@@ -44,6 +44,12 @@ services:
       # The platform agent (the service below). Unset, the Agent page says
       # this deployment doesn't run one.
       AGENT_URL: http://platform-agent:8100
+      # Workflow files (artifacts, large step outputs): the blob store, here
+      # a directory on the volume below. STORAGE_TYPE=s3 and STORAGE_S3_* for
+      # a bucket instead (DEPLOYMENT.md).
+      STORAGE_PATH: /data/files
+    volumes:
+      - backend-files:/data/files
     ports:
       - "8000:8000"
     depends_on:
@@ -91,3 +97,4 @@ services:
 
 volumes:
   postgres-data:
+  backend-files:

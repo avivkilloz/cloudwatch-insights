@@ -134,6 +134,33 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- with .Values.backend.storage }}
+            - name: STORAGE_TYPE
+              value: {{ .type | quote }}
+            - name: STORAGE_RETENTION_DAYS
+              value: {{ .retentionDays | quote }}
+            {{- if eq .type "s3" }}
+            {{- if not .s3.bucket }}
+            {{- fail "backend.storage.s3.bucket is required with backend.storage.type s3." }}
+            {{- end }}
+            - name: STORAGE_S3_BUCKET
+              value: {{ .s3.bucket | quote }}
+            - name: STORAGE_S3_REGION
+              value: {{ .s3.region | quote }}
+            - name: STORAGE_S3_ENDPOINT
+              value: {{ .s3.endpoint | quote }}
+            - name: STORAGE_S3_PREFIX
+              value: {{ .s3.prefix | quote }}
+            {{- else if eq .type "filesystem" }}
+            {{- if and .filesystem.persistence.enabled (eq .filesystem.persistence.accessMode "ReadWriteOnce") (gt (int $.Values.backend.replicaCount) 1) }}
+            {{- fail "backend.storage.filesystem: a ReadWriteOnce volume attaches to one node, so more than one backend replica can't share it. Use ReadWriteMany (EFS, Filestore, NFS), s3, or one replica." }}
+            {{- end }}
+            - name: STORAGE_PATH
+              value: {{ .filesystem.path | quote }}
+            {{- else }}
+            {{- fail "backend.storage.type is s3 or filesystem." }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -148,6 +175,10 @@ spec:
           volumeMounts:
             - name: store-work
               mountPath: /var/lib/platform-store
+            {{- if eq .Values.backend.storage.type "filesystem" }}
+            - name: files
+              mountPath: {{ .Values.backend.storage.filesystem.path }}
+            {{- end }}
             {{- if and .Values.backend.store.git.url .Values.backend.store.git.existingSecret }}
             - name: store-secret
               mountPath: /etc/platform-store
@@ -158,6 +189,17 @@ spec:
       volumes:
         - name: store-work
           emptyDir: {}
+        {{- if eq .Values.backend.storage.type "filesystem" }}
+        - name: files
+          {{- with .Values.backend.storage.filesystem.persistence }}
+          {{- if .enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .existingClaim | default (printf "%s-files" (include "cloudwatch-insights.backend.fullname" $)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+          {{- end }}
+        {{- end }}
         {{- if and .Values.backend.store.git.url .Values.backend.store.git.existingSecret }}
         - name: store-secret
           secret:

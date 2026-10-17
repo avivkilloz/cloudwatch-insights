@@ -21,3 +21,12 @@ the full walkthrough and example policies.
 
 Once it's reachable, open the "Accounts & Settings" tab in the app to set
 the role name and add your accounts.
+
+{{- if and (eq .Values.backend.storage.type "filesystem") (not .Values.backend.storage.filesystem.persistence.enabled) (gt (int .Values.backend.replicaCount) 1) }}
+
+WARNING: workflow files (artifacts, large step outputs) are kept on each
+backend pod's own emptyDir, and there are {{ .Values.backend.replicaCount }} replicas: a download
+served by another pod finds nothing, and a restart loses them. Set
+backend.storage.type=s3, or a ReadWriteMany volume
+(backend.storage.filesystem.persistence), or one replica.
+{{- end }}

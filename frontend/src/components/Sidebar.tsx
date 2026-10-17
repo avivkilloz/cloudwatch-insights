@@ -2,6 +2,7 @@ import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "
 import { useAuth } from "../AuthContext";
 import { LiveSessionSummary } from "../api";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
+import { useWaitingApprovals } from "../workflowApprovals";
 import { BrandInfo, BrandMark } from "./Brand";
 import { PersistedSession } from "../sessions/storage";
 import { useCatalogue } from "../sessions/catalogue";
@@ -64,6 +65,8 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
     home,
     goHome,
   } = useSessions();
+  // Approvals waiting for this person (D88), counted on the Workflows row.
+  const waiting = useWaitingApprovals();
   const homeId = home?.home?.client_id ?? null;
   const agentActive = useAgentActivity();
   const { templates } = useTemplates();
@@ -407,6 +410,24 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
         </button>
       </div>
 
+      {/* The platform's own pages (Workflows; later Dashboards, Chat...)
+          come first, under the brand: pages of their own, never sessions
+          (§20.7), and not something found under Add. */}
+      <div className="rail-pages">
+        <button
+          className={`rail-row rail-row-page${view === "workflows" ? " active" : ""}`}
+          onClick={() => show("workflows")}
+          title={waiting.length ? `${waiting.length} waiting for your approval` : undefined}
+        >
+          <span className="rail-row-label">Workflows</span>
+          {waiting.length > 0 && (
+            <span className="rail-count" data-approvals={waiting.length} aria-label={`${waiting.length} waiting for your approval`}>
+              {waiting.length}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* One list: every session you have. The ones on the strip read at full
           strength, the ones you closed are dimmed -- closing takes a session
           off the strip, it does not take it away from you. Only Delete does
@@ -544,15 +565,6 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
       >
         <span>＋ Add</span>
         <span className="rail-add-caret">{catalogue ? "▾" : "▸"}</span>
-      </button>
-
-      {/* Workflows are a page of their own, never a session (§20.7): one row,
-          there whether or not the Add list is open. */}
-      <button
-        className={`rail-row rail-row-page${view === "workflows" ? " active" : ""}`}
-        onClick={() => show("workflows")}
-      >
-        <span className="rail-row-label">Workflows</span>
       </button>
 
       {catalogue && (

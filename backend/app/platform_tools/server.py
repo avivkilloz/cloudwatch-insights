@@ -1505,7 +1505,8 @@ async def list_workflows() -> dict:
 async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None, wait_seconds: int = 20) -> dict:
     """Starts a workflow as the user, with its parameters, and waits up to wait_seconds (at most 120) for it to
     finish, answering with where it got to: its status, each step's status and a sample of its outputs. A run still
-    going can be read again with get_workflow_run. The run is also on the Workflows page for the user to watch."""
+    going can be read again with get_workflow_run. The run is also on the Workflows page for the user to watch. A
+    step that needs approval makes the run wait for a person to decide there; you can't approve it."""
     from .. import workflows
 
     with _acting() as (db, user, _caller):
@@ -1523,6 +1524,12 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
             await asyncio.to_thread(workflows.drain)
         with _acting() as (db, user, _caller):
             run = db.get(models.WorkflowRun, run_id)
+            if run.status == "waiting":
+                # A person's decision (D88), never the agent's: say where it waits.
+                out = _run_out(db, run, user)
+                out["note"] = ("It waits for a person to approve a step, on the run's page in Workflows; "
+                               "get_workflow_run reads it again once they have.")
+                return out
             if run.status in workflows.FINISHED or asyncio.get_running_loop().time() >= deadline:
                 return _run_out(db, run, user)
         await asyncio.sleep(0.5)

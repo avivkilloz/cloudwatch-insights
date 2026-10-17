@@ -51,7 +51,10 @@ e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
 `smoke85` (workflows) runs Prometheus steps against a `.fake` host, so it needs
-the faked backend below too.
+the faked backend below too; so does `smoke86` (approvals, artifacts, rerun
+from a stage), whose approved step sends HTTP to a `.fake` host. Its artifact
+is written to the backend's `STORAGE_PATH` (default `/data/files`): start the
+backend with a directory it can write, or the run fails at that step.
 
 `smoke83` (the store repo) makes a bare git repo on disk and points the store at
 it by a `file://` URL, which the backend refuses unless it was started with
