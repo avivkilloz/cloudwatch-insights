@@ -99,12 +99,6 @@ def test_each_step_is_checked(snippet, says):
     assert any(says in e for e in _errors(source)), _errors(source)
 
 
-def test_steps_that_need_4b2_say_so():
-    for pane, action, says in [("logs-cloudwatch", "run", "runs in the background"), ("tool-http", "send", "acts outside the platform")]:
-        source = f"label: t\nsteps:\n  - id: s\n    pane: {pane}\n    action: {action}\n"
-        assert any(says in e for e in _errors(source)), _errors(source)
-
-
 def test_saved_as_written_with_its_id_and_admins_only():
     made = _create()
     assert made["id"] == "table_check" and made["label"] == "Table check"

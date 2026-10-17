@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 # Must run before any `app.*` module is imported (they build the SQLAlchemy
 # engine at import time). CI provides its own DATABASE_URL pointing at the
@@ -12,6 +13,8 @@ os.environ.setdefault(
 # below, which logs `client` into this account before each test.
 os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
 os.environ.setdefault("COOKIE_SECURE", "false")
+# The blob store (D91) on a directory of the run's own, never /data/files.
+os.environ.setdefault("STORAGE_PATH", tempfile.mkdtemp(prefix="cwi-blobs-"))
 
 import pytest
 from fastapi.testclient import TestClient

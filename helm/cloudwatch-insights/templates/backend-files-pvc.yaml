@@ -1,0 +1,23 @@
+{{- /* The blob store's volume (D91), when it's a filesystem the chart makes. */ -}}
+{{- with .Values.backend.storage }}
+{{- if and (eq .type "filesystem") .filesystem.persistence.enabled (not .filesystem.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cloudwatch-insights.backend.fullname" $ }}-files
+  labels:
+    {{- include "cloudwatch-insights.labels" $ | nindent 4 }}
+  annotations:
+    # Kept on uninstall: it holds runs' files.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .filesystem.persistence.accessMode }}
+  {{- with .filesystem.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .filesystem.persistence.size }}
+{{- end }}
+{{- end }}

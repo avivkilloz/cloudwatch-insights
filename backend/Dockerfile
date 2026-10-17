@@ -15,6 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# The blob store's default directory (PLATFORM_PLAN.md §8.2): the app's own,
+# so a bare container -- or a fresh named volume, which copies this
+# ownership -- can write workflow files there.
+RUN mkdir -p /data/files && chown 1000:1000 /data/files
+
 # Numeric UID/GID -- Kubernetes' runAsNonRoot check can't verify a named
 # user from image metadata alone, and fails closed ("cannot verify user
 # is non-root") if the image's USER isn't numeric.

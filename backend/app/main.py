@@ -13,6 +13,7 @@ from .panes import saved as pane_saved
 from .platform_tools import server as platform_server
 from .routers import (
     agent,
+    blobs as blobs_router,
     auth,
     catalogue as catalogue_router,
     credentials,
@@ -143,6 +144,8 @@ app.include_router(catalogue_router.router)
 app.include_router(store_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
+app.include_router(workflows_router.approvals_router)
+app.include_router(blobs_router.router)
 
 
 @app.get("/api/health")

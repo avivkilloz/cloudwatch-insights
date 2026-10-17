@@ -65,7 +65,9 @@ backend/app/
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
-  workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner (§22)
+  workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner,
+                     approvals (§22)
+  blobs.py           the blob store: filesystem or S3, metadata in `blobs` (§8.2, D91)
   store.py           the store repo: what's built here, written through to git as a plugin (§21)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
@@ -691,6 +693,26 @@ their own (the rail's Workflows row), never a session.
   are a table for rows, JSON otherwise -- the pane renderers come with 4b-3.
 - The agent has `list_workflows`, `run_workflow` (waits up to `wait_seconds`),
   `get_workflow_run`.
+- **4b-2** (§22.8, D87–D93): a `poll` action is a step -- started and polled
+  on the runner's thread until done, a stream (`agent_wait`) listened to for
+  `listen` s, both stopped on cancel/timeout -- with no `pane_runs` row.
+  **Approvals** (`approvals`, general for the agent's external actions next):
+  a step with `approval:`, and always an `effects: external` one (`_gate`),
+  parks as `waiting` holding no thread; `decide` queues the run (approve) or
+  fails the step (`_refuse`, `continue_on_error` carries on); `sweep` expires
+  them. Who decides: `may_decide` (`anyone` = `can_read`, `others`, `admins`);
+  the event kind `approvals` (no client_id) reaches deciders, and the browser
+  passes it on as `APPROVALS_EVENT` (`workflowApprovals.ts`). **A run resumes
+  from its records**: `_execute` reads back any step in `STEP_DONE` -- after an
+  approval, and in a rerun from a stage (`rerun_from`: the old run's
+  definition, earlier steps copied, `reused`). `retry` wraps the call only;
+  every call runs on a thread of its own with its own session (`_call`,
+  bounded by `timeout`, its error masked there). **Blobs** (`blobs.py`,
+  `models.Blob`, `GET /api/blobs/{id}` checked by `can_read`): outputs over
+  1 MiB keep a cut copy in the row and the whole in `outputs_blob_id`, which
+  `_whole_outputs` reads back for later steps; `artifact:` steps; deleting a
+  workflow removes its files; `blobs.clean` hourly. Tests set `STORAGE_PATH`
+  to a temp dir (conftest).
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

@@ -16,6 +16,7 @@ from ..db import get_db
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 runs_router = APIRouter(prefix="/api/workflow-runs", tags=["workflows"])
+approvals_router = APIRouter(prefix="/api/approvals", tags=["workflows"])
 
 
 class WorkflowIn(BaseModel):
@@ -34,6 +35,12 @@ class GrantsIn(BaseModel):
 class RunIn(BaseModel):
     params: dict[str, Any] = {}
     timezone: Optional[str] = None
+    # Rerun from this stage on, the ones before copied (D90).
+    from_step: Optional[str] = None
+
+
+class DecisionIn(BaseModel):
+    comment: Optional[str] = None
 
 
 def _guard(fn):
@@ -193,6 +200,9 @@ def rerun(run_id: int, payload: Optional[RunIn] = None, db: Session = Depends(ge
     -- as the person asking, whoever ran it first."""
     old = _run(db, user, run_id)
     workflow = _workflow(db, user, old.workflow_id)
+    if payload is not None and payload.from_step:
+        run = _guard(lambda: workflows.rerun_from(db, user, old, payload.from_step, timezone=payload.timezone))
+        return workflows.summary(db, run, user)
     if payload is not None and payload.params:
         params = payload.params
     elif workflows.can_read(user, old):
@@ -202,3 +212,43 @@ def rerun(run_id: int, payload: Optional[RunIn] = None, db: Session = Depends(ge
     run = _guard(lambda: workflows.start(db, user, workflow, params, trigger="rerun", rerun_of=old.id,
                                          timezone=payload.timezone if payload else None))
     return workflows.summary(db, run, user)
+
+
+@approvals_router.get("")
+def pending_approvals(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    """What waits for the caller's decision (D88), oldest first, with the run it's in."""
+    out = []
+    for approval in workflows.pending_for(db, user):
+        run = db.get(models.WorkflowRun, approval.run_id)
+        workflow = db.get(models.Workflow, run.workflow_id) if run else None
+        out.append({
+            **workflows.approval_out(approval, user, run),
+            "workflow_id": run.workflow_id if run else None,
+            "workflow_label": workflow.label if workflow else None,
+            "run_number": run.number if run else None,
+            "started_by": run.started_by_name if run else None,
+        })
+    return out
+
+
+def _decide(approval_id: int, approve: bool, payload: Optional[DecisionIn], db: Session, user: models.User):
+    try:
+        approval = workflows.decide(db, user, approval_id, approve, payload.comment if payload else None)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
+    except workflows.WorkflowError as e:
+        raise HTTPException(status_code=404 if "no such" in str(e) else 409, detail=str(e)) from None
+    run = db.get(models.WorkflowRun, approval.run_id)
+    return workflows.summary(db, run, user, detail=True)
+
+
+@approvals_router.post("/{approval_id}/approve")
+def approve(approval_id: int, payload: Optional[DecisionIn] = None, db: Session = Depends(get_db),
+            user: models.User = Depends(auth.get_current_user)):
+    return _decide(approval_id, True, payload, db, user)
+
+
+@approvals_router.post("/{approval_id}/deny")
+def deny(approval_id: int, payload: Optional[DecisionIn] = None, db: Session = Depends(get_db),
+         user: models.User = Depends(auth.get_current_user)):
+    return _decide(approval_id, False, payload, db, user)

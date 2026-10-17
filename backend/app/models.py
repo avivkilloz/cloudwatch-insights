@@ -739,7 +739,8 @@ class WorkflowRun(Base):
     id = Column(Integer, primary_key=True)
     workflow_id = Column(String(64), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
     number = Column(Integer, nullable=False)
-    status = Column(String(16), nullable=False, default="queued")  # queued running succeeded failed cancelled
+    # queued running waiting (on an approval, D88) succeeded failed cancelled
+    status = Column(String(16), nullable=False, default="queued")
     params = Column(JSON, nullable=False, default=dict)
     definition = Column(JSON, nullable=False)
     started_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -750,6 +751,8 @@ class WorkflowRun(Base):
     # The starter's time zone, for a step over a time range (Prometheus').
     timezone = Column(String(64), nullable=True)
     rerun_of = Column(Integer, nullable=True)
+    # The step a rerun started from (D90): the ones before it were copied.
+    rerun_from = Column(String(64), nullable=True)
     error = Column(Text, nullable=True)
     cancel_requested = Column(Boolean, nullable=False, server_default="false")
     replica = Column(String, nullable=True)
@@ -770,10 +773,66 @@ class WorkflowRunStep(Base):
     position = Column(Integer, nullable=False)
     step_id = Column(String(64), nullable=False)
     label = Column(String, nullable=True)
-    status = Column(String(16), nullable=False, default="pending")  # pending running succeeded failed skipped cancelled
+    # pending running waiting succeeded failed skipped cancelled
+    status = Column(String(16), nullable=False, default="pending")
     inputs = Column(JSON, nullable=True)
     outputs = Column(JSON, nullable=True)
     trimmed = Column(Boolean, nullable=False, server_default="false")
+    # Outputs over the row's 1 MiB: the whole of them, in the blob store (D91).
+    outputs_blob_id = Column(String(32), nullable=True)
+    # The most attempts one call took (`retry`, D89).
+    attempts = Column(Integer, nullable=False, server_default="0")
+    # Copied from the run this one reran from a later stage of (D90).
+    reused = Column(Boolean, nullable=False, server_default="false")
     error = Column(Text, nullable=True)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+
+
+class Approval(Base):
+    """A decision a person must make before something goes on (D88): a
+    workflow step's today, the agent's external actions next. `details` is
+    what it will do (the step's resolved inputs); `decide_by` who may answer
+    (`anyone` who may read the run, `others` -- not its starter -- or `admins`)."""
+
+    __tablename__ = "approvals"
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(32), nullable=False, default="workflow_step")
+    run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=True, index=True)
+    position = Column(Integer, nullable=True)
+    step_id = Column(String(64), nullable=True)
+    message = Column(Text, nullable=False)
+    details = Column(JSON, nullable=True)
+    decide_by = Column(String(16), nullable=False, default="anyone")
+    requested_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(16), nullable=False, default="pending", index=True)  # pending approved denied expired cancelled
+    decided_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    decided_by_name = Column(String, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+
+class Blob(Base):
+    """A file in the blob store (D7, D91): only its metadata is here, the
+    bytes are in the store under `key`. Every download is checked against
+    what it belongs to -- a run's readers for a run's (D84)."""
+
+    __tablename__ = "blobs"
+
+    id = Column(String(32), primary_key=True)
+    key = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    content_type = Column(String, nullable=False)
+    size = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    kind = Column(String(32), nullable=False)  # step_outputs artifact
+    run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=True, index=True)
+    position = Column(Integer, nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True, index=True)

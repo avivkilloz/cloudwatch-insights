@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-17, Phase 4b-1 (workflows defined and run; PLATFORM_PLAN.md §22)._
+_Last updated: 2026-10-17, Phase 4b-2 (approvals, background-run steps, the blob store; PLATFORM_PLAN.md §22.8)._
 
 ## Platform plan
 
@@ -1221,6 +1221,32 @@ it and fails on the old CSS).
   suites' open-session selectors counted (they skip `.rail-row-page` now); and
   the hidden Workflows page's switch sat beside Settings' (it draws nothing
   off screen now).
+
+**4b-1 merged (#122); a flaky MQTT test fixed (#123)**: the run manager's
+tick of an MQTT run, polling as a restart closed its connection, reopened it
+with the old topics and leaked it; closed keys are remembered now.
+
+**4b-2 built (PLATFORM_PLAN.md §22.8, D87–D93)**, with three UI fixes the user
+reported: the platform's pages (Workflows) at the top of the rail, above
+Sessions; the Access row's group picker at the row's 28px, level with its
+label; the run header's status pill centred beside its buttons.
+- **Background-run steps** (CloudWatch's query polled to its end; MQTT
+  listened to for `listen` s), **approvals** (`approval:`, and always before
+  an `effects: external` action; a waiting run holds no thread; `by: anyone |
+  others | admins`; expiry; the rail counts what waits for you, live, through
+  the event stream's `approvals` kind), **`retry`/`timeout`** (each call on a
+  thread of its own), **rerun from a stage** (the old run's definition, the
+  stages before copied), **the blob store** (`blobs.py`, filesystem or S3,
+  Helm `storage:`; outputs over 1 MiB kept whole; `artifact:` steps;
+  downloads checked against the run's readers; 90-day retention).
+- Tests: backend `test_workflow_steps.py` (21), 480 in all; browser `smoke86`
+  (13), failing against the old frontend; full browser run 69 of 70, smoke31's
+  two styling checks as on main. Helm rendered with a locally built `helm`
+  (lint; s3, filesystem RWX, RWO refused with two replicas, the emptyDir
+  warning in NOTES).
+- Left for later: the agent's own external actions through an approval card in
+  the chat (the record is ready for them, D88), and a workflow's MQTT step
+  counting toward `max_running`.
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in

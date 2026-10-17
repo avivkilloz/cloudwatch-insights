@@ -22,6 +22,7 @@ import {
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
 import { subscribeLiveEvents } from "./liveEvents";
+import { announceApprovals } from "../workflowApprovals";
 import { applyOutputs, dropOutputs, outputsVersion } from "./outputs";
 import { migratePaneKeys } from "../panes/manifest";
 
@@ -670,6 +671,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
           else catchUp();
           return;
         }
+        if (event.kind === "approvals") {
+          // Not a session's: the Workflows row and page listen for it (D88).
+          announceApprovals();
+          return;
+        }
         const id = event.client_id;
         if (!id) return;
         if (event.origin === "agent" && (event.kind === "upsert" || event.kind === "outputs")) markAgentActive(id);
@@ -710,7 +716,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
           setClosed((c) => c.filter((s) => s.client_id !== id));
         }
       },
-      catchUp,
+      () => {
+        catchUp();
+        // Anything announced while the stream was down is gone: ask again.
+        announceApprovals();
+      },
     );
     return () => {
       unsubscribe();

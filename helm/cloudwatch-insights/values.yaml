@@ -180,6 +180,47 @@ backend:
       # `known_hosts`, else the host's first key is trusted).
       existingSecret: ""
 
+  # The blob store (PLATFORM_PLAN.md §8.2, D91): files too big for a row --
+  # a workflow step's whole outputs, a run's artifacts. Postgres keeps only
+  # their metadata, and every download goes through the backend's own check.
+  #
+  # Every replica must reach the same store. With more than one replica,
+  # use s3, or filesystem on a ReadWriteMany volume (EFS, Filestore, NFS):
+  # the chart refuses a ReadWriteOnce claim with several replicas, and an
+  # emptyDir (persistence off) holds each pod's files apart -- a download
+  # served by another replica then finds nothing.
+  #
+  #   storage:
+  #     type: s3
+  #     s3:
+  #       bucket: my-platform-files
+  #       region: eu-west-1
+  storage:
+    # s3 (recommended) | filesystem
+    type: filesystem
+    # How long a run's files are kept.
+    retentionDays: 90
+    s3:
+      bucket: ""
+      region: ""
+      # Empty for AWS; set for any S3-compatible server (MinIO, Ceph...).
+      endpoint: ""
+      # A folder in the bucket; empty is its root.
+      prefix: ""
+      # Written as the platform's own AWS identity: the service account's
+      # IRSA role needs s3:PutObject, GetObject and DeleteObject on it.
+    filesystem:
+      path: /data/files
+      persistence:
+        # Off: an emptyDir, gone with the pod -- for one replica, trying it out.
+        enabled: false
+        # Use a claim you made yourself, else the chart makes one.
+        existingClaim: ""
+        storageClass: ""
+        # ReadWriteMany for more than one replica.
+        accessMode: ReadWriteMany
+        size: 50Gi
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []

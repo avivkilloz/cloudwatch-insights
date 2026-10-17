@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
+  BlobRef,
   readableError,
   Target,
   UserGroup,
   Workflow,
+  WorkflowApproval,
   WorkflowParam,
   WorkflowProblem,
   WorkflowRun,
@@ -15,6 +17,7 @@ import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
 import { useAuth } from "../AuthContext";
 import { useSessions } from "../sessions/SessionContext";
+import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
 
 /*
  * Workflows (PLATFORM_PLAN.md §20.7, §22): a page of their own, never a
@@ -24,6 +27,11 @@ import { useSessions } from "../sessions/SessionContext";
  * every second or so while it's going. A run's address is `?run=<id>`, so it
  * can be sent to someone; whoever opens it sees it if their group may run the
  * workflow -- and its outputs if they're its starter's group or an admin (D84).
+ *
+ * 4b-2 (§22.8): a step waiting on an approval shows it at the top of its run,
+ * with Approve / Deny for whoever may decide; what waits for you heads the
+ * list; a finished run reruns from any stage; artifacts and a step's whole
+ * outputs (when the row holds them cut down) download from the blob store.
  */
 
 type Screen = { kind: "list" } | { kind: "workflow"; id: string } | { kind: "new" } | { kind: "run"; id: number };
@@ -63,6 +71,12 @@ function when(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function took(run: { started_at: string | null; finished_at: string | null }): string {
@@ -145,6 +159,7 @@ function ListView({ open }: { open: (s: Screen) => void }) {
         )}
       </div>
       {error && <p className="error-text">{error}</p>}
+      <WaitingForYou open={open} />
       {view === "workflows" && workflows && (
         <table className="credentials-table workflows-table">
           <thead>
@@ -184,6 +199,30 @@ function ListView({ open }: { open: (s: Screen) => void }) {
         </table>
       )}
       {view === "runs" && runs && <RunsTable runs={runs} open={open} showWorkflow />}
+    </div>
+  );
+}
+
+/** The approvals that wait for this person, each a way to its run (D88). */
+function WaitingForYou({ open }: { open: (s: Screen) => void }) {
+  const waiting = useWaitingApprovals();
+  if (waiting.length === 0) return null;
+  return (
+    <div className="workflow-waiting" data-waiting={waiting.length}>
+      <div className="workflow-waiting-head">Waiting for your approval</div>
+      <ul>
+        {waiting.map((a) => (
+          <li key={a.id} data-approval={a.id} {...rowProps(() => a.run_id && open({ kind: "run", id: a.run_id }))}>
+            <span className="credential-name">
+              {a.workflow_label} #{a.run_number}
+            </span>
+            <span className="workflow-waiting-message">{a.message}</span>
+            <span className="muted">
+              {a.started_by} · {when(a.created_at)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -597,11 +636,18 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
 
   // Read again while it's going: everyone watching sees it move.
   const live = run?.status === "queued" || run?.status === "running";
+  const waiting = run?.status === "waiting";
   useEffect(() => {
     if (!live || view !== "workflows") return;
     const timer = window.setTimeout(load, 1000);
     return () => window.clearTimeout(timer);
   }, [live, run, load, view]);
+  // Waiting, it moves only when someone decides -- which the stream says.
+  useEffect(() => {
+    if (!waiting) return;
+    window.addEventListener(APPROVALS_EVENT, load);
+    return () => window.removeEventListener(APPROVALS_EVENT, load);
+  }, [waiting, load]);
 
   // The stage to show: the one picked, else the one running, else the first that failed, else the last.
   const steps = run?.steps ?? [];
@@ -609,6 +655,7 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
     if (selected !== null) return steps.find((s) => s.position === selected) ?? null;
     return (
       steps.find((s) => s.status === "running") ??
+      steps.find((s) => s.status === "waiting") ??
       steps.find((s) => s.status === "failed") ??
       [...steps].reverse().find((s) => s.status !== "pending" && s.status !== "cancelled") ??
       steps[0] ??
@@ -634,12 +681,12 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
     <div className="panel credential-view workflow-run">
       <ViewHead back={() => open({ kind: "workflow", id: run.workflow_id })} title={`${run.workflow_label} #${run.number}`}>
         <StatusTag status={run.status} />
-        {live && run.readable && (
+        {(live || waiting) && run.readable && (
           <button className="secondary" onClick={() => act(() => api.cancelWorkflowRun(run.id))} disabled={run.cancel_requested}>
             {run.cancel_requested ? "Cancelling…" : "Cancel"}
           </button>
         )}
-        {!live && run.readable && (
+        {!live && !waiting && run.readable && (
           <button onClick={() => act(() => api.rerunWorkflowRun(run.id), (r) => open({ kind: "run", id: r.id }))}>Rerun</button>
         )}
         <button
@@ -661,6 +708,7 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
         Started by {run.started_by ?? "someone"} · {when(run.created_at)}
         {run.started_at && ` · ${live ? "running for" : "took"} ${took(run)}`}
         {run.trigger !== "manual" && ` · ${run.trigger}`}
+        {run.rerun_from && ` from ${run.rerun_from}`}
       </p>
       {error && <p className="error-text">{error}</p>}
       {run.error && <p className="error-text workflow-run-error">{run.error}</p>}
@@ -671,6 +719,11 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
       ) : (
         <>
           {run.params && Object.keys(run.params).length > 0 && <RunParams run={run} />}
+          {steps
+            .filter((s) => s.approval?.status === "pending")
+            .map((s) => (
+              <ApprovalCard key={s.approval!.id} approval={s.approval!} step={s} decided={setRun} />
+            ))}
           <div className="workflow-stages">
             <ol className="workflow-stage-list">
               {steps.map((s) => (
@@ -683,12 +736,30 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
                 >
                   <span className={`stage-dot stage-${s.status}`} aria-hidden />
                   <span className="workflow-stage-name">{s.label || s.id}</span>
-                  <span className="muted workflow-stage-time">{s.started_at ? took(s) : s.status === "pending" ? "" : s.status}</span>
+                  {s.reused && (
+                    <span className="muted workflow-stage-mark" title="Copied from the run this one reran from">
+                      reused
+                    </span>
+                  )}
+                  <span className="muted workflow-stage-time">
+                    {s.status === "waiting" ? "waiting" : s.started_at ? took(s) : s.status === "pending" ? "" : s.status}
+                  </span>
                 </li>
               ))}
             </ol>
-            {shown && <StageDetail step={shown} />}
+            {shown && (
+              <StageDetail
+                step={shown}
+                artifacts={(run.artifacts ?? []).filter((a) => a.position === shown.position)}
+                rerun={
+                  !live && !waiting
+                    ? () => act(() => api.rerunWorkflowRun(run.id, undefined, shown.id), (r) => open({ kind: "run", id: r.id }))
+                    : undefined
+                }
+              />
+            )}
           </div>
+          {(run.artifacts ?? []).length > 0 && <Artifacts artifacts={run.artifacts ?? []} />}
         </>
       )}
     </div>
@@ -729,24 +800,171 @@ function RunParams({ run }: { run: WorkflowRun }) {
   );
 }
 
-function StageDetail({ step }: { step: WorkflowRunStep }) {
+function StageDetail({ step, artifacts, rerun }: { step: WorkflowRunStep; artifacts: BlobRef[]; rerun?: () => void }) {
   const outputs = step.outputs ?? null;
+  const approval = step.approval;
   return (
     <div className="workflow-stage-detail" data-stage-detail={step.id}>
       <div className="workflow-stage-head">
         <h3>{step.label || step.id}</h3>
         <StatusTag status={step.status} />
+        {step.attempts > 1 && <span className="muted">{step.attempts} attempts</span>}
+        {step.reused && <span className="muted">reused from the run it reran</span>}
+        {rerun && step.status !== "pending" && (
+          <button className="secondary workflow-rerun-from" onClick={rerun} title="A new run: the stages before this one copied, this one and the rest run again">
+            Rerun from here
+          </button>
+        )}
       </div>
       {step.error && <p className="error-text">{step.error}</p>}
+      {approval && approval.status !== "pending" && (
+        <p className="muted workflow-approval-said" data-approval-status={approval.status}>
+          {approval.status === "approved" && `Approved by ${approval.decided_by}`}
+          {approval.status === "denied" && `Denied by ${approval.decided_by}`}
+          {approval.status === "expired" && "No one decided in time"}
+          {approval.status === "cancelled" && "Its approval was cancelled with the run"}
+          {approval.decided_at && ` · ${when(approval.decided_at)}`}
+          {approval.comment && `: “${approval.comment}”`}
+        </p>
+      )}
       {step.inputs !== undefined && step.inputs !== null && (
         <details className="workflow-stage-inputs">
           <summary>Inputs</summary>
           <pre>{JSON.stringify(step.inputs, null, 2)}</pre>
         </details>
       )}
-      {outputs && <Outputs outputs={outputs} />}
-      {step.trimmed && <p className="muted">Long lists were cut down to fit.</p>}
-      {!outputs && !step.error && <p className="muted">{step.status === "skipped" ? "Skipped: its if was false." : "No outputs yet."}</p>}
+      {artifacts.map((a) => (
+        <p key={a.id} className="workflow-artifact-line">
+          <a href={api.blobUrl(a.id)} download={a.name} data-artifact={a.name}>
+            {a.name}
+          </a>{" "}
+          <span className="muted">{size(a.size)}</span>
+        </p>
+      ))}
+      {outputs && !step.outputs?.artifact && <Outputs outputs={outputs} />}
+      {step.trimmed && (
+        <p className="muted">
+          Long lists were cut down to fit here.{" "}
+          {step.outputs_blob && (
+            <a href={api.blobUrl(step.outputs_blob)} download={`${step.id}-outputs.json`} data-outputs-blob={step.id}>
+              Download all of them
+            </a>
+          )}
+        </p>
+      )}
+      {!outputs && !step.error && step.status !== "waiting" && (
+        <p className="muted">{step.status === "skipped" ? "Skipped: its if was false." : "No outputs yet."}</p>
+      )}
+      {step.status === "waiting" && <p className="muted">Waiting for approval (above).</p>}
+    </div>
+  );
+}
+
+const DECIDE_BY: Record<WorkflowApproval["by"], string> = {
+  anyone: "whoever started the run, their group or an admin",
+  others: "someone other than whoever started the run: their group or an admin",
+  admins: "an admin",
+};
+
+/** A step waiting for a person (D88): what it will do, and Approve / Deny for whoever may decide. */
+function ApprovalCard({
+  approval,
+  step,
+  decided,
+}: {
+  approval: WorkflowApproval;
+  step: WorkflowRunStep;
+  decided: (r: WorkflowRun) => void;
+}) {
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const details = approval.details ?? {};
+  async function decide(approve: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      decided(await api.decideApproval(approval.id, approve, comment));
+    } catch (e) {
+      setError(readableError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="workflow-approval" data-approval={approval.id}>
+      <div className="workflow-approval-head">
+        <strong>Waiting for approval</strong>
+        <span className="muted">
+          {step.label || step.id} · until {when(approval.expires_at)}
+        </span>
+      </div>
+      <p className="workflow-approval-message">{approval.message}</p>
+      {details.inputs && <ApprovalInputs inputs={details.inputs} />}
+      {details.items && (
+        <>
+          <p className="muted">
+            {details.count} time{details.count === 1 ? "" : "s"}
+            {(details.count ?? 0) > details.items.length ? `, the first ${details.items.length} shown` : ""}:
+          </p>
+          {details.items.map((inputs, i) => (
+            <ApprovalInputs key={i} inputs={inputs} />
+          ))}
+        </>
+      )}
+      {approval.can_decide ? (
+        <div className="row workflow-approval-actions">
+          <input
+            type="text"
+            className="workflow-approval-comment"
+            placeholder="A comment (optional)"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <button onClick={() => decide(true)} disabled={busy}>
+            Approve
+          </button>
+          <button className="danger" onClick={() => decide(false)} disabled={busy}>
+            Deny
+          </button>
+        </div>
+      ) : (
+        <p className="muted">It waits for {DECIDE_BY[approval.by]}.</p>
+      )}
+      {error && <p className="error-text">{error}</p>}
+    </div>
+  );
+}
+
+function ApprovalInputs({ inputs }: { inputs: Record<string, unknown> }) {
+  const shown = Object.entries(inputs).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0));
+  return (
+    <dl className="workflow-approval-inputs">
+      {shown.map(([k, v]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd>{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** A run's artifacts (D92): files it hands on, from the blob store. */
+function Artifacts({ artifacts }: { artifacts: BlobRef[] }) {
+  return (
+    <div className="workflow-artifacts">
+      <div className="workflow-output-key">Artifacts</div>
+      <ul>
+        {artifacts.map((a) => (
+          <li key={a.id}>
+            <a href={api.blobUrl(a.id)} download={a.name}>
+              {a.name}
+            </a>{" "}
+            <span className="muted">{size(a.size)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
