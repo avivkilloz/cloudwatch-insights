@@ -1139,7 +1139,7 @@ foundation the next one needs.
     kept as a plugin, written through to git, restored on start; run on open
     (D77) rides with it.
   - **4b, workflows** (§5, D69, D75, §20.2, §20.7; detailed in §22, D82–D86,
-    three PRs): the blob store (§8.2),
+    three PRs; 4b-1 built 2026-10-17): the blob store (§8.2),
     definitions in the store, recorded runs on the in-process runner, the
     Workflows page, a workflow's page and the live run page, rerun from a stage,
     the agent starting and reading runs, the approval step shared with the
@@ -4429,6 +4429,24 @@ starter (refused for a pane or connection their group lacks), cancel, an
 interrupted run, who sees what, the store keeping the YAML verbatim, the agent's
 tools. A browser suite: define, run with parameters, watch it finish, open a
 stage's rows, rerun, a member's view.
+
+### 22.7 4b-1 as built (2026-10-17)
+
+As planned, with these settled in the building:
+- **Where it is**: a **Workflows** row in the rail, under Add and shown whether
+  or not the Add list is open, besides the home page's Platform card.
+- **Checks point at the field**, not the step: a wrong action at its `action:`
+  line, an unknown input at its key under `with`.
+- **A note is its own step kind** (`note:`): what a workflow says at the end
+  ("3 points from up."), and the simplest step to write.
+- **`if` is evaluated once, before `for_each`**; an item's failure under
+  `continue_on_error` is kept as `{error}` in that item's place and the step
+  still fails (the run carries on).
+- **A rerun of someone else's run** needs your own parameters: theirs came from
+  their environments and aren't yours to see (D84).
+- **The run page's parameters** show by label, a connection by its name.
+- **The Builder grant isn't here** (Phase 5): New workflow and the editor are
+  an admin's; everyone granted sees the definition read-only.
 
 ## 12. Research sources
 

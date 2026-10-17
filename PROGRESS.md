@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-16, Phase 4a (the store repo, run on open; PLATFORM_PLAN.md §21)._
+_Last updated: 2026-10-17, Phase 4b-1 (workflows defined and run; PLATFORM_PLAN.md §22)._
 
 ## Platform plan
 
@@ -1196,6 +1196,26 @@ open; detailed in §21, D80), 4b (workflows), 4c (published templates).
   enough for smoke58's grant-to-every-group to push its own create/update rows
   past the audit history's 200; they were cleared (dev data, not code).
 
+**4b is planned (PLATFORM_PLAN.md §22, D82–D86) and 4b-1 built**, with a
+user-reported fix: the session card in the side panel now fills the column to
+the window's bottom before it scrolls (it was capped at 60vh; smoke78 checks
+it and fails on the old CSS).
+- **Workflows** (`workflows.py`, `routers/workflows.py`, the Workflows page):
+  YAML definitions checked in full on save with the line of each problem;
+  steps are pane actions (`request`/`handler`) run through the action
+  endpoint's own functions as the run's starter, or notes; CEL templates,
+  `if`, `for_each`, `continue_on_error`; runs queued and run in-process by any
+  replica (SKIP LOCKED, heartbeat, interrupted runs failed), cancel, rerun;
+  grants per group, a run's outputs only for its starter's group and admins;
+  kept verbatim in the store repo; the agent's `list_workflows`,
+  `run_workflow`, `get_workflow_run`.
+- **Pages**: a Workflows row in the rail; Workflows | Runs; a workflow's page
+  (Run ▸ with parameters, runs, the definition with Check/Save, Access); the
+  run page (stages, inputs, outputs as a table or JSON, live while running,
+  Cancel, Rerun, Copy link, `?run=<id>`).
+- Tests: backend `test_workflows.py` (16); browser `smoke85` (14), failing
+  against the old frontend.
+
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
 `platform-agent/app/prompt.py`), the agent image building in CI (no Docker
@@ -1364,9 +1384,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 4b, workflows (PLATFORM_PLAN.md §5, §20.2, §20.7), detailed in the
-   plan before it is built -- definitions kept in the store from the start
-   (a `Kind` entry), runs recorded, the Workflows page, the run page. Scheduled and webhook runs act as
+1. Phase 4b-2 (PLATFORM_PLAN.md §22.1): steps over a background run,
+   approvals (and with them `effects: external` steps and the agent's), retry
+   and timeout, rerun from a failed stage, the blob store. Then 4b-3, the
+   doors between runs and sessions. Scheduled and webhook runs act as
    the workflow's owner (D81).
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
