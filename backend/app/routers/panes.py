@@ -77,7 +77,10 @@ class PaneRefresh(BaseModel):
     session: str
     pane: str
     # The interval the asking tab runs at: what "fresh enough" is judged by.
-    every: int
+    every: int = 0
+    # Set instead for a run on open (D77, §21.8): outputs younger than this
+    # many seconds count as fresh, whatever the interval.
+    fresh: Optional[int] = None
     timezone: Optional[str] = None
 
 
@@ -435,4 +438,6 @@ def refresh_pane(
     if manifest is None or not _allowed(current_user, manifest):
         raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
     row, member = _pane_of(db, current_user, manifest, payload.session, payload.pane)
-    return pane_refresh.refresh(db, current_user, row, member, manifest, payload.pane, payload.every, payload.timezone, origin)
+    return pane_refresh.refresh(
+        db, current_user, row, member, manifest, payload.pane, payload.every, payload.timezone, origin, fresh=payload.fresh
+    )

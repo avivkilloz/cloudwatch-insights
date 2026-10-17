@@ -9,6 +9,7 @@ import CredentialsSettings from "../components/settings/CredentialsSettings";
 import EnvironmentsSettings from "../components/settings/EnvironmentsSettings";
 import UserGroupsSettings from "../components/settings/UserGroupsSettings";
 import CatalogueSettings from "../components/settings/CatalogueSettings";
+import StoreSettings from "../components/settings/StoreSettings";
 import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
 import { ViewSwitch } from "../components/settings/settingsLayout";
 
@@ -30,7 +31,8 @@ type Section =
   | "environments"
   | "users"
   | "credentials"
-  | "catalogue";
+  | "catalogue"
+  | "store";
 
 const BASE_SECTIONS: { id: Section; label: string }[] = [
   { id: "account", label: "My account" },
@@ -51,6 +53,8 @@ const ADMIN_SECTIONS: { id: Section; label: string }[] = [
   { id: "credentials", label: "Credentials" },
   // The categories panes are offered under (D66). Access is Users → Groups.
   { id: "catalogue", label: "Catalogue" },
+  // The git repo what's built here is kept in, as a plugin (D70).
+  { id: "store", label: "Store" },
 ];
 
 
@@ -317,6 +321,7 @@ export default function SettingsPage({ theme, onThemeChange, onSettingsChange }:
       )}
 
       {isAdmin && section === "catalogue" && <CatalogueSettings />}
+      {isAdmin && section === "store" && <StoreSettings />}
 
       {isAdmin && section === "users" && usersView === "groups" && (
         <UserGroupsSettings switcher={<ViewSwitch views={USER_VIEWS} view={usersView} onChange={setUsersView} />} />

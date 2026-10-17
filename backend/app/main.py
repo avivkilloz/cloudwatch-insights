@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access
+from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access, store
 from .db import Base, SessionLocal, engine, ensure_columns
 from .panes import runs as pane_runs
 from .panes import saved as pane_saved
@@ -23,6 +23,7 @@ from .routers import (
     saved_sessions,
     session_categories,
     settings,
+    store as store_router,
     tools,
     user_groups,
     users,
@@ -85,6 +86,11 @@ try:
 finally:
     _bootstrap_db.close()
 
+# What the store repo holds and this database lacks comes back, and what is
+# pending goes out (D70, §21.6). After the built-ins and the manifests' types,
+# so a type a manifest seeded is overwritten by the repo's edited copy. A repo
+# that can't be reached is logged; the platform starts anyway.
+store.startup()
 
 
 @contextlib.asynccontextmanager
@@ -94,9 +100,11 @@ async def lifespan(_app: FastAPI):
     # picks up runs a replica that went away was polling.
     async with platform_server.endpoint.lifespan():
         pane_runs.manager.start()
+        store.manager.start()
         try:
             yield
         finally:
+            await store.manager.stop()
             await pane_runs.manager.stop()
 
 
@@ -129,6 +137,7 @@ app.include_router(agent.router)
 app.include_router(tools.router)
 app.include_router(saved_inputs.router)
 app.include_router(catalogue_router.router)
+app.include_router(store_router.router)
 
 
 @app.get("/api/health")

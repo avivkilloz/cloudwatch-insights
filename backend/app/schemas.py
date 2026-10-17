@@ -88,6 +88,9 @@ class ConnectionTypeOut(BaseModel):
     # can't be deleted, said before anyone tries.
     connections: int = 0
     needed_by: list[str] = []
+    # Where it stands in the store repo (D70): synced, pending, conflict --
+    # null when the store doesn't keep it (no store, or built in).
+    store_state: Optional[str] = None
 
 
 class ConnectionTypeFieldIn(BaseModel):
@@ -847,6 +850,7 @@ class CredentialTypeOut(BaseModel):
     builtin: bool
     in_use: int = 0
     has_test: bool = False
+    store_state: Optional[str] = None
 
 
 class CredentialTypeInfer(BaseModel):
@@ -933,3 +937,20 @@ class AuditEventOut(BaseModel):
     object_id: str
     group_id: Optional[int] = None
     detail: dict
+
+
+class StoreIn(BaseModel):
+    """Settings → Store, when Helm leaves it unset (PLATFORM_PLAN.md §21.7)."""
+
+    url: str
+    branch: str = "main"
+    path: str = ""
+    namespace: str
+    author_domain: str = "platform.local"
+    username: str = ""
+    credential_id: Optional[int] = None
+    known_hosts: str = ""
+
+
+class StoreResolveIn(BaseModel):
+    take: str  # "mine" | "theirs"

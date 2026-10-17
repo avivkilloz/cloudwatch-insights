@@ -190,6 +190,9 @@ def _describe_pane(state: dict, pane_id: str, detail: bool) -> dict:
     every = state.get(f"{pane_id}.refresh")
     if isinstance(every, (int, float)):
         out["refresh_every"] = int(every) or "off"
+    on_open = state.get(f"{pane_id}.{SESSION_ON_OPEN_KEY}")
+    if isinstance(on_open, (int, float)):
+        out["refresh_on_open"] = f"if older than {int(on_open)} s" if on_open else "off"
     manifest = pane_manifest.get(type_)
     if manifest is not None:
         # Which inputs take their value from the session's variables (D60):
@@ -335,6 +338,8 @@ def _describe_session(db: Session, row: models.LiveSession, user_id: int, detail
         out["active_pane"] = state.get("activePane")
         if state.get(SESSION_REFRESH_KEY):
             out["refresh_every"] = state[SESSION_REFRESH_KEY]
+        if state.get(SESSION_ON_OPEN_KEY):
+            out["refresh_on_open"] = f"if older than {int(state[SESSION_ON_OPEN_KEY])} s"
     return out
 
 
@@ -787,6 +792,9 @@ class DashboardRow(BaseModel):
 # The intervals the browser's refresh picker offers (§18.3), in seconds.
 REFRESH_CHOICES = (10, 30, 60, 300, 900, 3600)
 SESSION_REFRESH_KEY = "refresh"
+# Run once when someone opens the session, if the outputs are older than this
+# many seconds (D77); 0 off, unset on a pane following the session's.
+SESSION_ON_OPEN_KEY = "refreshOnOpen"
 
 
 def _every(value: Any) -> int:
@@ -805,19 +813,28 @@ def _every(value: Any) -> int:
 
 
 @mcp.tool()
-async def set_refresh(session_id: str, every: str, pane_id: Optional[str] = None) -> dict:
+async def set_refresh(
+    session_id: str, every: Optional[str] = None, pane_id: Optional[str] = None, on_open: Optional[str] = None
+) -> dict:
     """Makes panes run again by themselves while the session is open on someone's screen -- a live dashboard. `every`
-    is off, or an interval like 30s, 1m, 5m, 1h. With pane_id it is that pane's own; without, it is the session's
-    default for every pane that hasn't one of its own. Only panes that can (get_context's refresh_floor says which,
-    and how often at most) refresh; nothing runs now."""
-    seconds = _every(every)
+    is off, or an interval like 30s, 1m, 5m, 1h. `on_open` runs a pane once when someone opens the session, if what
+    it shows is older than the window given (off, or like 1m, 5m, 1h). With pane_id they are that pane's own;
+    without, the session's default for every pane that hasn't its own. Only panes that can (get_context's
+    refresh_floor says which, and how often at most) refresh; nothing runs now."""
+    if every is None and on_open is None:
+        raise InputError("Say every (an interval), on_open (a window), or both.")
+    seconds = _every(every) if every is not None else None
+    window = _every(on_open) if on_open is not None else None
     with _acting() as (db, user, caller):
 
         def change(state: dict, _row, _member: Optional[models.SessionMember]) -> None:
             if pane_id is None:
                 if seconds and seconds < min(REFRESH_CHOICES):
                     raise InputError(f"The shortest interval is {min(REFRESH_CHOICES)} seconds.")
-                state[SESSION_REFRESH_KEY] = seconds
+                if seconds is not None:
+                    state[SESSION_REFRESH_KEY] = seconds
+                if window is not None:
+                    state[SESSION_ON_OPEN_KEY] = window
                 return
             kind = kind_for(user, _pane(state, pane_id))
             floor = _refresh_floor(kind)
@@ -825,7 +842,10 @@ async def set_refresh(session_id: str, every: str, pane_id: Optional[str] = None
                 raise InputError(f"{kind.label} panes don't refresh by themselves.")
             if seconds and seconds < floor:
                 raise InputError(f"{kind.label} panes refresh at most every {floor} seconds.")
-            state[f"{pane_id}.{SESSION_REFRESH_KEY}"] = seconds
+            if seconds is not None:
+                state[f"{pane_id}.{SESSION_REFRESH_KEY}"] = seconds
+            if window is not None:
+                state[f"{pane_id}.{SESSION_ON_OPEN_KEY}"] = window
 
         row, _ = _mutate(db, user, caller, session_id, change, ORIGIN)
         return _describe_session(db, row, user.id, detail=True)

@@ -13,7 +13,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import audit, auth, credential_store, credential_types, models, schemas
+from .. import audit, auth, credential_store, credential_types, models, schemas, store
 from ..db import get_db
 
 types_router = APIRouter(prefix="/api/credential-types", tags=["credentials"])
@@ -59,7 +59,13 @@ def _type_out(db: Session, row: models.CredentialType) -> schemas.CredentialType
         builtin=row.builtin,
         in_use=in_use,
         has_test=has_test,
+        store_state=_store_state(db, "credential_type", row.id),
     )
+
+
+def _store_state(db: Session, kind: str, item_id: str):
+    tracked = db.query(models.StoreItem).filter_by(kind=kind, item_id=item_id).first()
+    return tracked.state if tracked else None
 
 
 @types_router.get("", response_model=list[schemas.CredentialTypeOut])
@@ -93,12 +99,11 @@ def preview_type(payload: schemas.CredentialTypePreview, _admin: models.User = D
 def create_type(
     payload: schemas.CredentialTypeIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
 ):
-    type_id = payload.id.strip()
-    if not credential_types.TYPE_ID_RE.match(type_id):
-        raise HTTPException(
-            status_code=400,
-            detail="A type id starts with a lowercase letter, then lowercase letters, digits or _ (2 to 64).",
-        )
+    # In the store's namespace when there is a store (D78).
+    try:
+        type_id = store.full_id(db, payload.id, credential_types.TYPE_ID_RE)
+    except store.StoreError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
     if db.get(models.CredentialType, type_id) is not None:
         raise HTTPException(status_code=409, detail=f"A credential type '{type_id}' already exists.")
     try:
@@ -123,6 +128,8 @@ def create_type(
     db.add(row)
     audit.record(db, actor=admin, action="credential_type.create", object_type="credential_type", object_id=type_id,
                  detail={"label": row.label, "fields": [f["key"] for f in fields]})
+    db.flush()
+    store.record(db, "credential_type", type_id, "write", admin)
     db.commit()
     db.refresh(row)
     return _type_out(db, row)
@@ -193,6 +200,8 @@ def update_type(
     audit.record(db, actor=admin, action="credential_type.update", object_type="credential_type", object_id=type_id,
                  detail={"changed": sorted(k for k in data if k != "confirm_remove"), "version": row.version,
                          "credentials_reshaped": reshaped})
+    db.flush()
+    store.record(db, "credential_type", type_id, "write", admin)
     db.commit()
     db.refresh(row)
     return _type_out(db, row)
@@ -216,6 +225,7 @@ def delete_type(type_id: str, db: Session = Depends(get_db), admin: models.User 
     db.delete(row)
     audit.record(db, actor=admin, action="credential_type.delete", object_type="credential_type", object_id=type_id,
                  detail={"label": row.label})
+    store.record(db, "credential_type", type_id, "delete", admin)
     db.commit()
     return None
 

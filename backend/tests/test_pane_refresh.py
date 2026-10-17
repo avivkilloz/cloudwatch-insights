@@ -150,3 +150,69 @@ def test_the_agent_sets_a_panes_refresh_or_the_sessions_within_the_floor(mcp):
     assert "don't refresh" in call_error(mcp, token, "set_refresh", session_id=session, every="1m", pane_id="tool-mqtt")
     assert call(mcp, token, "set_refresh", session_id=session, every="1m")["refresh_every"] == 60
     assert call(mcp, token, "set_refresh", session_id=session, every="off", pane_id="tables")["panes"][0]["refresh_every"] == "off"
+
+
+# ---------------------------------------------------------------- run on open (D77, §21.8)
+
+
+def _open(sid: str, fresh: int = 300, c=client, pane: str = "tables", type_: str = "tables"):
+    return c.post(f"/api/panes/{type_}/refresh", json={"session": sid, "pane": pane, "fresh": fresh})
+
+
+def test_on_open_runs_a_pane_that_never_ran_then_not_within_the_window(aws):
+    env = _environment()
+    sid = _tables(env)
+    first = _open(sid).json()
+    assert first["refreshed"] is True and len(aws["scan"]) == 1
+    # Switched back to a minute later: still fresh, whatever the interval says.
+    assert _open(sid).json()["reason"] == "fresh" and len(aws["scan"]) == 1
+    # Older than the window: runs again.
+    with SessionLocal() as db:
+        record = db.query(models.PaneOutput).one()
+        record.data = {**record.data, "ranAt": record.data["ranAt"] - 301_000}
+        db.commit()
+    assert _open(sid).json()["refreshed"] is True and len(aws["scan"]) == 2
+
+
+def test_on_open_by_five_members_at_once_runs_once(aws):
+    import threading
+
+    env = _environment()
+    sid = _tables(env)
+    answers: list[dict] = []
+    threads = [threading.Thread(target=lambda: answers.append(_open(sid).json())) for _ in range(5)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert sum(1 for a in answers if a["refreshed"]) == 1 and len(aws["scan"]) == 1
+
+
+def test_on_open_holds_to_the_floor_and_waits_for_required_inputs(aws):
+    env = _environment()
+    sid = _tables(env)
+    assert _open(sid, fresh=1).json()["refreshed"] is True
+    time.sleep(1.2)
+    assert _open(sid, fresh=1).json()["reason"] == "fresh"  # held to the 10 s floor
+    sid2 = _tables(env, sid="r-4", table=None)
+    answer = _open(sid2).json()
+    assert (answer["refreshed"], answer["reason"]) == (False, "not_ready")
+    # Not a failure: nothing to back off from.
+    assert "refresh" not in _values(sid2)
+
+
+def test_on_open_a_viewer_runs_only_what_they_can_reach(aws):
+    other = _environment("Other", "222233334444")
+    env = _environment()
+    sid = _tables(other, sid="r-5")
+    as_carol = _viewer(sid, "carol", env)
+    assert _open(sid, c=as_carol).json()["reason"] == "unreachable" and aws["scan"] == []
+
+
+def test_the_agent_sets_on_open(mcp):
+    token = _token()
+    session = call(mcp, token, "create_session", title="s", panes=[{"kind": "tables"}])["session_id"]
+    out = call(mcp, token, "set_refresh", session_id=session, on_open="5m", pane_id="tables")
+    assert out["panes"][0]["refresh_on_open"] == "if older than 300 s"
+    assert call(mcp, token, "set_refresh", session_id=session, on_open="1m")["refresh_on_open"] == "if older than 60 s"
+    assert "Say every" in call_error(mcp, token, "set_refresh", session_id=session)

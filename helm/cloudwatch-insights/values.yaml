@@ -147,6 +147,39 @@ backend:
     # the first one; set it when the keyring holds more than one (rotation).
     keyId: ""
 
+  # The store repo (PLATFORM_PLAN.md §21): the git repo the credential and
+  # connection types (and, later, workflows and panes) made in the platform
+  # are written to, in a plugin repo's layout, so they outlive the database.
+  # Set here, a new cluster restores them on its first start; left empty, an
+  # admin can set one in Settings -> Store instead. Never credential values,
+  # connections, users or sessions -- those stay in Postgres (back it up).
+  #
+  #   kubectl create secret generic cloudwatch-insights-store \
+  #     --from-literal=token=<a token that can push to the repo>
+  #   # or: --from-file=ssh-privatekey=./id_ed25519 --from-file=known_hosts=./known_hosts
+  #   store:
+  #     git:
+  #       url: https://github.com/acme/platform-store.git
+  #       namespace: devops
+  #       existingSecret: cloudwatch-insights-store
+  store:
+    git:
+      url: ""
+      branch: main
+      # A folder in the repo; empty is its root.
+      path: ""
+      # What's made here is named <namespace>:<name>, and the repo is the
+      # plugin of that id. Required with a url.
+      namespace: ""
+      # Commits are by whoever saved, as <username>@<authorDomain>.
+      authorDomain: platform.local
+      # For a token: the username sent with it (x-access-token suits GitHub,
+      # oauth2 GitLab).
+      username: ""
+      # A Secret with `token`, or `ssh-privatekey` (and optionally
+      # `known_hosts`, else the host's first key is trusted).
+      existingSecret: ""
+
   # Extra environment variables merged into the backend container, e.g. to
   # tune retries or point at a proxy.
   extraEnv: []

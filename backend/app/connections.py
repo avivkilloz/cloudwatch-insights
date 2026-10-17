@@ -58,7 +58,7 @@ BASE_URL_FIELD = {
     "key": "base_url", "label": "Base URL", "kind": "text", "secret": False, "required": True,
     "help": "Where requests go, e.g. https://prometheus.example.com",
 }
-_TYPE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+TYPE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 
@@ -122,7 +122,7 @@ def is_http(conn_type: models.ConnectionType) -> bool:
     return any(f.get("key") == "base_url" for f in (conn_type.fields or []))
 
 
-def _type_fields(extra: list[dict]) -> list[dict]:
+def type_fields(extra: list[dict]) -> list[dict]:
     """A defined type's fields: the Base URL, then plain ones. Never secret --
     a secret belongs in a credential, which the type's identities name."""
     out, seen = [BASE_URL_FIELD], {"base_url"}
@@ -151,7 +151,7 @@ def ensure_manifest_types(db: Session) -> None:
                 continue
             db.add(models.ConnectionType(
                 id=decl.id, label=decl.label, description=decl.description,
-                fields=_type_fields([f.model_dump() for f in decl.fields]),
+                fields=type_fields([f.model_dump() for f in decl.fields]),
                 identity_types=[ANY_INJECT], builtin=False, origin=f"manifest:{m.id}",
             ))
             added = True
@@ -172,19 +172,37 @@ def needed_by(type_id: str) -> list[str]:
     return out
 
 
-def save_type(db: Session, type_id: Optional[str], spec: dict) -> models.ConnectionType:
+def check_removed_fields(db: Session, row: models.ConnectionType, fields: list[dict]) -> None:
+    """A field a connection still holds a value for stays: dropping it would
+    make that connection fail its own next save."""
+    removed = {f["key"] for f in row.fields or []} - {f["key"] for f in fields}
+    holding = [
+        c.name for c in db.query(models.Connection).filter(models.Connection.type_id == row.id)
+        if any((c.config or {}).get(k) not in (None, "") for k in removed)
+    ]
+    if holding:
+        raise ConnectionConfigError(
+            f"{', '.join(sorted(holding))} still {'has' if len(holding) == 1 else 'have'} a value for "
+            f"{', '.join(sorted(removed))}: clear it there first."
+        )
+
+
+def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[models.User] = None) -> models.ConnectionType:
     """Creates (`type_id` None, the id in `spec`) or edits an HTTP connection
-    type. Built-ins are locked; a type's id never changes -- panes name it."""
+    type. Built-ins are locked; a type's id never changes -- panes name it.
+    A new one is named in the store's namespace when there is a store (D78),
+    and every change is queued for the store repo with it (D70)."""
+    from . import store
+
     label = str(spec.get("label") or "").strip()
     if not label:
         raise ConnectionConfigError("A connection type needs a name.")
-    fields = _type_fields([f for f in spec.get("fields") or [] if f.get("key") != "base_url"])
+    fields = type_fields([f for f in spec.get("fields") or [] if f.get("key") != "base_url"])
     if type_id is None:
-        new_id = str(spec.get("id") or "").strip()
-        if not _TYPE_ID_RE.match(new_id):
-            raise ConnectionConfigError(
-                f"'{new_id}' can't be a type's id: 2-40 lowercase letters, digits and _, starting with a letter."
-            )
+        try:
+            new_id = store.full_id(db, str(spec.get("id") or ""), TYPE_ID_RE)
+        except store.StoreError as e:
+            raise ConnectionConfigError(str(e)) from None
         if db.get(models.ConnectionType, new_id) is not None:
             raise ConnectionConfigError(f"There is already a connection type {new_id}.")
         row = models.ConnectionType(id=new_id, builtin=False, identity_types=[ANY_INJECT], origin=None)
@@ -195,26 +213,19 @@ def save_type(db: Session, type_id: Optional[str], spec: dict) -> models.Connect
             raise ConnectionConfigError("That connection type doesn't exist any more.")
         if row.builtin:
             raise ConnectionConfigError(f"{row.label} is built in and can't be changed.")
-        # A field a connection still holds a value for stays: dropping it
-        # would make that connection fail its own next save.
-        removed = {f["key"] for f in row.fields or []} - {f["key"] for f in fields}
-        holding = [
-            c.name for c in db.query(models.Connection).filter(models.Connection.type_id == row.id)
-            if any((c.config or {}).get(k) not in (None, "") for k in removed)
-        ]
-        if holding:
-            raise ConnectionConfigError(
-                f"{', '.join(sorted(holding))} still {'has' if len(holding) == 1 else 'have'} a value for "
-                f"{', '.join(sorted(removed))}: clear it there first."
-            )
+        check_removed_fields(db, row, fields)
     row.label = label
     row.description = str(spec.get("description") or "").strip() or None
     row.fields = fields
+    db.flush()
+    store.record(db, "connection_type", row.id, "write", actor)
     db.commit()
     return row
 
 
-def delete_type(db: Session, type_id: str) -> None:
+def delete_type(db: Session, type_id: str, actor: Optional[models.User] = None) -> None:
+    from . import store
+
     row = db.get(models.ConnectionType, type_id)
     if row is None:
         return
@@ -227,6 +238,7 @@ def delete_type(db: Session, type_id: str) -> None:
     if panes:
         raise ConnectionConfigError(f"{', '.join(panes)} reach{'es' if len(panes) == 1 else ''} connections of this type, so it stays.")
     db.delete(row)
+    store.record(db, "connection_type", type_id, "delete", actor)
     db.commit()
 
 

@@ -4,6 +4,12 @@ WORKDIR /app
 
 RUN groupadd -r -g 1000 app && useradd -r -u 1000 -g app app
 
+# git (and ssh, for an ssh:// repo) for the store repo (PLATFORM_PLAN.md §21):
+# the backend drives the git CLI rather than a library, so any git host works.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

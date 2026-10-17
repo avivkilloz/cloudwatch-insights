@@ -1135,7 +1135,7 @@ foundation the next one needs.
     - One new non-AWS pane built only from a manifest (e.g. a generic HTTP/JSON API
       pane), to prove the model on something that isn't a port.
 - [ ] **Phase 4: the store repo, then workflows** (re-planned 2026-10-16, D74, §20.5).
-  - **4a, the store repo** (D70, D78, D80; detailed in §21): what's built here
+  - **4a, the store repo** (D70, D78, D80; detailed in §21; built 2026-10-16): what's built here
     kept as a plugin, written through to git, restored on start; run on open
     (D77) rides with it.
   - **4b, workflows** (§5, D69, D75, §20.2, §20.7): the blob store (§8.2),
@@ -4267,6 +4267,46 @@ anyway.
   bare repo for them.
 - **Docs**: DEPLOYMENT.md (the repo, its secret, the namespace, what is and isn't
   in it, restoring), CLAUDE.md, PROGRESS.md, §21.10 as built.
+
+### 21.10 As built (2026-10-16)
+
+As planned, with these settled in the building:
+
+- **Modules.** `store.py` holds the kinds (`Kind`: directory, `dump`, `load`,
+  `remove`, `builtin`, `seeded`), the configuration, `record`, the writer
+  (`flush`, `_apply`, `_settle`), `restore`/`startup`, `sides`/`resolve` and
+  `status`; `gitrepo.py` the clone; `routers/store.py` the API (`GET/PUT/DELETE
+  /api/store`, `POST /api/store/sync`, `GET /api/store/items/{kind}/{id}` and
+  `POST …/resolve`), admins only. `connections.save_type`/`delete_type` take
+  the actor and record; `TYPE_ID_RE`, `type_fields` and
+  `check_removed_fields` became public for the store's `load`.
+- **Keep mine** sets the item's expected blob to the repo's current one and
+  queues a write (if none is queued): the next push writes over it, and a
+  further edit there conflicts again. **Take theirs** loads the file (or
+  deletes the item here if the repo deleted it, refused while something uses
+  it) and drops the queued changes.
+- **A batch is one commit**: the adoption of what a deployment already had
+  ("Add what this deployment already had") is queued with a shared `batch`.
+- **`plugin.yaml`** is regenerated from the files present on every commit;
+  any other key in it (a name, a version, another kind's list) is kept.
+- **The workdir** is `STORE_WORKDIR` (Helm: an emptyDir) or the temp dir, a
+  folder per url/branch/path.
+- **Status in the browser**: Settings → Store re-reads every 2 s while an item
+  is still pending -- Sync now can find the background writer holding the lock
+  and answer with how things stood a moment before.
+- **Run on open** asks on each arrival -- the session on screen and the tab
+  visible -- and the ask waits for the window to be known (a load's state can
+  come after the pane is on screen); a pane whose required inputs aren't set
+  answers `not_ready`, not a failure.
+- **A pane's ⚙ never runs off the window**: its run-on-open row made the menu
+  taller, and opened low on a page its last items (saved inputs, the variables
+  it follows) sat below the window's edge, out of reach. `Popover` passes the
+  room left under its button (`--popover-room`), which the pane menu caps its
+  height to and scrolls within.
+- `smoke20`'s add-buttons check compares the buttons before and after panes
+  move, instead of a fixed list that went stale with Prometheus.
+- **Not built**: pulling repo edits in by themselves, read-only mode, tagging a
+  store as a release (§20.6).
 
 ## 12. Research sources
 

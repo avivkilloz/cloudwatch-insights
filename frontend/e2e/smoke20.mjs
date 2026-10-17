@@ -222,6 +222,11 @@ async function newPanedSession(page) {
     "Side by side: the move buttons say left/right"
   );
 
+  // The Panes card's add buttons as they were, to compare once panes have moved
+  // (a fixed list here went stale with every pane type added).
+  const addButtons = async () =>
+    (await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, ""));
+  const addsBefore = await addButtons();
   await page.click(`${iotPane} button[aria-label="Move IoT left"]`);
   check(
     JSON.stringify(await paneOrder()) === JSON.stringify(["IoT", "CloudWatch", "HTTP client"]),
@@ -265,8 +270,7 @@ async function newPanedSession(page) {
     JSON.stringify(await paneOrder())
   );
   check(
-    JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, ""))) ===
-      JSON.stringify(["CloudWatch", "OpenSearch", "IoT", "DynamoDB", "S3", "Cognito", "HTTP client", "MQTT tester", "JWT", "Base64", "Diff", "API table"]),
+    addsBefore.length > 0 && JSON.stringify(await addButtons()) === JSON.stringify(addsBefore),
     "Reordering panes leaves the Panes card's add buttons in their fixed order",
     JSON.stringify((await page.locator(`${SESSION} .aggregator-add-pane`).allTextContents()).map((t) => t.replace(/^\+\s*/, "")))
   );

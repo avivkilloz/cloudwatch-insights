@@ -50,6 +50,15 @@ only check that a question asked in the agent panel's Global tab reaches it).
 e.g. `PLATFORM_MASTER_KEYS="dev:$(python -m app.keys generate)"`; without one,
 credentials are off and both fail on their first check, saying so.
 
+`smoke83` (the store repo) makes a bare git repo on disk and points the store at
+it by a `file://` URL, which the backend refuses unless it was started with
+`STORE_GIT_ALLOW_FILE_URLS=1` (never in a real deployment); it needs `git` on
+the machine, and removes the store when it ends -- a store left configured
+would name every later suite's new types `<namespace>:…`. `smoke84` (run on
+open) counts a `.fake` host's requests (`GET /api/dev/fake-http/hits`) and ages
+a pane's results (`POST /api/dev/age-outputs`), so it needs the faked backend
+below.
+
 `smoke69` (CloudWatch and OpenSearch), `smoke71`'s logs half (the histograms),
 `smoke72` (MQTT), `smoke73`'s zoom half, `smoke74` (the agent's answer check,
 on an MQTT connect; it needs the agent and fake model too), `smoke75` (auto-refresh),

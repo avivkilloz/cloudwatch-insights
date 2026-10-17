@@ -655,3 +655,45 @@ class PaneOutput(Base):
     version = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     refreshing_at = Column(DateTime, nullable=True)
+
+
+class StoreItem(Base):
+    """An item the store repo keeps (PLATFORM_PLAN.md §21.4, D70): which file
+    it is, and the blob of that file as this platform last wrote or read it.
+    The item itself lives in its own table (`credential_types`, …); this only
+    tracks it. A remote file that is no longer `blob` was edited in the repo
+    since, and the next write of the item is a conflict, never an overwrite.
+
+    `state`: synced, pending (in the outbox, not pushed yet), conflict
+    (`theirs` holds the remote's blob), or error (why in `error`)."""
+
+    __tablename__ = "store_items"
+    __table_args__ = (UniqueConstraint("kind", "item_id", name="uq_store_items_kind_item"),)
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(40), nullable=False)
+    item_id = Column(String(128), nullable=False)
+    path = Column(String, nullable=False)
+    blob = Column(String(64), nullable=True)
+    theirs = Column(String(64), nullable=True)
+    state = Column(String(16), nullable=False, default="pending")
+    error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class StoreOutbox(Base):
+    """A change waiting to be committed to the store repo, written in the same
+    transaction as the change itself so the two can't come apart (D80).
+    Committed in id order; rows sharing a `batch` are one commit."""
+
+    __tablename__ = "store_outbox"
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(40), nullable=False)
+    item_id = Column(String(128), nullable=False)
+    op = Column(String(8), nullable=False)  # write | delete
+    content = Column(Text, nullable=True)
+    message = Column(String, nullable=False)
+    batch = Column(String(64), nullable=True)
+    author = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
