@@ -1138,7 +1138,8 @@ foundation the next one needs.
   - **4a, the store repo** (D70, D78, D80; detailed in §21; built 2026-10-16): what's built here
     kept as a plugin, written through to git, restored on start; run on open
     (D77) rides with it.
-  - **4b, workflows** (§5, D69, D75, §20.2, §20.7): the blob store (§8.2),
+  - **4b, workflows** (§5, D69, D75, §20.2, §20.7; detailed in §22, D82–D86,
+    three PRs): the blob store (§8.2),
     definitions in the store, recorded runs on the in-process runner, the
     Workflows page, a workflow's page and the live run page, rerun from a stage,
     the agent starting and reading runs, the approval step shared with the
@@ -1253,6 +1254,11 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D79 | 2026-10-16 | **The first audience is the user's own teams in one company: teams are groups, and nothing per person (sign-up, personal connections or types) is built for now** (§20.10). | The user's answer. Group policies already fit; a team admin role is the next need, later. |
 | D80 | 2026-10-16 | **4a writes through an outbox in the change's own transaction, by one writer at a time (an advisory lock) in a private shallow clone, with the `git` CLI; items stay in their own tables and are tracked by the blob last written or read, which is what conflicts are judged by** (§21). | A save can't come apart from its pending commit, two replicas can't race a push, and any git host works over HTTPS or SSH. Tracking by blob needs no history, so a shallow clone serves. |
 | D81 | 2026-10-16 | **A workflow run nobody started -- a schedule or a webhook -- acts as the workflow's owner**, named on the trigger and on each run it starts (§20.7). | The user's choice, over a service identity per group: no identity that is nobody's, and "access is per group" holds -- the owner's group is the one used. |
+| D82 | 2026-10-17 | **4b ships as three PRs: define and run (4b-1), the harder steps -- background runs, approvals, retries, the blob store (4b-2) -- and the doors to sessions (4b-3)** (§22.1). | Each is something to try. Running what panes already do is most of the value; approvals and background runs need machinery of their own. |
+| D83 | 2026-10-17 | **A workflow is YAML kept verbatim; its steps are pane actions with CEL templates, checked in full on save** (§22.2). | One action vocabulary for panes, the agent and workflows. A broken reference found on save beats a run failing half-way. |
+| D84 | 2026-10-17 | **Admins define workflows (until the Builder grant); groups are granted to run them; a run acts as its starter, and its inputs and outputs are seen only by the starter's group and admins** (§22.3). | Outputs come from the starter's environments; another group granted the workflow may not reach them. |
+| D85 | 2026-10-17 | **Runs are run in-process by any replica, claimed with SKIP LOCKED, recorded step by step; an interrupted run is marked failed, not resumed** (§22.4). | The isolated runner is Phase 6. Resuming half a run safely needs idempotent steps; rerunning is one click. |
+| D86 | 2026-10-17 | **4b-1's run page shows outputs as a table or JSON, and is addressed as `?run=<id>`** (§22.5). | The pane renderers need a pane; they come with Investigate in a session (4b-3). A link is what makes a run shareable. |
 
 ## 13. Phase 1 in detail: credentials
 
@@ -4307,6 +4313,122 @@ As planned, with these settled in the building:
   move, instead of a fixed list that went stale with Prometheus.
 - **Not built**: pulling repo edits in by themselves, read-only mode, tagging a
   store as a release (§20.6).
+
+## 22. Phase 4b in detail: workflows
+
+Planned 2026-10-17 (D82–D86), from §5, §20.2 and §20.7. Workflows are pipelines
+with stages, run with parameters on a page of their own (D69, D75); their steps
+are the Actions panes already run, so a step needs no code of its own.
+
+### 22.1 Three PRs, each with something to try (D82)
+
+- **4b-1, define and run.** Workflows kept in the store (a `Kind`), granted per
+  group, run by hand: parameters, steps of pane actions with `with`, `if`,
+  `for_each` and `continue_on_error`, recorded runs. The Workflows page, a
+  workflow's page (Build with parameters, history, the definition, access) and
+  the run page (stages, their inputs and outputs, live while it runs, Cancel,
+  Rerun). The agent lists, starts and reads runs.
+- **4b-2, the harder steps.** Steps over a background run (CloudWatch's query),
+  approvals -- the step that waits for a person, shared with the agent's
+  `effects: external` actions, which then become steps -- `retry`/`timeout`,
+  rerun from a failed stage, and the blob store (§8.2) for outputs too big for a
+  row, and artifacts.
+- **4b-3, the doors.** Investigate a run in a session (its stages' outputs as
+  panes, drawn by the pane renderers), make a session repeatable, a workflow pane
+  in a session, and the run's own chat ("This run").
+- **Later**: triggers -- schedule and webhook, acting as the owner (D81) -- and the
+  graph view and editor (D73).
+
+### 22.2 The definition (4b-1)
+
+YAML, written in the workflow's page or by the agent, kept verbatim (comments
+and all) as the store's file `workflows/<name>.yaml`:
+
+```yaml
+label: Device table check
+description: Scans a table and says how many items it holds.
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment }
+  - { key: table, type: text, default: Devices }
+steps:
+  - id: scan
+    pane: tables
+    action: scan
+    with: { connection: "{{ params.env }}", tableName: "{{ params.table }}", limit: 50 }
+  - id: report
+    if: "{{ size(steps.scan.outputs.items) > 0 }}"
+    note: "{{ size(steps.scan.outputs.items) }} items in {{ params.table }}."
+```
+
+- **Parameters**: `key`, `type` (`text`, `int`, `bool`, `choice`,
+  `connection`, `connections`), `label`, `help`, `default`, `required`,
+  `choices`, `connection_type` -- the pane inputs' own vocabulary, drawn by the
+  same kinds of control.
+- **A step** is one of:
+  - `pane` + `action`: a pane type's action, by its manifest -- a `request` or a
+    `handler` (not yet a background run, nor `effects: external`: 4b-2). `with`
+    gives its inputs; anything unset takes the input's default, as a pane would.
+  - `note`: text, for a summary at the end.
+- **On any step**: `id` (unique, what later steps refer to), `label`, `if`,
+  `for_each` (a list: the step runs once per item, `item` and `index` in scope,
+  its outputs a list of each run's), `continue_on_error`.
+- **Expressions are CEL inside `{{ … }}`** (D8): a value that is one template is
+  its typed result (a list stays a list); text around templates makes a string.
+  In scope: `params`, `steps.<id>.outputs` / `.status`, `item`, `index`, `run`.
+  Never a secret: a credential is passed by reference (a `credential` input),
+  as panes do.
+- **Checked on save** (D83): the schema (strict, like manifests), unique ids,
+  every pane and action existing, every expression compiling, and every
+  `steps.<id>` naming an earlier step -- so a broken workflow isn't saved, rather
+  than failing half-way through a run.
+
+### 22.3 Who may do what (D84)
+
+- **Defining and editing** is an admin's until the Builder grant (Phase 5, D71).
+- **Running** is a grant per group, as a pane type is (D65, D75): admins run
+  everything. A run acts as whoever started it: every step goes through the
+  pane's own access check and its connection's, as the person's own click would.
+- **A run's inputs and outputs** are seen by the person who started it, their
+  group and admins -- not by every group that may run the workflow: the outputs
+  came from the starter's environments, which another group may not reach. The
+  others see that a run happened (who, when, status), not what it found.
+
+### 22.4 Running (D85)
+
+- **In-process**, by a runner in every replica (`workflows.manager`): a started
+  run is `queued`; a replica claims it (`FOR UPDATE SKIP LOCKED`), runs it on a
+  thread, and records each step as it goes (`workflow_run_steps`: status, times,
+  the resolved inputs, the outputs -- capped like a pane's (`pane_outputs.fit`) --
+  and the error). A heartbeat on the run; one whose replica went away is marked
+  failed ("interrupted"), not resumed -- rerunning it is one click.
+- **Cancel** is checked between steps and items. **Rerun** starts a new run of
+  the same parameters, or changed ones from the form.
+- **Live**: the run page reads the run every second or so while it's going. Its
+  address is `?run=<id>` on the app's own URL, so it can be sent to someone.
+
+### 22.5 The pages (D86)
+
+As §20.7, with what 4b-1 has:
+- **Workflows**: Workflows | Runs. The list: name, the last run's status and
+  time, Run. Runs: recent runs across workflows, mine first.
+- **A workflow**: Run ▸ opens Build with parameters; run history; Definition
+  (the YAML, Validate and Save for an admin, its errors by line); Access (the
+  groups that may run it).
+- **A run**: workflow and number, status, who and when, the parameters; Cancel,
+  Rerun; the stages as a list with status and time; the selected stage's
+  inputs, outputs (a table for rows, JSON otherwise -- the pane renderers come
+  with 4b-3's sessions) and error.
+- **The agent**: `list_workflows`, `run_workflow` (waits a little and answers
+  with where it got to), `get_workflow_run`.
+
+### 22.6 Tests
+
+Backend `test_workflows.py`: validation (each refusal names the line's
+problem), templating, `if`/`for_each`/`continue_on_error`, a step acting as the
+starter (refused for a pane or connection their group lacks), cancel, an
+interrupted run, who sees what, the store keeping the YAML verbatim, the agent's
+tools. A browser suite: define, run with parameters, watch it finish, open a
+stage's rows, rerun, a member's view.
 
 ## 12. Research sources
 
