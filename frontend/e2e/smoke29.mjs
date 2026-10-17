@@ -5,7 +5,7 @@ import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSes
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
 // Not the brand either: it heads the rail as a row of its own (the way home).
-const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home)";
+const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page)";
 const ROW = (l) => `${OPEN}:has(.rail-row-label:text-is("${l}"))`;
 const CLOSED = ".rail-row-closed";
 

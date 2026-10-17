@@ -218,7 +218,7 @@ export const CARD = (label) => `.home-card:has(.home-card-title:text-is("${label
 
 /** A session in the rail -- not one of Add's rows, not a closed one, not Home. */
 export const OPEN_ROW =
-  ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home)";
+  ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page)";
 export const ROW = (label) => `${OPEN_ROW}:has(.rail-row-label:text-is("${label}"))`;
 
 /** A closed session in the rail: same list, dimmed. */

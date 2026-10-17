@@ -2,7 +2,7 @@
 // Platform is pages rather than session types.
 import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, report } from "./harness.mjs";
 const CARD = (l) => `.home-card:has(.home-card-title:text-is("${l}"))`;
-const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):has(.rail-row-label:text-is("${l}"))`;
+const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page):has(.rail-row-label:text-is("${l}"))`;
 const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
 // Session bodies all stay mounted, so pane selectors have to be scoped to the
 // one on screen or they see every session's tabs at once.

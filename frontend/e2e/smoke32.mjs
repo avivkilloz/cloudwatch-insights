@@ -5,7 +5,7 @@ import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, launch, newSession, repo
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
-const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home)";
+const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page)";
 const ROW = (l) => `${OPEN}:has(.rail-row-label:text-is("${l}"))`;
 const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
 

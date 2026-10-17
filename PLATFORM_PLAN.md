@@ -4447,6 +4447,11 @@ As planned, with these settled in the building:
 - **The run page's parameters** show by label, a connection by its name.
 - **The Builder grant isn't here** (Phase 5): New workflow and the editor are
   an admin's; everyone granted sees the definition read-only.
+- **The page draws nothing off screen.** Every page stays mounted; hidden, its
+  Workflows | Runs switch sat in the DOM beside Settings' own and selectors
+  found two (smoke65). Its place (list, a workflow, a run) is kept in state.
+- **The suites' "open session" rows skip `.rail-row-page`**: the Workflows row
+  is a rail row, not a session (smoke22, 27, 29, 44 counted it as one).
 
 ## 12. Research sources
 

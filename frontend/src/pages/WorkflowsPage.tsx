@@ -101,6 +101,11 @@ export default function WorkflowsPage() {
   }, [screen, view]);
 
   const open = useCallback((s: Screen) => setScreen(s), []);
+  // Every page stays mounted; this one draws nothing while it isn't on screen
+  // (where it is is kept above), or its Workflows | Runs switch and lists sat
+  // hidden in the DOM beside Settings' own, and anything looking for those
+  // found two.
+  if (view !== "workflows") return null;
   if (screen.kind === "workflow") return <WorkflowView id={screen.id} open={open} />;
   if (screen.kind === "new") return <WorkflowView id={null} open={open} />;
   if (screen.kind === "run") return <RunView id={screen.id} open={open} />;

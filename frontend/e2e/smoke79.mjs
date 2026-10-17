@@ -31,7 +31,7 @@ async function rowMenu(page, title, closed = false) {
 
 const BRAND = ".rail-row-home";
 const START = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
-const activeTitle = (page) => page.locator(".rail-row.active:not(.rail-row-home) .rail-row-label").innerText();
+const activeTitle = (page) => page.locator(".rail-row.active:not(.rail-row-home):not(.rail-row-page) .rail-row-label").innerText();
 const onDefaultPage = (page) => page.locator(".home .home-cards").first().isVisible().catch(() => false);
 
 const run = async () => {
@@ -71,7 +71,7 @@ const run = async () => {
   await page.waitForTimeout(1500);
   await page.reload();
   await page.waitForSelector(".rail");
-  await page.waitForFunction(() => document.querySelector(".rail-row.active:not(.rail-row-home)") !== null, null, { timeout: 8000 }).catch(() => undefined);
+  await page.waitForFunction(() => document.querySelector(".rail-row.active:not(.rail-row-home):not(.rail-row-page)") !== null, null, { timeout: 8000 }).catch(() => undefined);
   check(!(await onDefaultPage(page)) && (await activeTitle(page).catch(() => "")) === homeTitle, "Reloaded on the default page, it lands on the home session");
   await page.click(ROW(otherTitle));
   await page.waitForTimeout(1500);
@@ -81,7 +81,7 @@ const run = async () => {
   check((await activeTitle(page)) === otherTitle, "…but a reload on another session stays on it");
 
   const fresh = await openApp(browser);
-  await fresh.waitForFunction(() => document.querySelector(".rail-row.active:not(.rail-row-home)") !== null, null, { timeout: 8000 }).catch(() => undefined);
+  await fresh.waitForFunction(() => document.querySelector(".rail-row.active:not(.rail-row-home):not(.rail-row-page)") !== null, null, { timeout: 8000 }).catch(() => undefined);
   check((await activeTitle(fresh).catch(() => "")) === homeTitle && !(await onDefaultPage(fresh)), "Signing in on a fresh browser lands on the home session");
   await fresh.close();
 

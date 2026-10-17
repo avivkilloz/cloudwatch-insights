@@ -104,7 +104,7 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   await page.waitForTimeout(300);
   // The brand is a .rail-row too, so it has to come out of the open-sessions list.
   const openRows = await page
-    .locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label")
+    .locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page) .rail-row-label")
     .allTextContents();
   check(JSON.stringify(openRows) === JSON.stringify(["CloudWatch", "IoT", "JWT"]),
     "Open sessions list in the order they were opened", JSON.stringify(openRows));

@@ -144,7 +144,7 @@ const run = async () => {
   await newSession(b, "Diff");
   await a.waitForSelector(ROW("Diff"), { timeout: 10000 }).catch(() => undefined);
   const openLabels = (page) =>
-    page.locator(".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home) .rail-row-label").allInnerTexts();
+    page.locator(".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page) .rail-row-label").allInnerTexts();
   const before = await openLabels(a);
   const reversed = await b.evaluate(async () => {
     const list = await (await fetch("/api/live-sessions", { credentials: "same-origin" })).json();
