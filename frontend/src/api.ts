@@ -375,6 +375,76 @@ export interface StoreStatus {
   restored?: string[];
 }
 
+/** A workflow's parameter (PLATFORM_PLAN.md §22.2): the pane inputs' own vocabulary. */
+export interface WorkflowParam {
+  key: string;
+  type: "text" | "int" | "bool" | "choice" | "connection" | "connections";
+  label?: string;
+  help?: string;
+  default?: unknown;
+  required?: boolean;
+  choices?: unknown[];
+  connection_type?: string;
+}
+
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped" | "cancelled";
+
+export interface WorkflowRunStep {
+  position: number;
+  id: string;
+  label: string | null;
+  status: StepStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  inputs?: unknown;
+  outputs?: Record<string, unknown> | null;
+  trimmed?: boolean;
+}
+
+/** A run. Its params, steps and outputs only when `readable` (D84): they came
+ * from its starter's environments. */
+export interface WorkflowRun {
+  id: number;
+  workflow_id: string;
+  workflow_label: string;
+  number: number;
+  status: RunStatus;
+  trigger: string;
+  started_by: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  readable: boolean;
+  cancel_requested: boolean;
+  rerun_of: number | null;
+  params?: Record<string, unknown>;
+  error?: string | null;
+  steps?: WorkflowRunStep[];
+  /** The workflow as it was when the run started (a run's own page only). */
+  definition?: { parameters?: WorkflowParam[] };
+}
+
+export interface Workflow {
+  id: string;
+  label: string;
+  description: string | null;
+  parameters: WorkflowParam[];
+  steps: number;
+  can_edit: boolean;
+  can_run: boolean;
+  last_run: WorkflowRun | null;
+  store_state?: StoreState | null;
+  source?: string;
+  group_ids?: number[];
+}
+
+export interface WorkflowProblem {
+  line: number | null;
+  message: string;
+}
+
 export interface StoreDraft {
   url: string;
   branch: string;
@@ -702,6 +772,31 @@ export const api = {
     req<{ output: unknown }>("/credential-types/preview", { method: "POST", body: JSON.stringify(payload) }),
   /** Admins get Credential[]; anyone else CredentialSummary[] (what their group can use). */
   listCredentials: <T extends Credential | CredentialSummary = Credential>() => req<T[]>("/credentials"),
+  listWorkflows: () => req<Workflow[]>("/workflows"),
+  getWorkflow: (id: string) => req<Workflow>(`/workflows/${encodeURIComponent(id)}`),
+  validateWorkflow: (source: string) =>
+    req<{ ok: boolean; errors: WorkflowProblem[] }>("/workflows/validate", { method: "POST", body: JSON.stringify({ source }) }),
+  createWorkflow: (id: string, source: string) =>
+    req<Workflow>("/workflows", { method: "POST", body: JSON.stringify({ id, source }) }),
+  updateWorkflow: (id: string, source: string) =>
+    req<Workflow>(`/workflows/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
+  deleteWorkflow: (id: string) => req<void>(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setWorkflowGrants: (id: string, groupIds: number[]) =>
+    req<Workflow>(`/workflows/${encodeURIComponent(id)}/grants`, { method: "PUT", body: JSON.stringify({ group_ids: groupIds }) }),
+  startWorkflowRun: (id: string, params: Record<string, unknown>, timezone?: string) =>
+    req<WorkflowRun>(`/workflows/${encodeURIComponent(id)}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ params, ...(timezone ? { timezone } : {}) }),
+    }),
+  listWorkflowRuns: (id: string) => req<WorkflowRun[]>(`/workflows/${encodeURIComponent(id)}/runs`),
+  recentWorkflowRuns: (mine = false) => req<WorkflowRun[]>(`/workflow-runs${mine ? "?mine=true" : ""}`),
+  getWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}`),
+  cancelWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}/cancel`, { method: "POST" }),
+  rerunWorkflowRun: (runId: number, params?: Record<string, unknown>) =>
+    req<WorkflowRun>(`/workflow-runs/${runId}/rerun`, {
+      method: "POST",
+      body: JSON.stringify(params ? { params } : {}),
+    }),
   getStore: () => req<StoreStatus>("/store"),
   putStore: (draft: StoreDraft) => req<StoreStatus>("/store", { method: "PUT", body: JSON.stringify(draft) }),
   deleteStore: () => req<void>("/store", { method: "DELETE" }),

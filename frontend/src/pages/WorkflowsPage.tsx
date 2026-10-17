@@ -1,0 +1,805 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  api,
+  readableError,
+  Target,
+  UserGroup,
+  Workflow,
+  WorkflowParam,
+  WorkflowProblem,
+  WorkflowRun,
+  WorkflowRunStep,
+} from "../api";
+import { CardRow } from "../components/SessionCard";
+import { StoreBadge } from "../components/settings/StoreSettings";
+import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
+import { useAuth } from "../AuthContext";
+import { useSessions } from "../sessions/SessionContext";
+
+/*
+ * Workflows (PLATFORM_PLAN.md §20.7, §22): a page of their own, never a
+ * session. Three screens: the list (Workflows | Runs), one workflow (Run ▸
+ * opens Build with parameters; its history; the definition; who may run it),
+ * and one run (its stages, each one's inputs, outputs and error), read again
+ * every second or so while it's going. A run's address is `?run=<id>`, so it
+ * can be sent to someone; whoever opens it sees it if their group may run the
+ * workflow -- and its outputs if they're its starter's group or an admin (D84).
+ */
+
+type Screen = { kind: "list" } | { kind: "workflow"; id: string } | { kind: "new" } | { kind: "run"; id: number };
+
+const LIST_VIEWS = [
+  ["workflows", "Workflows"],
+  ["runs", "Runs"],
+] as const;
+
+const NEW_SOURCE = `label: My workflow
+description: What it does, in a sentence.
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment, required: true }
+steps:
+  - id: tables
+    pane: tables
+    action: list_tables
+    with: { connection: "{{ params.env }}" }
+  - id: report
+    note: "{{ size(steps.tables.outputs.options) }} tables."
+`;
+
+function runParam(): number | null {
+  const raw = new URLSearchParams(window.location.search).get("run");
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
+/** The run on screen in the address bar, and nothing else of this page's. */
+function setRunParam(id: number | null) {
+  const url = new URL(window.location.href);
+  if (id === null) url.searchParams.delete("run");
+  else url.searchParams.set("run", String(id));
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
+function when(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function took(run: { started_at: string | null; finished_at: string | null }): string {
+  if (!run.started_at) return "";
+  const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
+  const seconds = Math.max(0, Math.round((end - new Date(run.started_at).getTime()) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+export function StatusTag({ status }: { status: string }) {
+  return (
+    <span className={`tag run-status run-status-${status}`} data-status={status}>
+      {status}
+    </span>
+  );
+}
+
+export default function WorkflowsPage() {
+  const { show, view } = useSessions();
+  const [screen, setScreen] = useState<Screen>(() => {
+    const run = runParam();
+    return run ? { kind: "run", id: run } : { kind: "list" };
+  });
+
+  // Opened at `?run=<id>`: straight to that run, whatever the app would have
+  // shown first.
+  useEffect(() => {
+    if (runParam() !== null) show("workflows");
+    // Once, on load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (view !== "workflows") return;
+    setRunParam(screen.kind === "run" ? screen.id : null);
+  }, [screen, view]);
+
+  const open = useCallback((s: Screen) => setScreen(s), []);
+  if (screen.kind === "workflow") return <WorkflowView id={screen.id} open={open} />;
+  if (screen.kind === "new") return <WorkflowView id={null} open={open} />;
+  if (screen.kind === "run") return <RunView id={screen.id} open={open} />;
+  return <ListView open={open} />;
+}
+
+// ------------------------------------------------------------------- the list
+
+function ListView({ open }: { open: (s: Screen) => void }) {
+  const [view, setView] = useState<(typeof LIST_VIEWS)[number][0]>("workflows");
+  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
+  const [runs, setRuns] = useState<WorkflowRun[] | null>(null);
+  const [mine, setMine] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { view: appView } = useSessions();
+
+  useEffect(() => {
+    if (appView !== "workflows") return;
+    setError(null);
+    if (view === "workflows") api.listWorkflows().then(setWorkflows).catch((e) => setError(readableError(e)));
+    else api.recentWorkflowRuns(mine).then(setRuns).catch((e) => setError(readableError(e)));
+  }, [view, mine, appView]);
+
+  const switcher = <ViewSwitch views={LIST_VIEWS} view={view} onChange={setView} />;
+  return (
+    <div className="panel credential-list workflows-list">
+      <div className="credential-list-head">
+        {switcher}
+        <span className="muted">
+          {view === "workflows" ? "Steps you run more than once, the same way each time." : "Recent runs, newest first."}
+        </span>
+        {view === "workflows" && <NewWorkflowButton open={open} />}
+        {view === "runs" && (
+          <label className="checkbox-item">
+            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Mine only
+          </label>
+        )}
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {view === "workflows" && workflows && (
+        <table className="credentials-table workflows-table">
+          <thead>
+            <tr>
+              <th>Workflow</th>
+              <th>Last run</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {workflows.length === 0 && (
+              <tr>
+                <td colSpan={3} className="muted">
+                  No workflows you can run yet.
+                </td>
+              </tr>
+            )}
+            {workflows.map((w) => (
+              <tr key={w.id} data-workflow={w.id} {...rowProps(() => open({ kind: "workflow", id: w.id }))}>
+                <td>
+                  <span className="credential-name">{w.label}</span> <StoreBadge state={w.store_state} />
+                  {w.description && <div className="muted">{w.description}</div>}
+                </td>
+                <td>
+                  {w.last_run ? (
+                    <>
+                      <StatusTag status={w.last_run.status} /> <span className="muted">{when(w.last_run.created_at)}</span>
+                    </>
+                  ) : (
+                    <span className="muted">Never run</span>
+                  )}
+                </td>
+                <td className="workflows-run-cell">{w.can_run && <span className="muted">Run ▸</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {view === "runs" && runs && <RunsTable runs={runs} open={open} showWorkflow />}
+    </div>
+  );
+}
+
+/** Admins only, until the Builder grant (D84). */
+function NewWorkflowButton({ open }: { open: (s: Screen) => void }) {
+  const { user } = useAuth();
+  if (!user?.is_admin) return null;
+  return <button onClick={() => open({ kind: "new" })}>New workflow</button>;
+}
+
+function RunsTable({ runs, open, showWorkflow }: { runs: WorkflowRun[]; open: (s: Screen) => void; showWorkflow?: boolean }) {
+  if (runs.length === 0) return <p className="muted">No runs yet.</p>;
+  return (
+    <table className="credentials-table workflow-runs-table">
+      <thead>
+        <tr>
+          {showWorkflow && <th>Workflow</th>}
+          <th>#</th>
+          <th>Status</th>
+          <th>Started by</th>
+          <th>When</th>
+          <th>Took</th>
+        </tr>
+      </thead>
+      <tbody>
+        {runs.map((r) => (
+          <tr key={r.id} data-run={r.id} {...rowProps(() => open({ kind: "run", id: r.id }))}>
+            {showWorkflow && <td>{r.workflow_label}</td>}
+            <td>{r.number}</td>
+            <td>
+              <StatusTag status={r.status} />
+            </td>
+            <td>
+              {r.started_by}
+              {r.trigger !== "manual" && <span className="muted"> · {r.trigger}</span>}
+            </td>
+            <td>{when(r.created_at)}</td>
+            <td>{took(r)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ------------------------------------------------------------------- one workflow
+
+function WorkflowView({ id, open }: { id: string | null; open: (s: Screen) => void }) {
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [newId, setNewId] = useState("");
+  const isNew = id === null;
+
+  const load = useCallback(async () => {
+    if (id === null) return;
+    try {
+      const [w, r] = await Promise.all([api.getWorkflow(id), api.listWorkflowRuns(id)]);
+      setWorkflow(w);
+      setRuns(r);
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }, [id]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function start(params: Record<string, unknown>) {
+    if (!workflow) return;
+    setError(null);
+    try {
+      const run = await api.startWorkflowRun(workflow.id, params, Intl.DateTimeFormat().resolvedOptions().timeZone);
+      open({ kind: "run", id: run.id });
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  async function remove() {
+    if (!workflow || !window.confirm(`Delete ${workflow.label}, and its runs?`)) return;
+    try {
+      await api.deleteWorkflow(workflow.id);
+      open({ kind: "list" });
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  if (!isNew && !workflow) {
+    return (
+      <div className="panel">{error ? <p className="error-text">{error}</p> : <p className="muted">Loading…</p>}</div>
+    );
+  }
+  return (
+    <div className="panel credential-view workflow-view">
+      <ViewHead back={() => open({ kind: "list" })} title={isNew ? "New workflow" : workflow!.label}>
+        {workflow?.can_run && !running && (
+          <button className="workflow-run-button" onClick={() => setRunning(true)}>
+            Run ▸
+          </button>
+        )}
+        {workflow?.can_edit && (
+          <button className="danger" onClick={remove}>
+            Delete
+          </button>
+        )}
+      </ViewHead>
+      {error && <p className="error-text">{error}</p>}
+      {workflow?.description && <p className="muted workflow-description">{workflow.description}</p>}
+      {running && workflow && (
+        <Section title="Build with parameters">
+          <ParamsForm params={workflow.parameters} onRun={start} onCancel={() => setRunning(false)} />
+        </Section>
+      )}
+      {!isNew && (
+        <Section title="Runs">
+          <RunsTable runs={runs} open={open} />
+        </Section>
+      )}
+      {(isNew || workflow?.can_edit || workflow?.source) && (
+        <DefinitionSection
+          workflow={workflow}
+          isNew={isNew}
+          newId={newId}
+          setNewId={setNewId}
+          saved={(w) => (isNew ? open({ kind: "workflow", id: w.id }) : (setWorkflow(w), load()))}
+        />
+      )}
+      {workflow?.can_edit && <AccessSection workflow={workflow} saved={setWorkflow} />}
+    </div>
+  );
+}
+
+function ParamsForm({
+  params,
+  onRun,
+  onCancel,
+  initial,
+}: {
+  params: WorkflowParam[];
+  onRun: (values: Record<string, unknown>) => void;
+  onCancel: () => void;
+  initial?: Record<string, unknown>;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    Object.fromEntries(params.map((p) => [p.key, initial?.[p.key] ?? p.default ?? (p.type === "connections" ? [] : "")])),
+  );
+  const [targets, setTargets] = useState<Record<string, Target[]>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const types = [...new Set(params.filter((p) => p.connection_type).map((p) => p.connection_type!))];
+    types.forEach((t) =>
+      api
+        .listTargets(t)
+        .then((list) => setTargets((cur) => ({ ...cur, [t]: list })))
+        .catch(() => undefined),
+    );
+  }, [params]);
+  const set = (key: string, value: unknown) => setValues((cur) => ({ ...cur, [key]: value }));
+  return (
+    <form
+      className="workflow-params"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        try {
+          await onRun(values);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {params.length === 0 && <p className="muted">It takes no parameters.</p>}
+      {params.map((p) => {
+        const label = `${p.label || p.key}${p.required ? " *" : ""}`;
+        const id = `param-${p.key}`;
+        const value = values[p.key];
+        let control;
+        if (p.type === "bool") {
+          control = <input id={id} type="checkbox" checked={!!value} onChange={(e) => set(p.key, e.target.checked)} />;
+        } else if (p.type === "choice") {
+          control = (
+            <select id={id} value={String(value ?? "")} onChange={(e) => set(p.key, e.target.value)}>
+              <option value="">Choose…</option>
+              {(p.choices ?? []).map((c) => (
+                <option key={String(c)} value={String(c)}>
+                  {String(c)}
+                </option>
+              ))}
+            </select>
+          );
+        } else if (p.type === "connection") {
+          control = (
+            <select id={id} value={String(value ?? "")} onChange={(e) => set(p.key, e.target.value ? Number(e.target.value) : "")}>
+              <option value="">Choose…</option>
+              {(targets[p.connection_type ?? ""] ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          );
+        } else if (p.type === "connections") {
+          const chosen = Array.isArray(value) ? (value as number[]) : [];
+          control = (
+            <div className="workflow-param-multi" id={id}>
+              {(targets[p.connection_type ?? ""] ?? []).map((t) => (
+                <label key={t.id} className="checkbox-item">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(t.id)}
+                    onChange={(e) => set(p.key, e.target.checked ? [...chosen, t.id] : chosen.filter((c) => c !== t.id))}
+                  />
+                  {t.label}
+                </label>
+              ))}
+            </div>
+          );
+        } else {
+          control = (
+            <input
+              id={id}
+              type={p.type === "int" ? "number" : "text"}
+              value={String(value ?? "")}
+              onChange={(e) => set(p.key, p.type === "int" && e.target.value !== "" ? Number(e.target.value) : e.target.value)}
+            />
+          );
+        }
+        return (
+          <CardRow key={p.key} label={label}>
+            <div className="workflow-param" title={p.help || undefined}>
+              {control}
+              {p.help && <div className="muted workflow-param-help">{p.help}</div>}
+            </div>
+          </CardRow>
+        );
+      })}
+      <div className="row credential-view-foot">
+        <button type="submit" disabled={busy}>
+          {busy ? "Starting…" : "Run"}
+        </button>
+        <button type="button" className="secondary" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DefinitionSection({
+  workflow,
+  isNew,
+  newId,
+  setNewId,
+  saved,
+}: {
+  workflow: Workflow | null;
+  isNew: boolean;
+  newId: string;
+  setNewId: (v: string) => void;
+  saved: (w: Workflow) => void;
+}) {
+  const editable = isNew || !!workflow?.can_edit;
+  const [source, setSource] = useState(workflow?.source ?? NEW_SOURCE);
+  const [problems, setProblems] = useState<WorkflowProblem[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (workflow?.source !== undefined) setSource(workflow.source);
+  }, [workflow?.source]);
+
+  async function validate() {
+    setNotice(null);
+    setError(null);
+    try {
+      const out = await api.validateWorkflow(source);
+      setProblems(out.errors);
+      if (out.ok) setNotice("No problems found.");
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  async function save() {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const out = await api.validateWorkflow(source);
+      setProblems(out.errors);
+      if (!out.ok) return;
+      const w = isNew ? await api.createWorkflow(newId, source) : await api.updateWorkflow(workflow!.id, source);
+      setNotice("Saved.");
+      saved(w);
+    } catch (e) {
+      setError(readableError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Definition">
+      {isNew && (
+        <CardRow label="Id">
+          <input id="workflow-id" type="text" value={newId} placeholder="e.g. table_check" onChange={(e) => setNewId(e.target.value)} />
+        </CardRow>
+      )}
+      {editable ? (
+        <textarea
+          id="workflow-source"
+          className="workflow-source"
+          spellCheck={false}
+          rows={Math.min(30, Math.max(12, source.split("\n").length + 1))}
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value);
+            setProblems(null);
+          }}
+        />
+      ) : (
+        <pre className="workflow-source">{source}</pre>
+      )}
+      {problems && problems.length > 0 && (
+        <ul className="error-text workflow-problems">
+          {problems.map((p, i) => (
+            <li key={i}>
+              {p.line ? <strong>Line {p.line}: </strong> : null}
+              {p.message}
+            </li>
+          ))}
+        </ul>
+      )}
+      {notice && <p className="muted">{notice}</p>}
+      {error && <p className="error-text">{error}</p>}
+      {editable && (
+        <div className="row credential-view-foot">
+          <button onClick={save} disabled={busy || (isNew && !newId.trim())}>
+            {isNew ? "Create" : "Save"}
+          </button>
+          <button className="secondary" onClick={validate} disabled={busy}>
+            Check
+          </button>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function AccessSection({ workflow, saved }: { workflow: Workflow; saved: (w: Workflow) => void }) {
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .listUserGroups()
+      .then((all) => setGroups(all.filter((g) => !g.is_admin)))
+      .catch((e) => setError(readableError(e)));
+  }, []);
+  async function change(ids: number[]) {
+    try {
+      saved(await api.setWorkflowGrants(workflow.id, ids));
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+  return (
+    <Section title="Access">
+      <CardRow label="Who may run it">
+        <TagPicker
+          items={groups}
+          chosen={workflow.group_ids ?? []}
+          onChange={change}
+          label="Let a group run it"
+          addLabel="+ A group…"
+          allChosenLabel="Every group may"
+          emptyLabel="Admins only"
+        />
+      </CardRow>
+      <p className="muted connection-type-note">
+        A run acts as whoever starts it. Its outputs are seen by them, their group and admins.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------------- one run
+
+function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
+  const [run, setRun] = useState<WorkflowRun | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  const { view } = useSessions();
+
+  const load = useCallback(() => {
+    api
+      .getWorkflowRun(id)
+      .then(setRun)
+      .catch((e) => setError(readableError(e)));
+  }, [id]);
+  useEffect(() => {
+    setRun(null);
+    setSelected(null);
+    load();
+  }, [load]);
+
+  // Read again while it's going: everyone watching sees it move.
+  const live = run?.status === "queued" || run?.status === "running";
+  useEffect(() => {
+    if (!live || view !== "workflows") return;
+    const timer = window.setTimeout(load, 1000);
+    return () => window.clearTimeout(timer);
+  }, [live, run, load, view]);
+
+  // The stage to show: the one picked, else the one running, else the first that failed, else the last.
+  const steps = run?.steps ?? [];
+  const shown = useMemo(() => {
+    if (selected !== null) return steps.find((s) => s.position === selected) ?? null;
+    return (
+      steps.find((s) => s.status === "running") ??
+      steps.find((s) => s.status === "failed") ??
+      [...steps].reverse().find((s) => s.status !== "pending" && s.status !== "cancelled") ??
+      steps[0] ??
+      null
+    );
+  }, [steps, selected]);
+
+  async function act(fn: () => Promise<WorkflowRun>, next?: (r: WorkflowRun) => void) {
+    setError(null);
+    try {
+      const r = await fn();
+      if (next) next(r);
+      else setRun(r);
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  if (!run) {
+    return <div className="panel">{error ? <p className="error-text">{error}</p> : <p className="muted">Loading…</p>}</div>;
+  }
+  return (
+    <div className="panel credential-view workflow-run">
+      <ViewHead back={() => open({ kind: "workflow", id: run.workflow_id })} title={`${run.workflow_label} #${run.number}`}>
+        <StatusTag status={run.status} />
+        {live && run.readable && (
+          <button className="secondary" onClick={() => act(() => api.cancelWorkflowRun(run.id))} disabled={run.cancel_requested}>
+            {run.cancel_requested ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
+        {!live && run.readable && (
+          <button onClick={() => act(() => api.rerunWorkflowRun(run.id), (r) => open({ kind: "run", id: r.id }))}>Rerun</button>
+        )}
+        <button
+          className="secondary"
+          onClick={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("run", String(run.id));
+            navigator.clipboard?.writeText(url.toString()).then(
+              () => setCopied(true),
+              () => undefined,
+            );
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? "Copied" : "Copy link"}
+        </button>
+      </ViewHead>
+      <p className="muted workflow-run-meta">
+        Started by {run.started_by ?? "someone"} · {when(run.created_at)}
+        {run.started_at && ` · ${live ? "running for" : "took"} ${took(run)}`}
+        {run.trigger !== "manual" && ` · ${run.trigger}`}
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {run.error && <p className="error-text workflow-run-error">{run.error}</p>}
+      {!run.readable ? (
+        <p className="muted">
+          Its parameters and what it found are seen by {run.started_by ?? "its starter"}, their group and admins.
+        </p>
+      ) : (
+        <>
+          {run.params && Object.keys(run.params).length > 0 && <RunParams run={run} />}
+          <div className="workflow-stages">
+            <ol className="workflow-stage-list">
+              {steps.map((s) => (
+                <li
+                  key={s.position}
+                  {...rowProps(() => setSelected(s.position))}
+                  className={`workflow-stage${shown?.position === s.position ? " selected" : ""}`}
+                  data-stage={s.id}
+                  data-status={s.status}
+                >
+                  <span className={`stage-dot stage-${s.status}`} aria-hidden />
+                  <span className="workflow-stage-name">{s.label || s.id}</span>
+                  <span className="muted workflow-stage-time">{s.started_at ? took(s) : s.status === "pending" ? "" : s.status}</span>
+                </li>
+              ))}
+            </ol>
+            {shown && <StageDetail step={shown} />}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A run's parameters by their labels, a connection by its name rather than its id. */
+function RunParams({ run }: { run: WorkflowRun }) {
+  const defs = run.definition?.parameters ?? [];
+  const [names, setNames] = useState<Record<number, string>>({});
+  useEffect(() => {
+    const types = [...new Set(defs.filter((p) => p.connection_type).map((p) => p.connection_type!))];
+    types.forEach((t) =>
+      api
+        .listTargets(t)
+        .then((list) => setNames((cur) => ({ ...cur, ...Object.fromEntries(list.map((x) => [x.id, x.label])) })))
+        .catch(() => undefined),
+    );
+    // The definition is fixed for a run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run.id]);
+  const shown = (p: WorkflowParam | undefined, v: unknown): string => {
+    if (p?.type === "connection" && typeof v === "number") return names[v] ?? String(v);
+    if (p?.type === "connections" && Array.isArray(v)) return v.map((x) => names[x as number] ?? String(x)).join(", ");
+    return typeof v === "object" ? JSON.stringify(v) : String(v);
+  };
+  return (
+    <p className="workflow-run-params">
+      {Object.entries(run.params ?? {}).map(([k, v]) => {
+        const p = defs.find((d) => d.key === k);
+        return (
+          <span key={k} className="tag" data-param={k}>
+            {p?.label || k}: {shown(p, v)}
+          </span>
+        );
+      })}
+    </p>
+  );
+}
+
+function StageDetail({ step }: { step: WorkflowRunStep }) {
+  const outputs = step.outputs ?? null;
+  return (
+    <div className="workflow-stage-detail" data-stage-detail={step.id}>
+      <div className="workflow-stage-head">
+        <h3>{step.label || step.id}</h3>
+        <StatusTag status={step.status} />
+      </div>
+      {step.error && <p className="error-text">{step.error}</p>}
+      {step.inputs !== undefined && step.inputs !== null && (
+        <details className="workflow-stage-inputs">
+          <summary>Inputs</summary>
+          <pre>{JSON.stringify(step.inputs, null, 2)}</pre>
+        </details>
+      )}
+      {outputs && <Outputs outputs={outputs} />}
+      {step.trimmed && <p className="muted">Long lists were cut down to fit.</p>}
+      {!outputs && !step.error && <p className="muted">{step.status === "skipped" ? "Skipped: its if was false." : "No outputs yet."}</p>}
+    </div>
+  );
+}
+
+type Row = Record<string, unknown>;
+const isRows = (v: unknown): v is Row[] =>
+  Array.isArray(v) && v.length > 0 && v.every((r) => r !== null && typeof r === "object" && !Array.isArray(r));
+
+/** A step's outputs: a note's text as text, a list of rows as a table, the
+ * rest as JSON. The pane renderers come with Investigate in a session (4b-3). */
+function Outputs({ outputs }: { outputs: Record<string, unknown> }) {
+  const entries = Object.entries(outputs).filter(([, v]) => v !== null && v !== undefined);
+  if (entries.length === 1 && entries[0][0] === "text" && typeof entries[0][1] === "string") {
+    return <p className="workflow-note">{entries[0][1] as string}</p>;
+  }
+  return (
+    <div className="workflow-outputs">
+      {entries.map(([key, value]) => (
+        <div key={key} className="workflow-output" data-output={key}>
+          <div className="workflow-output-key">{key}</div>
+          {isRows(value) ? <RowsTable rows={value} /> : <pre>{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</pre>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RowsTable({ rows }: { rows: Row[] }) {
+  const columns = useMemo(() => {
+    const seen: string[] = [];
+    rows.slice(0, 200).forEach((r) => Object.keys(r).forEach((k) => !seen.includes(k) && seen.push(k)));
+    return seen.slice(0, 12);
+  }, [rows]);
+  const cell = (v: unknown) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  return (
+    <div className="workflow-rows">
+      <div className="muted">
+        {rows.length} row{rows.length === 1 ? "" : "s"}
+        {rows.length > 100 ? ", the first 100 shown" : ""}
+      </div>
+      <table className="credentials-table">
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 100).map((r, i) => (
+            <tr key={i}>
+              {columns.map((c) => (
+                <td key={c}>{cell(r[c])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

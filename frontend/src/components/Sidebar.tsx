@@ -546,6 +546,15 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
         <span className="rail-add-caret">{catalogue ? "▾" : "▸"}</span>
       </button>
 
+      {/* Workflows are a page of their own, never a session (§20.7): one row,
+          there whether or not the Add list is open. */}
+      <button
+        className={`rail-row rail-row-page${view === "workflows" ? " active" : ""}`}
+        onClick={() => show("workflows")}
+      >
+        <span className="rail-row-label">Workflows</span>
+      </button>
+
       {catalogue && (
         <>
           {/* Starting a session means choosing what goes in it and naming it,
