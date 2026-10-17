@@ -1,0 +1,29 @@
+# Sending HTTP reaches outside the platform, so this step always waits for
+# approval; here it asks for someone other than whoever started the run
+# (`by: others`). Needs an HTTP API connection (Settings → Environments) for
+# your ops API.
+label: Restart a service (with sign-off)
+description: POSTs a restart to the ops API once someone else has approved it.
+parameters:
+  - { key: api, type: connection, connection_type: http_api, label: Ops API, required: true }
+  - { key: service, type: choice, choices: [api, worker, scheduler], label: Service, required: true }
+  - { key: reason, type: text, label: Why, required: true }
+steps:
+  - id: restart
+    label: Restart
+    pane: tool-http
+    action: send
+    approval:
+      message: "Restart {{ params.service }}: {{ params.reason }}"
+      by: others
+      timeout: 3600
+    retry: 2
+    retry_delay: 10
+    with:
+      targetId: "{{ params.api }}"
+      method: POST
+      url: "/services/{{ params.service }}/restart"
+      body: "{{ {'reason': params.reason, 'requested_by': run.started_by} }}"
+
+  - id: result
+    note: "The ops API answered {{ steps.restart.outputs.response.status_code }} {{ steps.restart.outputs.response.status_text }}."

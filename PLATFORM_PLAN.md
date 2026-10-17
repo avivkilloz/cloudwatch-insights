@@ -4516,6 +4516,10 @@ As planned, with these settled in the building:
   workflow's runs take theirs with them.
 - **The rail** (D93): the platform's own pages -- Workflows now -- sit under the
   brand, above Sessions.
+- **After it, for the examples** (`examples/workflows/`, checked by the tests):
+  templates have CEL's strings and math extensions (a summary of rows needs
+  `join`), and a map or list given to a `text` input is sent as its JSON (an
+  HTTP body written as a CEL map reached the API as Python's repr).
 
 ## 12. Research sources
 

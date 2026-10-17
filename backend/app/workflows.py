@@ -49,6 +49,8 @@ from typing import Any, Callable, Literal, Optional
 
 import yaml
 from cel_expr_python import cel
+from cel_expr_python.ext.ext_math import ExtMath
+from cel_expr_python.ext.ext_strings import ExtStrings
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -359,7 +361,10 @@ def _names(expr: str) -> set[str]:
 
 @functools.lru_cache(maxsize=1024)
 def _compiled(expression: str):
-    env = cel.NewEnv(variables={name: cel.Type.DYN for name in SCOPE})
+    # The strings and math extensions (join, split, lowerAscii, replace;
+    # math.greatest...): a summary of a list of rows has nothing to say it
+    # with otherwise. Both are pure functions over what's in scope.
+    env = cel.NewEnv(variables={name: cel.Type.DYN for name in SCOPE}, extensions=[ExtStrings(), ExtMath()])
     try:
         return env.compile(expression)
     except RuntimeError as e:
@@ -1057,8 +1062,16 @@ def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Ste
 
 
 def _inputs(manifest: pane_manifest.Manifest, given: Any) -> dict:
-    """What an action runs with: what the step gave, over the inputs' defaults."""
-    return {**{i.key: i.default for i in manifest.inputs if i.default is not None}, **(given or {})}
+    """What an action runs with: what the step gave, over the inputs' defaults.
+    A text input given a map or a list (`body: "{{ {'reason': params.why} }}"`)
+    takes its JSON: handed on as it was, a handler's str() made Python's repr
+    of it, which no API reads -- and CEL has no way to write JSON itself."""
+    kinds = {i.key: i.type for i in manifest.inputs}
+    given = {
+        k: json.dumps(v, default=str) if kinds.get(k) == "text" and isinstance(v, (dict, list)) else v
+        for k, v in (given or {}).items()
+    }
+    return {**{i.key: i.default for i in manifest.inputs if i.default is not None}, **given}
 
 
 def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
