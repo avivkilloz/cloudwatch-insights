@@ -874,6 +874,8 @@ past a failure with `continue_on_error`.
   Run files are kept 90 days.
 - The agent can list, run and read workflows too ("run the table check on
   Prod"); a step needing approval waits for you, never the agent.
+- **Examples** to paste in and run are in `examples/workflows/` (one needs
+  nothing at all: `01-try-me.yaml`).
 
 ## The store repo
 

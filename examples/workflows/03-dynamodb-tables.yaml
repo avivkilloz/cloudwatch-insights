@@ -1,0 +1,30 @@
+# Describes every DynamoDB table whose name starts with a prefix and keeps a
+# CSV of their item counts and sizes. for_each + continue_on_error: one table
+# that can't be described doesn't stop the others.
+label: DynamoDB tables report
+description: Item count and size of each table matching a prefix, as a CSV.
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment, required: true }
+  - { key: prefix, type: text, default: "", label: Table name starts with }
+steps:
+  - id: tables
+    pane: tables
+    action: list_tables
+    with: { connection: "{{ params.env }}" }
+
+  - id: describe
+    label: Describe each table
+    for_each: "{{ steps.tables.outputs.options.filter(t, t.value.startsWith(params.prefix)) }}"
+    pane: tables
+    action: describe
+    continue_on_error: true
+    with: { connection: "{{ params.env }}", tableName: "{{ item.value }}" }
+
+  - id: report
+    artifact:
+      name: "tables-{{ run.number }}.csv"
+      format: csv
+      value: "{{ steps.describe.outputs.items.filter(i, has(i.tableInfo)).map(i, i.tableInfo) }}"
+
+  - id: summary
+    note: "{{ size(steps.describe.outputs.items.filter(i, has(i.tableInfo))) }} of {{ size(steps.describe.outputs.items) }} tables described."

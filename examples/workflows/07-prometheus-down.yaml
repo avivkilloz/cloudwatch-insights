@@ -1,0 +1,13 @@
+# Which Prometheus targets are down right now (up == 0 over the last 5 minutes).
+label: Prometheus targets down
+description: Lists the series whose up was 0 in the last five minutes.
+parameters:
+  - { key: prom, type: connection, connection_type: prometheus, label: Prometheus, required: true }
+steps:
+  - id: up
+    pane: prometheus
+    action: run
+    with: { connection: "{{ params.prom }}", query: "up == 0", preset: 300 }
+
+  - id: summary
+    note: "{{ size(steps.up.outputs.rows) == 0 ? 'Every target is up.' : 'Down: ' + steps.up.outputs.rows.map(r, r.series).join(', ') }}"

@@ -1,0 +1,24 @@
+# MQTT's Connect never finishes by itself, so the step listens for `listen`
+# seconds (a number in the definition, not a template), then disconnects and
+# keeps what arrived.
+label: Listen to a topic
+description: Collects an MQTT topic's messages for a while and keeps them as JSON.
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment, required: true }
+  - { key: topic, type: text, default: "devices/+/telemetry", label: Topic filter }
+steps:
+  - id: listen
+    pane: tool-mqtt
+    action: connect
+    listen: 30
+    with: { connection: "{{ params.env }}", topics: ["{{ params.topic }}"] }
+
+  - id: file
+    if: "{{ size(steps.listen.outputs.messages) > 0 }}"
+    artifact:
+      name: "mqtt-{{ run.number }}.json"
+      format: json
+      value: "{{ steps.listen.outputs.messages }}"
+
+  - id: summary
+    note: "{{ size(steps.listen.outputs.messages) }} messages on {{ params.topic }}."

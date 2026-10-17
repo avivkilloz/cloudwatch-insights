@@ -1,0 +1,30 @@
+# Try the runner without any AWS: parameters, notes, for_each, an approval
+# and a file. Paste it into Workflows → New workflow, Create, then Run ▸.
+label: Try me
+description: Says hello, counts, waits for your approval, then writes a file.
+parameters:
+  - { key: name, type: text, default: world, label: Your name }
+  - { key: count, type: int, default: 3, label: How many items (1-5) }
+steps:
+  - id: greet
+    note: "Hello, {{ params.name }}!"
+
+  # Runs once per item; `item` and `index` are in scope.
+  - id: each
+    for_each: "{{ [1, 2, 3, 4, 5].filter(i, i <= params.count) }}"
+    note: "Item {{ index }} of {{ params.count }}: {{ item * 10 }}"
+
+  # A bare approval: the run waits (holding nothing) until someone who may
+  # read the run approves or denies it on the run page.
+  - id: ok
+    label: Your go-ahead
+    approval:
+      message: "Write the file for {{ params.name }}?"
+
+  # A file the run hands on: downloaded from the run page.
+  - id: file
+    label: The file
+    artifact:
+      name: "hello-{{ params.name }}-run-{{ run.number }}.json"
+      format: json
+      value: "{{ {'name': params.name, 'notes': steps.each.outputs.items.map(i, i.text), 'approved_by': steps.ok.outputs.approved_by} }}"

@@ -505,3 +505,38 @@ def test_the_s3_backend_keeps_files_under_its_prefix(monkeypatch):
     monkeypatch.delenv("STORAGE_S3_BUCKET")
     with pytest.raises(blobs.BlobError, match="STORAGE_S3_BUCKET"):
         blobs.backend()
+
+
+# ---------------------------------------------------------------- what the samples needed
+
+
+def test_a_text_input_given_a_map_gets_its_json_and_strings_can_be_joined(sent):
+    """A JSON body is written as a CEL map (CEL can't write JSON itself): the
+    HTTP client's text input used to get Python's repr of it. And a summary of
+    rows needs join() -- the CEL strings extension."""
+    _wf(r"""label: Body
+steps:
+  - id: send
+    pane: tool-http
+    action: send
+    with:
+      method: POST
+      url: https://ops.example.com/x
+      body: >-
+        {{ {'reason': "disk \"full\"", 'n': [1, 2]} }}
+  - id: names
+    note: "{{ ['a', 'b'].join(', ') }} / {{ 'A-B'.lowerAscii() }}"
+""")
+    run = _finished(_run("wf", {})["id"])
+    approval = _step(run, "send")["approval"]
+    assert json.loads(approval["details"]["inputs"]["body"]) == {"reason": 'disk "full"', "n": [1, 2]}
+    client.post(f"/api/approvals/{approval['id']}/approve")
+    done = _finished(run["id"])
+    assert done["status"] == "succeeded", done
+    assert json.loads(sent[0][2]) == {"reason": 'disk "full"', "n": [1, 2]}
+    assert _step(done, "names")["outputs"]["text"] == "a, b / a-b"
+
+
+@pytest.mark.parametrize("path", sorted(Path(__file__).resolve().parents[2].joinpath("examples", "workflows").glob("*.yaml")))
+def test_the_example_workflows_are_valid(path):
+    assert _errors(path.read_text()) == [], path.name

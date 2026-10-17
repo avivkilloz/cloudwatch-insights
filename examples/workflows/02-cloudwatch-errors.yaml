@@ -1,0 +1,36 @@
+# A CloudWatch Logs Insights query is a background run: the step waits for it
+# to finish, or stops it at `timeout`. The matching lines are kept as a CSV.
+label: Errors in a log group
+description: The latest lines matching a pattern in a log group over the last hour, as a CSV.
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment, required: true }
+  - { key: group, type: text, label: Log group, required: true, help: "e.g. /aws/lambda/my-function" }
+  - { key: pattern, type: text, default: "ERROR", label: Matching (a regex) }
+  - { key: hours, type: choice, choices: [1, 6, 24], default: 1, label: Over the last (hours) }
+steps:
+  - id: lines
+    label: Query Logs Insights
+    pane: logs-cloudwatch
+    action: run
+    timeout: 300
+    retry: 1
+    with:
+      # The log groups to query, per environment: {"<connection id>": [groups]}.
+      logGroupSelection: "{{ {string(params.env): [params.group]} }}"
+      queryString: "fields @timestamp, @message | filter @message like /{{ params.pattern }}/ | sort @timestamp desc"
+      limit: 500
+      preset: "{{ int(params.hours) * 3600 }}"
+
+  # Each row is a list of {field, value}: made into {timestamp, message}.
+  - id: csv
+    if: "{{ size(steps.lines.outputs.results[0].rows) > 0 }}"
+    artifact:
+      name: "{{ params.group.replace('/', '_') }}-{{ run.number }}.csv"
+      format: csv
+      value: >-
+        {{ steps.lines.outputs.results[0].rows.map(r, {
+             'timestamp': r.exists(f, f.field == '@timestamp') ? r.filter(f, f.field == '@timestamp')[0].value : '',
+             'message': r.exists(f, f.field == '@message') ? r.filter(f, f.field == '@message')[0].value : ''}) }}
+
+  - id: summary
+    note: "{{ size(steps.lines.outputs.results[0].rows) }} lines matched {{ params.pattern }} in {{ params.group }} over the last {{ params.hours }} h{{ steps.lines.outputs.results[0].error != null ? ' (' + steps.lines.outputs.results[0].error + ')' : '' }}."

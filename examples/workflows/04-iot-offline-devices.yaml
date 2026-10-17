@@ -1,0 +1,30 @@
+# Searches IoT (Fleet Indexing) across several environments and writes one
+# CSV per environment of the things that aren't connected.
+label: Offline devices
+description: Things IoT says are disconnected, one CSV per environment.
+parameters:
+  - { key: envs, type: connections, connection_type: aws, label: Environments, required: true }
+  - { key: query, type: text, default: "connectivity.connected:false", label: Fleet Indexing query }
+  - { key: most, type: int, default: 200, label: At most per environment }
+steps:
+  - id: search
+    pane: iot
+    action: search
+    retry: 2
+    retry_delay: 10
+    with:
+      connections: "{{ params.envs }}"
+      searchMode: things
+      queryString: "{{ params.query }}"
+      maxResults: "{{ params.most }}"
+
+  - id: csv
+    label: One CSV per environment
+    for_each: "{{ steps.search.outputs.thingResults.filter(g, g.error == null) }}"
+    artifact:
+      name: "offline-{{ item.environment_name }}-run-{{ run.number }}.csv"
+      format: csv
+      value: "{{ item.things.map(t, {'thing': t.thing_name, 'type': t.thing_type_name, 'groups': t.thing_group_names, 'connected': t.connected}) }}"
+
+  - id: summary
+    note: "{{ steps.search.outputs.thingResults.map(g, g.environment_name + ': ' + (g.error == null ? string(size(g.things)) + ' offline' : 'failed')).join(', ') }}"

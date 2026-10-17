@@ -677,8 +677,11 @@ their own (the rail's Workflows row), never a session.
   unique ids, pane/action/input existing, CEL compiling, `steps.<id>` naming an
   earlier step -- each error with its line (`_line`, through `yaml.compose`).
 - **Templates are CEL in `{{ … }}`** over `params`, `steps.<id>.outputs/.status`,
-  `item`, `index`, `run`: one whole template is its typed value, text around
-  makes a string; `if`/`for_each` are expressions, braces optional.
+  `item`, `index`, `run`, with the strings and math extensions (`join`):
+  one whole template is its typed value, text around makes a string;
+  `if`/`for_each` are expressions, braces optional. A map or list given to a
+  `text` input is sent as its JSON (`_inputs`: an HTTP body). The files in
+  `examples/workflows/` are checked by the tests -- keep them valid.
 - **A run acts as its starter** (every step through `pane_access.require` and
   the handler's own connection check), and **its inputs and outputs are its
   starter's, their group's and admins'** (`can_read`, D84) -- other granted
