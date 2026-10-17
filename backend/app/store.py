@@ -89,6 +89,14 @@ class Kind:
     # adoption, and the repo's copy wins over the seed on a restore.
     seeded: Callable[[Any], bool]
     label: Callable[[Any], str]
+    # The file itself, for a kind kept as it was written (a workflow's YAML,
+    # comments and all) rather than dumped from its row. Its `load` then finds
+    # the file's text under `__source__`.
+    file: Optional[Callable[[Any], str]] = None
+
+
+def _content(kind: "Kind", row: Any) -> str:
+    return kind.file(row) if kind.file is not None else render(kind.dump(row))
 
 
 def _clean(d: dict) -> dict:
@@ -181,6 +189,31 @@ def _remove_connection_type(db: Session, row: models.ConnectionType) -> None:
     db.delete(row)
 
 
+def _load_workflow(db: Session, data: dict, row: Optional[models.Workflow],
+                   _actor: Optional[models.User]) -> models.Workflow:
+    from . import workflows
+
+    workflow_id = str(data.get("id") or "")
+    if not valid_id(workflow_id, workflows.ID_RE):
+        raise StoreError(f"'{workflow_id}' isn't a workflow id.")
+    source = str(data.get("__source__") or "")
+    try:
+        definition = workflows.parse(source)
+    except workflows.WorkflowError as e:
+        raise StoreError(f"Workflow {workflow_id}: {e}") from None
+    if row is None:
+        row = models.Workflow(id=workflow_id)
+        db.add(row)
+    row.label, row.description, row.source = definition.label, definition.description, source
+    row.definition = definition.model_dump(by_alias=True, exclude_none=True)
+    row.updated_at = datetime.datetime.utcnow()
+    return row
+
+
+def _remove_workflow(db: Session, row: models.Workflow) -> None:
+    db.delete(row)
+
+
 KINDS: dict[str, Kind] = {
     k.key: k
     for k in (
@@ -189,6 +222,11 @@ KINDS: dict[str, Kind] = {
             noun="credential type", model=models.CredentialType, dump=_dump_credential_type,
             load=_load_credential_type, remove=_remove_credential_type, builtin=lambda r: bool(r.builtin),
             seeded=lambda r: False, label=lambda r: r.label,
+        ),
+        Kind(
+            key="workflow", directory="workflows", contributes="workflows", noun="workflow",
+            model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
+            builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
         ),
         Kind(
             key="connection_type", directory="connection-types", contributes="connection_types",
@@ -413,7 +451,7 @@ def record(db: Session, kind_key: str, item_id: str, op: str, actor: Optional[mo
         row = db.get(kind.model, item_id)
         if row is None or kind.builtin(row):
             return
-        content = render(kind.dump(row))
+        content = _content(kind, row)
     elif item is None:
         return  # never written to the repo, so nothing to delete there
     if item is None:
@@ -655,10 +693,13 @@ def restore(db: Session, actor: Optional[models.User] = None) -> list[str]:
 
 def _restore_one(db: Session, repo: gitrepo.Repo, kind: Kind, path: str, tracked: set, deleting: set,
                  actor: Optional[models.User]) -> Optional[str]:
+    raw = repo.read(path) or ""
     try:
-        data = yaml.safe_load(repo.read(path) or "") or {}
+        data = yaml.safe_load(raw) or {}
     except yaml.YAMLError as e:
         return f"Skipped {path}: not YAML ({e})."
+    if isinstance(data, dict):
+        data["__source__"] = raw
     item_id = str(data.get("id") or "") if isinstance(data, dict) else ""
     if not item_id:
         return f"Skipped {path}: it has no id."
@@ -677,7 +718,7 @@ def _restore_one(db: Session, repo: gitrepo.Repo, kind: Kind, path: str, tracked
         return f"Skipped {path}: {e}"
     if kind.builtin(row):
         return f"Skipped {path}: {item_id} is built in."
-    mine = repo.hash(render(kind.dump(row)))
+    mine = repo.hash(_content(kind, row))
     same = mine == remote
     db.add(models.StoreItem(
         kind=kind.key, item_id=item_id, path=path, blob=remote if same else None,
@@ -753,7 +794,7 @@ def sides(db: Session, kind_key: str, item_id: str) -> dict[str, Optional[str]]:
         except gitrepo.GitError as e:
             raise StoreError(str(e)) from None
         theirs = repo.read(tracked.path)
-    return {"mine": render(kind.dump(row)) if row is not None else None, "theirs": theirs, "path": tracked.path}
+    return {"mine": _content(kind, row) if row is not None else None, "theirs": theirs, "path": tracked.path}
 
 
 def resolve(db: Session, kind_key: str, item_id: str, take: str, actor: models.User) -> None:
@@ -792,10 +833,13 @@ def resolve(db: Session, kind_key: str, item_id: str, take: str, actor: models.U
                     kind.remove(db, row)
                 db.delete(tracked)
             else:
+                raw = repo.read(tracked.path) or ""
                 try:
-                    data = yaml.safe_load(repo.read(tracked.path) or "") or {}
+                    data = yaml.safe_load(raw) or {}
                 except yaml.YAMLError as e:
                     raise StoreError(f"The repo's file isn't YAML: {e}") from None
+                if isinstance(data, dict):
+                    data["__source__"] = raw
                 if str(data.get("id") or "") != item_id:
                     raise StoreError(f"The repo's {tracked.path} is now {data.get('id')!r}, not {item_id}.")
                 kind.load(db, data, row, actor)

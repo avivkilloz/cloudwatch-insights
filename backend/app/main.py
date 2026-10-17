@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access, store
+from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access, store, workflows
 from .db import Base, SessionLocal, engine, ensure_columns
 from .panes import runs as pane_runs
 from .panes import saved as pane_saved
@@ -27,6 +27,7 @@ from .routers import (
     tools,
     user_groups,
     users,
+    workflows as workflows_router,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -101,9 +102,11 @@ async def lifespan(_app: FastAPI):
     async with platform_server.endpoint.lifespan():
         pane_runs.manager.start()
         store.manager.start()
+        workflows.manager.start()
         try:
             yield
         finally:
+            await workflows.manager.stop()
             await store.manager.stop()
             await pane_runs.manager.stop()
 
@@ -138,6 +141,8 @@ app.include_router(tools.router)
 app.include_router(saved_inputs.router)
 app.include_router(catalogue_router.router)
 app.include_router(store_router.router)
+app.include_router(workflows_router.router)
+app.include_router(workflows_router.runs_router)
 
 
 @app.get("/api/health")

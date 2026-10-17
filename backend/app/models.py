@@ -697,3 +697,83 @@ class StoreOutbox(Base):
     batch = Column(String(64), nullable=True)
     author = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class Workflow(Base):
+    """A workflow (PLATFORM_PLAN.md §22, D83): parameters and steps, kept as
+    the YAML it was written in (`source`, verbatim -- comments and all, the
+    store repo's file) beside what it parsed to (`definition`)."""
+
+    __tablename__ = "workflows"
+
+    id = Column(String(64), primary_key=True)
+    label = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    source = Column(Text, nullable=False)
+    definition = Column(JSON, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class WorkflowGrant(Base):
+    """A group that may run a workflow (D84). The Admin group needs none."""
+
+    __tablename__ = "workflow_grants"
+    __table_args__ = (UniqueConstraint("workflow_id", "group_id", name="uq_workflow_grant"),)
+
+    id = Column(Integer, primary_key=True)
+    workflow_id = Column(String(64), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+
+
+class WorkflowRun(Base):
+    """One run of a workflow, as whoever started it (D84, D85). `definition`
+    is the workflow as it was when the run started, so a later edit doesn't
+    change what a run's page says it did."""
+
+    __tablename__ = "workflow_runs"
+    __table_args__ = (UniqueConstraint("workflow_id", "number", name="uq_workflow_run_number"),)
+
+    id = Column(Integer, primary_key=True)
+    workflow_id = Column(String(64), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    number = Column(Integer, nullable=False)
+    status = Column(String(16), nullable=False, default="queued")  # queued running succeeded failed cancelled
+    params = Column(JSON, nullable=False, default=dict)
+    definition = Column(JSON, nullable=False)
+    started_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    started_by_name = Column(String, nullable=True)
+    # The group the starter was in: who may read the run (D84).
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    trigger = Column(String(16), nullable=False, default="manual")  # manual agent rerun
+    # The starter's time zone, for a step over a time range (Prometheus').
+    timezone = Column(String(64), nullable=True)
+    rerun_of = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)
+    cancel_requested = Column(Boolean, nullable=False, server_default="false")
+    replica = Column(String, nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class WorkflowRunStep(Base):
+    """One step of a run, as it went: what it ran with, what came back."""
+
+    __tablename__ = "workflow_run_steps"
+    __table_args__ = (UniqueConstraint("run_id", "position", name="uq_workflow_run_step"),)
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = Column(Integer, nullable=False)
+    step_id = Column(String(64), nullable=False)
+    label = Column(String, nullable=True)
+    status = Column(String(16), nullable=False, default="pending")  # pending running succeeded failed skipped cancelled
+    inputs = Column(JSON, nullable=True)
+    outputs = Column(JSON, nullable=True)
+    trimmed = Column(Boolean, nullable=False, server_default="false")
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
