@@ -1214,7 +1214,13 @@ it and fails on the old CSS).
   run page (stages, inputs, outputs as a table or JSON, live while running,
   Cancel, Rerun, Copy link, `?run=<id>`).
 - Tests: backend `test_workflows.py` (16); browser `smoke85` (14), failing
-  against the old frontend.
+  against the old frontend. Backend 458. Full browser run 67 of 69: smoke31's
+  two styling checks as on main, and smoke76 missing one "still working"
+  sample once (green alone, 27/27, and in the run before).
+- Found by the full run and fixed: the Workflows row is a rail row, which the
+  suites' open-session selectors counted (they skip `.rail-row-page` now); and
+  the hidden Workflows page's switch sat beside Settings' (it draws nothing
+  off screen now).
 
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
