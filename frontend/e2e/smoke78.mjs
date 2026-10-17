@@ -89,6 +89,22 @@ const run = async () => {
   });
   check(head, "…its buttons on the header's one line, inside the side panel");
   await page.click(`${RAIL_CARD} [aria-label="Expand the session card"]`);
+  // Expanded, it runs down to the bottom of the column when there's room: it
+  // was capped at 60% of the window and scrolled over an empty space below.
+  // The rail's Add list folded, so the sessions list above it is short.
+  await page.click('.rail-add[aria-expanded="true"]');
+  await page.setViewportSize({ width: 1400, height: 1300 });
+  await page.waitForTimeout(400);
+  const fill = await page.locator(RAIL_CARD).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { bottom: Math.round(r.bottom), window: innerHeight, scrolls: el.scrollHeight > el.clientHeight + 1 };
+  });
+  check(!fill.scrolls || fill.bottom >= fill.window - 20, "Expanded in the side panel, it fills the column to the window's bottom before it scrolls", JSON.stringify(fill));
+  await page.setViewportSize({ width: 1400, height: 760 });
+  await page.waitForTimeout(400);
+  const short = await page.locator(RAIL_CARD).evaluate((el) => ({ height: Math.round(el.getBoundingClientRect().height), window: innerHeight }));
+  check(short.height > 150, "…and in a short window it still keeps a usable share", JSON.stringify(short));
+  await page.click('.rail-add[aria-expanded="false"]');
   await page.click(`${RAIL_CARD} .session-card-move`);
   await page.waitForSelector(ROW_OF("Members"));
   await page.fill(`${ROW_OF("Members")} [aria-label="Username to invite"]`, member);

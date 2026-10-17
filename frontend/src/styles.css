@@ -3161,9 +3161,16 @@ th {
 
 /* Empty whenever no card is in it (the panel's column has a gap, and an
    empty slot would double it). */
+/* The rest of the column is the card's: it grows to the window's bottom edge
+   and scrolls only past that (it was capped at 60vh, leaving the bottom of the
+   column empty under a card that scrolled). When the column is short, it and
+   the sessions list both give way, each in proportion to its size: weighted
+   towards the card, a long list squeezed it to nothing. */
 .rail-session-slot {
-  flex: none;
+  flex: 0 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .rail-session-slot:empty {
@@ -3175,7 +3182,8 @@ th {
    cards and controls run tighter than the body's do. */
 .session-card.in-rail {
   margin: 0;
-  max-height: 60vh;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 
