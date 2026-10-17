@@ -4,7 +4,7 @@ import { ADMIN_PASSWORD, ADMIN_USER, BASE, SHOT, check, closeTab, launch, newSes
 /** Add holds the way to the new-session card, the one-click services and
  * tools, and templates. */
 const NEW_SESSION = '.rail-row-new:has(.rail-row-label:text-is("Start new session…"))';
-const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home)";
+const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page)";
 const ROW = (l) => `${OPEN}:has(.rail-row-label:text-is("${l}"))`;
 const CLOSED = (l) => `.rail-row-closed:has(.rail-row-label:text-is("${l}"))`;
 const TAB = (l) => `.session-tab:has(.session-tab-label:text-is("${l}"))`;
@@ -106,7 +106,7 @@ const TPL = `Template under Add ${Date.now()}`;
   const dim = await page.evaluate(() => {
     const closed = getComputedStyle(document.querySelector(".rail-row-closed .rail-row-label")).color;
     const open = getComputedStyle(document.querySelector(
-      ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.active) .rail-row-label")).color;
+      ".rail-row:not(.rail-row-type):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page):not(.active) .rail-row-label")).color;
     return { closed, open };
   });
   check(dim.closed !== dim.open, "…which is how you tell it from one that is open", JSON.stringify(dim));

@@ -836,6 +836,29 @@ connection of their own: each is an HTTP API with a Base URL and the plain
 fields you add (a secret belongs in a credential). Built-in types can't be
 changed, and a type that connections use or a pane reaches can't be deleted.
 
+## Workflows
+
+**Workflows** (a row of the side panel) are steps you run more than once, the
+same way each time: parameters, then a list of steps, each one an action a pane
+already has -- a DynamoDB scan, a Prometheus query, an IoT search -- or a note
+summing up. Steps can depend on earlier ones (`{{ steps.scan.outputs.items }}`),
+run only `if` something holds, run once per item with `for_each`, and carry on
+past a failure with `continue_on_error`.
+
+- **Running one**: open it, **Run ▸**, fill in its parameters (an environment
+  picked by name), Run. The run page shows each stage as it finishes; click
+  one to see what it ran with and what came back -- rows as a table. **Rerun**
+  runs it again; **Copy link** gives the run's own address to send someone.
+- **As you**: a run acts as whoever starts it, so it reaches only what your
+  group can. Its parameters and results are seen by you, your group and
+  admins; others who may run the workflow see only that a run happened.
+- **Writing one** is an admin's (for now), in YAML on the workflow's page:
+  **Check** points at the line of any mistake before saving. **Access** says
+  which groups may run it. With a store repo set up, each workflow is kept
+  there as written, comments and all.
+- The agent can list, run and read workflows too ("run the table check on
+  Prod").
+
 ## The store repo
 
 Admins can point the platform at a git repo (**Settings → Store**, or the

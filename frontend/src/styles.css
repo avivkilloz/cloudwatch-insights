@@ -3161,9 +3161,16 @@ th {
 
 /* Empty whenever no card is in it (the panel's column has a gap, and an
    empty slot would double it). */
+/* The rest of the column is the card's: it grows to the window's bottom edge
+   and scrolls only past that (it was capped at 60vh, leaving the bottom of the
+   column empty under a card that scrolled). When the column is short, it and
+   the sessions list both give way, each in proportion to its size: weighted
+   towards the card, a long list squeezed it to nothing. */
 .rail-session-slot {
-  flex: none;
+  flex: 0 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .rail-session-slot:empty {
@@ -3175,7 +3182,8 @@ th {
    cards and controls run tighter than the body's do. */
 .session-card.in-rail {
   margin: 0;
-  max-height: 60vh;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -4294,4 +4302,179 @@ button.icon-btn {
 }
 .store-locked {
   margin-top: 0;
+}
+
+/* Workflows (PLATFORM_PLAN.md §22): run and stage statuses, the run page's
+   stages beside the selected stage, the definition's editor. */
+.run-status-succeeded {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.run-status-failed {
+  color: var(--error);
+  border-color: var(--error);
+}
+.run-status-running,
+.run-status-queued {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.workflow-description,
+.workflow-run-meta {
+  margin: 0 0 12px;
+}
+.workflow-run-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.workflow-stages {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .workflow-stages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.workflow-stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.workflow-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.workflow-stage:last-child {
+  border-bottom: none;
+}
+.workflow-stage.selected {
+  background: var(--panel-alt);
+}
+.workflow-stage-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-stage-time {
+  font-size: 12px;
+}
+.stage-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+}
+.stage-succeeded {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.stage-failed {
+  background: var(--error);
+  border-color: var(--error);
+}
+.stage-running {
+  border-color: var(--accent);
+  border-top-color: transparent;
+  animation: stage-spin 0.9s linear infinite;
+}
+.stage-skipped,
+.stage-cancelled {
+  background: var(--panel-alt);
+}
+@keyframes stage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.workflow-stage-detail {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.workflow-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.workflow-stage-head h3 {
+  margin: 0;
+  font-size: 15px;
+  /* A stage's own name, as written -- not a section heading's capitals. */
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+.workflow-stage-detail pre,
+.workflow-source {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+textarea.workflow-source {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: none;
+  resize: vertical;
+}
+.workflow-stage-inputs summary {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.workflow-output {
+  margin-top: 10px;
+}
+.workflow-output-key {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.workflow-rows {
+  overflow-x: auto;
+}
+.workflow-note {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.workflow-problems {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.workflow-param {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+}
+.workflow-param-help {
+  font-size: 12px;
+}
+.workflow-param-multi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.workflows-run-cell {
+  text-align: right;
 }

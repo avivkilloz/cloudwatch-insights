@@ -51,7 +51,7 @@ async function login(page) {
 // The brand heads the rail as a row of its own (the way home, where the Home
 // row used to be), so it is left out of the sessions by its class.
 const tabTitles = async (page) =>
-  await page.locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label").allTextContents();
+  await page.locator(".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page) .rail-row-label").allTextContents();
 
 /** Scoped to the session on screen: every open session stays mounted, so an
  * unscoped selector matches the hidden ones too. */
@@ -200,7 +200,7 @@ const VISIBLE = ".session-body:not([hidden])";
   await page.waitForFunction(
     () =>
       document.querySelectorAll(
-        ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home) .rail-row-label",
+        ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page) .rail-row-label",
       ).length === 2,
   );
   check(

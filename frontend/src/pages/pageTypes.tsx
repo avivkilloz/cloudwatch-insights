@@ -1,5 +1,6 @@
 import { JSX } from "react";
 import AgentPage from "./AgentPage";
+import WorkflowsPage from "./WorkflowsPage";
 
 /**
  * The pages that are not sessions.
@@ -72,15 +73,12 @@ export const PAGES: PageDef[] = [
     id: "workflows",
     label: "Workflows",
     description: "Steps you run more than once.",
-    help: "Sequences of searches and actions you run more than once, saved so they run the same way each time.",
+    help:
+      "Sequences of pane actions you run more than once, with parameters, the same way each time. Each run is " +
+      "kept: its stages, what each ran with and what came back. A run acts as whoever starts it.",
     onHome: true,
     enabledFor: () => true,
-    render: () => (
-      <ComingSoon
-        label="Workflows"
-        what="Sequences of searches and actions you run more than once, saved so they run the same way each time."
-      />
-    ),
+    render: () => <WorkflowsPage />,
   },
   {
     id: "chat",

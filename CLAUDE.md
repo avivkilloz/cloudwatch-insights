@@ -65,6 +65,7 @@ backend/app/
   aws_client.py      STS assume-role helper every *_client.py goes through
   *_client.py        one module per AWS service (iot, dynamodb, s3, cognito, opensearch…)
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
+  workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner (§22)
   store.py           the store repo: what's built here, written through to git as a plugin (§21)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
@@ -658,6 +659,38 @@ never a deployment's values or state.
   `STORE_GIT_ALLOW_FILE_URLS`, which pytest and the dev stack set); a URL with
   credentials is refused; the token goes through `GIT_ASKPASS`, a key through
   `GIT_SSH_COMMAND`, both masked. Tests run against real git (a bare repo).
+
+**Workflows** (PLATFORM_PLAN.md §20.7, §22, D82–D86; `workflows.py`,
+`routers/workflows.py`, `pages/WorkflowsPage.tsx`). Pipelines on a page of
+their own (the rail's Workflows row), never a session.
+- **A step is a pane's Action** -- a manifest's `request` or `handler`, run
+  through `routers/panes.run_request`/`run_handler`, the very functions the
+  action endpoint and the agent's `run_pane` call -- or a `note`. Never give
+  workflows a runner of their own for something a pane does: that is the drift
+  D49 ended. Background runs (`poll`) and `effects: external` actions are
+  refused on save until 4b-2 (approvals).
+- **The definition is YAML kept verbatim** (`source`; the store's file, a
+  `Kind` with `file=`, its `id:` line added on save) beside what it parsed to
+  (`definition`). It's checked in full on save (`parse`/`check`): strict schema,
+  unique ids, pane/action/input existing, CEL compiling, `steps.<id>` naming an
+  earlier step -- each error with its line (`_line`, through `yaml.compose`).
+- **Templates are CEL in `{{ … }}`** over `params`, `steps.<id>.outputs/.status`,
+  `item`, `index`, `run`: one whole template is its typed value, text around
+  makes a string; `if`/`for_each` are expressions, braces optional.
+- **A run acts as its starter** (every step through `pane_access.require` and
+  the handler's own connection check), and **its inputs and outputs are its
+  starter's, their group's and admins'** (`can_read`, D84) -- other granted
+  groups see that it happened. Editing is an admin's until the Builder grant.
+- **Runs run in-process**: `start` queues (with a row per step); `manager`
+  claims with `SKIP LOCKED` in any replica and runs on a thread, a heartbeat
+  per step; `sweep` fails a run whose heartbeat lapsed (not resumed, D85).
+  Outputs are capped per step (`pane_outputs.fit`, 1 MiB). Tests call
+  `workflows.drain()` (no lifespan, no manager).
+- **The run page** reads the run every second while it's going, and is
+  `?run=<id>` (`setRunParam`; opening the app at it shows it). Stage outputs
+  are a table for rows, JSON otherwise -- the pane renderers come with 4b-3.
+- The agent has `list_workflows`, `run_workflow` (waits up to `wait_seconds`),
+  `get_workflow_run`.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

@@ -142,7 +142,7 @@ const V = ".session-body:not([hidden])";
   // The rail is a column, so the drag is vertical; only the Open rows move,
   // so the brand (the way home), the templates and the catalogue are excluded
   // from the comparison.
-  const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home)";
+  const OPEN = ".rail-row:not(.rail-row-type):not(.rail-row-template):not(.rail-row-closed):not(.rail-row-home):not(.rail-row-page)";
   const openTitles = async () => await page.locator(`${OPEN} .rail-row-label`).allTextContents();
   const titlesBefore = await openTitles();
   check(titlesBefore.length >= 3, "Three sessions are open to reorder", JSON.stringify(titlesBefore));

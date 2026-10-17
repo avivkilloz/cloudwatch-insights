@@ -1468,6 +1468,79 @@ async def stop_pane(session_id: str, pane_id: str) -> dict:
                 **({} if stopped else {"note": "Nothing was running in that pane."})}
 
 
+# ---------------------------------------------------------------- workflows (§22)
+
+
+def _run_out(db: Session, run: models.WorkflowRun, user: models.User) -> dict:
+    """A run as the agent reads it: where it got to, and each step's outputs
+    cut down to a sample -- or only that it happened, when its outputs aren't
+    the asker's to see (D84)."""
+    from .. import workflows
+
+    out = workflows.summary(db, run, user, detail=True)
+    out.pop("definition", None)
+    for step in out.get("steps") or []:
+        step.pop("inputs", None)
+        if step.get("outputs") is not None:
+            step["outputs"] = _bounded(step["outputs"])
+    return out
+
+
+@mcp.tool()
+async def list_workflows() -> dict:
+    """The workflows the user may run: each one's id, label, description and parameters (key, type, label,
+    default, required; a connection parameter takes a connection id from get_context)."""
+    from .. import workflows
+
+    with _acting() as (db, user, _caller):
+        return {
+            "workflows": [
+                {"id": w.id, "label": w.label, "description": w.description, "parameters": w.definition.get("parameters") or []}
+                for w in workflows.runnable(db, user)
+            ]
+        }
+
+
+@mcp.tool()
+async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None, wait_seconds: int = 20) -> dict:
+    """Starts a workflow as the user, with its parameters, and waits up to wait_seconds (at most 120) for it to
+    finish, answering with where it got to: its status, each step's status and a sample of its outputs. A run still
+    going can be read again with get_workflow_run. The run is also on the Workflows page for the user to watch."""
+    from .. import workflows
+
+    with _acting() as (db, user, _caller):
+        workflow = db.get(models.Workflow, workflow_id)
+        if workflow is None or not workflows.can_run(db, user, workflow):
+            raise InputError(f"There is no workflow '{workflow_id}' the user may run; list_workflows says which they may.")
+        try:
+            run = workflows.start(db, user, workflow, params or {}, trigger="agent")
+        except workflows.WorkflowError as e:
+            raise InputError(str(e)) from None
+        run_id = run.id
+    deadline = asyncio.get_running_loop().time() + max(0, min(int(wait_seconds), 120))
+    while True:
+        if not workflows.manager.active:
+            await asyncio.to_thread(workflows.drain)
+        with _acting() as (db, user, _caller):
+            run = db.get(models.WorkflowRun, run_id)
+            if run.status in workflows.FINISHED or asyncio.get_running_loop().time() >= deadline:
+                return _run_out(db, run, user)
+        await asyncio.sleep(0.5)
+
+
+@mcp.tool()
+async def get_workflow_run(run_id: int) -> dict:
+    """A workflow run as it stands: its status, each step's status, error and a sample of its outputs."""
+    from .. import workflows
+
+    with _acting() as (db, user, _caller):
+        run = db.get(models.WorkflowRun, run_id)
+        workflow = db.get(models.Workflow, run.workflow_id) if run else None
+        if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+            raise InputError(f"There is no run {run_id} the user can see.")
+        return _run_out(db, run, user)
+
+
 # ---------------------------------------------------------------- transport
 
 
