@@ -199,21 +199,42 @@ class Subscription:
 
 REGISTRY: dict[str, Subscription] = {}
 _registry_lock = threading.Lock()
+# Keys closed on purpose (Stop, Disconnect, a restart replacing the run). A
+# run's key is never used again, so a poll that finds one gone must not open
+# it back up: the manager's tick of the old run, polling just as a restart
+# closed it, reconnected it with the old topics -- a connection no run held,
+# open until the replica stopped. Bounded: a replica only needs the recent ones.
+_closed: collections.OrderedDict[str, None] = collections.OrderedDict()
+CLOSED_KEPT = 10_000
 
 
-def open_subscription(key: str, account_id: str, region: str, identity: Any, topics: list[str]) -> Subscription:
-    """Connects and subscribes; replaces any connection already under `key`."""
+def open_subscription(
+    key: str, account_id: str, region: str, identity: Any, topics: list[str], reopen: bool = False
+) -> Optional[Subscription]:
+    """Connects and subscribes; replaces any connection already under `key`.
+    A `reopen` (a poll's) of a key closed on purpose opens nothing and is None
+    -- checked again once connected, since a close can land meanwhile."""
+    if reopen and closed(key):
+        return None
     sub = Subscription(key=key, client_id=f"cloudwatch-insights-{key[:12]}", topics=list(topics))
     conn, endpoint = connect(account_id, region, identity, sub.client_id, sub.deliver)
     sub.conn, sub.endpoint = conn, endpoint
     for topic in sub.topics:
         conn.subscribe(topic)
     with _registry_lock:
-        old = REGISTRY.pop(key, None)
-        REGISTRY[key] = sub
+        if reopen and key in _closed:
+            old, sub = sub, None
+        else:
+            old = REGISTRY.pop(key, None)
+            REGISTRY[key] = sub
     if old is not None:
         old.close()
     return sub
+
+
+def closed(key: str) -> bool:
+    with _registry_lock:
+        return key in _closed
 
 
 def get(key: str) -> Optional[Subscription]:
@@ -224,6 +245,9 @@ def get(key: str) -> Optional[Subscription]:
 def close(key: str) -> bool:
     with _registry_lock:
         sub = REGISTRY.pop(key, None)
+        _closed[key] = None
+        while len(_closed) > CLOSED_KEPT:
+            _closed.popitem(last=False)
     if sub is None:
         return False
     sub.close()

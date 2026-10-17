@@ -137,6 +137,31 @@ def test_changing_topics_while_connected_reconnects_and_keeps_the_messages(broke
     assert _state(sid).get(f"{PANE}.out.messages") is None
 
 
+def test_a_poll_racing_a_restart_never_reopens_the_closed_connection(broker):
+    """The manager's tick of a run, polling just as a restart closed its
+    connection, found the key gone and opened it again with the old topics
+    -- a connection no run held, open until the replica stopped (and the
+    agent test's `broker[-1]` was that one, now and then)."""
+    from app.panes import handlers
+
+    env = _environment()
+    sid = _session()
+    _tab(_admin_id())
+    assert _connect(sid, env, ["a/#"]).status_code == 200
+    with SessionLocal() as db:
+        old = db.get(models.PaneRun, _run_id(sid)).handles
+    assert _connect(sid, env, ["a/#", "b/#"], restart=True).status_code == 200
+    with SessionLocal() as db:
+        admin = db.get(models.User, _admin_id())
+        handlers.ACTIONS["aws.iot.mqtt_poll"](db, admin, {"handles": old}, None)
+    assert len(broker) == 2 and [c.open for c in broker] == [False, True]
+
+    # A connection that dropped by itself is still opened again.
+    broker[1].open = False
+    runs.tick(_run_id(sid))
+    assert len(broker) == 3 and broker[2].open and broker[2].topics == ["a/#", "b/#"]
+
+
 def test_disconnect_closes_it_even_when_another_replica_took_the_request(broker):
     env = _environment()
     sid = _session()
