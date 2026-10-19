@@ -1274,6 +1274,30 @@ label; the run header's status pill centred beside its buttons.
   `test_agent_chat.py`; agent service a run-chat turn (36 in all); backend 501; browser `smoke88`
   (20), failing against the old frontend.
 
+**4b-3 merged (#127). Two fixes reported after it, and 4c built: published
+templates (PLATFORM_PLAN.md §23, D99–D102).**
+- **The Workflow pane asks for its workflow's parameters**: picking a workflow
+  showed only name/value rows, and Run failed with "Fill in Environment.". Its
+  parameters are now the Workflows page's own fields (a manifest input type,
+  `workflow_params`, drawn by the shared `ParamFields`): the environment
+  picked by name, the log groups listed from it.
+- **S3's filename search reaches the whole bucket**: it gave up after 20,000
+  keys and said "Nothing here."; Load more skipped the rest of a page that
+  filled up. It now searches for up to 8 s a request, resumes after the last
+  key it looked at, matches the path below the folder, and says how far it
+  has searched while the bucket has more.
+- **Published templates**: an admin publishes a saved template from Library
+  (told what making it portable changed); anyone whose group has each of its
+  panes finds it on the default page (Ready-made sessions) and in Add, picks
+  the environment, and gets the session with its panes pointed there -- the
+  CloudWatch pane's log groups too. Kept in the store repo; the agent lists
+  and opens them (`open_template`).
+- Tests: backend `test_s3_search.py` (4, failing on the old search),
+  `test_templates.py` (5), a `workflow_params` case in
+  `test_workflow_doors.py`; browser `smoke89` (9) and `smoke90` (11), each
+  failing against the old frontend; smoke66/85/86/87/88 green after the
+  Workflows page's form moved into a shared component.
+
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
 `platform-agent/app/prompt.py`), the agent image building in CI (no Docker

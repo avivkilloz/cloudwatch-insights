@@ -6,6 +6,7 @@ import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { useCatalogue } from "../sessions/catalogue";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
+import { useOpenPublishedFromMenu } from "../sessions/published";
 import AgentWorking from "./AgentWorking";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
@@ -38,7 +39,8 @@ export default function SessionBar({
   const { sessions, activeId, view, close, activate, rename, show } = useSessions();
   const agent = useAgent();
   const agentActive = useAgentActivity();
-  const { templates } = useTemplates();
+  const { templates, published } = useTemplates();
+  const openPublished = useOpenPublishedFromMenu();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
   const { groups: catalogueGroups } = useCatalogue();
@@ -170,9 +172,22 @@ export default function SessionBar({
                   </div>
                 );
               })}
-              {templates.length > 0 && (
+              {templates.length + published.length > 0 && (
                 <div>
                   <div className="session-add-heading">Templates</div>
+                  {published.map((t) => (
+                    <button
+                      key={`published:${t.id}`}
+                      className="session-add-item session-add-template session-add-published"
+                      onClick={() => {
+                        openPublished(t);
+                        closeMenu();
+                      }}
+                      title={t.description || `Start a session from "${t.label}"`}
+                    >
+                      <span className="session-add-name">{t.label}</span>
+                    </button>
+                  ))}
                   {templates.map((template) => (
                     <button
                       key={`${template.entry.page}:${template.entry.id}`}

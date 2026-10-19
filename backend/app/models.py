@@ -717,6 +717,26 @@ class Workflow(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
 
 
+class PublishedTemplate(Base):
+    """A template made plugin content (PLATFORM_PLAN.md §23, D76, D99): a
+    session's inputs and layout made portable -- its AWS connections follow
+    the Environment variable, anything that names this deployment's
+    connections or credentials left out -- kept in the store repo and offered
+    to every group that may use each of its panes. A person's saved templates
+    (`saved_sessions`) stay theirs; this is what one became when published."""
+
+    __tablename__ = "published_templates"
+
+    id = Column(String(64), primary_key=True)
+    label = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    state = Column(JSON, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
 class WorkflowGrant(Base):
     """A group that may run a workflow (D84). The Admin group needs none."""
 

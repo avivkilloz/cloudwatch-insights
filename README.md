@@ -253,8 +253,10 @@ from your picture's menu and is not a session; the strip stays above it.
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
   the current level, breadcrumbs to jump back up. The search box switches
-  to a recursive, filename-substring search under the current folder
-  instead. Read-only: no file content is ever fetched or previewed, only
+  to a recursive search under the current folder instead, matching the path
+  below it (a name, or `2024/app` for one in a folder). A big bucket is
+  searched a few seconds at a time: it says how many files it has looked
+  through so far, and **Load more** searches on from there. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
   HTTPS URL) buttons. The pane's **⚙** bookmarks an environment, bucket and
@@ -366,6 +368,16 @@ from your picture's menu and is not a session; the strip stays above it.
   the S3/DynamoDB pages' saved bucket/table shortcuts, and the Aggregator's
   saved sessions are all built on (each just its own page name under the same
   mechanism). (Cognito doesn't have this yet.)
+- **Published templates** (ready-made sessions): an admin can publish one of
+  their templates (**Library → Templates → Publish…**) for everyone. It's made
+  to work in any environment -- its AWS panes follow the session's
+  **Environment** variable, and what names this platform's own connections,
+  credentials or secrets is left out (you're told what) -- and is offered on
+  the default page under **Ready-made sessions**, and under Templates in Add,
+  to every group that has each of its panes. Opening one asks which
+  environment it's for (with only one, it doesn't ask). With a store repo set
+  up, each is kept there; **Library → Published** renames or unpublishes them.
+  The agent can open one too ("open the fleet errors template for Prod").
 - **Export results** to CSV, Excel (`.xlsx`), or JSON: an "Export ▾" button
   next to the result count on the CloudWatch and OpenSearch pages (both
   backends), IoT page (Things and Certificates), DynamoDB, S3, and Cognito
@@ -883,8 +895,8 @@ past a failure with `continue_on_error`.
   from the session -- a step per pane, its environments as parameters -- and
   opens it in the editor to check and save.
 - **The Workflow pane** (Platform, granted to a group like any pane): runs a
-  workflow from inside a session -- pick it, give its parameters as name and
-  value (an environment by its name), Run -- and follows it there.
+  workflow from inside a session -- pick it, fill in its parameters (the same
+  fields as **Run ▸** on the Workflows page), Run -- and follows it there.
 - **This run**: while a run is on screen, the agent panel's second tab is a
   conversation about that run ("why did the scan fail?"), kept with the run
   for everyone who may see it.

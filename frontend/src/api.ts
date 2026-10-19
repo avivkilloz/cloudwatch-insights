@@ -168,6 +168,19 @@ export interface SavedSession<T = Record<string, unknown>> {
   state: T;
 }
 
+/** A published template (PLATFORM_PLAN.md §23, D99): plugin content, offered
+ * to whoever may use each of its panes, opened for an environment they choose. */
+export interface PublishedTemplate {
+  id: string;
+  label: string;
+  description: string | null;
+  pane_types: string[];
+  needs_environment: boolean;
+  /** Whether the asker's group may use every pane of it (an admin sees all). */
+  usable: boolean;
+  store_state: StoreState | null;
+}
+
 /**
  * One of the sessions open in the side panel, as the server last heard about
  * it. A SavedSession above is a named template you start a session *from*;
@@ -924,6 +937,17 @@ export const api = {
   updateSettings: (payload: Partial<Settings>) =>
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
+  listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),
+  publishTemplate: (payload: { saved_session_id: number; id: string; label: string; description?: string }) =>
+    req<PublishedTemplate & { changes: string[] }>("/templates", { method: "POST", body: JSON.stringify(payload) }),
+  updatePublishedTemplate: (id: string, payload: { label?: string; description?: string }) =>
+    req<PublishedTemplate>(`/templates/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) }),
+  unpublishTemplate: (id: string) => req<void>(`/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  openPublishedTemplate: (id: string, environment: number | null) =>
+    req<{ session_id: string; title: string }>(`/templates/${encodeURIComponent(id)}/open`, {
+      method: "POST",
+      body: JSON.stringify({ environment }),
+    }),
   listSavedSessions: <T = Record<string, unknown>>(page?: string) =>
     req<SavedSession<T>[]>(`/saved-sessions${page ? `?page=${encodeURIComponent(page)}` : ""}`),
   createSavedSession: <T = Record<string, unknown>>(payload: { page: string; name: string; state: T }) =>
