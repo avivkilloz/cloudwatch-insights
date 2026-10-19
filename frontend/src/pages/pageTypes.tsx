@@ -12,7 +12,8 @@ import WorkflowsPage from "./WorkflowsPage";
  * conversation about the whole workspace is a place, not one more thing open
  * inside it.
  *
- * Everything below `home` shows as a card on the home page, under Platform.
+ * They are reached from the rail (Workflows, Builder), the agent's panel and
+ * the account menu (Settings) -- no longer from cards on the default page.
  */
 
 export type PageId = "home" | "settings" | "agent" | "workflows" | "builder" | "chat" | "code";
@@ -24,8 +25,6 @@ export interface PageDef {
   description: string;
   /** A sentence or two for the card under the side panel. */
   help: string;
-  /** Whether it appears as a card on the home page. Home itself does not. */
-  onHome: boolean;
   enabledFor: (user: any) => boolean;
   /** Absent for pages the shell renders itself because they need its props --
    * settings, which owns the theme and the app's own settings. */
@@ -55,7 +54,6 @@ export const PAGES: PageDef[] = [
     help:
       "Start a session over the services and tools you need, and reach the rest of the platform. A session holds " +
       "as many of them as you like, and the agent can work across all of them at once.",
-    onHome: false,
     enabledFor: () => true,
   },
   {
@@ -66,7 +64,6 @@ export const PAGES: PageDef[] = [
       "Ask about anything in the platform and have it do the work, as you: it opens the sessions it needs, fills " +
       "in and runs the searches, lays the panes out and answers from what they found. This is its global chat; " +
       "each session also has its own, in the Session tab of the agent panel.",
-    onHome: true,
     enabledFor: () => true,
     render: () => <AgentPage />,
   },
@@ -77,7 +74,6 @@ export const PAGES: PageDef[] = [
     help:
       "Sequences of pane actions you run more than once, with parameters, the same way each time. Each run is " +
       "kept: its stages, what each ran with and what came back. A run acts as whoever starts it.",
-    onHome: true,
     enabledFor: () => true,
     render: () => <WorkflowsPage />,
   },
@@ -89,7 +85,6 @@ export const PAGES: PageDef[] = [
       "Make pane types of your own, written as the same definition every pane is: inputs, actions -- a request to " +
       "a connection, or an action the platform already has -- and a layout. Yours to use at once; other groups' " +
       "when an admin grants them.",
-    onHome: true,
     // A group's Builder, or an admin (D71).
     enabledFor: (user) => !!user?.builder_enabled,
     render: () => <BuilderPage />,
@@ -99,7 +94,6 @@ export const PAGES: PageDef[] = [
     label: "Chat",
     description: "Talk to the people you work with.",
     help: "Conversations alongside the work, so what you found and who you told about it live in the same place.",
-    onHome: true,
     enabledFor: () => true,
     render: () => (
       <ComingSoon
@@ -113,7 +107,6 @@ export const PAGES: PageDef[] = [
     label: "Code",
     description: "Read the code behind what you're debugging.",
     help: "Read the code behind the service you are looking at, without leaving the session you found the problem in.",
-    onHome: true,
     enabledFor: () => true,
     render: () => (
       <ComingSoon
@@ -129,7 +122,6 @@ export const PAGES: PageDef[] = [
     help:
       "Your account and how the app looks, the environments and saved items you work with, and — if you are an " +
       "admin — the users, groups and which pages each group can see.",
-    onHome: true,
     enabledFor: () => true,
   },
 ];

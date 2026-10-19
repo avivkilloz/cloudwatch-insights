@@ -397,6 +397,39 @@ def test_a_step_that_announces_a_run_and_stops_is_asked_to_carry_on(settings):
     assert events[-1] == {"type": "done"}
 
 
+def test_a_step_that_announces_its_next_call_after_research_is_asked_to_carry_on(settings):
+    # A real turn read the workflows, said "Now let me run it." and stopped;
+    # the user had to tell it it had stopped. Having called something no
+    # longer lets the announcement through.
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "research")
+    calls = [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert calls == ["get_context", "run_pane"]
+    nudges = [r["messages"][-1]["content"] for r in fake_llm.REQUESTS if str(r["messages"][-1].get("content")).startswith(fake_llm.NUDGE_MARK)]
+    assert len(nudges) == 1 and "Now let me run its IoT pane." in nudges[0]
+    assert "Ran it:" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_what_counts_as_announcing_after_a_call():
+    from app.repair import announced
+
+    assert announced("Found it. Now let me run the workflow.", acted=True) == "Now let me run the workflow."
+    assert announced("Next, I'll open the run page.", acted=True) == "Next, I'll open the run page."
+    # Reports and courtesies aren't steps left to take.
+    assert announced("It's running; I'll keep it running.", acted=True) is None
+    assert announced("Done. Let me know if you want more.", acted=True) is None
+
+
+def test_a_reply_cut_off_at_the_length_limit_is_carried_on():
+    from langchain_core.messages import AIMessage
+
+    from app.repair import CUT_OFF, nudge_for, stopped_short
+
+    cut = AIMessage(content="The errors come from the", response_metadata={"finish_reason": "length"})
+    assert stopped_short(cut, []) and nudge_for(cut, []) == CUT_OFF
+    assert not stopped_short(AIMessage(content="The errors come from the API.", response_metadata={"finish_reason": "stop"}), [])
+
+
 def test_a_turn_that_says_nothing_ends_with_a_readable_error(settings):
     fake_llm.REQUESTS.clear()
     events = _events(settings, "silent")

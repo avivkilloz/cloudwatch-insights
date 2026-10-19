@@ -53,11 +53,13 @@ const run = async () => {
   check(railToBody === 16, "The panel and the body are a card's gap apart", `${railToBody}px`);
   const barToCard = await gapBetween(page, ".session-bar", ".home .panel", "y");
   check(barToCard === 16, "The strip and the first card are a card's gap apart", `${barToCard}px`);
+  // Two body cards when there are ready-made sessions to offer; the Platform
+  // cards that always made a second are gone (the user's call).
   const cardGap = await page.evaluate(() => {
     const [a, b] = document.querySelectorAll(".home .panel");
-    return Math.round(b.getBoundingClientRect().top - a.getBoundingClientRect().bottom);
+    return b ? Math.round(b.getBoundingClientRect().top - a.getBoundingClientRect().bottom) : null;
   });
-  check(cardGap === 16, "…which is the gap between two body cards", `${cardGap}px`);
+  if (cardGap !== null) check(cardGap === 16, "…which is the gap between two body cards", `${cardGap}px`);
   const flush = await page.evaluate(() => {
     const bar = document.querySelector(".session-bar").getBoundingClientRect();
     const card = document.querySelector(".home .panel").getBoundingClientRect();
@@ -147,7 +149,8 @@ const run = async () => {
 
   // ---- 4. the saved-items tabs ---------------------------------------
   await page.click(".rail-row-home");
-  await page.click('.home-card:has(.home-card-title:text-is("Settings")) .home-card-open');
+  await page.click('[aria-label="Account menu"]');
+  await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector(".settings-nav, .panel", { timeout: 15000 });
   await page.click('button:text-is("Library")');
   // The hub is not there while its items are being fetched.
@@ -177,7 +180,8 @@ const run = async () => {
   await page.reload();
   await page.waitForSelector(".rail", { timeout: 15000 });
   await page.click(".rail-row-home");
-  await page.click('.home-card:has(.home-card-title:text-is("Settings")) .home-card-open');
+  await page.click('[aria-label="Account menu"]');
+  await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.click('button:text-is("Library")');
   await page.waitForSelector('.panel:has(h2:text-is("Library")) .tab', { timeout: 15000 });
   const listed = await page.locator('.panel:has(h2:text-is("Library")) .result-row-summary .msg').allInnerTexts();

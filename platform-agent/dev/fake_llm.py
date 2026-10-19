@@ -178,6 +178,16 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
                 name = 'functions.run_pane:0<|tool_call_argument_begin|>{"session_id": "s1", "pane_id": "iot"}'
             return {"tool": name, "args": {}}
         return _say(f"Tried it: {results[0][1]}")
+    if lowered.startswith("research"):
+        # Looks something up, then says what it will do next and stops -- as a
+        # real model did after reading a workflow it was asked to run.
+        if step == 0:
+            return _call("get_context")
+        if step == 1:
+            if nudged:
+                return _call("run_pane", session_id="s1", pane_id="iot")
+            return _say("I found the session you meant. Now let me run its IoT pane.")
+        return _say(f"Ran it: {results[1][1]}")
     if lowered.startswith("announce"):
         if step >= 1:
             return _say(f"Searched: {results[0][1]}")

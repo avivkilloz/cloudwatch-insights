@@ -692,7 +692,10 @@ their own (the rail's Workflows row), never a session.
   through `run_handler`/`run_request` and flattens `{options}`/`{groups}`
   (`_flat_options`). `multiple` makes a text parameter a list. The form
   (`TextParam`, `useParamOptions`) lists again when a parameter it reads
-  changes and stays typeable.
+  changes and stays typeable. A run takes a value that is plainly one listed
+  choice -- another case, or part of just one -- as that choice
+  (`_as_listed`, on `start`): asked for "/fake/API", the agent's run queried a
+  log group that doesn't exist; anything else is kept as given.
 - **A run acts as its starter** (every step through `pane_access.require` and
   the handler's own connection check), and **its inputs and outputs are its
   starter's, their group's and admins'** (`can_read`, D84) -- other granted
@@ -1324,6 +1327,14 @@ fixed where it happens:
   a stored turn from before this is split the same way at render
   (`splitThinking`). Each step's answer starts a new paragraph (steps used
   to run on into each other mid-sentence).
+- **A turn that stops while it still means to act is asked to carry on**
+  (`repair.stopped_short`): no answer, an answer ending on a colon, one that
+  announces a step before anything ran, **and, after it has called tools, a
+  last sentence that plainly looks ahead** ("Now let me run the workflow.",
+  "Next, I'll…" -- `_ANNOUNCES_AFTER`; "I'll keep it running" is a report),
+  or a reply the provider cut off at its length limit (`cut_off`). Twice a
+  turn at most, an empty reply once. A real turn read the workflows, said
+  what it would do next and stopped; the user had to tell it so.
 - **A step that loops is stopped** (`text.looping`: its last 160 characters
   already seen 4 times), its words retracted, with a readable error. And
   `temperature` is no longer pinned to 0 (`AGENT_TEMPERATURE`, Helm
