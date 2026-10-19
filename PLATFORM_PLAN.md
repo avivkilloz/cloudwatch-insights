@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (three PRs, §24, D103–D108; 5-1, pane types as YAML, and 5-2's agent build tools, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (three PRs, §24, D103–D111; 5-1, pane types as YAML, 5-2's agent build tools and 5-2b's AWS requests, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1279,6 +1279,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D105 | 2026-10-19 | **A pane type's builder's group is granted it on creation**; any other group when an admin grants it (D65). An edit is everyone's at once; Delete takes its grants and placements with it. | D71 "a builder uses their own work at once" -- by group, since access is never per user. |
 | D107 | 2026-10-19 | **The agent builds beside the editor, and only proposes** (§24): the panel's second tab is Building while an editor is open; `propose_definition` puts a checked draft in the editor, replacing its text, and the user saves. No save tool. | The user asked for the agent in the side panel while editing. Replacing the editor's text with a whole checked definition is the simplest exchange a person can review; a save the agent makes is one nobody looked at. |
 | D108 | 2026-10-19 | **What the agent needs to build is read, not written down**: the turn reads `build_reference` (generated from the strict models and the registries) and the editor's text before the model speaks; examples are the bundled and saved definitions (`read_definition`); its mistakes come back from the same check as Check's. The backend's MCP is enough -- no separate documentation for the agent, no per-service hints. | Documentation drifts from the models; the models, the examples and the check's errors can't. It also holds for a plugin's panes, which bring their own manifests. |
+| D110 | 2026-10-19 | **Any AWS read API is a manifest's data, not a handler** (§24): a `request` with `service`/`operation` on an AWS connection, typed params, pagination, the same rows; reads only, minus a denylist of operations that hand out credentials or secrets, checked when built and on every call; writes wait for approvals on panes. | A builder asked for a Lambda pane and there was no handler; a handler per service is the per-service code plugins exist to end (D67 did it for HTTP). botocore's own models check names and parameters offline. |
+| D111 | 2026-10-19 | **A built pane's YAML may name it by its short name** (`lambda` for `default:lambda`, D78), and **Check checks the whole draft**, its id held to the Id typed above as Create will save it. | The id line was compared with "draft", failed first, and Check dropped that error -- so nothing after it was checked, and a draft with an `id:` line read as clean whatever it said. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4706,7 +4708,20 @@ Three PRs (D104), each with something to try:
   `show`, and put in the editor by the browser (`agent/buildFocus.ts`) with
   a notice that it isn't saved. The agent never saves: the user's Check and
   Save do. Its conversations are per editor and in memory, like Global's.
-- **5-2b, the form and the preview**: a form editor over the same definition
+- **5-2b, any AWS read API as data** (built, D110-D111): a `request` with a
+  `service` and `operation` is an AWS call on an AWS connection (`connection`
+  or `connections`), as the caller's group identity, `params` typed (literal,
+  `{input}`, `{window}`, dotted names nested), `paginate` up to `max_items`,
+  rows by the same `extract_rows`. `aws_request.py`; `run_request` hands it
+  there, so the action endpoint, the agent, workflows and refresh run it with
+  no change of their own. Several connections are one table, an
+  `Environment` column first, the ones that failed in `error`. Only reads
+  (`List…`, `Describe…`, `Get…`…), never one that hands out credentials or
+  secrets (`DENIED`), checked by the Builder (with lines) and again at every
+  call; a streamed reply is refused. A Lambda pane is a manifest now -- the
+  agent's `build_reference` carries one whole. On the way: Check checked
+  nothing past a draft's `id:` line (D111).
+- **5-2c, the form and the preview**: a form editor over the same definition
   (D73), and a preview that draws the draft beside the editor and runs its
   actions on a real connection as the builder -- a tool the agent gets too.
 - **5-3, steps and workflows for builders**: workflows editable by a

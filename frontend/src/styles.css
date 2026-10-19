@@ -4692,3 +4692,11 @@ textarea.workflow-source {
   line-height: 1.6;
   word-break: break-word;
 }
+
+/* The Builder's new id as the store will save it ("default:lambda", D78): on a
+   line of its own under the Id field, which sits in a wrapping flex row. */
+.builder-saved-as {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+}

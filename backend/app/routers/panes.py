@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, connections, credential_types, live_store, masking, models, pane_access, pane_outputs, tools_http_client
+from .. import auth, aws_request, connections, credential_types, live_store, masking, models, pane_access, pane_outputs, tools_http_client
 from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
@@ -178,6 +178,10 @@ def run_request(
     except ResolveError as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
     spec = action.request or {}
+    # A request to an AWS connection names its service and operation (D110):
+    # any read API, as the caller, through the same pane access as this.
+    if aws_request.is_aws(spec):
+        return aws_request.run(db, user, manifest, spec, values)
     if (spec.get("method") or "GET").upper() != "GET":
         raise HTTPException(status_code=400, detail="Only GET requests can run from a pane for now.")
     connection_id = values.get(spec.get("connection", ""))

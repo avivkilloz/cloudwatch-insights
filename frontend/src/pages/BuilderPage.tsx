@@ -17,7 +17,9 @@ import { useStartSession } from "../sessions/start";
  * the same model, drawn by the same renderer, run through the same actions.
  * Saved, one is its builder's group's at once (and in the store repo); any
  * other group gets it when an admin grants it in Users -> Groups -> Panes.
- * The agent panel's Building tab is about the editor on screen (5-2, D107):
+ * An action may be a request to any AWS read API, as data (D110), so a pane
+ * for a service no handler covers needs no code. The agent panel's Building
+ * tab is about the editor on screen (5-2, D107):
  * what the agent proposes lands in the editor, unsaved, for its builder to
  * check and save.
  */
@@ -145,7 +147,7 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
     setNotice(null);
     setError(null);
     try {
-      const out = await api.checkBuiltPane(source, isNew ? undefined : id ?? undefined);
+      const out = await api.checkBuiltPane(source, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
       if (out.ok) setNotice("No problems found.");
       return out.ok;
@@ -217,6 +219,11 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
         {isNew && (
           <CardRow label="Id">
             <input id="builder-id" type="text" value={newId} placeholder="e.g. service_status" onChange={(e) => setNewId(e.target.value)} />
+            {schema?.namespace && newId.trim() && !newId.includes(":") && (
+              <p className="muted builder-saved-as">
+                Saved as <code>{`${schema.namespace}:${newId.trim()}`}</code>, in the store's namespace.
+              </p>
+            )}
           </CardRow>
         )}
         <CardRow label="Start from">
@@ -266,9 +273,11 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
       {schema && (
         <Section title="What it can name">
           <p className="muted" style={{ marginTop: 0 }}>
-            An action is a <code>request</code> to a connection of an HTTP type (its path, query and where its rows
-            are), one of these handlers -- what the platform's own panes run -- or one of these live functions, worked
-            out as you type. Whoever uses the pane runs it as themselves.
+            An action is a <code>request</code> -- to a connection of an HTTP type (its path, query and where its
+            rows are), or, with a <code>service</code> and <code>operation</code>, any AWS API that reads (Lambda's
+            ListFunctions, ECS's DescribeServices…) on an AWS connection -- one of these handlers, what the platform's
+            own panes run, or one of these live functions, worked out as you type. Whoever uses the pane runs it as
+            themselves.
           </p>
           <CardRow label="Handlers">
             <div className="builder-names">{schema.handlers.join(", ")}</div>

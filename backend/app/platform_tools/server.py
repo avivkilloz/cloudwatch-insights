@@ -1563,12 +1563,12 @@ def _checked(db: Session, kind: str, source: str, definition_id: Optional[str]) 
 
     try:
         if kind == "pane":
-            builder.parse(source, definition_id or "draft")
+            # A new one's id is the editor's Id field, not the draft's: not held to anything.
+            builder.parse(source, definition_id)
         else:
             workflows.parse(source)
     except (builder.BuilderError, workflows.WorkflowError) as e:
-        # A new pane type's id is the editor's Id field, not the draft's.
-        return [x for x in e.errors if not (definition_id is None and str(x.get("message", "")).startswith("Its id is"))]
+        return e.errors
     return []
 
 

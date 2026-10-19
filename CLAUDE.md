@@ -317,6 +317,17 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   **Prometheus** (`prometheus.yaml`) is the proof: no handler, no route, no
   registry entry -- only its manifest, which also ships its connection type
   (`connection_types:`) and suggests its catalogue category.
+- **A `request` with a `service` is an AWS call** (D110, `aws_request.py`):
+  `service`/`operation` (botocore's names; `list_functions` is
+  `ListFunctions`), typed `params`, `paginate`/`max_items`, `rows`, on the
+  `connection`/`connections` input of type aws, as the caller's identity.
+  `run_request` hands it over first thing, so nothing else dispatches on it.
+  Reads only, minus `DENIED` (credentials, secret values) -- `refused()` runs
+  at check *and* at `call`, so a manifest that slipped past still can't.
+  Several connections: rows flattened with `Environment`, failures in
+  `error`. botocore loads models offline (`problems` checks names and
+  parameters with no AWS call); tests use a `Stubber` client, the dev
+  backend `PUT /api/dev/fake-aws`.
 - **A tab left open across a deploy** sees `version.json` change (vite writes
   it; nginx serves it `no-store`), says so, and reloads at the next page or
   session switch -- after `flushAll()`, or the cut-off debounced save loses
@@ -789,7 +800,7 @@ id, kept in the store (`Kind` `template`).
   it. From Add with one environment it opens at once; otherwise the default
   page's card asks. The agent: `get_context.templates`, `open_template`.
 
-**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D108; `builder.py`,
+**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D111; `builder.py`,
 `routers/builder.py`, `pages/BuilderPage.tsx`). Phase 5-1: pane types made in
 the platform, for a group with `builder_enabled` (admins always).
 - **A built pane type is a manifest**, kept verbatim in `built_pane_types` and
@@ -803,6 +814,12 @@ the platform, for a group with `builder_enabled` (admins always).
   the `builder.generation` Settings row within 5 s (`builder.manager`). Tests
   reset it in conftest (`builder.load`). Anything holding manifests at import
   time would miss a built one: read `manifests()` when needed.
+- **Its id**: with a store, the Id typed is saved in its namespace
+  (`lambda` -> `default:lambda`; the editor says so under the field, from
+  `/schema`'s `namespace`), and the YAML may say either (D111). Check holds
+  the YAML's id to that (`new_id`); a draft without an Id isn't held to
+  anything -- its id line used to fail against "draft" first, and Check
+  dropped that error, so nothing after it was checked.
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.

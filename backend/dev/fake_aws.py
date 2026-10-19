@@ -23,6 +23,9 @@ What it answers, all of it deterministic:
   404. The API table's Fetch used to be faked in the page, but its results
   are stored by the server now (D21), and a reply faked in one tab never
   reached the store or the session's other tabs.
+- AWS requests (a manifest's `request` with a `service`, D110): what a suite
+  put for that service and operation (`PUT /api/dev/fake-aws?service=lambda
+  &operation=ListFunctions`, optionally `&account=`), or AccessDenied.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from urllib.parse import urlparse
 
-from app import auth, aws_client, iot_client, models, mqtt_client, opensearch_client, tools_http_client
+from app import auth, aws_client, aws_request, iot_client, models, mqtt_client, opensearch_client, tools_http_client
 from app.db import get_db
 from app.main import app  # noqa: F401 - what uvicorn serves
 
@@ -364,6 +367,41 @@ def age_outputs(session: str, pane: str, seconds: int, db: Session = Depends(get
 
 
 tools_http_client.send_request = _send
+
+
+# ---------------------------------------------------------------- AWS requests (D110)
+
+# What a fake account answers for (service, operation), as a suite put it
+# (`PUT /api/dev/fake-aws?service=lambda&operation=ListFunctions`, the reply
+# as the JSON body); an account may have its own (`&account=0000…`).
+_aws_replies: dict[tuple[str, str, str], Any] = {}
+_real_aws_call = aws_request.call
+
+
+def _aws_call(service, operation, params, account_id, region, identity, paginate=False, max_items=1000):
+    if not account_id.startswith(FAKE_PREFIX):
+        return _real_aws_call(service, operation, params, account_id, region, identity, paginate, max_items)
+    message = aws_request.refused(service, operation)
+    if message:
+        raise aws_request.AwsRequestError(message)
+    reply = _aws_replies.get((service, operation, account_id), _aws_replies.get((service, operation, "")))
+    if reply is None:
+        from botocore.exceptions import ClientError
+
+        raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": f"nothing faked for {service} {operation}"}},
+                          operation)
+    return reply
+
+
+@app.put("/api/dev/fake-aws", include_in_schema=False)
+def put_fake_aws(service: str, operation: str, account: str = "", reply: Any = Body(...),
+                 _user=Depends(auth.get_current_user)) -> dict:
+    """What a fake account's AWS request answers from now on."""
+    _aws_replies[(service, operation, account)] = reply
+    return {"service": service, "operation": operation}
+
+
+aws_request.call = _aws_call
 
 
 

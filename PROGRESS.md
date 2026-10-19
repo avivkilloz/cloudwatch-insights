@@ -1298,6 +1298,21 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**#130 merged. 5-2b: any AWS read API as data (PLATFORM_PLAN.md §24,
+D110–D111).** The user's builder agent couldn't make a Lambda pane -- no
+handler -- and the user wants any pane type buildable without per-service code.
+- `request` with `service`/`operation` is an AWS call (`aws_request.py`),
+  through `run_request`, so the pane, the agent, workflows and refresh run
+  it unchanged. Reads only, minus credential/secret operations; streams
+  refused; checked offline against botocore's models with lines. Several
+  environments: one table with `Environment`, failures in `error`.
+- The Builder: the YAML may name a pane by its short name (`id: lambda` for
+  `default:lambda`), the Id field says what it's saved as, and Check checks
+  the whole draft -- with an `id:` line it used to check nothing.
+- Tests: backend `test_aws_request.py` (17, a Stubber client), `test_builder.py`
+  (+2, both failing on the old code); browser `smoke95` (6, failing against the
+  old backend).
+
 **Reports after the Building tab:**
 - The agent panel's second tab isn't there with no session, run or editor on
   screen -- it only said "Open a session…"; the panel is Global alone.
@@ -1523,7 +1538,7 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 5-2b (PLATFORM_PLAN.md §24): the Builder's form editor and a live
+1. Phase 5-2c (PLATFORM_PLAN.md §24): the Builder's form editor and a live
    preview of the draft on a real connection (a tool the agent gets too);
    then 5-3, workflows and steps for builders. Scheduled and webhook runs
    (acting as the workflow's owner, D81) are still to come.
