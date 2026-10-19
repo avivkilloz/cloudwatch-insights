@@ -385,6 +385,19 @@ export interface WorkflowParam {
   required?: boolean;
   choices?: unknown[];
   connection_type?: string;
+  /** A list of texts rather than one. */
+  multiple?: boolean;
+  /** Choices listed by a pane input's loader, from the other parameters (D94). */
+  options_from?: { pane: string; input: string; with?: Record<string, unknown> };
+}
+
+/** A parameter's listed choices: `needs` names the parameters to fill in first;
+ * a loader's failure is `error` (per environment, `errors`), never thrown. */
+export interface WorkflowParamOptions {
+  options: { value: string; label: string }[];
+  needs?: string[];
+  error?: string;
+  errors?: string[];
 }
 
 export type RunStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
@@ -829,6 +842,11 @@ export const api = {
       body: JSON.stringify({ params, ...(timezone ? { timezone } : {}) }),
     }),
   listWorkflowRuns: (id: string) => req<WorkflowRun[]>(`/workflows/${encodeURIComponent(id)}/runs`),
+  workflowParamOptions: (id: string, key: string, params: Record<string, unknown>) =>
+    req<WorkflowParamOptions>(`/workflows/${encodeURIComponent(id)}/parameters/${encodeURIComponent(key)}/options`, {
+      method: "POST",
+      body: JSON.stringify({ params }),
+    }),
   recentWorkflowRuns: (mine = false) => req<WorkflowRun[]>(`/workflow-runs${mine ? "?mine=true" : ""}`),
   getWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}`),
   cancelWorkflowRun: (runId: number) => req<WorkflowRun>(`/workflow-runs/${runId}/cancel`, { method: "POST" }),

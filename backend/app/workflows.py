@@ -109,6 +109,16 @@ class _Strict(BaseModel):
 ParamType = Literal["text", "int", "bool", "choice", "connection", "connections"]
 
 
+class OptionsFrom(_Strict):
+    """A parameter whose choices a pane input's loader lists (D94): the log
+    groups of the environment chosen above. `with` gives the loader's inputs,
+    templates over the other parameters only."""
+
+    pane: str
+    input: str
+    with_: dict[str, Any] = Field(default_factory=dict, alias="with")
+
+
 class Param(_Strict):
     key: str
     type: ParamType = "text"
@@ -118,6 +128,9 @@ class Param(_Strict):
     required: bool = False
     choices: list[Any] = []
     connection_type: Optional[str] = None
+    # A list of values rather than one (text only): several log groups.
+    multiple: bool = False
+    options_from: Optional[OptionsFrom] = None
 
 
 class ApprovalSpec(_Strict):
@@ -228,6 +241,11 @@ def check(definition: Definition, source: str = "") -> list[dict]:
             err(("parameters", i), f"{p.key} is a choice with nothing to choose from.")
         if p.type in ("connection", "connections") and not p.connection_type:
             err(("parameters", i), f"{p.key} needs a connection_type (aws, or an HTTP type's id).")
+        if (p.multiple or p.options_from) and p.type != "text":
+            err(("parameters", i), f"{p.key}: multiple and options_from are for a text parameter.")
+        if p.options_from is not None:
+            for where, message in _check_options_from(p, [q.key for q in definition.parameters]):
+                err(("parameters", i, "options_from") + where, message)
     if not definition.steps:
         err(("steps",), "A workflow needs at least one step.")
     if len(definition.steps) > MAX_STEPS:
@@ -272,6 +290,40 @@ def check(definition: Definition, source: str = "") -> list[dict]:
                     err(here + path, f"Step {step.id} uses item, but it has no for_each.")
         earlier.append(step.id)
     return errors
+
+
+def _check_options_from(p: Param, keys: list[str]) -> list[tuple[tuple, str]]:
+    source = p.options_from
+    manifest = pane_manifest.get(source.pane)
+    if manifest is None:
+        return [(("pane",), f"{p.key}: there is no pane type '{source.pane}'.")]
+    spec = next((i for i in manifest.inputs if i.key == source.input), None)
+    loading = [i.key for i in manifest.inputs if i.options is not None]
+    if spec is None or spec.options is None:
+        return [(("input",), f"{p.key}: {manifest.label} has no input '{source.input}' whose options load "
+                            f"(it has: {', '.join(loading) or 'none'}).")]
+    out: list[tuple[tuple, str]] = []
+    inputs = {i.key for i in manifest.inputs}
+    for key, value in source.with_.items():
+        if key not in inputs:
+            out.append((("with", key), f"{p.key}: {manifest.label} has no input '{key}'."))
+        for text in [value] if isinstance(value, str) else []:
+            for expr in _expressions(text):
+                try:
+                    _compiled(expr)
+                except WorkflowError as e:
+                    out.append((("with", key), f"{p.key}: {e}"))
+                    continue
+                if _names(expr) & {"steps", "item", "index"}:
+                    out.append((("with", key), f"{p.key}: options are listed before the run, from the other parameters only."))
+                for ref in _param_refs(expr):
+                    if ref == p.key or ref not in keys:
+                        out.append((("with", key), f"{p.key}: params.{ref} isn't another parameter."))
+    return out
+
+
+def _param_refs(text: str) -> set[str]:
+    return set(re.findall(r"\bparams\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", text))
 
 
 def _stream(action: pane_manifest.ManifestAction) -> bool:
@@ -529,6 +581,10 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
     out: dict[str, Any] = {}
     for p in params:
         value = given.get(p.key, p.default)
+        if p.multiple:
+            # A list of texts; a lone value (an old form, the agent) is one item.
+            value = [str(v).strip() for v in (value if isinstance(value, list) else [value]) if v not in (None, "")]
+            value = [v for v in value if v]
         if value in (None, "", []):
             if p.required:
                 raise WorkflowError(f"Fill in {p.label or p.key}.")
@@ -543,7 +599,7 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
                 value = int(value)
             elif p.type == "connections":
                 value = [int(v) for v in (value if isinstance(value, list) else [value])]
-            elif p.type == "text":
+            elif p.type == "text" and not p.multiple:
                 value = str(value)
         except (TypeError, ValueError):
             raise WorkflowError(f"{p.label or p.key} isn't a valid {p.type}.") from None
@@ -556,6 +612,85 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
                     raise WorkflowError(f"{p.label or p.key}: connection {cid} isn't one you can reach.")
         out[p.key] = value
     return out
+
+
+def parameter_options(db: Session, user: models.User, workflow: models.Workflow, key: str,
+                      given: dict[str, Any]) -> dict[str, Any]:
+    """A parameter's choices, listed by its pane input's loader as the person
+    filling in the form (D94) -- their group's grant, connections and identity,
+    as the pane's own picker would. Until the parameters it reads are set it
+    says which (`needs`); a loader's failure is said, never raised: the field
+    still takes typed text."""
+    from .routers import panes as panes_router
+
+    definition = Definition.model_validate(workflow.definition)
+    p = next((q for q in definition.parameters if q.key == key), None)
+    if p is None or p.options_from is None:
+        raise WorkflowError(f"{workflow.label} has no parameter {key} with options to list.")
+    source = p.options_from
+    manifest = pane_manifest.get(source.pane)
+    spec = next((i for i in manifest.inputs if i.key == source.input), None) if manifest else None
+    action = next((a for a in manifest.actions if a.id == spec.options.action), None) if spec and spec.options else None
+    if manifest is None or action is None:
+        raise WorkflowError(f"{p.label or key}'s options come from something that doesn't exist any more.")
+    by_key = {q.key: q for q in definition.parameters}
+    params: dict[str, Any] = {}
+    needs: list[str] = []
+    for ref in sorted(_param_refs(json.dumps(source.with_))):
+        q, value = by_key.get(ref), given.get(ref)
+        if value in (None, "", []):
+            needs.append(q.label or ref if q else ref)
+            continue
+        try:
+            if q is not None and q.type in ("connection", "int"):
+                value = int(value)
+            elif q is not None and q.type == "connections":
+                value = [int(v) for v in (value if isinstance(value, list) else [value])]
+        except (TypeError, ValueError):
+            needs.append(q.label or ref)
+            continue
+        params[ref] = value
+    if needs:
+        return {"options": [], "needs": needs}
+    scope = {"params": params, "steps": {}, "item": None, "index": None, "run": None}
+    try:
+        inputs = _inputs(manifest, render(source.with_, scope))
+        if action.request is not None:
+            out = panes_router.run_request(db, user, manifest, action, inputs)
+        else:
+            out = panes_router.run_handler(db, user, manifest, action, inputs)
+        db.commit()  # a handler may have audited a credential's use
+    except (StepError, HTTPException, ResolveError) as e:
+        db.rollback()
+        return {"options": [], "error": masking.mask(str(getattr(e, "detail", e)))}
+    return _flat_options(out or {})
+
+
+def _flat_options(out: dict[str, Any]) -> dict[str, Any]:
+    """A loader's answer as one list: `{options: [{value, label}]}` as it is, a
+    two-level picker's `{groups: [...]}` (one per environment) flattened, each
+    item said with its environment when there are several, and a group that
+    failed said as an error."""
+    options: list[dict[str, str]] = []
+    errors: list[str] = []
+    if isinstance(out.get("options"), list):
+        for o in out["options"]:
+            if isinstance(o, dict) and o.get("value") not in (None, ""):
+                options.append({"value": str(o["value"]), "label": str(o.get("label") or o["value"])})
+    groups = [g for g in out.get("groups") or [] if isinstance(g, dict)]
+    for g in groups:
+        if g.get("error"):
+            errors.append(f"{g.get('environment_name') or g.get('environment_id')}: {g['error']}")
+        for item in g.get("items") or g.get("options") or []:
+            value = item.get("value") if isinstance(item, dict) else item
+            if value in (None, ""):
+                continue
+            label = item.get("label", value) if isinstance(item, dict) else value
+            where = f" ({g.get('environment_name')})" if len(groups) > 1 and g.get("environment_name") else ""
+            options.append({"value": str(value), "label": f"{label}{where}"})
+    seen: set[str] = set()
+    unique = [o for o in options if not (o["value"] in seen or seen.add(o["value"]))]
+    return {"options": unique, **({"errors": errors} if errors else {})}
 
 
 def start(db: Session, user: models.User, workflow: models.Workflow, given: dict[str, Any], *,

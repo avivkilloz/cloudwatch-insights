@@ -8,7 +8,7 @@ valid as the platform changes.
 | File | Shows | Needs |
 |---|---|---|
 | `01-try-me.yaml` | notes, `for_each`, a bare approval, a JSON artifact | nothing |
-| `02-cloudwatch-errors.yaml` | a background run (Logs Insights) waited for, `timeout`, `retry`, `if`, a CSV built from rows | an AWS environment, a log group |
+| `02-cloudwatch-errors.yaml` | log groups listed from the chosen environment (`options_from`, `multiple`), a background run (Logs Insights) waited for, `timeout`, `retry`, `if`, a CSV built from rows | an AWS environment with log groups |
 | `03-dynamodb-tables.yaml` | `for_each` over a list, `continue_on_error`, a CSV report | an AWS environment with DynamoDB |
 | `04-iot-offline-devices.yaml` | several environments at once, one artifact per environment, `join` | AWS environments with IoT Fleet Indexing |
 | `05-mqtt-listen.yaml` | a stream listened to for `listen` seconds | an AWS environment with IoT Core |
@@ -25,3 +25,19 @@ over `params`, `steps.<id>.outputs` / `.status`, `item`, `index` and `run`,
 with the strings (`join`, `split`, `replace`, `lowerAscii`…) and math
 extensions. A template that is the whole value keeps its type (a list stays a
 list); a map given to a text input (an HTTP body) is sent as its JSON.
+
+**Parameters whose choices load.** A text parameter can list its choices the
+way a pane's picker does: `options_from` names a pane input that has a loader
+(`logs-cloudwatch`'s `logGroupSelection`, `tables`' `tableName`, `buckets`'
+`bucket`…) and `with` gives the loader's inputs from the other parameters. The
+form lists them as the person filling it in, again whenever those parameters
+change, and still takes typed text. `multiple: true` makes it a list of values.
+
+```yaml
+  - key: groups
+    multiple: true
+    options_from:
+      pane: logs-cloudwatch
+      input: logGroupSelection
+      with: { connections: "{{ [params.env] }}" }
+```

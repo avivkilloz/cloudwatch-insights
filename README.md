@@ -846,7 +846,8 @@ run only `if` something holds, run once per item with `for_each`, and carry on
 past a failure with `continue_on_error`.
 
 - **Running one**: open it, **Run ▸**, fill in its parameters (an environment
-  picked by name), Run. The run page shows each stage as it finishes; click
+  picked by name; a parameter can list its choices the way a pane's picker
+  does -- the chosen environment's log groups, say), Run. The run page shows each stage as it finishes; click
   one to see what it ran with and what came back -- rows as a table. **Rerun**
   runs it again; **Copy link** gives the run's own address to send someone.
 - **As you**: a run acts as whoever starts it, so it reaches only what your

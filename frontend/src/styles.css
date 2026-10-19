@@ -4565,6 +4565,8 @@ textarea.workflow-source {
   resize: vertical;
 }
 .workflow-stage-inputs summary {
+  /* The detail's own size, not a browser summary's 16px. */
+  font-size: 13px;
   cursor: pointer;
   margin-bottom: 6px;
 }
@@ -4586,14 +4588,38 @@ textarea.workflow-source {
   margin: 8px 0 0;
   padding-left: 18px;
 }
+/* The parameters are the form's own rows, not the card section's: without a
+   gap of their own each row's help line ran into the next row's field. */
+.workflow-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .workflow-param {
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-width: 560px;
 }
-.workflow-param-help {
+/* The row's 28px control line, which its label sits on. */
+.workflow-param > input:not([type="checkbox"]),
+.workflow-param > select {
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  font-size: 13px;
+}
+.workflow-param > input[type="checkbox"] {
+  align-self: flex-start;
+  height: 28px;
+  margin: 0;
+}
+.workflow-param-help,
+.workflow-param-status {
   font-size: 12px;
+}
+.workflow-param-chosen {
+  width: auto;
 }
 .workflow-param-multi {
   display: flex;
