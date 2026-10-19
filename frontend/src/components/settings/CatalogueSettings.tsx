@@ -21,12 +21,18 @@ type Layout = { id: number; pane_types: string[] }[];
 export default function CatalogueSettings() {
   const catalogue = useCatalogue();
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
+  const [adding, setAdding] = useState<{ name: string; description: string } | null>(null);
+  // Its name and the line under it on the default page, edited together.
+  const [editing, setEditing] = useState<{ id: number; name: string; description: string } | null>(null);
   const [deleting, setDeleting] = useState<{ id: number; moveTo: number } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const categories = catalogue.categories.filter((c) => c.id != null) as { id: number; name: string; types: { type: string; label: string }[] }[];
+  const categories = catalogue.categories.filter((c) => c.id != null) as {
+    id: number;
+    name: string;
+    description?: string;
+    types: { type: string; label: string }[];
+  }[];
   const layout = (): Layout => categories.map((c) => ({ id: c.id, pane_types: c.types.map((t) => t.type) }));
 
   async function run(fn: () => Promise<Parameters<typeof catalogue.replace>[0]>) {
@@ -69,7 +75,7 @@ export default function CatalogueSettings() {
       <div className="credential-list-head">
         <h2>Catalogue</h2>
         <span className="muted">The categories panes are offered under, and their order, for everyone.</span>
-        <button onClick={() => setAdding("")} disabled={adding !== null}>
+        <button onClick={() => setAdding({ name: "", description: "" })} disabled={adding !== null}>
           New category
         </button>
       </div>
@@ -79,11 +85,27 @@ export default function CatalogueSettings() {
           className="row catalogue-new"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (await run(() => api.createCatalogueCategory(adding))) setAdding(null);
+            if (await run(() => api.createCatalogueCategory(adding.name, adding.description))) setAdding(null);
           }}
         >
-          <input autoFocus type="text" aria-label="New category name" placeholder="e.g. Databases" value={adding} onChange={(e) => setAdding(e.target.value)} />
-          <button type="submit" disabled={busy || !adding.trim()}>
+          <input
+            autoFocus
+            type="text"
+            aria-label="New category name"
+            placeholder="e.g. Databases"
+            value={adding.name}
+            onChange={(e) => setAdding({ ...adding, name: e.target.value })}
+          />
+          <input
+            type="text"
+            className="catalogue-description-input"
+            aria-label="New category description"
+            placeholder="What's in it, in a line (optional)"
+            maxLength={300}
+            value={adding.description}
+            onChange={(e) => setAdding({ ...adding, description: e.target.value })}
+          />
+          <button type="submit" disabled={busy || !adding.name.trim()}>
             Add
           </button>
           <button type="button" className="secondary" onClick={() => setAdding(null)}>
@@ -110,7 +132,12 @@ export default function CatalogueSettings() {
                   >
                     <Icon name="down" />
                   </button>
-                  <button className="secondary icon-btn" onClick={() => setRenaming({ id: c.id, name: c.name })} aria-label={`Rename ${c.name}`} title="Rename">
+                  <button
+                    className="secondary icon-btn"
+                    onClick={() => setEditing({ id: c.id, name: c.name, description: c.description ?? "" })}
+                    aria-label={`Edit ${c.name}`}
+                    title="Rename, or change its description"
+                  >
                     <Icon name="pencil" />
                   </button>
                   <button
@@ -125,19 +152,29 @@ export default function CatalogueSettings() {
                 </div>
               }
             >
-              {renaming?.id === c.id && (
+              {editing?.id !== c.id && c.description && <p className="muted catalogue-description">{c.description}</p>}
+              {editing?.id === c.id && (
                 <form
                   className="row catalogue-inline"
                   onSubmit={async (e) => {
                     e.preventDefault();
-                    if (await run(() => api.renameCatalogueCategory(c.id, renaming.name))) setRenaming(null);
+                    if (await run(() => api.updateCatalogueCategory(c.id, editing.name, editing.description))) setEditing(null);
                   }}
                 >
-                  <input autoFocus type="text" aria-label="Category name" value={renaming.name} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} />
-                  <button type="submit" disabled={busy || !renaming.name.trim()}>
+                  <input autoFocus type="text" aria-label="Category name" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+                  <input
+                    type="text"
+                    className="catalogue-description-input"
+                    aria-label="Category description"
+                    placeholder="What's in it, in a line (optional)"
+                    maxLength={300}
+                    value={editing.description}
+                    onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+                  />
+                  <button type="submit" disabled={busy || !editing.name.trim()}>
                     Save
                   </button>
-                  <button type="button" className="secondary" onClick={() => setRenaming(null)}>
+                  <button type="button" className="secondary" onClick={() => setEditing(null)}>
                     Cancel
                   </button>
                 </form>

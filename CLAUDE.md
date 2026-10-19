@@ -388,6 +388,11 @@ left out until "Show hidden". `GET /api/catalogue` gives each person only the
 panes their group may use and drops empty categories except for an admin.
 Access isn't here: moving a pane never changes who can use it. A suite that
 arranges it puts it back (smoke81), or later suites see a different order.
+A category has a `description` (the line under its heading on the default
+page, edited with its name in Settings → Catalogue): null means its key's
+default (`catalogue.DESCRIPTIONS` -- the Services/Tools/Platform lines the
+browser used to hard-code), `""` an admin's "none"; a heading without one
+keeps the same space before its cards (`.home-group-title.bare`).
 
 **Home → a session** (R3, D63, §18.9). Per user, on `users`
 (`home_session_id` -- the row's id, a client_id being only unique per owner --
@@ -801,6 +806,10 @@ the platform, for a group with `builder_enabled` (admins always).
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
+- **The agent panel's second tab is about what's on screen** -- a session,
+  a run (This run) or an editor (Building) -- and isn't there with none of
+  them (`AgentPanel`'s `hasSecond`; the chosen tab is kept for when one
+  comes back): it used to sit there saying "Open a session…".
 - **The agent builds beside the editor** (5-2, D107-D108). An editor that may
   be edited registers itself (`agent/buildFocus.ts`'s `useOfferBuild`: the
   Builder's, a workflow's `DefinitionSection`), and the agent panel's second

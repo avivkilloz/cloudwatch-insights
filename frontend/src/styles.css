@@ -634,6 +634,15 @@ button,
    it introduces the card stack below rather than being another card in it. */
 /* ---- Home cards ---- */
 
+.home-group-title {
+  margin: 14px 0 2px;
+  font-size: 13px;
+}
+
+.home-group-title.bare {
+  margin-bottom: 12px;
+}
+
 .home-group-blurb {
   margin: 0 0 12px;
   font-size: 12.5px;
@@ -4246,6 +4255,15 @@ button.icon-btn {
 .catalogue-inline,
 .catalogue-new {
   margin: 4px 0 8px;
+}
+.catalogue-description-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 480px;
+}
+.catalogue-description {
+  margin: 0 0 8px;
+  font-size: 12.5px;
 }
 .catalogue-empty {
   margin: 0;

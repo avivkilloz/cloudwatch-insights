@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/catalogue", tags=["catalogue"])
 class CategoryOut(BaseModel):
     id: int
     name: str
+    description: str = ""
     pane_types: list[str]
 
 
@@ -29,6 +30,8 @@ class CatalogueOut(BaseModel):
 
 class CategoryIn(BaseModel):
     name: str
+    # Left out on a rename, the description stays as it is.
+    description: Optional[str] = None
 
 
 class LayoutCategory(BaseModel):
@@ -53,7 +56,7 @@ def _out(db: Session, user: models.User) -> CatalogueOut:
         mine = [t for t in types if t in allowed]
         # An empty category is noise to anyone but the admin arranging them.
         if mine or is_admin:
-            categories.append(CategoryOut(id=c.id, name=c.name, pane_types=mine))
+            categories.append(CategoryOut(id=c.id, name=c.name, description=catalogue.description(c), pane_types=mine))
     favourites, hidden = catalogue.preferences(db, user)
     return CatalogueOut(
         categories=categories,
@@ -88,7 +91,7 @@ def set_preference(
 
 @router.post("/categories", response_model=CatalogueOut, status_code=201)
 def create_category(payload: CategoryIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
-    _guard(lambda: catalogue.create(db, payload.name))
+    _guard(lambda: catalogue.create(db, payload.name, payload.description))
     return _out(db, admin)
 
 
@@ -96,7 +99,7 @@ def create_category(payload: CategoryIn, db: Session = Depends(get_db), admin: m
 def rename_category(
     category_id: int, payload: CategoryIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
 ):
-    _guard(lambda: catalogue.rename(db, category_id, payload.name))
+    _guard(lambda: catalogue.rename(db, category_id, payload.name, payload.description))
     return _out(db, admin)
 
 

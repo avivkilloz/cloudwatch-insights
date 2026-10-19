@@ -1298,6 +1298,20 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**Reports after the Building tab:**
+- The agent panel's second tab isn't there with no session, run or editor on
+  screen -- it only said "Open a session…"; the panel is Global alone.
+- A catalogue category has a description, given with a new category and
+  edited with its name in Settings → Catalogue; Services/Tools/Platform keep
+  theirs (now the server's defaults), and one without keeps the same space
+  before its cards (Observability's heading sat on Prometheus).
+- Found on the way: a CloudWatch pane opened with environments ticked read
+  "0 environment(s) selected" until the environment list loaded (it counts
+  against it) -- smoke88 failed on it one run in three, before this change
+  too; it says "Loading environments…" now.
+- Tests: `test_catalogue.py` (+1); browser `smoke94` (9, failing against the
+  old frontend); smoke46/81/93 updated; smoke88 three runs green.
+
 **5-1 merged (#129). Reports after it, and 5-2's agent half: the agent builds
 beside the editor (PLATFORM_PLAN.md §24, D107–D108).**
 - **The agent stopped mid-answer**: a step that read something and ended on

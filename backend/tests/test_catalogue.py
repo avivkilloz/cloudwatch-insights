@@ -123,3 +123,20 @@ def test_favourites_and_hidden_are_each_persons():
     body = alice.put("/api/catalogue/preferences/iot", json={"favourite": False}).json()
     assert body["favourites"] == [] and body["hidden"] == []
     assert alice.put("/api/catalogue/preferences/nope", json={"hidden": True}).status_code == 400
+
+
+def test_a_category_says_what_it_is():
+    cats = _by_name(client.get("/api/catalogue").json())
+    assert cats["Services"]["description"].startswith("A window onto an AWS service")
+    made = _by_name(client.post("/api/catalogue/categories", json={"name": "Tracing", "description": " Spans and traces. "}).json())
+    assert made["Tracing"]["description"] == "Spans and traces."
+    plain = _by_name(client.post("/api/catalogue/categories", json={"name": "Databases"}).json())
+    assert plain["Databases"]["description"] == ""
+
+    # A rename leaves the description alone unless it's given; "" clears even a default.
+    tools = cats["Tools"]["id"]
+    assert _by_name(client.put(f"/api/catalogue/categories/{tools}", json={"name": "Utilities"}).json())["Utilities"]["description"].startswith("Self-contained")
+    cleared = client.put(f"/api/catalogue/categories/{tools}", json={"name": "Utilities", "description": ""}).json()
+    assert _by_name(cleared)["Utilities"]["description"] == ""
+    long = client.put(f"/api/catalogue/categories/{tools}", json={"name": "Utilities", "description": "x" * 301})
+    assert long.status_code == 400 and "300 characters" in long.json()["detail"]

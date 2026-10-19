@@ -3,7 +3,6 @@ import { api, Environment, PublishedTemplate, readableError } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { defaultSessionName, useStartSession } from "../sessions/start";
-import { GROUP_BLURB } from "../sessions/registry";
 import { useCatalogue } from "../sessions/catalogue";
 import Icon from "../components/Icon";
 import { useTemplates } from "../sessions/templates";
@@ -139,11 +138,13 @@ export default function HomePage() {
         {/* The catalogue's categories, in the order an admin gave them (D66);
             Favourites aren't a group of their own here, where each card has
             its own star -- in the shorter lists they come first. */}
-        {catalogue.groups({ withHidden: showHidden, withFavourites: false }).map(({ name: group, types: inGroup }) => {
+        {catalogue.groups({ withHidden: showHidden, withFavourites: false }).map(({ name: group, description: about, types: inGroup }) => {
           return (
-            <div key={group}>
-              <h3 style={{ margin: "14px 0 2px", fontSize: 13 }}>{group}</h3>
-              {group in GROUP_BLURB && <p className="muted home-group-blurb">{GROUP_BLURB[group as keyof typeof GROUP_BLURB]}</p>}
+            <div key={group} data-category={group}>
+              {/* A category without a description keeps the same space
+                  before its cards, or its heading sat on them. */}
+              <h3 className={`home-group-title${about ? "" : " bare"}`}>{group}</h3>
+              {about && <p className="muted home-group-blurb">{about}</p>}
               <div className="home-cards">
                 {inGroup.map((t) => {
                   const n = counts[t.type] ?? 0;

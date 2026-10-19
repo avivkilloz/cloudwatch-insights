@@ -7,7 +7,7 @@
 //     text, and its proposal lands in the editor, unsaved, with a notice --
 //     nothing is saved until the user saves it;
 //   - the same beside a workflow's editor;
-//   - away from an editor, the second tab is Session again.
+//   - away from an editor, with no session open, the panel is Global alone.
 // Needs the agent + fake model running (see README).
 import { check, clearWorkspace, launch, openApp, report, SHOT } from "./harness.mjs";
 
@@ -87,8 +87,8 @@ const run = async () => {
   await page.waitForTimeout(300);
   await page.click(".rail-row-home");
   await page.waitForTimeout(300);
-  const away = await page.locator(`${DOCK} .agent-tab`).nth(1).innerText();
-  check(away.startsWith("Session"), "Away from an editor, the second tab is Session again", away);
+  const away = await page.locator(`${DOCK} .agent-tab`).allInnerTexts();
+  check(JSON.stringify(away) === '["Global"]', "Away from an editor (and any session), the panel is Global alone", JSON.stringify(away));
 
   await clearWorkspace(page);
   await browser.close();
