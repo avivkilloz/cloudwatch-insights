@@ -12,7 +12,7 @@ import WorkflowsPage from "./WorkflowsPage";
  * conversation about the whole workspace is a place, not one more thing open
  * inside it.
  *
- * They are reached from the rail (Workflows, Builder), the agent's panel and
+ * They are reached from the rail (Workflows, Builder, Agent), the agent's panel and
  * the account menu (Settings) -- no longer from cards on the default page.
  */
 

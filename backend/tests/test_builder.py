@@ -139,3 +139,50 @@ def test_a_built_pane_is_kept_in_the_store_and_comes_back(remote):
     with SessionLocal() as db:
         builder.load(db)
     assert pane_manifest.get("devops:shouty").label == "Shouty encoder"
+
+
+# ---------------------------------------------------------------- the agent builds (5-2, D107)
+
+
+def test_the_agent_reads_what_a_definition_can_say_and_checks_a_draft(mcp):
+    token = _token()
+    ref = call(mcp, token, "build_reference", kind="pane")
+    assert "label" in ref["manifest"] and "request" in ref and "base64.convert" in ref["live_functions"]
+    assert "aws.dynamodb.scan" in ref["handlers"] and "tool-base64" in ref["examples"]
+    example = call(mcp, token, "read_definition", kind="pane", definition_id="tool-base64")
+    assert "live: base64.convert" in example["source"]
+
+    bad = call(mcp, token, "check_definition", kind="pane", source=ENCODER.replace("live: base64.convert", "handler: no.such"))
+    assert bad["ok"] is False and bad["errors"][0]["line"] == 11
+    # A new one's id is the editor's own field: the draft isn't faulted for lacking it.
+    assert call(mcp, token, "check_definition", kind="pane", source=ENCODER) == {"ok": True, "errors": []}
+
+    refused = call(mcp, token, "propose_definition", kind="pane", source="label: x\n", summary="A start.")
+    assert refused["ok"] is False and "propose" not in refused and refused["errors"]
+    proposed = call(mcp, token, "propose_definition", kind="pane", source=ENCODER, summary="A shouting encoder.")
+    assert proposed["propose"] == {"kind": "pane", "source": ENCODER, "summary": "A shouting encoder."}
+    # Nothing was saved: the user's Save is what saves.
+    assert client.get("/api/builder/panes").json() == []
+
+    wf = call(mcp, token, "build_reference", kind="workflow")
+    assert "steps" in wf["definition"] and any(p["pane"] == "tool-base64" for p in wf["panes"])
+    assert call(mcp, token, "check_definition", kind="workflow", source="label: W\nsteps:\n  - id: a\n    note: hi\n")["ok"]
+    broken = call(mcp, token, "check_definition", kind="workflow", source="label: W\nsteps:\n  - id: a\n    pane: nope\n    action: x\n")
+    assert broken["ok"] is False
+
+
+def test_the_agent_builds_only_what_its_user_may(mcp):
+    from tests.test_platform_tools import call_error
+
+    plain = _group("Plain", pane_types=["tool-base64"], agent_enabled=True)
+    _member("pat", plain)
+    builders = _group("Builders", builder_enabled=True, pane_types=["tool-base64"], agent_enabled=True)
+    _member("bea", builders)
+    with SessionLocal() as db:
+        pat = db.query(models.User).filter_by(username="pat").one().id
+        bea = db.query(models.User).filter_by(username="bea").one().id
+    assert "isn't turned on" in call_error(mcp, _token(pat), "build_reference", kind="pane")
+    assert "isn't turned on" in call_error(mcp, _token(pat), "propose_definition", kind="pane", source=ENCODER, summary="x")
+    # A builder builds pane types; a workflow's definition is still an admin's.
+    assert call(mcp, _token(bea), "check_definition", kind="pane", source=ENCODER)["ok"]
+    assert "Only an admin" in call_error(mcp, _token(bea), "build_reference", kind="workflow")

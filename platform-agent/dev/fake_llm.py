@@ -228,6 +228,22 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
         if step == 0:
             return _call("open_workflow", workflow_id=text[len("show workflow "):].strip())
         return _say(f"It's on the Workflows page: {results[0][1].get('shown')}.")
+    if lowered.startswith("build "):
+        # Beside an editor (D107): the editor's text, its label changed --
+        # checked, then put in the editor, as the prompt asks.
+        found = re.search(r"The editor's text now \((\w+)\):\n```yaml\n(.*?)\n```", reads, re.S)
+        if not found:
+            return _say("I wasn't given an editor this turn.")
+        kind, source = found.group(1), found.group(2).rstrip("\n") + "\n"
+        label = text[len("build "):].strip()
+        source = re.sub(r"^label: .*$", f"label: {label}", source, count=1, flags=re.M)
+        if step == 0:
+            return _call("check_definition", kind=kind, source=source)
+        if step == 1:
+            if not results[0][1].get("ok"):
+                return _say(f"It doesn't check: {results[0][1].get('errors')}")
+            return _call("propose_definition", kind=kind, source=source, summary=f"Renamed it {label}.")
+        return _say(f"It's in the editor, called {label}: check it and save.")
     if "which run" in lowered:  # a run's chat prefixes who asked
         found = re.search(r"get_workflow_run \(this chat's run\):\n(\{.*\})", reads)
         if not found:

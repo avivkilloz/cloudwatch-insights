@@ -53,12 +53,17 @@ class ChatMessage(BaseModel):
 
 
 class Focus(BaseModel):
-    """What a scoped chat belongs to: a session, or a workflow run (D98)."""
+    """What a scoped chat belongs to: a session, a workflow run (D98), or a
+    definition open in an editor (D107: `what` is "pane" or "workflow", `id`
+    its id once saved, `source` the editor's text as it is now)."""
 
-    kind: Literal["session", "run"] = "session"
+    kind: Literal["session", "run", "build"] = "session"
     session_id: Optional[str] = Field(default=None, max_length=64)
     run_id: Optional[int] = None
     title: str = Field(max_length=200)
+    what: Optional[Literal["pane", "workflow"]] = None
+    id: Optional[str] = Field(default=None, max_length=200)
+    source: Optional[str] = Field(default=None, max_length=MAX_MESSAGE_CHARS)
 
 
 class ChatRequest(BaseModel):

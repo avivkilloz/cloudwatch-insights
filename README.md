@@ -919,8 +919,15 @@ its layout -- starting from a working starter or from any of the platform's
 own panes as an example. **Check** points at the line of any mistake;
 **Create** makes it, for your group to use at once (**Open in a session**);
 other groups get it when an admin grants it in Users → Groups → Panes. With a
-store repo set up, each pane type is kept there as written. A form editor
-with a live preview, and building with the agent, come next.
+store repo set up, each pane type is kept there as written.
+
+**Building with the agent**: while a pane type's editor -- or a workflow's, on
+the Workflows page -- is open, the agent panel's second tab is **Building**.
+Say what it should do or what to change ("add a status filter", "make this a
+table of the reply's items"): the agent reads what a definition can say and
+what's in the editor, writes the definition, checks it, and puts it in the
+editor for you to look over. It never saves -- **Check** and **Save** are
+yours. A form editor with a live preview comes next.
 
 ## The store repo
 

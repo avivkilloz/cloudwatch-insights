@@ -293,3 +293,95 @@ def schema() -> dict[str, Any]:
         "starter": STARTER,
     }
 
+
+
+# ---------------------------------------------------------------- for the agent (5-2, D72)
+
+
+def _fields(model: Any) -> dict[str, str]:
+    """A model's fields and their types, as one line each: the reference a
+    model reads, shorter than its JSON schema and from the same source."""
+    out: dict[str, str] = {}
+    for name, field in model.model_fields.items():
+        annotation = str(field.annotation).replace("typing.", "").replace("app.panes.manifest.", "")
+        annotation = annotation.replace("app.workflows.", "").replace("<class '", "").replace("'>", "")
+        out[field.alias or name] = annotation + (" (required)" if field.is_required() else "")
+    return out
+
+
+def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
+    """What a pane type's or a workflow's definition may say, generically --
+    the models' own fields, the names there are to use, and where to read
+    examples (D72: no per-service hints; the schema, examples and the check's
+    errors are enough to build anything)."""
+    from . import pane_access, workflows
+
+    if kind == "pane":
+        m = pane_manifest
+        return {
+            "kind": "pane",
+            "what": "A pane type's manifest, as YAML. Top level, then each part's fields.",
+            # What the Builder sets itself, or a built type may not say, left out.
+            "manifest": {
+                k: v.replace(" (required)", "") if k == "about" else v
+                for k, v in _fields(m.Manifest).items()
+                if k not in ("id", "state", "rendered", "flag", "connection_types", "legacy_drop", "group")
+            },
+            "input": _fields(m.ManifestInput),
+            "action": _fields(m.ManifestAction),
+            # A request is a mapping the action endpoint reads (routers/panes.run_request).
+            "request": {
+                "method": "GET",
+                "connection": "the input holding the connection (an HTTP type's)",
+                "path": "the input holding the path after the base URL", "fixed_path": "a path of its own instead",
+                "query": "the input holding name -> value parameters (a headers input)",
+                "params": "{name: literal | {input: key} | {window: start|end|step}}",
+                "window": "the time-range inputs a {window: ...} param reads",
+                "rows_at": "the input naming where the rows are in the reply (a dotted path)",
+                "rows": "{at, explode, columns: [{name, at, as: text|number|time}], spread, labels}",
+            },
+            "output": _fields(m.ManifestOutput),
+            "card": _fields(m.Card),
+            "layout_item": _fields(m.LayoutItem),
+            "input_types": list(m.InputType.__args__),
+            "renders": list(m.Render.__args__),
+            "handlers": sorted(pane_handlers.ACTIONS),
+            "live_functions": sorted(pane_live.FUNCTIONS),
+            "examples": sorted(m.bundled()),
+            "built_here": sorted(set(m.manifests()) - set(m.bundled())),
+            "rules": [
+                "Leave out id (the editor's Id field, or the saved type's), state and rendered (set for you); "
+                "about defaults to the description.",
+                "An action is a request (to a connection of an HTTP type), a handler from `handlers`, or a live "
+                "function from `live_functions`.",
+                "read_definition shows any example's YAML; check_definition says every problem with its line.",
+            ],
+        }
+    usable = [x for x in pane_manifest.manifests().values() if pane_access.allowed(user.group, x.id)]
+    examples = [w.id for w in workflows.runnable(db, user)]
+    return {
+        "kind": "workflow",
+        "what": "A workflow, as YAML: label, description, parameters, steps. Templates are CEL in {{ }}.",
+        "definition": _fields(workflows.Definition),
+        "parameter": _fields(workflows.Param),
+        "step": _fields(workflows.Step),
+        "template_scope": ["params.<key>", "steps.<id>.outputs", "steps.<id>.status", "item", "index", "run"],
+        "panes": [
+            {
+                "pane": x.id,
+                "label": x.label,
+                "actions": [
+                    {"id": a.id, "runs": "request" if a.request else ("background" if a.poll else "handler"),
+                     **({"effects": a.effects} if a.effects else {})}
+                    for a in x.actions if (a.handler or a.request) and not a.live
+                ],
+                "inputs": [i.key for i in x.inputs if not i.sensitive],
+            }
+            for x in usable
+        ],
+        "examples": examples,
+        "rules": [
+            "A step is a pane's action (pane, action, with: its inputs), a note, an artifact or an approval.",
+            "read_definition shows an existing workflow's YAML; check_definition says every problem with its line.",
+        ],
+    }

@@ -1,5 +1,6 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "../AuthContext";
+import { useAgent } from "../agent/AgentContext";
 import { LiveSessionSummary } from "../api";
 import { useAgentActivity, useSessions } from "../sessions/SessionContext";
 import { useWaitingApprovals } from "../workflowApprovals";
@@ -74,6 +75,7 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
   const openPublished = useOpenPublishedFromMenu();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
+  const agentStatus = useAgent().status;
   const { groups: catalogueGroups } = useCatalogue();
 
   // Which row is being renamed in place. Started from the row's ⋮ or from a
@@ -431,6 +433,13 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
         {user?.builder_enabled && (
           <button className={`rail-row rail-row-page${view === "builder" ? " active" : ""}`} onClick={() => show("builder")}>
             <span className="rail-row-label">Builder</span>
+          </button>
+        )}
+        {/* The Global chat as a page of its own: its card on the default
+            page was its only way in until the Platform cards went. */}
+        {agentStatus?.available && agentStatus.enabled && (
+          <button className={`rail-row rail-row-page${view === "agent" ? " active" : ""}`} onClick={() => show("agent")}>
+            <span className="rail-row-label">Agent</span>
           </button>
         )}
       </div>

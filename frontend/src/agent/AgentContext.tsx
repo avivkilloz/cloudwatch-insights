@@ -25,6 +25,7 @@ import { AgentChatMessage, AgentEvent, AgentStatus, api, ApiError } from "../api
 import { useAuth } from "../AuthContext";
 import { useSessions, useWriteSessionState } from "../sessions/SessionContext";
 import { followAppLink, RunFocus, useRunFocus } from "../workflowFocus";
+import { BuildFocus, currentBuildFocus, useBuildFocus } from "./buildFocus";
 import { SessionSelection } from "./selection";
 
 export interface AgentStep {
@@ -76,8 +77,9 @@ export interface AgentTurn {
 // matching inside a longer word ("@platform-agentic").
 const AGENT_MENTION = /@platform-agent\b/i;
 
-/** "run": a workflow run's own chat (D98), stored on the run, its readers'. */
-export type AgentScope = "global" | "session" | "run";
+/** "run": a workflow run's own chat (D98), stored on the run, its readers'.
+ * "build": beside the editor on screen (D107), kept in this tab only. */
+export type AgentScope = "global" | "session" | "run" | "build";
 export type AgentLayout = "dock" | "float";
 
 /** The session state key a session's conversation lives under. */
@@ -104,9 +106,11 @@ interface AgentApi {
   sessionTurns: (sessionId: string) => AgentTurn[];
   /** A run's conversation, the turn in flight included. */
   runTurns: (runId: number) => AgentTurn[];
+  /** An editor's conversation (its BuildFocus key), the turn in flight included. */
+  buildTurns: (key: string) => AgentTurn[];
   running: boolean;
   /** Which conversation the running turn belongs to. */
-  runningIn: { scope: AgentScope; sessionId: string | null; runId?: number | null } | null;
+  runningIn: { scope: AgentScope; sessionId: string | null; runId?: number | null; buildKey?: string | null } | null;
   /** The turn this browser is streaming, if any: its steps are live here;
    * another browser's running turn has only its question to show. */
   liveTurnId: string | null;
@@ -117,6 +121,8 @@ interface AgentApi {
   viewingSessionId: string | null;
   /** The run on screen, which the second tab is about instead ("This run"). */
   viewingRun: RunFocus | null;
+  /** The editor on screen, which the second tab is about instead of either ("Building"). */
+  viewingBuild: BuildFocus | null;
   /** Whether that session has anyone else on it -- once it does, the agent
    * only answers a message that mentions it, so the compose box can say so. */
   viewingSessionShared: boolean;
@@ -299,11 +305,15 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     scope: AgentScope;
     sessionId: string | null;
     runId?: number | null;
+    buildKey?: string | null;
     turn: AgentTurn;
   } | null>(null);
   // Runs' conversations, as fetched from each run (D98): kept on the server,
   // since a run isn't a session and has no synced state to ride in.
   const [runChats, setRunChats] = useState<Record<number, AgentTurn[]>>({});
+  // Editors' conversations, by BuildFocus key: in memory, like Global's --
+  // about a draft that may never be saved, so there's nowhere to keep them.
+  const [buildChats, setBuildChats] = useState<Record<string, AgentTurn[]>>({});
   const [follow, setFollow] = useState(true);
   // Defaults to whichever makes sense for what's on screen right now (a
   // session, or not) -- not persisted, so a fresh load re-decides rather
@@ -334,6 +344,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const runFocus = useRunFocus();
   const viewingRun = view === "workflows" ? runFocus : null;
   const viewingRunId = viewingRun?.runId ?? null;
+  const buildFocus = useBuildFocus();
+  const viewingBuild = view === "builder" || view === "workflows" ? buildFocus : null;
+  const viewingBuildKey = viewingBuild?.key ?? null;
 
   // Opening a session (not just switching between two already-open ones --
   // that leaves whatever tab you picked alone) defaults the panel to the
@@ -348,6 +361,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     if (view === "session" && prevViewRef.current !== "session" && liveScopeRef.current !== "global") setTab("session");
     prevViewRef.current = view;
   }, [view]);
+  // Opening an editor does the same for the Building tab: that's what the
+  // second tab is about while it's on screen.
+  useEffect(() => {
+    if (viewingBuildKey && liveScopeRef.current !== "global") setTab("session");
+  }, [viewingBuildKey]);
 
   // Read through refs by `ask`, so a turn asks about what is on screen and
   // what has been said at that moment without `ask` changing every render.
@@ -357,6 +375,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   viewingRunRef.current = viewingRunId;
   const runChatsRef = useRef(runChats);
   runChatsRef.current = runChats;
+  const viewingBuildRef = useRef(viewingBuild);
+  viewingBuildRef.current = viewingBuild;
+  const buildChatsRef = useRef(buildChats);
+  buildChatsRef.current = buildChats;
   const followRef = useRef(follow);
   followRef.current = follow;
   const globalRef = useRef(globalTurns);
@@ -465,6 +487,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     [runChats, live],
   );
 
+  const buildTurns = useCallback(
+    (key: string) => {
+      const turns = buildChats[key] ?? [];
+      return live && live.scope === "build" && live.buildKey === key ? [...turns, live.turn] : turns;
+    },
+    [buildChats, live],
+  );
+
   const ask = useCallback(
     (text: string, scope: AgentScope, selection?: SessionSelection) => {
       const question = text.trim();
@@ -473,6 +503,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       if (scope === "session" && !sessionId) return;
       const runId = scope === "run" ? viewingRunRef.current : null;
       if (scope === "run" && runId === null) return;
+      const build = scope === "build" ? viewingBuildRef.current : null;
+      if (scope === "build" && !build) return;
+      const buildKey = build?.key ?? null;
 
       // Several people can share one session's conversation (the Global tab
       // never has more than one); once it's actually shared, every turn
@@ -497,7 +530,13 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const promptQuestion = author ? `${author.name}: ${question}` : question;
       const attachment = selection ? withAttachment(promptQuestion, selection) : null;
       const earlier =
-        scope === "global" ? globalRef.current : scope === "run" ? (runChatsRef.current[runId!] ?? []) : storedTurns(sessionId!);
+        scope === "global"
+          ? globalRef.current
+          : scope === "run"
+            ? (runChatsRef.current[runId!] ?? [])
+            : scope === "build"
+              ? (buildChatsRef.current[buildKey!] ?? [])
+              : storedTurns(sessionId!);
       const messages = [
         ...history(earlier),
         { role: "user" as const, content: attachment ? attachment.content : promptQuestion },
@@ -514,7 +553,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         author,
         agentInvoked: true,
       };
-      setLive({ scope, sessionId, runId, turn: first });
+      setLive({ scope, sessionId, runId, buildKey, turn: first });
       if (scope === "run") putRunChat(runId!, [first]);
       // The question goes into the session's chat now, not when it's
       // answered: everyone else on the session -- and this user's other tabs
@@ -571,6 +610,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           if (event.ok && event.show && (event.name === "open_workflow" || (scope !== "session" && followRef.current))) {
             followAppLink(event.show.href, showRef.current);
           }
+          // A definition proposed for the editor this turn is about -- only
+          // while that editor is still the one open; it's never saved here.
+          if (event.ok && event.propose && scope === "build") {
+            const now = currentBuildFocus();
+            if (now && now.key === buildKey) now.apply(event.propose.source, event.propose.summary ?? "");
+          }
         } else if (event.type === "error") {
           change((t) => ({ ...t, status: "failed", error: event.message }));
         } else if (event.type === "done") {
@@ -586,6 +631,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
             timezone: timezone(),
             scope,
             ...(scope === "run" ? { run_id: runId } : {}),
+            ...(build ? { build: { kind: build.kind, id: build.id, title: build.title, source: build.source() } } : {}),
           },
           onEvent,
           controller.signal,
@@ -606,6 +652,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
             setGlobalTurns((prev) => [...prev, done]);
           } else if (scope === "run") {
             putRunChat(runId!, [done]);
+          } else if (scope === "build") {
+            setBuildChats((prev) => ({ ...prev, [buildKey!]: [...(prev[buildKey!] ?? []), done].slice(-KEPT_TURNS) }));
           } else {
             const others = storedTurns(sessionId!).filter((t) => t.id !== id);
             writeSessionState(sessionId!, SESSION_CHAT_KEY, [...others, done].slice(-KEPT_TURNS));
@@ -623,6 +671,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       if (scope === "global") setGlobalTurns([]);
       // A run's chat is everyone's who reads the run: not one person's to clear.
       else if (scope === "session" && viewingRef.current) writeSessionState(viewingRef.current, SESSION_CHAT_KEY, []);
+      else if (scope === "build" && viewingBuildRef.current) {
+        const key = viewingBuildRef.current.key;
+        setBuildChats((prev) => ({ ...prev, [key]: [] }));
+      }
     },
     [writeSessionState],
   );
@@ -638,14 +690,18 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       globalTurns: shownGlobal,
       sessionTurns,
       runTurns,
+      buildTurns,
       running: live !== null,
-      runningIn: live ? { scope: live.scope, sessionId: live.sessionId, runId: live.runId ?? null } : null,
+      runningIn: live
+        ? { scope: live.scope, sessionId: live.sessionId, runId: live.runId ?? null, buildKey: live.buildKey ?? null }
+        : null,
       liveTurnId: live?.turn.id ?? null,
       ask,
       stop,
       clear,
       viewingSessionId,
       viewingRun,
+      viewingBuild,
       viewingSessionShared: viewingSessionId ? isShared(viewingSessionId) : false,
       refreshShared,
       follow,
@@ -662,12 +718,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       shownGlobal,
       sessionTurns,
       runTurns,
+      buildTurns,
       live,
       ask,
       stop,
       clear,
       viewingSessionId,
       viewingRun,
+      viewingBuild,
       refreshShared,
       sessions,
       sharedSessions,

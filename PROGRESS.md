@@ -1298,6 +1298,32 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**5-1 merged (#129). Reports after it, and 5-2's agent half: the agent builds
+beside the editor (PLATFORM_PLAN.md §24, D107–D108).**
+- **The agent stopped mid-answer**: a step that read something and ended on
+  "Now let me run its IoT pane." was taken as an answer -- the guard only
+  treated an announced step as unfinished before any tool had run, and
+  nudged once per turn. Now an announcement after a tool counts too, a reply
+  cut off by the token limit (`finish_reason: length`) is told to carry on
+  (`CUT_OFF`), and a turn may be nudged twice (an empty reply once). Harness,
+  not the model's size or the pod's resources: the agent pod only relays.
+- **A workflow's listed choices whatever the case**: a run's parameter with
+  `options_from` takes the listed choice it matches exactly, then
+  case-insensitively, then the one choice containing it (`/APP` -> `/app`);
+  otherwise the value as given. For the agent and the form alike.
+- **No Platform cards** on the default page, at the user's request; the
+  Agent page got a rail row (it had no other way in).
+- **5-2, the agent's build tools**: beside the Builder's editor or a
+  workflow's, the agent panel's second tab is **Building**. A turn reads
+  what a definition can say (`build_reference`, generated from the models)
+  and the editor's text; the agent checks its draft (`check_definition`) and
+  proposes it (`propose_definition`), which lands in the editor unsaved, with
+  a notice. It never saves. The form editor and a live preview are 5-2b.
+- Tests: backend `test_builder.py` (+2), `test_agent_chat.py` (+1), a case
+  in `test_workflow_steps.py`; agent service `test_agent.py` (+4, the guard's
+  failing on the old one); browser `smoke93` (12, failing against the old
+  frontend); smoke23/25/34/35/36/45 updated for the cards' removal.
+
 **4c merged (#128). Fixes reported after it, and 5-1 built: the Builder, pane
 types as YAML (PLATFORM_PLAN.md §24, D103–D106).**
 - **Fixes**: the Workflow pane links to its run (opened in place on the
@@ -1483,11 +1509,10 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 4b-2 (PLATFORM_PLAN.md §22.1): steps over a background run,
-   approvals (and with them `effects: external` steps and the agent's), retry
-   and timeout, rerun from a failed stage, the blob store. Then 4b-3, the
-   doors between runs and sessions. Scheduled and webhook runs act as
-   the workflow's owner (D81).
+1. Phase 5-2b (PLATFORM_PLAN.md §24): the Builder's form editor and a live
+   preview of the draft on a real connection (a tool the agent gets too);
+   then 5-3, workflows and steps for builders. Scheduled and webhook runs
+   (acting as the workflow's owner, D81) are still to come.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
 3. **Platform agent, phase 3.**

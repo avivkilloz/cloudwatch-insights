@@ -659,6 +659,8 @@ export type AgentEvent =
       session_id?: string;
       /** A place in the app a tool asked to show (`open_workflow`, a run it started). */
       show?: { href: string };
+      /** A definition the agent put forward for the editor on screen (D107). */
+      propose?: { kind: string; source: string; summary?: string };
     }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
@@ -699,8 +701,9 @@ async function agentChat(
     messages: AgentChatMessage[];
     viewing_session_id: string | null;
     timezone: string;
-    scope: "global" | "session" | "run";
+    scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
+    build?: { kind: "pane" | "workflow"; id: string | null; title: string; source: string };
   },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,

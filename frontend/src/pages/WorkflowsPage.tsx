@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useOfferBuild } from "../agent/buildFocus";
 import {
   api,
   BlobRef,
@@ -462,6 +463,13 @@ function DefinitionSection({
   useEffect(() => {
     if (workflow?.source !== undefined) setSource(workflow.source);
   }, [workflow?.source]);
+  // The agent panel's Building tab (D107): its proposal replaces the text, unsaved.
+  useOfferBuild("workflow", workflow?.id ?? null, workflow?.label ?? (newId.trim() || "New workflow"), editable && (isNew || !!workflow), source, (text, summary) => {
+    setSource(text);
+    setProblems(null);
+    setError(null);
+    setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
+  });
 
   async function validate() {
     setNotice(null);

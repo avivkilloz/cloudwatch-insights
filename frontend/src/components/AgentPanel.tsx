@@ -11,13 +11,15 @@ import AgentChat from "./AgentChat";
  * toggle).
  */
 export default function AgentPanel({ account }: { account?: ReactNode }) {
-  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, viewingRun, running, runningIn } = useAgent();
+  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, viewingRun, viewingBuild, running, runningIn } =
+    useAgent();
   // On a run's page the second tab is that run's own chat (D98), not a
-  // session's: the tab stays "session", the conversation it shows is the run's.
-  const second = viewingRun ? "run" : "session";
+  // session's, and beside an editor it's building what's in it (D107): the
+  // tab stays "session", the conversation it shows is the run's or editor's.
+  const second = viewingBuild ? "build" : viewingRun ? "run" : "session";
   // A dot on the other tab while its conversation has a turn running, so
   // switching away doesn't hide that the agent is still at it.
-  const busy = (scope: "global" | "session" | "run") =>
+  const busy = (scope: "global" | "session" | "run" | "build") =>
     running && runningIn?.scope === scope && (scope === "global" ? tab !== "global" : tab !== "session") ? (
       <span className="agent-tab-busy" title="The agent is still answering here" aria-label="(answering)" />
     ) : null;
@@ -41,14 +43,16 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
             className={`agent-tab${tab === "session" ? " active" : ""}`}
             onClick={() => setTab("session")}
             title={
-              viewingRun
+              viewingBuild
+                ? `Building ${viewingBuild.title}: ask for a change, and the agent drafts it into the editor`
+                : viewingRun
                 ? `This run: ${viewingRun.title} -- what it ran, what it found, why a stage failed`
                 : viewingSessionId
                   ? "This session: change it, ask about what's checked in it"
                   : "Open a session first"
             }
           >
-            {viewingRun ? "This run" : "Session"}
+            {viewingBuild ? "Building" : viewingRun ? "This run" : "Session"}
             {busy(second)}
           </button>
         </div>

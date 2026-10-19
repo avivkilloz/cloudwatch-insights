@@ -123,8 +123,7 @@ const run = async () => {
 
   // ---------- 6. The same conversation on the Agent page ----------
   // The dock's Global tab and the Agent page are one conversation.
-  await page.click(".rail-row-home");
-  await page.click('.home-card-open:has(.home-card-title:text-is("Agent"))');
+  await page.click('.rail-row-page:has-text("Agent")');
   await page.waitForSelector(`.agent-session .agent-question:text-is("dashboard")`);
   check((await page.locator(".agent-session .agent-turn").count()) === 5,
     "The Agent page shows the same conversation as the dock's Global tab");

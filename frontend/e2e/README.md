@@ -62,6 +62,10 @@ environment, run the CloudWatch pane it made) need the faked backend too.
 `smoke92` (the Builder: a pane type made, checked and opened as a member of a
 builder group) needs nothing beyond the backend.
 
+`smoke93` (the agent panel's Building tab beside the Builder's and a
+workflow's editor, through the fake model's `build <label>` script) needs the
+agent and the fake model running.
+
 `smoke91` (the Workflow pane's link to its run, the agent's `open_workflow`
 through the fake model's `show workflow <id>`, a published template offered
 once) needs the agent and the fake model.

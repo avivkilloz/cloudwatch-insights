@@ -86,6 +86,24 @@ async def run_pane(session_id: str, pane_id: str, ctx: Context, inputs: dict | N
     return {"session_id": session_id, "pane_id": pane_id, "output": "aGk="}
 
 
+@stub.tool()
+async def build_reference(kind: str, ctx: Context) -> dict:
+    _auth(ctx)
+    return {"kind": kind, "manifest": {"label": "str (required)"}, "live_functions": ["base64.convert"]}
+
+
+@stub.tool()
+async def check_definition(kind: str, source: str, ctx: Context, definition_id: str | None = None) -> dict:
+    _auth(ctx)
+    return {"ok": source.startswith("label: "), "errors": []}
+
+
+@stub.tool()
+async def propose_definition(kind: str, source: str, summary: str, ctx: Context, definition_id: str | None = None) -> dict:
+    _auth(ctx)
+    return {"ok": True, "note": "It's in the editor, unsaved.", "propose": {"kind": kind, "source": source, "summary": summary}}
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -504,3 +522,25 @@ def test_the_check_can_be_turned_off(settings):
     fake_llm.CHECKS.clear()
     events = _events(Settings(**{**settings.__dict__, "check": False}), "pretend connect")
     assert not fake_llm.CHECKS and not [e for e in events if e.get("name") == "check_answer"]
+
+
+def test_a_build_chat_reads_the_reference_and_the_editor_and_proposes(settings):
+    """Building (D107): the turn reads what a definition can say and the
+    editor's text, and a proposal is passed on for the browser to put in the
+    editor -- never saved by the agent."""
+    fake_llm.REQUESTS.clear()
+    focus = {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Old\ndescription: x\n"}
+    events = _events(settings, "build Loud encoder", focus=focus)
+    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble") and e["name"] != "check_answer"]
+    assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("build_reference", {"kind": "pane"})]
+    sent = fake_llm.REQUESTS[0]["messages"]
+    assert "beside an editor" in sent[0]["content"] and "propose_definition" in sent[0]["content"]
+    assert "build_reference:" in sent[-1]["content"] and "The editor's text now (pane):" in sent[-1]["content"]
+    [proposed] = [e for e in events if e["type"] == "tool_result" and e.get("propose")]
+    assert proposed["propose"] == {
+        "kind": "pane", "source": "label: Loud encoder\ndescription: x\n", "summary": "Renamed it Loud encoder.",
+    }
+    assert [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")] == [
+        "check_definition", "propose_definition",
+    ]
+    assert "in the editor, called Loud encoder" in _answer(events)

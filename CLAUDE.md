@@ -784,7 +784,7 @@ id, kept in the store (`Kind` `template`).
   it. From Add with one environment it opens at once; otherwise the default
   page's card asks. The agent: `get_context.templates`, `open_template`.
 
-**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D106; `builder.py`,
+**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D108; `builder.py`,
 `routers/builder.py`, `pages/BuilderPage.tsx`). Phase 5-1: pane types made in
 the platform, for a group with `builder_enabled` (admins always).
 - **A built pane type is a manifest**, kept verbatim in `built_pane_types` and
@@ -801,6 +801,19 @@ the platform, for a group with `builder_enabled` (admins always).
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
+- **The agent builds beside the editor** (5-2, D107-D108). An editor that may
+  be edited registers itself (`agent/buildFocus.ts`'s `useOfferBuild`: the
+  Builder's, a workflow's `DefinitionSection`), and the agent panel's second
+  tab is then **Building** (scope `"build"`, its turns in memory per editor
+  key). The turn carries the editor's text; the router lets only whoever may
+  edit it ask; the agent service reads `build_reference` first and attaches
+  the text (`prompt.build_prompt`, `turn_reads`). Tools: `build_reference`
+  (`builder.reference`, generated from the models -- never hand-written
+  docs), `read_definition`, `check_definition`, `propose_definition` -- the
+  last only returns a checked draft as `propose`, which the browser puts in
+  the editor unsaved (`apply`, with a notice). There is no save tool on
+  purpose. A new tool for a model to build with belongs in `reference`, not
+  the prompt.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

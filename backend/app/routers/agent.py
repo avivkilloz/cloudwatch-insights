@@ -75,6 +75,17 @@ class AgentMessage(BaseModel):
     steps: Optional[list[AgentHistoryStep]] = Field(default=None, max_length=40)
 
 
+class BuildFocus(BaseModel):
+    """The editor a "build" chat sits beside: what it holds (a pane type or
+    a workflow), its id once saved, and its text as it is now -- unsaved,
+    the user's, and newer than anything the store has."""
+
+    kind: Literal["pane", "workflow"]
+    id: Optional[str] = Field(default=None, max_length=200)
+    title: str = Field(default="", max_length=200)
+    source: str = Field(default="", max_length=MAX_MESSAGE_CHARS)
+
+
 class AgentChatRequest(BaseModel):
     # The conversation so far, the new message last. The browser holds the
     # conversation for now; each turn stands alone on the agent's side.
@@ -86,9 +97,11 @@ class AgentChatRequest(BaseModel):
     # "global": the platform-wide chat, free to create and change any
     # session. "session": the chat of the session in viewing_session_id,
     # which the agent is told to keep to. "run": a workflow run's own chat
-    # (D98), about the run in run_id.
-    scope: Literal["global", "session", "run"] = "global"
+    # (D98), about the run in run_id. "build": beside an editor (D107),
+    # about the definition in `build`.
+    scope: Literal["global", "session", "run", "build"] = "global"
     run_id: Optional[int] = None
+    build: Optional[BuildFocus] = None
 
 
 def _event(payload: dict) -> str:
@@ -135,6 +148,30 @@ async def agent_chat(
         if run is None or workflow is None or not workflows.can_read(current_user, run):
             raise HTTPException(status_code=404, detail="That run isn't there for you, so there's nothing to talk about.")
         focus = {"kind": "run", "run_id": run.id, "title": f"{workflow.label} #{run.number}"}
+    elif payload.scope == "build":
+        # Whoever may edit it, as on its page: the agent's build tools check
+        # the same again for every call.
+        from .. import builder
+
+        build = payload.build
+        if build is None:
+            raise HTTPException(status_code=400, detail="A build chat needs the editor it's about.")
+        allowed = builder.can_build(current_user) if build.kind == "pane" else bool(
+            current_user.group and current_user.group.is_admin
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Building pane types isn't turned on for your group." if build.kind == "pane"
+                else "Only an admin edits workflows' definitions, for now.",
+            )
+        focus = {
+            "kind": "build",
+            "what": build.kind,
+            "title": build.title or build.id or f"New {'pane type' if build.kind == 'pane' else 'workflow'}",
+            "source": build.source,
+            **({"id": build.id} if build.id else {}),
+        }
 
     token = tokens.mint(
         db,
