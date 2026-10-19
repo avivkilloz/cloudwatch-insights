@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SavedSession } from "../api";
 import { PublishForm } from "./PublishedTemplatesPanel";
+import { useTemplates } from "../sessions/templates";
 
 // Session templates, their whole state edited as JSON. The per-pane stores
 // that once shared this panel -- the HTTP client's requests (3b-2), the MQTT
@@ -21,6 +22,9 @@ interface Props {
  * shows it, in the editor that can also change it. */
 export default function SavedSessionEditorPanel({ description, items, onUpdate, onDelete, canPublish }: Props) {
   const [publishing, setPublishing] = useState<number | null>(null);
+  // Which of these were published (Add offers the published one instead).
+  const { published } = useTemplates();
+  const publishedAs = new Map(published.map((t) => [t.from_saved_session_id, t.label]));
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -73,6 +77,11 @@ export default function SavedSessionEditorPanel({ description, items, onUpdate, 
             <div className="result-row-summary" onClick={() => toggleExpanded(item.id)}>
               <span className={`chevron ${isOpen ? "open" : ""}`}>▶</span>
               <span className="msg">{item.name}</span>
+              {publishedAs.has(item.id) && (
+                <span className="tag" title={`Published as "${publishedAs.get(item.id)}": Add offers that one instead`}>
+                  Published
+                </span>
+              )}
             </div>
             {isOpen && (
               <div className="result-row-detail">

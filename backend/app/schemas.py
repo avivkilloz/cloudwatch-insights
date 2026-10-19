@@ -513,6 +513,8 @@ class S3BrowseResponse(BaseModel):
     continuation_token: Optional[str] = None
     # A search's keys looked at by this request (0 when browsing a folder).
     scanned: int = 0
+    # "browse" (a folder), "path" (a search with a "/", listed as a prefix) or "name".
+    mode: str = "browse"
 
 
 # ---- Cognito tab ----

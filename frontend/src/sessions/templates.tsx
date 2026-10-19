@@ -179,7 +179,14 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
   }, [user, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
-  const value = useMemo(() => ({ templates, published, reload }), [templates, published, reload]);
+  // A template published from one of the user's own is offered once: the
+  // published one, which opens for an environment. Both under one name read
+  // as a duplicate, one asking for an environment and the other not.
+  const offered = useMemo(() => {
+    const replaced = new Set(published.map((t) => t.from_saved_session_id).filter((id) => id !== null));
+    return templates.filter((t) => !replaced.has(t.entry.id));
+  }, [templates, published]);
+  const value = useMemo(() => ({ templates: offered, published, reload }), [offered, published, reload]);
   return <TemplatesContext.Provider value={value}>{children}</TemplatesContext.Provider>;
 }
 

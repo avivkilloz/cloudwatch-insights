@@ -1,7 +1,9 @@
 /**
  * What the Workflows page hands the rest of the app (§22.10):
  * - the run on screen, which the agent panel's "This run" tab is about (D98);
- * - a workflow drafted from a session, waiting for the editor to open it (D96).
+ * - a workflow drafted from a session, waiting for the editor to open it (D96);
+ * - a workflow or a run something else asked to show: the Workflow pane's
+ *   link to its run, the agent's `open_workflow` (`openWorkflowScreen`).
  * Small stores, so the page and the panel needn't know each other.
  */
 
@@ -17,8 +19,12 @@ export interface Draft {
   source: string;
 }
 
+/** What the Workflows page is asked to show. */
+export type WorkflowScreen = { kind: "workflow"; id: string } | { kind: "run"; id: number };
+
 let focus: RunFocus | null = null;
 let draft: Draft | null = null;
+let asked: WorkflowScreen | null = null;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
@@ -52,4 +58,44 @@ export function takeDraft(): Draft | null {
 
 export function useDraftWaiting(): boolean {
   return useSyncExternalStore(subscribe, () => draft !== null);
+}
+
+/** Asks the Workflows page to show a workflow or a run; whoever asks also
+ * switches to the page (`show("workflows")`). Taken by the page. */
+export function openWorkflowScreen(next: WorkflowScreen) {
+  asked = next;
+  emit();
+}
+
+export function takeWorkflowScreen(): WorkflowScreen | null {
+  const taken = asked;
+  asked = null;
+  return taken;
+}
+
+export function useWorkflowScreenWaiting(): boolean {
+  return useSyncExternalStore(subscribe, () => asked !== null);
+}
+
+/**
+ * A link inside the app (`?run=17`, `?workflow=orders_check`): shown in
+ * place, never a page load -- a load would drop the tab's live state and
+ * every open session's last second of edits. Anything else is left to the
+ * browser. Returns whether it was taken.
+ */
+export function followAppLink(href: string, show: (view: "workflows") => void): boolean {
+  let url: URL;
+  try {
+    url = new URL(href, window.location.href);
+  } catch {
+    return false;
+  }
+  if (url.origin !== window.location.origin) return false;
+  const run = url.searchParams.get("run");
+  const workflow = url.searchParams.get("workflow");
+  if (run && /^\d+$/.test(run)) openWorkflowScreen({ kind: "run", id: Number(run) });
+  else if (workflow) openWorkflowScreen({ kind: "workflow", id: workflow });
+  else return false;
+  show("workflows");
+  return true;
 }

@@ -252,11 +252,13 @@ from your picture's menu and is not a session; the strip stays above it.
 - **S3 page**: pick one environment and a bucket (its actual region is
   resolved automatically, which can differ from the environment's own
   region), then navigate it like a file explorer — folders and files at
-  the current level, breadcrumbs to jump back up. The search box switches
-  to a recursive search under the current folder instead, matching the path
-  below it (a name, or `2024/app` for one in a folder). A big bucket is
-  searched a few seconds at a time: it says how many files it has looked
-  through so far, and **Load more** searches on from there. Read-only: no file content is ever fetched or previewed, only
+  the current level, breadcrumbs to jump back up. The search box takes a
+  **path** or a **name**. A path (anything with a `/`, like `POP/69/`) is
+  listed at once the way `aws s3 ls s3://bucket/POP/69/` lists it -- S3 finds
+  a prefix itself, however big the bucket -- and is case-sensitive, as S3 is.
+  A name is looked for in every file under the current folder, a few seconds
+  at a time: it says how many files it has looked through, and **Load more**
+  searches on from there. Read-only: no file content is ever fetched or previewed, only
   metadata (size, last modified, storage class). Each file has "Copy S3
   URI" (`s3://bucket/key`) and "Copy object URL" (the virtual-hosted-style
   HTTPS URL) buttons. The pane's **⚙** bookmarks an environment, bucket and
@@ -374,7 +376,8 @@ from your picture's menu and is not a session; the strip stays above it.
   **Environment** variable, and what names this platform's own connections,
   credentials or secrets is left out (you're told what) -- and is offered on
   the default page under **Ready-made sessions**, and under Templates in Add,
-  to every group that has each of its panes. Opening one asks which
+  to every group that has each of its panes (in place of the template it was
+  published from, in its publisher's own lists). Opening one asks which
   environment it's for (with only one, it doesn't ask). With a store repo set
   up, each is kept there; **Library → Published** renames or unpublishes them.
   The agent can open one too ("open the fleet errors template for Prod").
@@ -886,7 +889,8 @@ past a failure with `continue_on_error`.
   big to show whole keeps them all for later steps and for "Download all".
   Run files are kept 90 days.
 - The agent can list, run and read workflows too ("run the table check on
-  Prod"); a step needing approval waits for you, never the agent.
+  Prod"), and show you one or a run on this page ("open the table check");
+  a step needing approval waits for you, never the agent.
 - **Investigate in a session**: on a run's page, opens what it found as a new
   session -- a pane per stage that ran a pane's action, holding the query it
   ran and what came back, to sort, chart, look into and run again by hand;
@@ -896,7 +900,8 @@ past a failure with `continue_on_error`.
   opens it in the editor to check and save.
 - **The Workflow pane** (Platform, granted to a group like any pane): runs a
   workflow from inside a session -- pick it, fill in its parameters (the same
-  fields as **Run ▸** on the Workflows page), Run -- and follows it there.
+  fields as **Run ▸** on the Workflows page), Run -- and follows it there,
+  with a link that opens the whole run on the Workflows page.
 - **This run**: while a run is on screen, the agent panel's second tab is a
   conversation about that run ("why did the scan fail?"), kept with the run
   for everyone who may see it.

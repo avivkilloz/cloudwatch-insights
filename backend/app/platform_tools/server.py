@@ -1537,7 +1537,8 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
                                "get_workflow_run reads it again once they have.")
                 return out
             if run.status in workflows.FINISHED or asyncio.get_running_loop().time() >= deadline:
-                return _run_out(db, run, user)
+                # Followed in the browser like a session the agent made (Follow on).
+                return {**_run_out(db, run, user), "show": {"href": f"?run={run.id}"}}
         await asyncio.sleep(0.5)
 
 
@@ -1582,6 +1583,27 @@ async def open_template(template_id: str, environment: Optional[Any] = None) -> 
         except templates.TemplateError as e:
             raise InputError(str(e)) from None
         return _describe_session(db, made, user.id)
+
+
+@mcp.tool()
+async def open_workflow(workflow_id: Optional[str] = None, run_id: Optional[int] = None) -> dict:
+    """Shows the user a workflow's page (its runs, Run, its definition) or one run's page (its stages, inputs,
+    outputs, files) on the Workflows page, in their browser. Give one of the two."""
+    from .. import workflows
+
+    with _acting() as (db, user, _caller):
+        if run_id is not None:
+            run = db.get(models.WorkflowRun, run_id)
+            workflow = db.get(models.Workflow, run.workflow_id) if run else None
+            if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+                raise InputError(f"There is no run {run_id} the user can see.")
+            return {"shown": f"{workflow.label} #{run.number}", "show": {"href": f"?run={run.id}"}}
+        if not workflow_id:
+            raise InputError("Give the workflow_id (list_workflows) or a run_id.")
+        workflow = db.get(models.Workflow, workflow_id)
+        if workflow is None or not workflows.can_run(db, user, workflow):
+            raise InputError(f"There is no workflow '{workflow_id}' the user may run; list_workflows says which they may.")
+        return {"shown": workflow.label, "show": {"href": f"?workflow={workflow.id}"}}
 
 
 @mcp.tool()

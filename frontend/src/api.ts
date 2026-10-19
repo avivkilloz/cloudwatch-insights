@@ -179,6 +179,8 @@ export interface PublishedTemplate {
   /** Whether the asker's group may use every pane of it (an admin sees all). */
   usable: boolean;
   store_state: StoreState | null;
+  /** The asker's own saved template it was published from, if it was theirs. */
+  from_saved_session_id: number | null;
 }
 
 /**
@@ -623,7 +625,16 @@ export type AgentEvent =
   | { type: "thinking"; delta: string }
   | { type: "retract"; chars: number }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown>; preamble?: boolean }
-  | { type: "tool_result"; id: string; name: string; ok: boolean; summary: string; session_id?: string }
+  | {
+      type: "tool_result";
+      id: string;
+      name: string;
+      ok: boolean;
+      summary: string;
+      session_id?: string;
+      /** A place in the app a tool asked to show (`open_workflow`, a run it started). */
+      show?: { href: string };
+    }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
   | { type: "done" };

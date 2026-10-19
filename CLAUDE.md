@@ -745,7 +745,13 @@ their own (the rail's Workflows row), never a session.
   (`components/WorkflowParamFields.tsx`) and stored as key -> value
   (`coerce_params` also takes a connection's label, a list comma-separated;
   rows from before the form still read). Its picker has no `load_label`, so
-  it loads by itself (`OptionsPicker`, once per mount).
+  it loads by itself (`OptionsPicker`, once per mount). It links to its run
+  (`runLink`, an output of `render: link`): a link into the app (`?run=`,
+  `?workflow=`) is shown in place by `workflowFocus.followAppLink`, never a
+  page load. The agent's `open_workflow` returns the same as `show`
+  (`{href}`), which the agent service passes on beside `session_id` and the
+  browser follows (always for `open_workflow`; with Follow for a run
+  `run_workflow` waited on).
   **This run** (`workflow_runs.chat`, merged by turn id, `GET/POST
   /api/workflow-runs/{id}/chat`): the agent panel's second tab while a run is
   on screen (`setRunFocus`), sent as `scope: "run"` with `run_id`; the agent
@@ -764,7 +770,10 @@ id, kept in the store (`Kind` `template`).
   parameters removed; a secret-looking header's value blanked. What changed
   is answered in words and shown to the publisher.
 - **Offered** to whoever's group may use each of its panes
-  (`templates.usable`, `pane_access.granted`) -- no grant of its own.
+  (`templates.usable`, `pane_access.granted`) -- no grant of its own -- in
+  place of the saved template it was published from (`saved_session_id`,
+  told only to its owner as `from_saved_session_id`): both, under one name,
+  read as a duplicate.
 - **Opened by the server** (`templates.instantiate`): the environment the
   opener chose (and can reach) set, `variables.apply` per pane, the log
   groups re-keyed, then `live_store.create`; the browser `openFromServer`s

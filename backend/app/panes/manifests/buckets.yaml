@@ -37,8 +37,10 @@ inputs:
     resets: [in.search]
   - key: search
     type: text
-    help: Search file names containing this under the prefix, instead of one folder.
-    placeholder: Search filenames under this folder…
+    help: >-
+      A path with a "/" (POP/69/) lists what's under it at once, as aws s3 ls does; a name is looked for in every file
+      under the prefix.
+    placeholder: Search names, or a path like logs/2024/…
     width: 280
     default: ""
     submit: browse
@@ -96,6 +98,8 @@ outputs:
   # Set only while a search has more of the bucket to look through.
   - key: searchGoesOn
     render: text
+  - key: searchNote
+    render: text
 legacy_drop: [buckets]
 layout:
   - title: 1. Choose environment and bucket
@@ -108,7 +112,7 @@ layout:
           - input: bucket
       - error: list_buckets
   - title: 2. Browse
-    clear: [folders, files, continuationToken, activeSearch, searched, searchGoesOn]
+    clear: [folders, files, continuationToken, activeSearch, searched, searchGoesOn, searchNote]
     when: { input: bucket, present: true }
     items:
       - restored: browse
@@ -126,8 +130,9 @@ layout:
           - busy: browse
           - flash: true
       - error: browse
-      - text: Searching recursively under "{{ in.prefix ?? '/' }}" for filenames containing "{{ out.activeSearch }}".
-        when: { output: activeSearch, present: true }
+      # Which kind of search it was: a path (a "/" in it) is listed at once,
+      # as aws s3 ls does; a name is looked for in every file under the folder.
+      - output: searchNote
       - output: files
       # A search stops after a few seconds of a big bucket: saying how far it
       # got, or an empty list read as "no such file" when it hadn't looked yet.

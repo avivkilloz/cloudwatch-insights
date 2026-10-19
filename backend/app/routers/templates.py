@@ -42,6 +42,8 @@ class TemplateOut(BaseModel):
     # Whether the asker's group may use every pane of it (an admin sees all).
     usable: bool
     store_state: Optional[str] = None
+    # The asker's own saved template it was published from, if it was theirs.
+    from_saved_session_id: Optional[int] = None
 
 
 class PublishedOut(TemplateOut):
@@ -64,7 +66,13 @@ def _out(db: Session, user: models.User, row: models.PublishedTemplate) -> dict:
         "needs_environment": templates.needs_environment(state),
         "usable": templates.usable(user, row),
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="template", item_id=row.id)), (None,))[0],
+        "from_saved_session_id": row.saved_session_id if _own_saved(db, user, row.saved_session_id) else None,
     }
+
+
+def _own_saved(db: Session, user: models.User, saved_id: Optional[int]) -> bool:
+    saved = db.get(models.SavedSession, saved_id) if saved_id else None
+    return saved is not None and saved.user_id == user.id
 
 
 def _guard(fn):

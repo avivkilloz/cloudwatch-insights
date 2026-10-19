@@ -731,6 +731,10 @@ class PublishedTemplate(Base):
     label = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     state = Column(JSON, nullable=False)
+    # The saved template it was published from, so its publisher's Add lists
+    # offer the published one in its place, not both under one name. Not in
+    # the store: a saved template is this deployment's, and its owner's.
+    saved_session_id = Column(Integer, ForeignKey("saved_sessions.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -18,9 +18,10 @@ to the browser unchanged:
   a step stopped for going round in circles.
 - `{"type": "tool_call", "id", "name", "args", "preamble"?}` -- a tool about
   to run; `preamble` marks the reads every turn starts with.
-- `{"type": "tool_result", "id", "name", "ok", "summary", "session_id"?}` --
+- `{"type": "tool_result", "id", "name", "ok", "summary", "session_id"?, "show"?}` --
   how it went; `session_id` names the session it touched, which is how the
-  browser can follow the agent to it.
+  browser can follow the agent to it, and `show` ({"href"}) a place in the
+  app a tool asked it to show (a run on the Workflows page).
 - `{"type": "notice", "message"}` -- a warning to show under the answer
   (one whose details no tool returned, see grounding.py, or one the answer
   check still found wanting after a redo, see check.py).
@@ -106,6 +107,17 @@ def _text(content: Any) -> str:
                 parts.append(block.get("text", ""))
         return "".join(parts)
     return ""
+
+
+def _show(output: str) -> Optional[dict]:
+    """A place in the app a tool asked the browser to show (`open_workflow`,
+    a run the agent started), as {"href"} -- passed on like `session_id`."""
+    try:
+        parsed = json.loads(output)
+    except ValueError:
+        return None
+    show = parsed.get("show") if isinstance(parsed, dict) else None
+    return {"href": show["href"]} if isinstance(show, dict) and isinstance(show.get("href"), str) else None
 
 
 def _session_id(output: str) -> Optional[str]:
@@ -383,6 +395,9 @@ async def run_turn(
                         session_id = _session_id(output) if event["ok"] else None
                         if session_id:
                             event["session_id"] = session_id
+                        show = _show(output) if event["ok"] else None
+                        if show:
+                            event["show"] = show
                         yield event
         for event in finish_step():
             yield event

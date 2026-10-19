@@ -40,6 +40,8 @@ InputType = Literal[
 Render = Literal[
     "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach",
     "logs", "run", "histogram", "stream",
+    # {label, href}: a link -- one into the app (`?run=17`) is shown in place.
+    "link",
 ]
 OutputAction = Literal["copy", "export", "attach", "select"]
 

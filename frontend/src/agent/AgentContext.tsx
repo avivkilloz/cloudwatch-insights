@@ -24,7 +24,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { AgentChatMessage, AgentEvent, AgentStatus, api, ApiError } from "../api";
 import { useAuth } from "../AuthContext";
 import { useSessions, useWriteSessionState } from "../sessions/SessionContext";
-import { RunFocus, useRunFocus } from "../workflowFocus";
+import { followAppLink, RunFocus, useRunFocus } from "../workflowFocus";
 import { SessionSelection } from "./selection";
 
 export interface AgentStep {
@@ -278,7 +278,9 @@ const OPEN_KEY = "cwi-agent-open";
 let turnCounter = 0;
 
 export function AgentProvider({ children }: { children: ReactNode }) {
-  const { sessions, activeId, view, activate } = useSessions();
+  const { sessions, activeId, view, activate, show } = useSessions();
+  const showRef = useRef(show);
+  showRef.current = show;
   const writeSessionState = useWriteSessionState();
   const { user } = useAuth();
   const [status, setStatus] = useState<AgentStatus | null>(null);
@@ -562,6 +564,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           // global one goes places, and a run's opens what investigates it.
           if (scope !== "session" && event.ok && event.session_id && followRef.current) {
             setPendingFollow(event.session_id);
+          }
+          // A place on a page: open_workflow is asked for by name, so it's
+          // shown wherever the question was; a run the agent started is
+          // followed the way a session it made is.
+          if (event.ok && event.show && (event.name === "open_workflow" || (scope !== "session" && followRef.current))) {
+            followAppLink(event.show.href, showRef.current);
           }
         } else if (event.type === "error") {
           change((t) => ({ ...t, status: "failed", error: event.message }));

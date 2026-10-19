@@ -4648,6 +4648,23 @@ From §20.8 (D76). One PR, with two fixes reported beside it.
   searched while the bucket has more (`searched`, summed by Load more;
   `searchGoesOn`). A file past the first 20,000 keys was "Nothing here.".
 
+**Fixed after it** (reported after #128):
+- **The Workflow pane links to its run**: a `link` output render (`{label,
+  href}`); a link into the app is shown in place (`followAppLink`), the
+  Workflows page taking the screen it asks for (`openWorkflowScreen`).
+- **The agent shows a workflow or a run** (`open_workflow`): it returns
+  `show: {href}`, passed on by the agent service like `session_id` and
+  followed by the browser; a run `run_workflow` waited on carries one too,
+  followed with Follow on. It had said it couldn't.
+- **S3: a path is a prefix, as `aws s3 ls` does it.** A search with a `/`
+  (`POP/69/`) lists that prefix with the delimiter -- S3 finds it at once --
+  and only when nothing is there falls back to the name scan. Scanning for it
+  as a substring had gone through 33,000 keys of a real bucket without
+  reaching `POP/`. The server says which it did (`searchNote`).
+- **A published template is offered once**: its row keeps the saved template
+  it came from (`saved_session_id`), and its publisher's Add lists offer the
+  published one in that one's place (Library marks it "Published").
+
 ## 12. Research sources
 
 - Jenkins credentials (types, scopes System/Global/Folder, domains, binding):

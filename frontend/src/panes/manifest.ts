@@ -140,7 +140,9 @@ export type Render =
   | "logs"
   | "run"
   | "histogram"
-  | "stream";
+  | "stream"
+  /** {label, href}: a link, shown in place when it's a place in the app. */
+  | "link";
 
 export interface ManifestOutput {
   key: string;

@@ -78,6 +78,8 @@ def browse_bucket(
     - Folder browsing (default): a single Delimiter="/" listing under
       `prefix`, splitting the result into subfolders (CommonPrefixes) and
       files (Contents) at that level only -- a normal file-explorer view.
+    - Path lookup, when `search` holds a "/": that path's folders and files,
+      as `aws s3 ls` lists them -- S3 finds a prefix itself, at once.
     - Filename search: a recursive (no Delimiter) listing under `prefix`,
       matched case-insensitively against each object's path below `prefix`
       (so "2024/app" finds a file in a folder, and a bare name finds it
@@ -92,6 +94,41 @@ def browse_bucket(
     files: list[dict] = []
     next_token: Optional[str] = None
     scanned = 0
+
+    path = search.strip().lstrip("/")
+    # Load more of a name search carries on as one (its cursor is a key).
+    if "/" in path and not (continuation_token or "").startswith(_AFTER):
+        # A path ("POP/69/", "logs/2024/app"): listed the way `aws s3 ls
+        # s3://bucket/POP/69/` lists it -- S3 itself finds the keys under a
+        # prefix, at once, however big the bucket. Scanning for it as a
+        # substring went through every key before it (33,000 and still short
+        # of "POP/" in a real bucket). Case matters here, as it does to S3.
+        kwargs = {"Bucket": bucket, "Prefix": prefix + path, "Delimiter": "/", "MaxKeys": max_results}
+        if continuation_token and not continuation_token.startswith(_AFTER):
+            kwargs["ContinuationToken"] = continuation_token
+        resp = client.list_objects_v2(**kwargs)
+        for cp in resp.get("CommonPrefixes", []):
+            folder_prefix = cp["Prefix"]
+            folders.append({"name": folder_prefix[len(prefix):].rstrip("/"), "prefix": folder_prefix})
+        for obj in resp.get("Contents", []):
+            if obj["Key"].endswith("/") and obj.get("Size", 0) == 0:
+                continue  # a folder's placeholder object
+            files.append(_file_info(obj))
+        if resp.get("IsTruncated"):
+            next_token = resp.get("NextContinuationToken")
+        if folders or files or continuation_token:
+            return {
+                "bucket": bucket,
+                "bucket_region": bucket_region,
+                "prefix": prefix,
+                "folders": folders,
+                "files": files,
+                "continuation_token": next_token,
+                "scanned": 0,
+                "mode": "path",
+            }
+        # No such path (or not in this case): looked for as part of a name
+        # instead, which "2024/app" for logs/2024/App.log still finds.
 
     if search.strip():
         term = search.strip().lower()
@@ -146,4 +183,5 @@ def browse_bucket(
         "files": files,
         "continuation_token": next_token,
         "scanned": scanned,
+        "mode": "name" if search.strip() else "browse",
     }

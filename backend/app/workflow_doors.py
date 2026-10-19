@@ -308,12 +308,14 @@ def _pane_view(db: Session, user: models.User, run: models.WorkflowRun) -> dict[
         text += ". A step waits for approval on the run's page in Workflows"
     if run.error:
         text += f". {run.error}"
-    text += f". The whole run is on the Workflows page, run {run.id}."
     stages = [
         {"stage": s.label or s.step_id, "status": s.status, "took": _step_took(s), "error": s.error or ""}
         for s in workflows.run_steps(db, run)
     ]
-    return {"summary": text, "stages": stages}
+    # The whole run -- each stage's inputs and outputs, its files, Rerun --
+    # is the run page's; the pane says where, as a link that opens it in place.
+    link = {"label": f"Open {label} #{run.number} on the Workflows page", "href": f"?run={run.id}"}
+    return {"summary": text, "stages": stages, "runLink": link}
 
 
 def _step_took(step: models.WorkflowRunStep) -> str:
