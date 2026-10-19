@@ -158,8 +158,9 @@ const run = async () => {
   check(!savedTabs.some((t) => ["CloudWatch Sessions", "OpenSearch Sessions", "IoT Sessions"].includes(t)),
     "The per-service saved-session tabs are gone", JSON.stringify(savedTabs));
   // Every pane's saved items are saved inputs now (D46), the MQTT tester's
-  // topics last (3b-5): Templates and Saved inputs are all there is.
-  check(JSON.stringify(savedTabs) === JSON.stringify(["Templates", "Saved inputs"]),
+  // topics last (3b-5): Templates and Saved inputs are all there is -- with
+  // Published between them for an admin (§23), templates made for everyone.
+  check(JSON.stringify(savedTabs) === JSON.stringify(["Templates", "Published", "Saved inputs"]),
     "The saved items that are still written are all still there", JSON.stringify(savedTabs));
   const openTab = await page.locator(".panel:has(h2:text-is(\"Library\")) .tab.active").innerText();
   check(openTab === "Templates", "…and it is the one open on arrival", openTab);

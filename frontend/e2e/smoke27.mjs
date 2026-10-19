@@ -85,9 +85,13 @@ const ROW = (l) => `.rail-row:not(.rail-row-type):not(.rail-row-template):not(.r
   // The way to the home page's card, then every service and tool as a
   // one-click session, then whatever templates you have. "Platform" is not
   // among them: those are pages rather than panes.
+  // (A catalogue category may be called Platform -- the Workflow pane's is --
+  // so it's the pages' own names that mustn't be offered here, not the word.)
   const headings = await page.locator(".rail-heading").allTextContents();
-  check(headings.includes("Services") && headings.includes("Tools") && !headings.includes("Platform"),
-    "The catalogue offers services and tools, but not the platform's pages", JSON.stringify(headings));
+  const offered = await page.locator(".rail-row-type .rail-row-label").allTextContents();
+  const pages = ["Home", "Agent", "Workflows", "Chat", "Code", "Settings"];
+  check(headings.includes("Services") && headings.includes("Tools") && !offered.some((o) => pages.includes(o)),
+    "The catalogue offers services and tools, but not the platform's pages", JSON.stringify({ headings, offered }));
   check((await page.locator('.rail-row-new:has(.rail-row-label:text-is("Start new session…"))').count()) === 1,
     "Add offers the way to start one");
 

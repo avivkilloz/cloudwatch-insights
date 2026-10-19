@@ -4629,3 +4629,40 @@ textarea.workflow-source {
 .workflows-run-cell {
   text-align: right;
 }
+
+/* Published templates (§23): a ready-made card asks for its environment in
+   place, under its title, at the card's own padding. */
+.home-ready.home-ready-choosing {
+  border-color: var(--accent);
+}
+
+.home-ready-choose {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.home-ready-choose select {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-ready .error-text {
+  margin: 0 12px 12px;
+}
+
+.publish-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.publish-form .toolbar {
+  margin-top: 6px;
+}
+
+.publish-changes {
+  margin: 0;
+  padding-left: 18px;
+}

@@ -27,10 +27,11 @@
  */
 
 import { Dispatch, ReactNode, SetStateAction, useEffect, useId, useMemo, useRef, useState } from "react";
-import { api, ApiError, CredentialSummary, Environment, PaneOutputs, readableError, Target } from "../api";
+import { api, ApiError, CredentialSummary, Environment, PaneOutputs, readableError, Target, WorkflowParam } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
+import { ParamFields } from "../components/WorkflowParamFields";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
 import { usePaneAddress, useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
@@ -1086,6 +1087,9 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   const grow = (min: number): number | false => (bare ? -1 : inRow ? min : false);
   const spaced = place === "card" && !input.rows;
 
+  if (input.type === "workflow_params") {
+    return <WorkflowParamsInput input={input} pane={pane} value={value} onChange={set} idPrefix={fieldId} />;
+  }
   // Two-level pickers: their options are a loader's groups, not a select's.
   if (input.type === "log_groups") return <LogGroupsPicker input={input} pane={pane} />;
   if (input.type === "opensearch_indices") return <IndicesPicker input={input} pane={pane} />;
@@ -1387,6 +1391,68 @@ function OptionsPicker({
         </select>
       )}
     </>
+  );
+}
+
+/**
+ * A workflow's parameters as its own fields (the Workflow pane): fetched for
+ * the workflow the input `of` names, drawn by the Workflows page's own
+ * `ParamFields`. Name/value rows left a person to know each key and to type
+ * an environment's name; picking a workflow showed nothing to fill in.
+ */
+function WorkflowParamsInput({
+  input,
+  pane,
+  value,
+  onChange,
+  idPrefix,
+}: {
+  input: ManifestInput;
+  pane: Pane;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  idPrefix: string;
+}) {
+  const workflowId = input.of ? String(pane.inputs[input.of] ?? "") : "";
+  const [params, setParams] = useState<WorkflowParam[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setParams(null);
+    setError(null);
+    if (!workflowId) return;
+    let live = true;
+    api
+      .getWorkflow(workflowId)
+      .then((w) => live && setParams(w.parameters))
+      .catch((e) => live && setError(readableError(e)));
+    return () => {
+      live = false;
+    };
+  }, [workflowId]);
+  // Stored before this was a form: the headers editor's rows.
+  const values: Record<string, unknown> = Array.isArray(value)
+    ? Object.fromEntries(
+        (value as { key?: string; value?: unknown }[]).filter((r) => r.key).map((r) => [String(r.key), r.value]),
+      )
+    : value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  if (!workflowId) return null;
+  if (error) return <p className="error-text">{error}</p>;
+  if (params === null) return <p className="muted">Loading its parameters…</p>;
+  if (params.length === 0) return <p className="muted">It takes no parameters.</p>;
+  const label = textOf(input.label, pane.inputs);
+  return (
+    <div className="workflow-params workflow-pane-params">
+      {label && <span className="field-label">{label}</span>}
+      <ParamFields
+        workflowId={workflowId}
+        params={params}
+        values={values}
+        set={(key, v) => onChange({ ...values, [key]: v })}
+        idPrefix={`${idPrefix}-param`}
+      />
+    </div>
   );
 }
 

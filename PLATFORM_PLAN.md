@@ -1144,7 +1144,7 @@ foundation the next one needs.
     Workflows page, a workflow's page and the live run page, rerun from a stage,
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
-  - **4c, published templates** (D76, §20.8).
+  - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
 - [ ] **Phase 5: The builder.** A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
@@ -1270,6 +1270,10 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D96 | 2026-10-19 | **Make repeatable drafts a workflow from a session -- a step per pane with a server action, its set inputs as `with`, each connection-valued input a parameter defaulting to what it holds -- and opens it in the editor, unsaved** (§22.10). | A draft to finish by hand, not a workflow made behind the person's back; editing stays an admin's (D84). |
 | D97 | 2026-10-19 | **The workflow pane is a manifest like any other** (group Platform, no flag: granted per group): a workflow picker, parameters as name/value rows, Run as a background run polled into its summary and stages, Stop cancelling the run (§22.10). | No hand-drawn pane: it proves the seam a plugin uses. Parameters typed as text take a connection by name. |
 | D98 | 2026-10-19 | **"This run" is a run's own chat**: stored on the run, shared by its readers, its turns reading the run first (`get_workflow_run`); the agent panel's second tab is "This run" on a run page (§22.10). | The question about a run is asked looking at it; it's the run's, as a session's chat is the session's. |
+| D99 | 2026-10-19 | **A published template is its own row (`published_templates`, a namespaced id), made portable when it's published, never a person's saved template shared** (§23). Publishing is an admin's, from Library; the saved template stays its owner's. | Plugin content needs a string id the store can name a file by, and must not change when its author edits their own copy. Editing is an admin's until the Builder grant, as a workflow's is (D84). |
+| D100 | 2026-10-19 | **Portable is decided per input by its manifest type**: AWS connection inputs follow the Environment variable (unlinked ones relinked); log groups kept under `$environment`, given to the environment chosen on opening; other connections, credentials, OpenSearch indices and a workflow's connection parameters left out; a header whose name says secret keeps its name, not its value. Every change is said, in words, to whoever publishes. | Nothing service-specific: a plugin's pane is made portable by the same rules. A template goes to a git repo, so a pasted token mustn't; and the publisher should know what the opener will have to fill in. |
+| D101 | 2026-10-19 | **Opening a published template is the server's**: the environment chosen first (asked on its card on the default page; with one environment, nothing to ask), the variable set, each pane's bound inputs copied in, the log groups re-keyed, the session made through `live_store.create`. Offered on the default page ("Ready-made sessions") and under Templates in Add and the strip's ＋. | The re-keying (connection ids as map keys) is the server's to know; the browser opens what was made, as it does an investigated run. |
+| D102 | 2026-10-19 | **Who is offered one is who may use each of its panes** (`pane_access.granted`); no grant of its own. The agent sees them in `get_context` and opens one with `open_template`. | Access is per group, per pane type (D65); a template is panes, so it needs nothing more. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
 ## 13. Phase 1 in detail: credentials
@@ -4591,6 +4595,58 @@ name, while its pane lists them once an environment is picked.
   turn reads the run first and the prompt keeps to it; its token is a
   Global turn's otherwise (it may open a session to investigate). The agent
   panel shows "This run" instead of "Session" while a run is on screen.
+
+## 23. Phase 4c in detail: published templates (planned and built 2026-10-19, D99–D102)
+
+From §20.8 (D76). One PR, with two fixes reported beside it.
+
+- **Publish** (Settings → Library → Templates → a template → Publish…, admins):
+  an id (namespaced with a store, `store.full_id`), a name and a description.
+  `POST /api/templates {saved_session_id, id, label, description}` makes it
+  portable (`templates.portable`, below), stores it in `published_templates`,
+  records it with the store (`Kind` `template`, `templates/<name>.yaml`,
+  `contributes: templates`) and answers with what it changed, which the form
+  shows. Library's **Published** tab renames, re-describes and unpublishes.
+- **Portable** (D100), by each pane's manifest: an AWS `connection`/
+  `connections` input is removed and the pane relinked to the Environment
+  variable, which is left defined and empty; `log_groups` are merged under
+  `$environment`; non-AWS connections, `credential` inputs and
+  `opensearch_indices` (their domains' endpoints) are removed; a `headers`
+  row whose name matches auth/token/secret/password/cookie/api key/session/
+  signature keeps its name with an empty value; a `workflow_params` input
+  drops the workflow's connection parameters. `__savedStateVersion` goes.
+- **Offered** (D101, D102) to whoever's group may use each of its panes:
+  `GET /api/templates` (an admin gets every one, `usable` saying which are
+  theirs to open), the default page's **Ready-made sessions** cards, and the
+  Templates heading of Add and the strip's ＋ (published ones first).
+- **Opened** (D101): `POST /api/templates/{id}/open {environment}`. A
+  template whose panes follow the Environment variable needs one the opener
+  can reach; the server sets the variable, runs `variables.apply` per pane,
+  re-keys `$environment` log groups to it, and creates the session
+  (`templates.instantiate`). The browser opens it (`openFromServer`). From
+  Add with one environment it opens at once; with several, the default
+  page's card asks (`sessions/published.ts`).
+- **The agent**: `get_context.templates`, `open_template(template_id,
+  environment)`; refused in a session chat, like `create_session`.
+- Left for later: categories for templates in the catalogue (they are their
+  own section for now), updating a published template's panes from a newer
+  saved copy (unpublish and publish again), and templates in a plugin
+  installed from elsewhere (Phase 7).
+
+**Fixed beside it** (reported after 4b-3):
+- **The workflow pane asks for its workflow's parameters**: a manifest input
+  type `workflow_params` (`of:` the input holding the workflow) is drawn by
+  the Workflows page's own fields (`components/WorkflowParamFields.tsx`):
+  picking a workflow shows its parameters, an environment by name, choices
+  listed where the workflow lists them. Name/value rows left a person to
+  know the keys, and Run failed with "Fill in Environment.". The agent sets
+  it as key -> value (`panes.convert`), rows from before accepted.
+- **S3's filename search reaches the whole bucket**: it scans for up to 8 s
+  (`SEARCH_SECONDS`) rather than 20 pages, matches the path below the
+  folder, resumes after the last key it looked at (`after:<key>`, so Load
+  more no longer skips the rest of a page), and says how many files it has
+  searched while the bucket has more (`searched`, summed by Load more;
+  `searchGoesOn`). A file past the first 20,000 keys was "Nothing here.".
 
 ## 12. Research sources
 

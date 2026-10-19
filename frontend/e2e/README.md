@@ -55,6 +55,10 @@ the faked backend below too; so does `smoke86` (approvals, artifacts, rerun
 from a stage), whose approved step sends HTTP to a `.fake` host. Its artifact
 is written to the backend's `STORAGE_PATH` (default `/data/files`): start the
 backend with a directory it can write, or the run fails at that step.
+`smoke89` (the Workflow pane's parameter form; S3's search, its AWS part faked
+in the page) and `smoke90` (published templates: publish, open for an
+environment, run the CloudWatch pane it made) need the faked backend too.
+
 `smoke88` (investigate a run, make a session repeatable, the Workflow pane, a
 run's chat) needs the same, and the agent with the fake model for the run's
 chat (its `which run` script answers from the run the turn read).

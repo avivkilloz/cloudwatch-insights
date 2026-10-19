@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SavedSession } from "../api";
+import { PublishForm } from "./PublishedTemplatesPanel";
 
 // Session templates, their whole state edited as JSON. The per-pane stores
 // that once shared this panel -- the HTTP client's requests (3b-2), the MQTT
@@ -10,13 +11,16 @@ interface Props {
   items: SavedSession[];
   onUpdate: (id: number, payload: { name?: string; state?: Record<string, unknown> }) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  /** An admin may publish a template for everyone (§23). */
+  canPublish?: boolean;
 }
 
 /** A collapsed row is its name alone: a template's state is a whole session,
  * and printing it beside the name filled the row with braces and squeezed the
  * name -- the thing you are looking for -- down to nothing. Expanding the row
  * shows it, in the editor that can also change it. */
-export default function SavedSessionEditorPanel({ description, items, onUpdate, onDelete }: Props) {
+export default function SavedSessionEditorPanel({ description, items, onUpdate, onDelete, canPublish }: Props) {
+  const [publishing, setPublishing] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -97,6 +101,8 @@ export default function SavedSessionEditorPanel({ description, items, onUpdate, 
                       </button>
                     </div>
                   </>
+                ) : publishing === item.id ? (
+                  <PublishForm item={item} onDone={() => setPublishing(null)} />
                 ) : (
                   <>
                     <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -106,6 +112,11 @@ export default function SavedSessionEditorPanel({ description, items, onUpdate, 
                       <button className="secondary" onClick={() => startEdit(item)}>
                         Edit
                       </button>
+                      {canPublish && item.page === "aggregator" && (
+                        <button className="secondary" onClick={() => setPublishing(item.id)}>
+                          Publish…
+                        </button>
+                      )}
                       <button className="danger" onClick={() => remove(item.id)}>
                         Delete
                       </button>

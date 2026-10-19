@@ -112,7 +112,8 @@ const run = async () => {
   await page.click('.content .settings-tabs button:text-is("Library")');
   await page.waitForSelector('.panel:has(h2:text-is("Library")) .tab');
   const tabs = await page.locator('.panel:has(h2:text-is("Library")) .tabs .tab').allInnerTexts();
-  check(tabs[0] === "Templates" && tabs[1] === "Saved inputs" && !tabs.includes("S3") && !tabs.includes("DynamoDB"),
+  // Published (§23) sits between them for an admin.
+  check(tabs[0] === "Templates" && tabs.at(-1) === "Saved inputs" && !tabs.includes("S3") && !tabs.includes("DynamoDB"),
     "Library: Templates, then Saved inputs; S3's and DynamoDB's own tabs are gone", JSON.stringify(tabs));
   await page.click('.panel:has(h2:text-is("Library")) .tab:text-is("Saved inputs")');
   await page.waitForSelector('[data-saved-input="e2e-orders"]');

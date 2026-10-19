@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { SavedSession } from "../api";
 import { TEMPLATE_PAGES } from "../sessions/templates";
+import { useAuth } from "../AuthContext";
+import PublishedTemplatesPanel from "./PublishedTemplatesPanel";
 import SavedInputsPanel from "./SavedInputsPanel";
 import SavedSessionEditorPanel from "./SavedSessionEditorPanel";
 
@@ -11,7 +13,7 @@ interface Props {
   onDeleteSession: (id: number) => Promise<void>;
 }
 
-type TabId = "session-templates" | "saved-inputs";
+type TabId = "session-templates" | "published" | "saved-inputs";
 
 /* Templates first: a whole session is the biggest thing you can save, and the
    rest are inputs you load inside one. The per-service "sessions" tabs that
@@ -24,17 +26,21 @@ type TabId = "session-templates" | "saved-inputs";
 // MQTT tester's topics (3b-5), the last.
 const TABS: { id: TabId; label: string }[] = [
   { id: "session-templates", label: "Templates" },
+  // Templates made plugin content (§23): an admin's to publish and manage.
+  { id: "published", label: "Published" },
   { id: "saved-inputs", label: "Saved inputs" },
 ];
 
 export default function SavedItemsHub(props: Props) {
   const [tab, setTab] = useState<TabId>("session-templates");
+  const { user } = useAuth();
+  const isAdmin = !!user?.is_admin;
 
   return (
     <div className="panel">
       <h2>Library</h2>
       <div className="tabs" style={{ justifySelf: "start", marginBottom: 14, flexWrap: "wrap" }}>
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== "published" || isAdmin).map((t) => (
           <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
@@ -47,8 +53,11 @@ export default function SavedItemsHub(props: Props) {
           items={props.savedSessions.filter((s) => TEMPLATE_PAGES.includes(s.page))}
           onUpdate={props.onUpdateSession}
           onDelete={props.onDeleteSession}
+          canPublish={isAdmin}
         />
       )}
+
+      {tab === "published" && isAdmin && <PublishedTemplatesPanel />}
 
       {tab === "saved-inputs" && <SavedInputsPanel />}
 

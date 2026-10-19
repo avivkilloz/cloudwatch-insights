@@ -179,6 +179,8 @@ def s3_browse(db: Session, user: models.User, inputs: dict[str, Any], cursor: An
         "folders": [f.model_dump() for f in browsed.folders],
         "files": [f.model_dump() for f in browsed.files],
         "continuationToken": browsed.continuation_token,
+        "searched": browsed.scanned,
+        "searchGoesOn": True if request.search.strip() and browsed.continuation_token else None,
     }
 
 

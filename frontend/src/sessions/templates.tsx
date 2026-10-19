@@ -12,7 +12,7 @@
  */
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { SavedSession, User, api } from "../api";
+import { PublishedTemplate, SavedSession, User, api } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "./SessionContext";
 import { SESSION_SAVED_PAGE, sessionType } from "./registry";
@@ -109,6 +109,9 @@ function paneForPage(page: string, state: Record<string, unknown>): SessionType 
 
 interface TemplatesApi {
   templates: Template[];
+  /** Published templates whose every pane the user's group may use (§23, D99):
+   * offered beside their own, opened on the server for an environment. */
+  published: PublishedTemplate[];
   /** Called after writing one, so the lists showing them pick it up. Saving a
    * template changes neither the session count nor anything else the fetch
    * depends on, so without this a template you just saved would not appear
@@ -116,7 +119,7 @@ interface TemplatesApi {
   reload: () => void;
 }
 
-const TemplatesContext = createContext<TemplatesApi>({ templates: [], reload: () => undefined });
+const TemplatesContext = createContext<TemplatesApi>({ templates: [], published: [], reload: () => undefined });
 
 export function useTemplates(): TemplatesApi {
   return useContext(TemplatesContext);
@@ -157,6 +160,7 @@ async function fetchTemplates(_user: User | null): Promise<Template[]> {
 export function TemplatesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [published, setPublished] = useState<PublishedTemplate[]>([]);
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -164,13 +168,18 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
     fetchTemplates(user).then((list) => {
       if (!cancelled) setTemplates(list);
     });
+    // An admin is sent every one, to manage; offered are only those they can open.
+    api
+      .listPublishedTemplates()
+      .then((list) => !cancelled && setPublished(list.filter((t) => t.usable)))
+      .catch(() => !cancelled && setPublished([]));
     return () => {
       cancelled = true;
     };
   }, [user, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
-  const value = useMemo(() => ({ templates, reload }), [templates, reload]);
+  const value = useMemo(() => ({ templates, published, reload }), [templates, published, reload]);
   return <TemplatesContext.Provider value={value}>{children}</TemplatesContext.Provider>;
 }
 

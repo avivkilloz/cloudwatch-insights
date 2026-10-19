@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api, Environment, PublishedTemplate, readableError } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { defaultSessionName, useStartSession } from "../sessions/start";
@@ -6,6 +7,8 @@ import { GROUP_BLURB } from "../sessions/registry";
 import { useCatalogue } from "../sessions/catalogue";
 import Icon from "../components/Icon";
 import { PAGES } from "./pageTypes";
+import { useTemplates } from "../sessions/templates";
+import { clearPublishedAsked, useOpenPublished, usePublishedAsked } from "../sessions/published";
 
 /**
  * The landing view, and the only place a session is started.
@@ -237,6 +240,8 @@ export default function HomePage() {
         </p>
       </div>
 
+      <ReadyMade />
+
       {/* The rest of the platform: pages, not sessions. You go to one rather
           than having several open, which is why they are not in the panel's
           list of sessions. */}
@@ -256,6 +261,114 @@ export default function HomePage() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Published templates (§23, D101): sessions made for anyone, opened for the
+ * environment you choose. A card that needs one asks for it in place -- asked
+ * from Add or the strip's ＋ with more than one to choose from, you land here
+ * with that card asking.
+ */
+function ReadyMade() {
+  const { published } = useTemplates();
+  const asked = usePublishedAsked();
+  const [choosing, setChoosing] = useState<string | null>(null);
+  useEffect(() => {
+    if (asked) {
+      setChoosing(asked);
+      clearPublishedAsked();
+    }
+  }, [asked]);
+  if (published.length === 0) return null;
+  return (
+    <div className="panel">
+      <h2 style={{ marginBottom: 4 }}>Ready-made sessions</h2>
+      <p className="muted home-group-blurb">
+        Sessions put together for anyone to start from: choose the environment they're for, and they open with their
+        panes filled in.
+      </p>
+      <div className="home-cards">
+        {published.map((t) => (
+          <ReadyMadeCard key={t.id} template={t} choosing={choosing === t.id} choose={(on) => setChoosing(on ? t.id : null)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReadyMadeCard({
+  template: t,
+  choosing,
+  choose,
+}: {
+  template: PublishedTemplate;
+  choosing: boolean;
+  choose: (on: boolean) => void;
+}) {
+  const openPublished = useOpenPublished();
+  const [environments, setEnvironments] = useState<Environment[] | null>(null);
+  const [environment, setEnvironment] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!choosing) return;
+    ref.current?.scrollIntoView({ block: "nearest" });
+    api
+      .listEnvironments()
+      .then((list) => {
+        setEnvironments(list);
+        if (list.length === 1) setEnvironment(list[0].id);
+      })
+      .catch((e) => setError(readableError(e)));
+  }, [choosing]);
+
+  async function open(env: number | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await openPublished(t, env);
+      choose(false);
+    } catch (e) {
+      setError(readableError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div ref={ref} className={`home-card home-ready${choosing ? " home-ready-choosing" : ""}`} data-template={t.id}>
+      <button
+        className="home-card-open"
+        disabled={busy}
+        onClick={() => (t.needs_environment ? choose(!choosing) : open(null))}
+        title={t.needs_environment ? "Choose the environment it's for" : `Start a session from ${t.label}`}
+      >
+        <span className="home-card-title">{t.label}</span>
+        {t.description && <span className="home-card-desc">{t.description}</span>}
+      </button>
+      {choosing && (
+        <div className="home-ready-choose">
+          <select
+            aria-label={`Environment for ${t.label}`}
+            value={environment ?? ""}
+            onChange={(e) => setEnvironment(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">{environments === null ? "Loading…" : "Choose environment…"}</option>
+            {(environments ?? []).map((env) => (
+              <option key={env.id} value={env.id}>
+                {env.name}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => open(environment)} disabled={busy || environment === null}>
+            {busy ? "Opening…" : "Open"}
+          </button>
+        </div>
+      )}
+      {error && <p className="error-text">{error}</p>}
     </div>
   );
 }

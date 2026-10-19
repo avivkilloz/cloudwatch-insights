@@ -214,6 +214,19 @@ def _remove_workflow(db: Session, row: models.Workflow) -> None:
     db.delete(row)
 
 
+def _load_template(db: Session, data: dict, row: Optional[models.PublishedTemplate],
+                   actor: Optional[models.User]) -> models.PublishedTemplate:
+    from . import templates
+
+    return templates.load(db, data, row, actor)
+
+
+def _dump_template(row: models.PublishedTemplate) -> dict:
+    from . import templates
+
+    return templates.dump(row)
+
+
 KINDS: dict[str, Kind] = {
     k.key: k
     for k in (
@@ -227,6 +240,12 @@ KINDS: dict[str, Kind] = {
             key="workflow", directory="workflows", contributes="workflows", noun="workflow",
             model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
             builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
+        ),
+        Kind(
+            key="template", directory="templates", contributes="templates", noun="template",
+            model=models.PublishedTemplate, dump=_dump_template, load=_load_template,
+            remove=lambda db, row: db.delete(row), builtin=lambda r: False, seeded=lambda r: False,
+            label=lambda r: r.label,
         ),
         Kind(
             key="connection_type", directory="connection-types", contributes="connection_types",

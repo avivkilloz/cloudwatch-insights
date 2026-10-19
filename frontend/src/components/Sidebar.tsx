@@ -8,6 +8,7 @@ import { PersistedSession } from "../sessions/storage";
 import { useCatalogue } from "../sessions/catalogue";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
+import { useOpenPublishedFromMenu } from "../sessions/published";
 import AgentWorking from "./AgentWorking";
 import Icon from "./Icon";
 import Popover from "./Popover";
@@ -69,7 +70,8 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
   const waiting = useWaitingApprovals();
   const homeId = home?.home?.client_id ?? null;
   const agentActive = useAgentActivity();
-  const { templates } = useTemplates();
+  const { templates, published } = useTemplates();
+  const openPublished = useOpenPublishedFromMenu();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
   const { groups: catalogueGroups } = useCatalogue();
@@ -598,9 +600,20 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
               </div>
             );
           })}
-          {templates.length > 0 && (
+          {templates.length + published.length > 0 && (
             <div>
               <div className="rail-heading">Templates</div>
+              {/* Published ones first: made for everyone, opened for an environment (§23). */}
+              {published.map((t) => (
+                <button
+                  key={`published:${t.id}`}
+                  className="rail-row rail-row-type rail-row-template rail-row-published"
+                  onClick={() => openPublished(t)}
+                  title={t.description || `Start a session from "${t.label}"`}
+                >
+                  <span className="rail-row-label">{t.label}</span>
+                </button>
+              ))}
               {templates.map((template) => (
                 <button
                   key={`${template.entry.page}:${template.entry.id}`}

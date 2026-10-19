@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import catalogue, connections, credential_store, live_store, models, pane_outputs, schemas
+from .. import catalogue, connections, credential_store, live_store, models, pane_outputs, schemas, templates
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
@@ -410,6 +410,12 @@ async def get_context() -> dict:
             "credentials": [
                 {"id": c.id, "name": c.name, "type": c.type.label, "authenticates": bool(c.type.inject)}
                 for c in credential_store.visible(db, user).order_by(models.Credential.name).all()
+            ],
+            # Ready-made sessions (§23): open_template starts one for an environment.
+            "templates": [
+                {"id": t.id, "label": t.label, "description": t.description,
+                 "needs_environment": templates.needs_environment(t.state or {})}
+                for t in templates.visible(db, user)
             ],
             "layouts": list(LAYOUTS),
             "viewing_session": viewing,
@@ -1554,6 +1560,28 @@ async def investigate_run(run_id: int) -> dict:
         except workflows.WorkflowError as e:
             raise InputError(str(e)) from None
         return _describe_session(db, row, user.id)
+
+
+@mcp.tool()
+async def open_template(template_id: str, environment: Optional[Any] = None) -> dict:
+    """Opens a new session from a published template (get_context's templates): its panes, layout and inputs as
+    made, for the environment given (an id or name from get_context's environments) when it needs one. Nothing
+    runs."""
+    with _acting() as (db, user, caller):
+        if caller.session_scope_id is not None:
+            raise InputError(_OUT_OF_SCOPE)
+        row = db.get(models.PublishedTemplate, template_id)
+        if row is None or not templates.usable(user, row):
+            names = ", ".join(t.id for t in templates.visible(db, user)) or "none"
+            raise InputError(f"There is no template {template_id} the user can open. Theirs: {names}.")
+        chosen = None
+        if environment not in (None, ""):
+            chosen = _visible_environment(RunContext(db=db, user=user, timezone=caller.timezone), environment)
+        try:
+            made = templates.instantiate(db, user, row, chosen)
+        except templates.TemplateError as e:
+            raise InputError(str(e)) from None
+        return _describe_session(db, made, user.id)
 
 
 @mcp.tool()

@@ -69,6 +69,7 @@ backend/app/
                      approvals (§22)
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
+  templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
   blobs.py           the blob store: filesystem or S3, metadata in `blobs` (§8.2, D91)
   store.py           the store repo: what's built here, written through to git as a plugin (§21)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
@@ -739,13 +740,36 @@ their own (the rail's Workflows row), never a session.
   block), handed to the editor through `workflowFocus.ts`'s `offerDraft`,
   unsaved. **The Workflow pane** (`manifests/workflow.yaml`, handlers
   `platform.workflows.*`): a background run whose poll writes the run's
-  summary and stages; parameters as name/value rows (`coerce_params` takes a
-  connection's label, a list comma-separated). Its picker has no
-  `load_label`, so it loads by itself (`OptionsPicker`, once per mount).
+  summary and stages; its parameters are an input of type `workflow_params`
+  (`of: workflow`), drawn by the Workflows page's own fields
+  (`components/WorkflowParamFields.tsx`) and stored as key -> value
+  (`coerce_params` also takes a connection's label, a list comma-separated;
+  rows from before the form still read). Its picker has no `load_label`, so
+  it loads by itself (`OptionsPicker`, once per mount).
   **This run** (`workflow_runs.chat`, merged by turn id, `GET/POST
   /api/workflow-runs/{id}/chat`): the agent panel's second tab while a run is
   on screen (`setRunFocus`), sent as `scope: "run"` with `run_id`; the agent
   service reads `get_workflow_run` before the model speaks (`run_prompt`).
+
+**Published templates** (PLATFORM_PLAN.md §23, D99–D102; `templates.py`,
+`routers/templates.py`, `sessions/published.ts`, Library's Published tab, the
+default page's Ready-made sessions). A saved template stays its owner's;
+Publish (an admin's) copies it into `published_templates` under a namespaced
+id, kept in the store (`Kind` `template`).
+- **Portable on publish**, by each input's manifest type, never per pane:
+  AWS connection inputs removed and the pane relinked to the Environment
+  variable (left defined, empty); `log_groups` merged under `$environment`
+  (the runs read the map's keys, so it's re-keyed on opening); non-AWS
+  connections, credentials, OpenSearch indices and a workflow's connection
+  parameters removed; a secret-looking header's value blanked. What changed
+  is answered in words and shown to the publisher.
+- **Offered** to whoever's group may use each of its panes
+  (`templates.usable`, `pane_access.granted`) -- no grant of its own.
+- **Opened by the server** (`templates.instantiate`): the environment the
+  opener chose (and can reach) set, `variables.apply` per pane, the log
+  groups re-keyed, then `live_store.create`; the browser `openFromServer`s
+  it. From Add with one environment it opens at once; otherwise the default
+  page's card asks. The agent: `get_context.templates`, `open_template`.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

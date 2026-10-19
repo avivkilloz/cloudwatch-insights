@@ -125,9 +125,7 @@ const run = async () => {
     await page.waitForSelector(`${SHOWN} select[aria-label="workflow"] option:text-is("Hello ${STAMP}")`, { state: "attached", timeout: 10000 });
     check(true, "The Workflow pane lists the workflows by itself");
     await page.selectOption(`${SHOWN} select[aria-label="workflow"]`, { label: `Hello ${STAMP}` });
-    await page.click(`${SHOWN} button[aria-label="Add a row to Parameters"]`);
-    await page.fill(`${SHOWN} input[aria-label="Parameters name"]`, "who");
-    await page.fill(`${SHOWN} input[aria-label="Parameters value"]`, "Ada");
+    await page.fill(`${SHOWN} .workflow-pane-params .session-card-row:has-text("Who") input`, "Ada");
     await page.waitForTimeout(400);
     await page.click(`${SHOWN} button:text-is("Run")`);
     await page.waitForSelector(`${SHOWN} :text("Hello ${STAMP} #1: succeeded")`, { timeout: 20000 });

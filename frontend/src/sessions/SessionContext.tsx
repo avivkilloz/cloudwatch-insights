@@ -179,6 +179,10 @@ interface SessionsApi {
    * the server refused. */
   notice: string | null;
   dismissNotice: () => void;
+  /** Says something didn't work where `notice` is shown: a click in a menu
+   * that has closed has nowhere of its own to say it (a template that
+   * couldn't be opened, §23). */
+  say: (message: string) => void;
   /** The user's home page (R3, D63): a session, one that's gone, or neither --
    * null until the server has said. */
   home: HomeSession | null;
@@ -870,6 +874,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     [sync, userId, refreshHome],
   );
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const say = useCallback((message: string) => setNotice(message), []);
 
   const activate = useCallback((id: string) => {
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
@@ -1049,6 +1054,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       remove,
       notice,
       dismissNotice,
+      say,
       home,
       setHome,
       goHome,
@@ -1076,6 +1082,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       remove,
       notice,
       dismissNotice,
+      say,
       home,
       setHome,
       goHome,

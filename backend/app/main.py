@@ -28,6 +28,7 @@ from .routers import (
     tools,
     user_groups,
     users,
+    templates as templates_router,
     workflows as workflows_router,
 )
 
@@ -142,6 +143,7 @@ app.include_router(tools.router)
 app.include_router(saved_inputs.router)
 app.include_router(catalogue_router.router)
 app.include_router(store_router.router)
+app.include_router(templates_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)
