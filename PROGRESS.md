@@ -1271,7 +1271,7 @@ label; the run header's status pill centred beside its buttons.
   conversation kept on the run for its readers; each turn reads the run
   first.
 - Tests: backend `test_workflow_doors.py` (6) and a run-scope case in
-  `test_agent_chat.py`; agent service a run-chat turn (37); browser `smoke88`
+  `test_agent_chat.py`; agent service a run-chat turn (36 in all); backend 501; browser `smoke88`
   (20), failing against the old frontend.
 
 Not verified here, for the user to check on their deployment: a real model
