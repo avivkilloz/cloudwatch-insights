@@ -81,6 +81,10 @@ class CatalogueCategory(Base):
     id = Column(Integer, primary_key=True)
     key = Column(String, nullable=False, unique=True)
     name = Column(String, nullable=False, unique=True)
+    # A line under its name where panes are offered. Null: never set, so the
+    # default for its key applies (catalogue.DESCRIPTIONS); "" is an admin's
+    # "none".
+    description = Column(Text, nullable=True)
     position = Column(Integer, nullable=False, server_default="0")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

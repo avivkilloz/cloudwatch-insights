@@ -1570,8 +1570,13 @@ function ConnectionsPicker({
           </label>
         ))}
       </div>
+      {/* Counted against the list, which loads after the pane: until it's in,
+          a pane opened with environments ticked read "0 environment(s)
+          selected" (Investigate's, for a moment). */}
       <p className="muted" style={{ marginTop: 8 }}>
-        {targets.filter((t) => chosen.has(t.id)).length} environment(s) selected.
+        {pane.targets[input.connection_type ?? ""] == null
+          ? "Loading environments…"
+          : `${targets.filter((t) => chosen.has(t.id)).length} environment(s) selected.`}
       </p>
     </div>
   );

@@ -20,7 +20,8 @@ async function login(browser, username, password) {
 
 async function openSettings(page, section) {
   await page.click(".rail-row-home");
-  await page.click('.home-card:has(.home-card-title:text-is("Settings")) .home-card-open');
+  await page.click('[aria-label="Account menu"]');
+  await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
   await page.waitForSelector(`.tab:text-is("${section}")`, { timeout: 15000 });
   await page.click(`.tab:text-is("${section}")`);
 }

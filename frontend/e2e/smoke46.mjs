@@ -51,10 +51,9 @@ const run = async () => {
   check((await page.locator(".session-bar-agent").getAttribute("aria-expanded")) === "true",
     "The toggle at the end of the strip opens it, docked beside the page");
   const tabs = await page.locator(`${DOCK} .agent-tab`).allInnerTexts();
-  check(JSON.stringify(tabs) === JSON.stringify(["Global", "Session"]), "It has a Global and a Session tab", JSON.stringify(tabs));
-  await page.click(`${DOCK} .agent-tab:text-is("Session")`);
-  const none = await page.locator(`${DOCK} .error-text`).allInnerTexts();
-  check(none.some((t) => t.includes("Open a session")), "With no session on screen, the Session tab says to open one", JSON.stringify(none));
+  // With no session on screen there's nothing for a Session tab to be about:
+  // it used to be there only to say "Open a session…" (the user's call).
+  check(JSON.stringify(tabs) === JSON.stringify(["Global"]), "With no session on screen, it has the Global tab alone", JSON.stringify(tabs));
 
   // ---------- 2. A session's own chat, about rows checked in it ----------
   await newSession(page, "CloudWatch");

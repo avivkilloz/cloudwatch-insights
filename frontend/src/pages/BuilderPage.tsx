@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useOfferBuild } from "../agent/buildFocus";
 import { api, BuilderSchema, BuiltPaneType, readableError, WorkflowProblem } from "../api";
 import { useAuth } from "../AuthContext";
 import { CardRow } from "../components/SessionCard";
@@ -16,7 +17,9 @@ import { useStartSession } from "../sessions/start";
  * the same model, drawn by the same renderer, run through the same actions.
  * Saved, one is its builder's group's at once (and in the store repo); any
  * other group gets it when an admin grants it in Users -> Groups -> Panes.
- * The form editor, a live preview and the agent's build tools come next (5-2).
+ * The agent panel's Building tab is about the editor on screen (5-2, D107):
+ * what the agent proposes lands in the editor, unsaved, for its builder to
+ * check and save.
  */
 
 // `said`: what to say on arriving -- a type just created opens as itself.
@@ -111,6 +114,12 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
   const [notice, setNotice] = useState<string | null>(said ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useOfferBuild("pane", id, item?.label ?? (isNew ? "New pane type" : id ?? ""), true, source, (text, summary) => {
+    setSource(text);
+    setProblems(null);
+    setError(null);
+    setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
+  });
 
   useEffect(() => {
     api.builderSchema().then(

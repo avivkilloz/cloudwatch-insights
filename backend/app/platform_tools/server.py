@@ -1542,6 +1542,95 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
         await asyncio.sleep(0.5)
 
 
+# ---------------------------------------------------------------- building (5-2, D72)
+
+
+def _may_build(user: models.User, kind: str) -> None:
+    """Pane types are a Builder's (or an admin's); a workflow's definition is
+    an admin's until builders may edit workflows (5-3) -- as in the UI."""
+    from .. import builder
+
+    if kind == "pane" and not builder.can_build(user):
+        raise InputError("Building pane types isn't turned on for the user's group.")
+    if kind == "workflow" and not (user.group and user.group.is_admin):
+        raise InputError("Only an admin edits workflows' definitions, for now.")
+    if kind not in ("pane", "workflow"):
+        raise InputError('kind is "pane" or "workflow".')
+
+
+def _checked(db: Session, kind: str, source: str, definition_id: Optional[str]) -> list[dict]:
+    from .. import builder, workflows
+
+    try:
+        if kind == "pane":
+            builder.parse(source, definition_id or "draft")
+        else:
+            workflows.parse(source)
+    except (builder.BuilderError, workflows.WorkflowError) as e:
+        # A new pane type's id is the editor's Id field, not the draft's.
+        return [x for x in e.errors if not (definition_id is None and str(x.get("message", "")).startswith("Its id is"))]
+    return []
+
+
+@mcp.tool()
+async def build_reference(kind: str) -> dict:
+    """What a pane type's ("pane") or a workflow's ("workflow") definition may say: each part's fields and types,
+    the handlers, live functions, input types and renders there are (panes), the panes and actions a step can run
+    (workflows), and the ids whose YAML read_definition shows as examples."""
+    from .. import builder
+
+    with _acting() as (db, user, _caller):
+        _may_build(user, kind)
+        return builder.reference(db, kind, user)
+
+
+@mcp.tool()
+async def read_definition(kind: str, definition_id: str) -> dict:
+    """The YAML of an existing pane type (bundled or built here) or workflow, as written -- to learn from or to
+    start a change from."""
+    from .. import workflows
+
+    with _acting() as (db, user, _caller):
+        _may_build(user, kind)
+        if kind == "pane":
+            row = db.get(models.BuiltPaneType, definition_id)
+            if row is not None:
+                return {"kind": kind, "id": definition_id, "source": row.source}
+            if definition_id in pane_manifest.bundled():
+                return {"kind": kind, "id": definition_id,
+                        "source": (pane_manifest.MANIFEST_DIR / f"{definition_id}.yaml").read_text()}
+            raise InputError(f"There is no pane type {definition_id}; build_reference lists the examples.")
+        workflow = db.get(models.Workflow, definition_id)
+        if workflow is None or not workflows.can_run(db, user, workflow):
+            raise InputError(f"There is no workflow {definition_id} the user may read; build_reference lists them.")
+        return {"kind": kind, "id": definition_id, "source": workflow.source}
+
+
+@mcp.tool()
+async def check_definition(kind: str, source: str, definition_id: Optional[str] = None) -> dict:
+    """Checks a pane type's or a workflow's YAML in full, as Check and Save do: every problem, each with its line.
+    Saves nothing."""
+    with _acting() as (db, user, _caller):
+        _may_build(user, kind)
+        errors = _checked(db, kind, source, definition_id)
+        return {"ok": not errors, "errors": errors}
+
+
+@mcp.tool()
+async def propose_definition(kind: str, source: str, summary: str, definition_id: Optional[str] = None) -> dict:
+    """Puts a pane type's or a workflow's YAML into the editor the user has open, replacing what's there, for them
+    to review, Check and Save -- you can't save it yourself. It's checked first: with any problem, nothing is put
+    there and the problems come back to fix. `summary` says in a sentence what you changed."""
+    with _acting() as (db, user, _caller):
+        _may_build(user, kind)
+        errors = _checked(db, kind, source, definition_id)
+        if errors:
+            return {"ok": False, "errors": errors,
+                    "note": "Nothing was put in the editor: fix these and propose again."}
+        return {"ok": True, "note": "It's in the editor, unsaved: the user reviews it and saves.",
+                "propose": {"kind": kind, "source": source, "summary": summary[:300]}}
+
+
 @mcp.tool()
 async def investigate_run(run_id: int) -> dict:
     """Opens a new session holding what a workflow run found: a pane per stage that ran a pane action, with the

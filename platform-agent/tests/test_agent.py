@@ -86,6 +86,24 @@ async def run_pane(session_id: str, pane_id: str, ctx: Context, inputs: dict | N
     return {"session_id": session_id, "pane_id": pane_id, "output": "aGk="}
 
 
+@stub.tool()
+async def build_reference(kind: str, ctx: Context) -> dict:
+    _auth(ctx)
+    return {"kind": kind, "manifest": {"label": "str (required)"}, "live_functions": ["base64.convert"]}
+
+
+@stub.tool()
+async def check_definition(kind: str, source: str, ctx: Context, definition_id: str | None = None) -> dict:
+    _auth(ctx)
+    return {"ok": source.startswith("label: "), "errors": []}
+
+
+@stub.tool()
+async def propose_definition(kind: str, source: str, summary: str, ctx: Context, definition_id: str | None = None) -> dict:
+    _auth(ctx)
+    return {"ok": True, "note": "It's in the editor, unsaved.", "propose": {"kind": kind, "source": source, "summary": summary}}
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -397,6 +415,39 @@ def test_a_step_that_announces_a_run_and_stops_is_asked_to_carry_on(settings):
     assert events[-1] == {"type": "done"}
 
 
+def test_a_step_that_announces_its_next_call_after_research_is_asked_to_carry_on(settings):
+    # A real turn read the workflows, said "Now let me run it." and stopped;
+    # the user had to tell it it had stopped. Having called something no
+    # longer lets the announcement through.
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "research")
+    calls = [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")]
+    assert calls == ["get_context", "run_pane"]
+    nudges = [r["messages"][-1]["content"] for r in fake_llm.REQUESTS if str(r["messages"][-1].get("content")).startswith(fake_llm.NUDGE_MARK)]
+    assert len(nudges) == 1 and "Now let me run its IoT pane." in nudges[0]
+    assert "Ran it:" in _answer(events) and events[-1] == {"type": "done"}
+
+
+def test_what_counts_as_announcing_after_a_call():
+    from app.repair import announced
+
+    assert announced("Found it. Now let me run the workflow.", acted=True) == "Now let me run the workflow."
+    assert announced("Next, I'll open the run page.", acted=True) == "Next, I'll open the run page."
+    # Reports and courtesies aren't steps left to take.
+    assert announced("It's running; I'll keep it running.", acted=True) is None
+    assert announced("Done. Let me know if you want more.", acted=True) is None
+
+
+def test_a_reply_cut_off_at_the_length_limit_is_carried_on():
+    from langchain_core.messages import AIMessage
+
+    from app.repair import CUT_OFF, nudge_for, stopped_short
+
+    cut = AIMessage(content="The errors come from the", response_metadata={"finish_reason": "length"})
+    assert stopped_short(cut, []) and nudge_for(cut, []) == CUT_OFF
+    assert not stopped_short(AIMessage(content="The errors come from the API.", response_metadata={"finish_reason": "stop"}), [])
+
+
 def test_a_turn_that_says_nothing_ends_with_a_readable_error(settings):
     fake_llm.REQUESTS.clear()
     events = _events(settings, "silent")
@@ -471,3 +522,25 @@ def test_the_check_can_be_turned_off(settings):
     fake_llm.CHECKS.clear()
     events = _events(Settings(**{**settings.__dict__, "check": False}), "pretend connect")
     assert not fake_llm.CHECKS and not [e for e in events if e.get("name") == "check_answer"]
+
+
+def test_a_build_chat_reads_the_reference_and_the_editor_and_proposes(settings):
+    """Building (D107): the turn reads what a definition can say and the
+    editor's text, and a proposal is passed on for the browser to put in the
+    editor -- never saved by the agent."""
+    fake_llm.REQUESTS.clear()
+    focus = {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Old\ndescription: x\n"}
+    events = _events(settings, "build Loud encoder", focus=focus)
+    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble") and e["name"] != "check_answer"]
+    assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("build_reference", {"kind": "pane"})]
+    sent = fake_llm.REQUESTS[0]["messages"]
+    assert "beside an editor" in sent[0]["content"] and "propose_definition" in sent[0]["content"]
+    assert "build_reference:" in sent[-1]["content"] and "The editor's text now (pane):" in sent[-1]["content"]
+    [proposed] = [e for e in events if e["type"] == "tool_result" and e.get("propose")]
+    assert proposed["propose"] == {
+        "kind": "pane", "source": "label: Loud encoder\ndescription: x\n", "summary": "Renamed it Loud encoder.",
+    }
+    assert [e["name"] for e in events if e["type"] == "tool_call" and not e.get("preamble")] == [
+        "check_definition", "propose_definition",
+    ]
+    assert "in the editor, called Loud encoder" in _answer(events)

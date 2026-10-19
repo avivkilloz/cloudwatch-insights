@@ -11,14 +11,21 @@ import AgentChat from "./AgentChat";
  * toggle).
  */
 export default function AgentPanel({ account }: { account?: ReactNode }) {
-  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, viewingRun, running, runningIn } = useAgent();
+  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, viewingRun, viewingBuild, running, runningIn } =
+    useAgent();
   // On a run's page the second tab is that run's own chat (D98), not a
-  // session's: the tab stays "session", the conversation it shows is the run's.
-  const second = viewingRun ? "run" : "session";
+  // session's, and beside an editor it's building what's in it (D107): the
+  // tab stays "session", the conversation it shows is the run's or editor's.
+  const second = viewingBuild ? "build" : viewingRun ? "run" : "session";
+  // With none of them on screen there's nothing for a second tab to be about
+  // (it only said "Open a session…"), so there is none, and Global shows --
+  // the chosen tab is kept for when one comes back.
+  const hasSecond = !!(viewingBuild || viewingRun || viewingSessionId);
+  const shown = hasSecond ? tab : "global";
   // A dot on the other tab while its conversation has a turn running, so
   // switching away doesn't hide that the agent is still at it.
-  const busy = (scope: "global" | "session" | "run") =>
-    running && runningIn?.scope === scope && (scope === "global" ? tab !== "global" : tab !== "session") ? (
+  const busy = (scope: "global" | "session" | "run" | "build") =>
+    running && runningIn?.scope === scope && (scope === "global" ? shown !== "global" : shown !== "session") ? (
       <span className="agent-tab-busy" title="The agent is still answering here" aria-label="(answering)" />
     ) : null;
   return (
@@ -27,30 +34,32 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
         <div className="agent-tabs" role="tablist" aria-label="Conversation">
           <button
             role="tab"
-            aria-selected={tab === "global"}
-            className={`agent-tab${tab === "global" ? " active" : ""}`}
+            aria-selected={shown === "global"}
+            className={`agent-tab${shown === "global" ? " active" : ""}`}
             onClick={() => setTab("global")}
             title="The platform: start sessions, find things across them"
           >
             Global
             {busy("global")}
           </button>
-          <button
-            role="tab"
-            aria-selected={tab === "session"}
-            className={`agent-tab${tab === "session" ? " active" : ""}`}
-            onClick={() => setTab("session")}
-            title={
-              viewingRun
-                ? `This run: ${viewingRun.title} -- what it ran, what it found, why a stage failed`
-                : viewingSessionId
-                  ? "This session: change it, ask about what's checked in it"
-                  : "Open a session first"
-            }
-          >
-            {viewingRun ? "This run" : "Session"}
-            {busy(second)}
-          </button>
+          {hasSecond && (
+            <button
+              role="tab"
+              aria-selected={tab === "session"}
+              className={`agent-tab${tab === "session" ? " active" : ""}`}
+              onClick={() => setTab("session")}
+              title={
+                viewingBuild
+                  ? `Building ${viewingBuild.title}: ask for a change, and the agent drafts it into the editor`
+                  : viewingRun
+                    ? `This run: ${viewingRun.title} -- what it ran, what it found, why a stage failed`
+                    : "This session: change it, ask about what's checked in it"
+              }
+            >
+              {viewingBuild ? "Building" : viewingRun ? "This run" : "Session"}
+              {busy(second)}
+            </button>
+          )}
         </div>
         <div className="agent-panel-actions">
           <button
@@ -71,7 +80,7 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
           )}
         </div>
       </div>
-      <AgentChat scope={tab === "global" ? "global" : second} />
+      <AgentChat scope={shown === "global" ? "global" : second} />
     </div>
   );
 }

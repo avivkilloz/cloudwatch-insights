@@ -33,6 +33,8 @@ function describe(step: AgentStep): string {
     return done ? "Checked who's asking and what they can reach" : "Checking who's asking…";
   if (step.preamble && step.name === "get_session") return done ? "Read this session as it is now" : "Reading this session…";
   if (step.preamble && step.name === "get_workflow_run") return done ? "Read this run as it is now" : "Reading this run…";
+  if (step.preamble && step.name === "build_reference")
+    return done ? "Read what a definition can say" : "Reading what a definition can say…";
   // The platform's check of the answer against what ran (platform-agent's
   // check.py): a failed one is followed by the agent's redo.
   if (step.preamble && step.name === "check_answer") {
@@ -87,6 +89,14 @@ function describe(step: AgentStep): string {
       return done ? "Stopped a pane's run" : "Stopping a pane's run…";
     case "inspect_row":
       return done ? "Looked at a row in full" : "Looking at a row…";
+    case "build_reference":
+      return done ? "Read what a definition can say" : "Reading what a definition can say…";
+    case "read_definition":
+      return `${done ? "Read" : "Reading"} “${String(a.definition_id ?? "")}” as an example`;
+    case "check_definition":
+      return step.status === "failed" ? "Checked a draft" : done ? "Checked a draft" : "Checking a draft…";
+    case "propose_definition":
+      return done ? "Put a draft in the editor" : "Putting a draft in the editor…";
     case "unreadable_tool_call":
       // The model's tool call came back garbled; the agent answered it as a
       // call to no tool, so the model could try again (platform-agent's repair.py).
@@ -226,6 +236,9 @@ const INTRO: Record<AgentScope, string> = {
   run:
     "Ask about this run: what it ran with, what a stage found, why one failed or waits. It can open the run as a " +
     "session to look further, or start it again. Everyone who can see the run's outputs shares this chat.",
+  build:
+    "Say what it should do, or what to change: the agent writes the definition, checks it and puts it in the " +
+    "editor for you to look over and save. It never saves anything itself.",
 };
 
 const SHARED_INTRO =
@@ -238,6 +251,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     globalTurns,
     sessionTurns,
     runTurns,
+    buildTurns,
     running,
     runningIn,
     liveTurnId,
@@ -249,6 +263,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     setTab,
     viewingSessionId,
     viewingRun,
+    viewingBuild,
     viewingSessionShared,
   } = useAgent();
   const { user } = useAuth();
@@ -324,8 +339,21 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     });
   }
   const runId = scope === "run" ? (viewingRun?.runId ?? null) : null;
+  const buildKey = scope === "build" ? (viewingBuild?.key ?? null) : null;
   const turns =
-    scope === "global" ? globalTurns : scope === "run" ? (runId !== null ? runTurns(runId) : []) : sessionId ? sessionTurns(sessionId) : [];
+    scope === "global"
+      ? globalTurns
+      : scope === "run"
+        ? runId !== null
+          ? runTurns(runId)
+          : []
+        : scope === "build"
+          ? buildKey !== null
+            ? buildTurns(buildKey)
+            : []
+          : sessionId
+            ? sessionTurns(sessionId)
+            : [];
   const last = turns[turns.length - 1];
   const checked = selection.summaries.reduce((n, s) => n + s.count, 0);
   // Busy elsewhere: one turn at a time, and it isn't in this conversation.
@@ -334,7 +362,8 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     runningIn !== null &&
     (runningIn.scope !== scope ||
       (scope === "session" && runningIn.sessionId !== sessionId) ||
-      (scope === "run" && runningIn.runId !== runId));
+      (scope === "run" && runningIn.runId !== runId) ||
+      (scope === "build" && runningIn.buildKey !== buildKey));
 
   // Keeps the newest step or word in view as it arrives.
   useEffect(() => {
@@ -376,6 +405,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           <p className="muted">
             {scope === "session" && sessionTitle ? <strong>{sessionTitle}. </strong> : null}
             {scope === "run" && viewingRun ? <strong>{viewingRun.title}. </strong> : null}
+            {scope === "build" && viewingBuild ? <strong>{viewingBuild.title}. </strong> : null}
             {shared ? SHARED_INTRO : INTRO[scope]}
           </p>
         )}
@@ -394,6 +424,8 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             ? "the Global chat"
             : runningIn.scope === "run"
               ? "a run's chat"
+              : runningIn.scope === "build"
+                ? "an editor's chat"
               : `“${sessions.find((x) => x.id === runningIn.sessionId)?.title ?? "another session"}”`}
           ; it can take this when it's done.{" "}
           <button
@@ -457,10 +489,18 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
                   ? "Ask about this session…"
                   : scope === "run"
                     ? "Ask about this run…"
-                    : "Ask the agent…"
+                    : scope === "build"
+                      ? "Describe what to build or change…"
+                      : "Ask the agent…"
             }
             aria-label={
-              scope === "session" ? "Message the agent about this session" : scope === "run" ? "Message the agent about this run" : "Message the agent"
+              scope === "session"
+                ? "Message the agent about this session"
+                : scope === "run"
+                  ? "Message the agent about this run"
+                  : scope === "build"
+                    ? "Message the agent about what's in the editor"
+                    : "Message the agent"
             }
             disabled={!!unavailable}
           />
@@ -486,7 +526,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           )}
         </div>
         <div className="agent-compose-actions">
-          {scope !== "session" && (
+          {(scope === "global" || scope === "run") && (
             <label className="agent-follow" title="Go to each session the agent works on, as it gets there">
               <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
             </label>

@@ -122,7 +122,8 @@ export interface UserGroup {
 /** The catalogue panes are picked from (D66): its categories in order, each
  * with the pane types the caller may use, and their own favourites and hidden. */
 export interface Catalogue {
-  categories: { id: number; name: string; pane_types: string[] }[];
+  /** `description`: a line under its name where panes are offered; "" for none. */
+  categories: { id: number; name: string; description: string; pane_types: string[] }[];
   favourites: string[];
   hidden: string[];
 }
@@ -659,6 +660,8 @@ export type AgentEvent =
       session_id?: string;
       /** A place in the app a tool asked to show (`open_workflow`, a run it started). */
       show?: { href: string };
+      /** A definition the agent put forward for the editor on screen (D107). */
+      propose?: { kind: string; source: string; summary?: string };
     }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
@@ -699,8 +702,9 @@ async function agentChat(
     messages: AgentChatMessage[];
     viewing_session_id: string | null;
     timezone: string;
-    scope: "global" | "session" | "run";
+    scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
+    build?: { kind: "pane" | "workflow"; id: string | null; title: string; source: string };
   },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,
@@ -1049,10 +1053,10 @@ export const api = {
   getCatalogue: () => req<Catalogue>("/catalogue"),
   setCataloguePreference: (paneType: string, pref: { favourite?: boolean; hidden?: boolean }) =>
     req<Catalogue>(`/catalogue/preferences/${encodeURIComponent(paneType)}`, { method: "PUT", body: JSON.stringify(pref) }),
-  createCatalogueCategory: (name: string) =>
-    req<Catalogue>("/catalogue/categories", { method: "POST", body: JSON.stringify({ name }) }),
-  renameCatalogueCategory: (id: number, name: string) =>
-    req<Catalogue>(`/catalogue/categories/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  createCatalogueCategory: (name: string, description: string) =>
+    req<Catalogue>("/catalogue/categories", { method: "POST", body: JSON.stringify({ name, description }) }),
+  updateCatalogueCategory: (id: number, name: string, description: string) =>
+    req<Catalogue>(`/catalogue/categories/${id}`, { method: "PUT", body: JSON.stringify({ name, description }) }),
   deleteCatalogueCategory: (id: number, moveTo: number) =>
     req<Catalogue>(`/catalogue/categories/${id}?move_to=${moveTo}`, { method: "DELETE" }),
   setCatalogueLayout: (categories: { id: number; pane_types: string[] }[]) =>

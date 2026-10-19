@@ -93,12 +93,40 @@ may be talking here, each message prefixed with who wrote it.
 """
 
 
-def turn_reads(context: Optional[str], session: Optional[str], run: Optional[str] = None) -> str:
+def build_prompt(what: str, title: str, definition_id: Optional[str]) -> str:
+    """What an editor's own chat adds (D107): it is about the definition the
+    user has open, which the agent can put a draft into but never save."""
+    noun = "pane type" if what == "pane" else "workflow"
+    named = f'"{title}" (id {definition_id})' if definition_id else f'a new {noun} ("{title}")'
+    return f"""
+This conversation is beside an editor: the user is writing {named}, as YAML. \
+Everything asked here is about building it. What a {noun}'s definition may say \
+(build_reference) and the editor's text as it is now were read at the start of \
+this turn and are attached to the latest message -- the editor's text is the \
+user's, possibly unsaved, and newer than anything said earlier. To learn how \
+something is done, read_definition shows an existing one's YAML. Write the \
+whole definition, check it with check_definition until it has no problems, \
+then put it in the editor with propose_definition -- that replaces the editor's \
+text, so keep what the user wrote that you weren't asked to change. You can't \
+save it: the user reviews it and saves. Say in a sentence or two what you \
+changed; don't paste the YAML into the chat unless asked. Never invent a \
+handler, live function, input type or field the reference doesn't list: if \
+what's wanted needs one that doesn't exist, say so.
+"""
+
+
+def turn_reads(
+    context: Optional[str],
+    session: Optional[str],
+    run: Optional[str] = None,
+    reference: Optional[str] = None,
+    draft: Optional[tuple[str, str]] = None,
+) -> str:
     """The reads made at the start of the turn, to go after the latest
     message: the last thing the model reads before it answers, and plainly
     tied to whoever sent that message. Passed as the tools returned them
     (JSON), not paraphrased."""
-    if not context and not session and not run:
+    if not context and not session and not run and not reference and not draft:
         return ""
     out = (
         f"{READS_MARK}, just now, as the person who sent it. What they can reach and what the session holds is "
@@ -110,6 +138,11 @@ def turn_reads(context: Optional[str], session: Optional[str], run: Optional[str
         out += f"\nget_session (this chat's session):\n{_compact(session)}\n"
     if run:
         out += f"\nget_workflow_run (this chat's run):\n{_compact(run)}\n"
+    if reference:
+        out += f"\nbuild_reference:\n{_compact(reference)}\n"
+    if draft:
+        kind, source = draft
+        out += f"\nThe editor's text now ({kind}):\n" + (f"```yaml\n{source}\n```\n" if source.strip() else "(empty)\n")
     return out
 
 

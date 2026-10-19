@@ -45,39 +45,19 @@ async function login(browser, seed) {
   const browser = await launch();
 
   // ---------- 3. Platform is pages, not session types ----------
+  // They were a card section on the default page; the user had it removed --
+  // the pages are the rail's rows (and the account menu's Settings).
   let page = await login(browser);
-  const platform = await page.locator('.panel:has(h2:text-is("Platform")) .home-card-title').allTextContents();
-  // Builder is a builder's or an admin's (§24); this suite signs in as an admin.
-  check(JSON.stringify(platform) === JSON.stringify(["Agent", "Workflows", "Builder", "Chat", "Code", "Settings"]),
-    "Platform offers pages: Agent, the placeholders and Settings", JSON.stringify(platform));
-  check(!platform.includes("Aggregator"), "…and no Aggregator, because every session is one");
-  check(!platform.includes("Dashboards"), "…and no Dashboards, folded into the session's own dashboard layout");
+  const sections = await page.locator(".home > .panel > h2").allTextContents();
+  check(!sections.includes("Platform"), "The default page has no Platform cards", JSON.stringify(sections));
+  const offered = await page.locator(".home-card-title").allTextContents();
+  check(!offered.includes("Aggregator") && !offered.includes("Dashboards"),
+    "…and no Aggregator or Dashboards to put in a session", JSON.stringify(offered));
 
-  await page.click(`${CARD("Workflows")} .home-card-open`);
+  await page.click('.rail-row-page:has-text("Workflows")');
   await page.waitForTimeout(300);
-  check((await page.locator(".page-info-title").textContent()) === "Workflows", "A Platform card goes to that page");
+  check((await page.locator(".page-info-title").textContent()) === "Workflows", "The rail's row goes to that page");
   check((await page.locator(TAB("Workflows")).count()) === 0, "…without opening a session for it");
-  check((await page.locator(".content").textContent()).includes("isn't built yet"),
-    "…and a placeholder says plainly that it is not built");
-
-  await page.click(`${CARD("Agent")} .home-card-open`.replace(".home-card-open", ".home-card-open")).catch(() => {});
-  await page.click(".rail-row-home");
-  await page.waitForTimeout(200);
-  await page.click(`${CARD("Agent")} .home-card-open`);
-  await page.waitForTimeout(300);
-  check((await page.locator(".page-info-title").textContent()) === "Agent", "The agent is a page now");
-  check((await page.locator(TAB("Agent")).count()) === 0, "…not a session you have copies of");
-
-  // A question asked there stays on that page rather than opening one. (It
-  // used to come from the header bar, which is gone; the agent panel isn't
-  // drawn beside the Agent page, so the page's own box is the way in.)
-  await page.fill(".content .agent-compose-input", "what broke last night?");
-  await page.press(".content .agent-compose-input", "Enter");
-  await page.waitForTimeout(400);
-  check((await page.locator(".page-info-title").textContent()) === "Agent", "Asking on the Agent page goes to the agent");
-  check((await page.locator(".content").textContent()).includes("what broke last night?"),
-    "…and the question arrives as its message");
-  check((await page.locator(".session-tab").count()) === 0, "…still without opening a session");
 
   // ---------- 2. a session is made on the home page ----------
   await page.click(".rail-row-home");

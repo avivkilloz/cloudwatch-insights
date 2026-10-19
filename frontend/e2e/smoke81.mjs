@@ -66,7 +66,7 @@ const run = async () => {
   }
   const order = await page.locator(`${SETTINGS} [data-category]`).evaluateAll((els) => els.map((e) => e.dataset.category));
   check(order[0] === "Debugging", "A category moves up", JSON.stringify(order));
-  await page.click(`${SETTINGS} [aria-label="Rename Debugging"]`);
+  await page.click(`${SETTINGS} [aria-label="Edit Debugging"]`);
   await page.fill('[aria-label="Category name"]', "Security");
   await page.click(`${SETTINGS} .catalogue-inline button:text-is("Save")`);
   await page.waitForSelector(CATEGORY("Security"));

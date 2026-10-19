@@ -56,17 +56,16 @@ const V = ".session-body:not([hidden])";
   // Platform used to be a group of session types holding the Aggregator and the
   // agent. The Aggregator is what a session *is* now, so the group holds pages
   // instead, and the card that makes a session comes first.
+  // The platform's pages were a card section here too, until the user had it
+  // removed: they are the rail's rows and the account menu's.
   const groups = await page.locator(".home > .panel > h2").allTextContents();
-  check(JSON.stringify(groups) === JSON.stringify(["New session", "Platform"]),
-    "Home leads with the new-session card, then the platform's pages", JSON.stringify(groups));
+  check(groups[0] === "New session" && !groups.includes("Platform"),
+    "Home leads with the new-session card, and no Platform cards", JSON.stringify(groups));
   const paneGroups = await page.locator('.home > .panel:has(> h2:text-is("New session")) h3').allTextContents();
   // The catalogue's categories (D66): Services and Tools first, then any a
   // pane brought (Prometheus' Observability).
   check(JSON.stringify(paneGroups.slice(0, 2)) === JSON.stringify(["Services", "Tools"]),
     "…and what goes in a session is grouped into services and tools", JSON.stringify(paneGroups));
-  const platformCards = await page.locator('.home > .panel:has(> h2:text-is("Platform")) .home-card-title').allTextContents();
-  check(!platformCards.includes("Aggregator") && platformCards.includes("Agent"),
-    "Platform holds pages -- the agent among them -- and no Aggregator", JSON.stringify(platformCards));
   const serviceCards = await page.locator('.home > .panel:has(> h2:text-is("New session")) .home-card-title').allTextContents();
   check(!serviceCards.includes("Aggregator"), "Aggregator is not something you put in a session either");
   await page.screenshot({ path: `${SHOT}/25-menu.png` });

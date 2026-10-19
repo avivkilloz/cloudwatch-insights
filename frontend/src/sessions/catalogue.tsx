@@ -18,6 +18,8 @@ export interface CatalogueGroup {
   /** The category's id; null for Favourites and for the fallback groups. */
   id: number | null;
   name: string;
+  /** What the category is, under its name; "" or absent for none. */
+  description?: string;
   types: SessionTypeDef[];
 }
 
@@ -62,6 +64,7 @@ export function CatalogueProvider({ children }: { children: ReactNode }) {
     return data.categories.map((c) => ({
       id: c.id,
       name: c.name,
+      description: c.description,
       types: c.pane_types.map((id) => byType.get(id)).filter((t): t is SessionTypeDef => !!t && offered(t)),
     }));
   }, [data, byType, offered]);

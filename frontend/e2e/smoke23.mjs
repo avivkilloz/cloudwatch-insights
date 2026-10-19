@@ -131,10 +131,9 @@ async function saveActiveAsTemplate(page) {
     check(offered.includes(t), `"${t}" is its own pane to put in a session`);
   }
   // ---------- 5. The agent is a page of the platform ----------
-  check(
-    (await page.locator('.panel:has(h2:text-is("Platform")) .home-card-title:text-is("Agent")').count()) === 1,
-    "The agent is offered as a page rather than a session",
-  );
+  // The platform's pages aren't cards on the default page any more (the
+  // user's call): the agent is its panel, never something put in a session.
+  check(!offered.includes("Agent"), "The agent isn't offered as something to put in a session", JSON.stringify(offered));
   await page.keyboard.press("Escape");
 
   // ---------- 6. Home cards open sessions ----------

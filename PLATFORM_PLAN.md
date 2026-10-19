@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (three PRs, §24, D103–D106; 5-1, pane types as YAML, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (three PRs, §24, D103–D108; 5-1, pane types as YAML, and 5-2's agent build tools, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1277,6 +1277,9 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D103 | 2026-10-19 | **A built pane type is a manifest, nothing else**: the same YAML and strict model as a bundled one, kept verbatim (`built_pane_types`, the store's `panes/<name>.yaml`) and merged into the registry beside the files (§24). Always `state: v2`, `rendered: true`; no `flag`, no `connection_types` of its own; its actions are requests, handlers the platform has, or live functions it has. | One definition the renderer, the action endpoint, the agent and the store already understand: nothing new to keep in step, and nothing of the builder's own code runs until Phase 6. |
 | D104 | 2026-10-19 | **Phase 5 is three PRs**: 5-1 the Builder grant and pane types as YAML (check, create, store, catalogue, open in a session); 5-2 the form editor and a live preview over the same definition, and the agent's build tools (D72); 5-3 steps and workflows for builders (editing no longer an admin's alone, D84). | Something to try in each, as 4b was split. |
 | D105 | 2026-10-19 | **A pane type's builder's group is granted it on creation**; any other group when an admin grants it (D65). An edit is everyone's at once; Delete takes its grants and placements with it. | D71 "a builder uses their own work at once" -- by group, since access is never per user. |
+| D107 | 2026-10-19 | **The agent builds beside the editor, and only proposes** (§24): the panel's second tab is Building while an editor is open; `propose_definition` puts a checked draft in the editor, replacing its text, and the user saves. No save tool. | The user asked for the agent in the side panel while editing. Replacing the editor's text with a whole checked definition is the simplest exchange a person can review; a save the agent makes is one nobody looked at. |
+| D108 | 2026-10-19 | **What the agent needs to build is read, not written down**: the turn reads `build_reference` (generated from the strict models and the registries) and the editor's text before the model speaks; examples are the bundled and saved definitions (`read_definition`); its mistakes come back from the same check as Check's. The backend's MCP is enough -- no separate documentation for the agent, no per-service hints. | Documentation drifts from the models; the models, the examples and the check's errors can't. It also holds for a plugin's panes, which bring their own manifests. |
+| D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
@@ -4669,7 +4672,7 @@ From §20.8 (D76). One PR, with two fixes reported beside it.
   it came from (`saved_session_id`), and its publisher's Add lists offer the
   published one in that one's place (Library marks it "Published").
 
-## 24. Phase 5 in detail: the Builder (planned 2026-10-19, D103–D106; 5-1 built)
+## 24. Phase 5 in detail: the Builder (planned 2026-10-19, D103–D108; 5-1 and 5-2's agent built)
 
 Three PRs (D104), each with something to try:
 
@@ -4686,11 +4689,26 @@ Three PRs (D104), each with something to try:
   registry's `set_built` (bundled stay cached; built merge in; the agent's
   `KINDS` rebuilt in place), the catalogue's categories, and Users → Groups'
   Builder switch.
-- **5-2, the form and the preview, and the agent's build tools**: a form
-  editor over the same definition (D73), a preview that draws the draft
-  beside the editor and runs its actions on a real connection as the
-  builder, and generic agent tools (D72): read the schema and examples,
-  validate a draft, preview it, save with the user confirming.
+- **5-2, the agent's build tools** (built, D107-D108): beside an open
+  editor -- the Builder's, or a workflow's on the Workflows page -- the agent
+  panel's second tab is **Building**, selected as the editor opens. A turn
+  there is sent as `scope: "build"` with the editor's kind, id, title and
+  text as it is now (unsaved); `routers/agent.py` lets only whoever may edit
+  it ask (a Builder for a pane type, an admin for a workflow). It opens by
+  reading `build_reference` (the models' own fields, the input types,
+  renders, handlers and live functions there are, the panes and actions a
+  step can run, and which examples exist), and the editor's text is attached
+  to the message (`prompt.turn_reads`). Four generic MCP tools, each checking
+  the same permission again: `build_reference`, `read_definition` (any
+  example's YAML), `check_definition` (Check's own errors, with lines) and
+  `propose_definition`, which checks the draft and, only if it has no
+  problem, returns it as `propose` -- passed on by the agent service like
+  `show`, and put in the editor by the browser (`agent/buildFocus.ts`) with
+  a notice that it isn't saved. The agent never saves: the user's Check and
+  Save do. Its conversations are per editor and in memory, like Global's.
+- **5-2b, the form and the preview**: a form editor over the same definition
+  (D73), and a preview that draws the draft beside the editor and runs its
+  actions on a real connection as the builder -- a tool the agent gets too.
 - **5-3, steps and workflows for builders**: workflows editable by a
   group's Builder, not only admins; declarative HTTP steps and composed
   steps (§20.3) reusable across workflows.

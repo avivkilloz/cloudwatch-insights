@@ -720,8 +720,42 @@ def start(db: Session, user: models.User, workflow: models.Workflow, given: dict
     if not can_run(db, user, workflow):
         raise WorkflowError(f"Your group may not run {workflow.label}.")
     params = coerce_params(db, user, workflow.definition, given)
+    params = _as_listed(db, user, workflow, params)
     return _create(db, user, workflow, workflow.definition, params, trigger=trigger, timezone=timezone,
                    rerun_of=rerun_of)
+
+
+def _as_listed(db: Session, user: models.User, workflow: models.Workflow, params: dict[str, Any]) -> dict[str, Any]:
+    """A parameter whose choices are listed (`options_from`), given as one of
+    them but not exactly -- another case, or part of just one name -- is taken
+    as that choice. Asked for "/fake/API", a run queried a log group that
+    doesn't exist; S3 and CloudWatch names are case-sensitive, people and the
+    agent aren't. Anything not plainly one choice is kept as given (the
+    loader may not list everything); the run's parameters say what was used."""
+    definition = Definition.model_validate(workflow.definition)
+    out = dict(params)
+    for p in definition.parameters:
+        value = out.get(p.key)
+        if p.options_from is None or value in (None, "", []):
+            continue
+        listed = [o["value"] for o in parameter_options(db, user, workflow, p.key, out).get("options", [])]
+        if not listed:
+            continue
+        values = value if isinstance(value, list) else [value]
+        matched = [_listed(str(v), listed) for v in values]
+        out[p.key] = matched if isinstance(value, list) else matched[0]
+    return out
+
+
+def _listed(value: str, listed: list[str]) -> str:
+    if value in listed:
+        return value
+    lowered = value.lower()
+    same = [o for o in listed if o.lower() == lowered]
+    if len(same) == 1:
+        return same[0]
+    within = [o for o in listed if lowered and lowered in o.lower()]
+    return within[0] if len(within) == 1 else value
 
 
 def rerun_from(db: Session, user: models.User, old: models.WorkflowRun, step_id: str, *,

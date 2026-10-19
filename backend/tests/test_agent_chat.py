@@ -251,3 +251,25 @@ def test_a_question_can_carry_its_attached_rows(monkeypatch):
     big = "x" * 45_000
     resp = client.post("/api/agent/chat", json={"messages": [{"role": "user", "content": big}]})
     assert resp.status_code == 200 and received[0]["body"]["messages"][0]["content"] == big
+
+
+def test_a_build_chat_carries_the_editor_and_is_its_editors_only(monkeypatch):
+    """Building (D107): the agent is told what's in the editor, unsaved, and
+    only someone who may edit it can ask."""
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    received.clear()
+    build = {"kind": "pane", "id": None, "title": "", "source": "label: Draft\n"}
+    assert client.post("/api/agent/chat", json={**ASK, "scope": "build", "build": build}).status_code == 200
+    assert received[0]["body"]["focus"] == {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Draft\n"}
+    assert received[0]["scope_id"] is None
+    assert client.post("/api/agent/chat", json={**ASK, "scope": "build"}).status_code == 400
+
+    group = client.post("/api/user-groups", json={"name": "Talkers", "role_name": "R", "agent_enabled": True}).json()
+    assert client.post("/api/users", json={"username": "tal", "password": "pw-123456", "group_id": group["id"]}).status_code == 201
+    from tests.test_pane_grants import _login_as
+
+    tal = _login_as("tal")
+    assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": build}).status_code == 403
+    workflow = {**build, "kind": "workflow"}
+    assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": workflow}).status_code == 403
+    assert _tokens_left() == 0

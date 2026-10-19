@@ -99,6 +99,15 @@ _ANNOUNCES = re.compile(
     r"^(?:(?:now|next|so|ok(?:ay)?|alright)[,\s]+)?(?:let me (?!know\b)|i'll |i will |i'm going to |i am going to )",
     re.IGNORECASE,
 )
+# After the turn has called something, only what plainly looks ahead counts:
+# "Now let me run the workflow." ended a real turn after its research, the
+# user having to say it had stopped; "I'll keep it running" is a report.
+_ANNOUNCES_AFTER = re.compile(
+    r"^(?:(?:now|next|so|ok(?:ay)?|alright|then)[,\s]+)?let me (?!know\b)"
+    r"|^(?:now|next|then)[,\s]+(?:i'll|i will|i'm going to|i am going to)\b"
+    r"|^i(?:'ll| will) now\b",
+    re.IGNORECASE,
+)
 _SENTENCES = re.compile(r"[^.!?\n]+[.!?:]*")
 
 
@@ -111,7 +120,21 @@ def announced(visible: str, acted: bool = False) -> Optional[str]:
     last = sentences[-1] if sentences else ""
     if last.endswith(":") or (last and not acted and _ANNOUNCES.match(last)):
         return last
+    if last and acted and _ANNOUNCES_AFTER.match(last):
+        return last
     return None
+
+
+def cut_off(message: AIMessage) -> bool:
+    """A step the provider stopped at its length limit, mid-sentence."""
+    meta = message.response_metadata or {}
+    return meta.get("finish_reason") == "length" or meta.get("stop_reason") == "max_tokens"
+
+
+CUT_OFF = (
+    f"{FROM_PLATFORM} your reply was cut off at the length limit. Carry on from exactly where it stopped -- "
+    "or, if there's a step left to take, take it.)"
+)
 
 
 def _acted(messages: list) -> bool:
@@ -132,6 +155,8 @@ def stopped_short(message: AIMessage, messages: Optional[list] = None) -> bool:
     announcing a step it never took."""
     if message.tool_calls or message.invalid_tool_calls:
         return False
+    if cut_off(message):
+        return True
     visible = _visible(message)
     return not visible or announced(visible, _acted(messages or [])) is not None
 
@@ -148,6 +173,8 @@ def _last_failure(messages: list) -> Optional[str]:
 
 
 def nudge_for(message: AIMessage, messages: list) -> str:
+    if cut_off(message):
+        return CUT_OFF
     visible = _visible(message)
     failure = None if visible else _last_failure(messages)
     if failure is not None:
@@ -251,7 +278,10 @@ class TurnGuard(AgentMiddleware):
     ) -> None:
         super().__init__()
         self.names = tool_names | {UNREADABLE}
-        self.nudged = False
+        # How many times this turn was asked to carry on: twice at most, and
+        # a reply with nothing in it only once (it had nothing to say twice).
+        self.nudges = 0
+        self.nudged_empty = False
         self.corrected = False
         self.rechecked = False
         self.check_model = check_model
@@ -309,11 +339,17 @@ class TurnGuard(AgentMiddleware):
             self.notice = check.notice(verdict) if verdict is not None and not verdict.ok else None
         return response
 
+    def _may_nudge(self, message: AIMessage) -> bool:
+        if self.nudges >= 2:
+            return False
+        return not (self.nudged_empty and not _visible(message))
+
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelResponse:
         response = await handler(request)
         message = _last_ai(response)
-        if message is not None and not self.nudged and stopped_short(message, request.messages):
-            self.nudged = True
+        if message is not None and self._may_nudge(message) and stopped_short(message, request.messages):
+            self.nudges += 1
+            self.nudged_empty = self.nudged_empty or not _visible(message)
             nudge = HumanMessage(nudge_for(message, request.messages))
             response = await handler(request.override(messages=[*request.messages, message, nudge]))
             message = _last_ai(response)

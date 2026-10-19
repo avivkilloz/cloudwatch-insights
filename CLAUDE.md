@@ -388,6 +388,11 @@ left out until "Show hidden". `GET /api/catalogue` gives each person only the
 panes their group may use and drops empty categories except for an admin.
 Access isn't here: moving a pane never changes who can use it. A suite that
 arranges it puts it back (smoke81), or later suites see a different order.
+A category has a `description` (the line under its heading on the default
+page, edited with its name in Settings → Catalogue): null means its key's
+default (`catalogue.DESCRIPTIONS` -- the Services/Tools/Platform lines the
+browser used to hard-code), `""` an admin's "none"; a heading without one
+keeps the same space before its cards (`.home-group-title.bare`).
 
 **Home → a session** (R3, D63, §18.9). Per user, on `users`
 (`home_session_id` -- the row's id, a client_id being only unique per owner --
@@ -692,7 +697,10 @@ their own (the rail's Workflows row), never a session.
   through `run_handler`/`run_request` and flattens `{options}`/`{groups}`
   (`_flat_options`). `multiple` makes a text parameter a list. The form
   (`TextParam`, `useParamOptions`) lists again when a parameter it reads
-  changes and stays typeable.
+  changes and stays typeable. A run takes a value that is plainly one listed
+  choice -- another case, or part of just one -- as that choice
+  (`_as_listed`, on `start`): asked for "/fake/API", the agent's run queried a
+  log group that doesn't exist; anything else is kept as given.
 - **A run acts as its starter** (every step through `pane_access.require` and
   the handler's own connection check), and **its inputs and outputs are its
   starter's, their group's and admins'** (`can_read`, D84) -- other granted
@@ -781,7 +789,7 @@ id, kept in the store (`Kind` `template`).
   it. From Add with one environment it opens at once; otherwise the default
   page's card asks. The agent: `get_context.templates`, `open_template`.
 
-**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D106; `builder.py`,
+**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D108; `builder.py`,
 `routers/builder.py`, `pages/BuilderPage.tsx`). Phase 5-1: pane types made in
 the platform, for a group with `builder_enabled` (admins always).
 - **A built pane type is a manifest**, kept verbatim in `built_pane_types` and
@@ -798,6 +806,23 @@ the platform, for a group with `builder_enabled` (admins always).
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
+- **The agent panel's second tab is about what's on screen** -- a session,
+  a run (This run) or an editor (Building) -- and isn't there with none of
+  them (`AgentPanel`'s `hasSecond`; the chosen tab is kept for when one
+  comes back): it used to sit there saying "Open a session…".
+- **The agent builds beside the editor** (5-2, D107-D108). An editor that may
+  be edited registers itself (`agent/buildFocus.ts`'s `useOfferBuild`: the
+  Builder's, a workflow's `DefinitionSection`), and the agent panel's second
+  tab is then **Building** (scope `"build"`, its turns in memory per editor
+  key). The turn carries the editor's text; the router lets only whoever may
+  edit it ask; the agent service reads `build_reference` first and attaches
+  the text (`prompt.build_prompt`, `turn_reads`). Tools: `build_reference`
+  (`builder.reference`, generated from the models -- never hand-written
+  docs), `read_definition`, `check_definition`, `propose_definition` -- the
+  last only returns a checked draft as `propose`, which the browser puts in
+  the editor unsaved (`apply`, with a notice). There is no save tool on
+  purpose. A new tool for a model to build with belongs in `reference`, not
+  the prompt.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is
@@ -1324,6 +1349,14 @@ fixed where it happens:
   a stored turn from before this is split the same way at render
   (`splitThinking`). Each step's answer starts a new paragraph (steps used
   to run on into each other mid-sentence).
+- **A turn that stops while it still means to act is asked to carry on**
+  (`repair.stopped_short`): no answer, an answer ending on a colon, one that
+  announces a step before anything ran, **and, after it has called tools, a
+  last sentence that plainly looks ahead** ("Now let me run the workflow.",
+  "Next, I'll…" -- `_ANNOUNCES_AFTER`; "I'll keep it running" is a report),
+  or a reply the provider cut off at its length limit (`cut_off`). Twice a
+  turn at most, an empty reply once. A real turn read the workflows, said
+  what it would do next and stopped; the user had to tell it so.
 - **A step that loops is stopped** (`text.looping`: its last 160 characters
   already seen 4 times), its words retracted, with a readable error. And
   `temperature` is no longer pinned to 0 (`AGENT_TEMPERATURE`, Helm

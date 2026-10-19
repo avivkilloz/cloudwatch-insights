@@ -25,13 +25,6 @@ export const SESSION_TYPES: SessionTypeDef[] = PANE_TYPES;
  * (the Aggregator) or a page rather than a pane (the agent). */
 export const GROUP_ORDER: SessionGroup[] = ["Services", "Tools"];
 
-/** What each group is, for the headings where panes are offered. */
-export const GROUP_BLURB: Record<SessionGroup, string> = {
-  Platform: "This platform's own features — they work across the pages below rather than wrapping one service.",
-  Services: "A window onto an AWS service, across every environment you have access to.",
-  Tools: "Self-contained utilities, for the things you would otherwise leave the app to do.",
-};
-
 export function sessionType(type: string): SessionTypeDef | undefined {
   return SESSION_TYPES.find((t) => t.type === type);
 }

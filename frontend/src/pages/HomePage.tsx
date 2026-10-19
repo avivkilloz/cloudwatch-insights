@@ -3,10 +3,8 @@ import { api, Environment, PublishedTemplate, readableError } from "../api";
 import { useAuth } from "../AuthContext";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { defaultSessionName, useStartSession } from "../sessions/start";
-import { GROUP_BLURB } from "../sessions/registry";
 import { useCatalogue } from "../sessions/catalogue";
 import Icon from "../components/Icon";
-import { PAGES } from "./pageTypes";
 import { useTemplates } from "../sessions/templates";
 import { clearPublishedAsked, useOpenPublished, usePublishedAsked } from "../sessions/published";
 
@@ -14,9 +12,11 @@ import { clearPublishedAsked, useOpenPublished, usePublishedAsked } from "../ses
  * The landing view, and the only place a session is started.
  *
  * A session is an Aggregator holding panes, so starting one is choosing what
- * goes in it and what to call it -- which is what the card at the top is. The
- * cards below it are the rest of the platform: pages you go to rather than
- * open a copy of.
+ * goes in it and what to call it -- which is what the card at the top is; the
+ * ready-made sessions (published templates) are below it. The platform's own
+ * pages aren't here: they are the rail's rows (Workflows, Builder), the
+ * agent's panel and the account menu's Settings -- a card for each read as a
+ * second, stray way in.
  *
  * Nothing here opens a session by itself any more. Choosing how many of each
  * card and pressing Create is the one way in, so "what is this session for" is
@@ -30,7 +30,7 @@ const MAX_PER_TYPE = 10;
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { show, categories, home, setHome } = useSessions();
+  const { categories, home, setHome } = useSessions();
   const { start } = useStartSession();
   // How many panes of each kind the new session gets; absent means none.
   const [counts, setCounts] = useState<Partial<Record<SessionType, number>>>({});
@@ -44,7 +44,6 @@ export default function HomePage() {
   const [showHidden, setShowHidden] = useState(false);
   // In the catalogue's order, which is the order the cards are in.
   const panes = catalogue.categories.flatMap((c) => c.types);
-  const pages = PAGES.filter((p) => p.onHome && p.enabledFor(user));
 
   function setCount(type: SessionType, n: number) {
     const next = Math.min(MAX_PER_TYPE, Math.max(0, Math.floor(Number.isFinite(n) ? n : 0)));
@@ -139,11 +138,13 @@ export default function HomePage() {
         {/* The catalogue's categories, in the order an admin gave them (D66);
             Favourites aren't a group of their own here, where each card has
             its own star -- in the shorter lists they come first. */}
-        {catalogue.groups({ withHidden: showHidden, withFavourites: false }).map(({ name: group, types: inGroup }) => {
+        {catalogue.groups({ withHidden: showHidden, withFavourites: false }).map(({ name: group, description: about, types: inGroup }) => {
           return (
-            <div key={group}>
-              <h3 style={{ margin: "14px 0 2px", fontSize: 13 }}>{group}</h3>
-              {group in GROUP_BLURB && <p className="muted home-group-blurb">{GROUP_BLURB[group as keyof typeof GROUP_BLURB]}</p>}
+            <div key={group} data-category={group}>
+              {/* A category without a description keeps the same space
+                  before its cards, or its heading sat on them. */}
+              <h3 className={`home-group-title${about ? "" : " bare"}`}>{group}</h3>
+              {about && <p className="muted home-group-blurb">{about}</p>}
               <div className="home-cards">
                 {inGroup.map((t) => {
                   const n = counts[t.type] ?? 0;
@@ -242,25 +243,6 @@ export default function HomePage() {
 
       <ReadyMade />
 
-      {/* The rest of the platform: pages, not sessions. You go to one rather
-          than having several open, which is why they are not in the panel's
-          list of sessions. */}
-      <div className="panel">
-        <h2 style={{ marginBottom: 4 }}>Platform</h2>
-        <p className="muted home-group-blurb">
-          The app's own pages. Unlike a session you don't open copies of these — there is one of each, and you go to it.
-        </p>
-        <div className="home-cards">
-          {pages.map((p) => (
-            <div key={p.id} className="home-card">
-              <button className="home-card-open" onClick={() => show(p.id)}>
-                <span className="home-card-title">{p.label}</span>
-                <span className="home-card-desc">{p.description}</span>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

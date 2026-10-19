@@ -606,3 +606,9 @@ def test_a_parameter_lists_its_options_from_a_pane_inputs_loader(monkeypatch, cl
     done = _finished(_run("wf", {"env": env, "groups": "/app"})["id"])
     assert _step(done, "q")["inputs"]["logGroupSelection"] == {str(env): ["/app"]}
     assert client.post("/api/workflows/wf/runs", json={"params": {"env": env, "groups": []}}).status_code == 400
+
+    # Asked for in another case, or by part of just one name, a listed choice
+    # is taken as that one (the agent was asked for "/APP"); anything else as given.
+    done = _finished(_run("wf", {"env": env, "groups": ["/APP", "work", "/nope"]})["id"])
+    assert done["params"]["groups"] == ["/app", "/worker", "/nope"]
+    assert _step(done, "q")["inputs"]["logGroupSelection"] == {str(env): ["/app", "/worker", "/nope"]}

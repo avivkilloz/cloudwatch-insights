@@ -41,7 +41,7 @@ from langchain_openai import ChatOpenAI
 
 from . import grounding
 from .config import Settings
-from .prompt import SYSTEM_PROMPT, run_prompt, session_prompt, turn_reads
+from .prompt import SYSTEM_PROMPT, build_prompt, run_prompt, session_prompt, turn_reads
 from .repair import VALID_NAME, TurnGuard
 from .text import StepText, looping
 
@@ -118,6 +118,19 @@ def _show(output: str) -> Optional[dict]:
         return None
     show = parsed.get("show") if isinstance(parsed, dict) else None
     return {"href": show["href"]} if isinstance(show, dict) and isinstance(show.get("href"), str) else None
+
+
+def _propose(output: str) -> Optional[dict]:
+    """A definition the agent put forward for the editor the user has open
+    (`propose_definition`, D107), passed on for the browser to put there."""
+    try:
+        parsed = json.loads(output)
+    except ValueError:
+        return None
+    propose = parsed.get("propose") if isinstance(parsed, dict) else None
+    if not (isinstance(propose, dict) and isinstance(propose.get("source"), str)):
+        return None
+    return {k: propose[k] for k in ("kind", "source", "summary") if isinstance(propose.get(k), str)}
 
 
 def _session_id(output: str) -> Optional[str]:
@@ -223,7 +236,8 @@ async def run_turn(
     """Runs one turn and yields its events. `messages` is the conversation so
     far, the user's new message last, as {"role": "user" | "assistant",
     "content", "steps"?}. `focus` ({"session_id", "title"}) makes it a
-    session's own chat; ({"kind": "run", "run_id", "title"}) a workflow run's. `model` stands in for the configured one in tests."""
+    session's own chat; ({"kind": "run", "run_id", "title"}) a workflow run's;
+    ({"kind": "build", "what", "id"?, "title", "source"}) an editor's (D107). `model` stands in for the configured one in tests."""
     client = MultiServerMCPClient(
         {
             "platform": {
@@ -256,8 +270,20 @@ async def run_turn(
     context = seen[-1] if len(seen) > 1 else None
     session = None
     run = None
+    reference = None
     on_run = bool(focus) and focus.get("kind") == "run"
-    if focus and on_run:
+    on_build = bool(focus) and focus.get("kind") == "build"
+    if focus and on_build:
+        # What a definition may say, read for the model rather than left to it
+        # to ask for: without it, a model writes a manifest from what panes
+        # elsewhere look like and the check sends it round in circles.
+        before = len(seen)
+        async for event in _read(by_name, "build_reference", {"kind": focus["what"]}, "turn-build", seen):
+            yield event
+        reference = seen[-1] if len(seen) > before else None
+        if focus.get("source"):
+            seen.append(focus["source"])
+    elif focus and on_run:
         before = len(seen)
         async for event in _read(by_name, "get_workflow_run", {"run_id": focus["run_id"]}, "turn-run", seen):
             yield event
@@ -281,7 +307,9 @@ async def run_turn(
                 out.append(f"(session {session_id} couldn't be read: {_reason(e)})")
         return out
 
-    if on_run:
+    if on_build:
+        prompt = SYSTEM_PROMPT + build_prompt(focus["what"], focus["title"], focus.get("id"))
+    elif on_run:
         prompt = SYSTEM_PROMPT + run_prompt(focus["run_id"], focus["title"])
     else:
         prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
@@ -290,7 +318,7 @@ async def run_turn(
         set(by_name),
         check_model=build_check_model(settings, client) if settings.check else None,
         read_sessions=read_sessions,
-        focus=focus["session_id"] if focus and not on_run else None,
+        focus=focus["session_id"] if focus and not (on_run or on_build) else None,
     )
     agent = create_agent(model or build_model(settings, client), tools, system_prompt=prompt, middleware=[guard])
     history = conversation(messages, set(by_name))
@@ -299,7 +327,10 @@ async def run_turn(
     # away. There, in a shared chat, a model answered an admin "there's no
     # IoT Prod" from what an earlier answer had told someone without it,
     # though the admin's own read said otherwise.
-    history[-1] = HumanMessage(content=_text(history[-1].content) + turn_reads(context or None, session or None, run or None))
+    draft = (focus["what"], focus.get("source") or "") if on_build else None
+    history[-1] = HumanMessage(
+        content=_text(history[-1].content) + turn_reads(context or None, session or None, run or None, reference, draft)
+    )
     names: dict[str, str] = {}
     answer = ""
     thought = False
@@ -398,6 +429,9 @@ async def run_turn(
                         show = _show(output) if event["ok"] else None
                         if show:
                             event["show"] = show
+                        propose = _propose(output) if event["ok"] else None
+                        if propose:
+                            event["propose"] = propose
                         yield event
         for event in finish_step():
             yield event

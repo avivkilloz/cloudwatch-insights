@@ -20,6 +20,17 @@ from .panes import manifest as pane_manifest
 # Unplaced panes come after the placed ones in their category, in manifest order.
 _UNPLACED = 10_000
 
+# What the categories the bundled panes suggest are, until an admin says
+# otherwise -- these were the browser's own until categories could carry one.
+DESCRIPTIONS = {
+    "Services": "A window onto an AWS service, across every environment you have access to.",
+    "Tools": "Self-contained utilities, for the things you would otherwise leave the app to do.",
+    "Platform": "This platform's own features -- they work across the pages below rather than wrapping one service.",
+}
+
+# Long enough for a sentence or two under a heading, not a page of help.
+DESCRIPTION_CHARS = 300
+
 
 class CatalogueError(ValueError):
     """A request an admin can correct; its message says how."""
@@ -68,6 +79,17 @@ def arrangement(db: Session) -> list[tuple[models.CatalogueCategory, list[str]]]
     return [(c, [t for _, t in sorted(slots[c.id])]) for c in categories]
 
 
+def description(c: models.CatalogueCategory) -> str:
+    return DESCRIPTIONS.get(c.key, "") if c.description is None else c.description
+
+
+def _description(text: Optional[str]) -> str:
+    text = (text or "").strip()
+    if len(text) > DESCRIPTION_CHARS:
+        raise CatalogueError(f"A description is {DESCRIPTION_CHARS} characters at most.")
+    return text
+
+
 def category_of(db: Session) -> dict[str, str]:
     """Pane type -> its category's name, for the agent."""
     return {t: c.name for c, types in arrangement(db) for t in types}
@@ -92,22 +114,25 @@ def _unique_name(db: Session, name: str, but: Optional[int] = None) -> str:
     return name
 
 
-def create(db: Session, name: str) -> models.CatalogueCategory:
+def create(db: Session, name: str, about: Optional[str] = None) -> models.CatalogueCategory:
     name = _unique_name(db, name)
     # Keyed by its first name, so a plugin suggesting the same category later
     # lands in this one.
     if db.query(models.CatalogueCategory).filter(models.CatalogueCategory.key == name).first() is not None:
         raise CatalogueError(f'A category was once called "{name}"; rename that one instead.')
     position = (db.query(func.max(models.CatalogueCategory.position)).scalar() or 0) + 1
-    c = models.CatalogueCategory(key=name, name=name, position=position)
+    c = models.CatalogueCategory(key=name, name=name, description=_description(about), position=position)
     db.add(c)
     db.commit()
     return c
 
 
-def rename(db: Session, category_id: int, name: str) -> models.CatalogueCategory:
+def rename(db: Session, category_id: int, name: str, about: Optional[str] = None) -> models.CatalogueCategory:
+    """Its name, and its description when one is given ("" clears it)."""
     c = _category(db, category_id)
     c.name = _unique_name(db, name, but=c.id)
+    if about is not None:
+        c.description = _description(about)
     db.commit()
     return c
 
