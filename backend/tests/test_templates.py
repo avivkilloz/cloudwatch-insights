@@ -101,6 +101,9 @@ def test_its_offered_to_whoever_may_use_every_pane_and_opens_for_their_environme
     able = _member("ana", ["tables", "logs-cloudwatch", "tool-http"], env)
     unable = _member("bo", ["tables"], env)
     assert [t["id"] for t in able.get("/api/templates").json()] == ["orders_debug"]
+    # Only its publisher is told which saved template of theirs it replaces.
+    assert able.get("/api/templates").json()[0]["from_saved_session_id"] is None
+    assert client.get("/api/templates").json()[0]["from_saved_session_id"] is not None
     assert unable.get("/api/templates").json() == []
     assert unable.post("/api/templates/orders_debug/open", json={"environment": env}).status_code == 404
 

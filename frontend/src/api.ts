@@ -109,6 +109,8 @@ export interface UserGroup {
   /** The platform agent. Off unless an admin turns it on: it acts with
    * everything the group can reach. */
   agent_enabled: boolean;
+  /** The Builder (§24): makes pane types. Off unless an admin turns it on. */
+  builder_enabled: boolean;
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
   user_count: number;
@@ -148,6 +150,8 @@ export interface User {
   aggregator_enabled: boolean;
   tools_enabled: boolean;
   agent_enabled: boolean;
+  /** Whether they build pane types (§24): their group's Builder, or an admin. */
+  builder_enabled: boolean;
   /** The pane types the user's group may use (D65): what the catalogue offers. */
   pane_types: string[];
 }
@@ -168,6 +172,27 @@ export interface SavedSession<T = Record<string, unknown>> {
   state: T;
 }
 
+/** A pane type made in the platform (the Builder, §24): its manifest as written. */
+export interface BuiltPaneType {
+  id: string;
+  label: string;
+  source: string;
+  updated_at: string | null;
+  updated_by: string | null;
+  store_state: StoreState | null;
+  /** Whether it loads now: a handler it names may have gone since. */
+  loads: boolean;
+}
+
+/** What a pane type's definition may say: for the editor's reference. */
+export interface BuilderSchema {
+  handlers: string[];
+  live: string[];
+  /** The bundled pane types, whose manifests are the examples to read. */
+  examples: string[];
+  starter: string;
+}
+
 /** A published template (PLATFORM_PLAN.md §23, D99): plugin content, offered
  * to whoever may use each of its panes, opened for an environment they choose. */
 export interface PublishedTemplate {
@@ -179,6 +204,8 @@ export interface PublishedTemplate {
   /** Whether the asker's group may use every pane of it (an admin sees all). */
   usable: boolean;
   store_state: StoreState | null;
+  /** The asker's own saved template it was published from, if it was theirs. */
+  from_saved_session_id: number | null;
 }
 
 /**
@@ -623,7 +650,16 @@ export type AgentEvent =
   | { type: "thinking"; delta: string }
   | { type: "retract"; chars: number }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown>; preamble?: boolean }
-  | { type: "tool_result"; id: string; name: string; ok: boolean; summary: string; session_id?: string }
+  | {
+      type: "tool_result";
+      id: string;
+      name: string;
+      ok: boolean;
+      summary: string;
+      session_id?: string;
+      /** A place in the app a tool asked to show (`open_workflow`, a run it started). */
+      show?: { href: string };
+    }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
@@ -633,6 +669,9 @@ function detailOf(text: string): string {
   try {
     const parsed = JSON.parse(text) as { detail?: unknown };
     if (typeof parsed.detail === "string") return parsed.detail;
+    // A detail with every problem in it (a definition's check): its sentence.
+    const message = (parsed.detail as { message?: unknown } | undefined)?.message;
+    if (typeof message === "string") return message;
   } catch {
     // not JSON; the text is the message
   }
@@ -937,6 +976,16 @@ export const api = {
   updateSettings: (payload: Partial<Settings>) =>
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
+  builderSchema: () => req<BuilderSchema>("/builder/schema"),
+  listBuiltPanes: () => req<BuiltPaneType[]>("/builder/panes"),
+  builderExample: (id: string) => req<{ id: string; source: string }>(`/builder/examples/${encodeURIComponent(id)}`),
+  checkBuiltPane: (source: string, id?: string) =>
+    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", { method: "POST", body: JSON.stringify({ source, id }) }),
+  createBuiltPane: (id: string, source: string) =>
+    req<BuiltPaneType>("/builder/panes", { method: "POST", body: JSON.stringify({ id, source }) }),
+  updateBuiltPane: (id: string, source: string) =>
+    req<BuiltPaneType>(`/builder/panes/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
+  deleteBuiltPane: (id: string) => req<void>(`/builder/panes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),
   publishTemplate: (payload: { saved_session_id: number; id: string; label: string; description?: string }) =>
     req<PublishedTemplate & { changes: string[] }>("/templates", { method: "POST", body: JSON.stringify(payload) }),

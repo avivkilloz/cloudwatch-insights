@@ -1298,6 +1298,23 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**4c merged (#128). Fixes reported after it, and 5-1 built: the Builder, pane
+types as YAML (PLATFORM_PLAN.md §24, D103–D106).**
+- **Fixes**: the Workflow pane links to its run (opened in place on the
+  Workflows page); the agent shows a workflow or a run (`open_workflow`) and
+  follows a run it waited on; S3's search treats a path (`POP/69/`) as a
+  prefix, listed at once the way `aws s3 ls` does -- the name scan had gone
+  through 33,000 keys of a real bucket without reaching it; a published
+  template is offered in place of the saved one it came from, not beside it.
+- **5-1**: the Builder grant per group; the Builder page (list, YAML editor
+  with Check by line, Create/Save/Delete, Open in a session, examples from
+  the bundled panes); built pane types merged into the registry, the agent's
+  kinds and the catalogue, granted to their builder's group, kept in the
+  store.
+- Tests: backend `test_builder.py` (6), an S3 path case, `open_workflow`,
+  `from_saved_session_id`; browser `smoke91` (7) and `smoke92` (8), each
+  failing against the old frontend.
+
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
 `platform-agent/app/prompt.py`), the agent image building in CI (no Docker

@@ -61,6 +61,8 @@ function describe(step: AgentStep): string {
       return done ? "Read a workflow run" : "Reading a workflow run…";
     case "investigate_run":
       return done ? "Opened the run as a session" : "Opening the run as a session…";
+    case "open_workflow":
+      return done ? "Showed it on the Workflows page" : "Opening the Workflows page…";
     case "open_template":
       return `${done ? "Opened" : "Opening"} template “${String(a.template_id ?? "")}”`;
     case "create_session":

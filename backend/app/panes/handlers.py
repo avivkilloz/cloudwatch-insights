@@ -180,8 +180,21 @@ def s3_browse(db: Session, user: models.User, inputs: dict[str, Any], cursor: An
         "files": [f.model_dump() for f in browsed.files],
         "continuationToken": browsed.continuation_token,
         "searched": browsed.scanned,
-        "searchGoesOn": True if request.search.strip() and browsed.continuation_token else None,
+        "searchGoesOn": True if browsed.mode == "name" and browsed.continuation_token else None,
+        "searchNote": _search_note(browsed.mode, request.prefix, request.search),
     }
+
+
+def _search_note(mode: str, prefix: str, search: str) -> Optional[str]:
+    where = prefix or "/"
+    if mode == "path":
+        path = prefix + search.strip().lstrip("/")
+        return (f'Listing "{path}" as a path, the way aws s3 ls does: what\'s under it, at once. '
+                "Case matters, as it does to S3.")
+    if mode == "name":
+        return (f'Searching every file under "{where}" for names containing "{search.strip()}". '
+                'To go straight to a folder, give its path with a "/" (e.g. logs/2024/).')
+    return None
 
 
 # ---------------------------------------------------------------- fan-out

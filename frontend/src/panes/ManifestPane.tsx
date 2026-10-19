@@ -32,6 +32,7 @@ import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
 import { ParamFields } from "../components/WorkflowParamFields";
+import { followAppLink } from "../workflowFocus";
 import { HideSelectedButtons, SelectAllCheckbox, useRowSelection } from "../components/rowSelection";
 import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
 import { usePaneAddress, useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
@@ -1758,6 +1759,7 @@ function OutputView({
 }) {
   const inline = place === "toolbar" || place === "aside";
   const label = textOf(output.label, pane.inputs);
+  const { show } = useSessions();
   switch (output.render) {
     case "error":
       if (!present(value)) return null;
@@ -1771,6 +1773,28 @@ function OutputView({
     case "text":
       if (!present(value)) return null;
       return inline ? <span className="muted">{String(value)}</span> : <p className="muted">{String(value)}</p>;
+    case "link": {
+      // {label, href}: a place inside the app (a run on the Workflows page)
+      // is shown in place, anything else opens beside it.
+      const link = value as { label?: unknown; href?: unknown } | null;
+      if (!link || typeof link.href !== "string") return null;
+      const href = link.href;
+      const text = typeof link.label === "string" && link.label ? link.label : href;
+      return (
+        <p className="pane-link" style={first ? { margin: 0 } : undefined}>
+          <a
+            href={href}
+            onClick={(e) => {
+              if (followAppLink(href, show)) e.preventDefault();
+            }}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {text}
+          </a>
+        </p>
+      );
+    }
     case "badge": {
       if (!present(value)) return null;
       const badge = output.badges[String(value)] ?? { text: String(value) };

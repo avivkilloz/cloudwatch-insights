@@ -428,6 +428,11 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
             </span>
           )}
         </button>
+        {user?.builder_enabled && (
+          <button className={`rail-row rail-row-page${view === "builder" ? " active" : ""}`} onClick={() => show("builder")}>
+            <span className="rail-row-label">Builder</span>
+          </button>
+        )}
       </div>
 
       {/* One list: every session you have. The ones on the strip read at full

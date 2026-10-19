@@ -215,3 +215,21 @@ def test_the_workflow_panes_parameters_are_the_workflows_own(aws):
     workflows.drain()
     run = client.get(f"/api/workflow-runs/{started['handles'][0]['run_id']}").json()
     assert run["status"] == "succeeded" and run["params"] == {"env": env}
+
+
+def test_the_agent_shows_a_workflow_or_a_run_on_its_page(aws, mcp):
+    """open_workflow and a run the agent waited on carry `show`: the place in
+    the app the browser opens (asked for, or followed)."""
+    from tests.test_platform_tools import call_error
+
+    _create(SCANS, "scans")
+    token = _token()
+    assert call(mcp, token, "open_workflow", workflow_id="scans") == {"shown": "Scans", "show": {"href": "?workflow=scans"}}
+    run = _run("scans", {"env": _environment()})
+    for _ in range(100):
+        run = _finished(run["id"])
+        if run["status"] in workflows.FINISHED:
+            break
+        time.sleep(0.1)
+    assert call(mcp, token, "open_workflow", run_id=run["id"])["show"] == {"href": f"?run={run['id']}"}
+    assert "no workflow 'nope'" in call_error(mcp, token, "open_workflow", workflow_id="nope")

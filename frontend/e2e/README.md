@@ -59,6 +59,13 @@ backend with a directory it can write, or the run fails at that step.
 in the page) and `smoke90` (published templates: publish, open for an
 environment, run the CloudWatch pane it made) need the faked backend too.
 
+`smoke92` (the Builder: a pane type made, checked and opened as a member of a
+builder group) needs nothing beyond the backend.
+
+`smoke91` (the Workflow pane's link to its run, the agent's `open_workflow`
+through the fake model's `show workflow <id>`, a published template offered
+once) needs the agent and the fake model.
+
 `smoke88` (investigate a run, make a session repeatable, the Workflow pane, a
 run's chat) needs the same, and the agent with the fake model for the run's
 chat (its `which run` script answers from the run the turn read).

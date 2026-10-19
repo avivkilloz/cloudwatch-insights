@@ -86,5 +86,6 @@ def user_out(user: models.User) -> schemas.UserOut:
         aggregator_enabled=group.aggregator_enabled if group else False,
         tools_enabled=flags.get("tools_enabled", False),
         agent_enabled=group.agent_enabled if group else False,
+        builder_enabled=bool(group and (group.is_admin or group.builder_enabled)),
         pane_types=sorted(pane_access.granted(group)),
     )

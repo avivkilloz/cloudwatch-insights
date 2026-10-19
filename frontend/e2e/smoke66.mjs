@@ -34,6 +34,8 @@ const run = async () => {
         folders: inputs.search ? [] : [{ name: "2024", prefix: `${inputs.prefix}2024/` }],
         files: FILES,
         continuationToken: "c1",
+        // The server's own words for the kind of search it ran (handlers._search_note).
+        searchNote: inputs.search ? `Searching every file under "/" for names containing "${inputs.search}".` : null,
       };
     },
   });
@@ -64,12 +66,12 @@ const run = async () => {
   await page.waitForSelector(`${SHOWN} .result-row-summary:has-text("2024/")`);
   check(JSON.stringify(browsed[0]) === JSON.stringify({ prefix: "", search: "", cursor: null }), "Picking a bucket opens it at the top",
     JSON.stringify(browsed));
-  await page.fill(`${SHOWN} input[placeholder="Search filenames under this folder…"]`, "typed but not run");
+  await page.fill(`${SHOWN} input[placeholder^="Search names"]`, "typed but not run");
   await page.click(`${SHOWN} .result-row-summary:has-text("2024/")`);
   await page.waitForFunction(() => document.querySelectorAll(".session-body:not([hidden]) .row button.secondary").length >= 2);
   check(browsed.at(-1).prefix === "2024/" && browsed.at(-1).search === "", "A folder opens it, leaving the search box",
     JSON.stringify(browsed.at(-1)));
-  check((await page.inputValue(`${SHOWN} input[placeholder="Search filenames under this folder…"]`)) === "",
+  check((await page.inputValue(`${SHOWN} input[placeholder^="Search names"]`)) === "",
     "…which is emptied, as before");
   const crumbs = await page.locator(`${SHOWN} .panel:has(h2:text-is("2. Browse")) > .row:not(:has(h2)) button`).allInnerTexts();
   check(JSON.stringify(crumbs) === JSON.stringify(["demo-bucket", "2024"]), "The breadcrumbs show where you are", JSON.stringify(crumbs));
@@ -78,12 +80,12 @@ const run = async () => {
   await page.waitForTimeout(300);
   check(browsed.at(-1).prefix === "", "…and take you back up", JSON.stringify(browsed.at(-1)));
 
-  await page.fill(`${SHOWN} input[placeholder="Search filenames under this folder…"]`, "bravo");
-  await page.press(`${SHOWN} input[placeholder="Search filenames under this folder…"]`, "Enter");
+  await page.fill(`${SHOWN} input[placeholder^="Search names"]`, "bravo");
+  await page.press(`${SHOWN} input[placeholder^="Search names"]`, "Enter");
   await page.waitForSelector(`${SHOWN} button:text-is("Clear search")`);
   check(browsed.at(-1).search === "bravo", "Enter runs the search", JSON.stringify(browsed.at(-1)));
-  const searching = await page.locator(`${SHOWN} p.muted:has-text("Searching recursively")`).innerText();
-  check(searching === 'Searching recursively under "/" for filenames containing "bravo".', "…and says what it searched", searching);
+  const searching = await page.locator(`${SHOWN} p.muted:has-text("Searching every file")`).innerText();
+  check(searching === 'Searching every file under "/" for names containing "bravo".', "…and says what it searched", searching);
   check((await page.locator(`${SHOWN} .result-row .msg`).first().innerText()) === "logs/a b.txt",
     "While searching, a file shows its whole key");
   await page.click(`${SHOWN} button:text-is("Clear search")`);

@@ -18,7 +18,14 @@ import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../component
 import { useAuth } from "../AuthContext";
 import { useSessions } from "../sessions/SessionContext";
 import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
-import { Draft, setRunFocus, takeDraft, useDraftWaiting } from "../workflowFocus";
+import {
+  Draft,
+  setRunFocus,
+  takeDraft,
+  takeWorkflowScreen,
+  useDraftWaiting,
+  useWorkflowScreenWaiting,
+} from "../workflowFocus";
 
 /*
  * Workflows (PLATFORM_PLAN.md §20.7, §22): a page of their own, never a
@@ -113,6 +120,15 @@ export default function WorkflowsPage() {
       setScreen({ kind: "new" });
     }
   }, [draftWaiting]);
+
+  // Asked for from elsewhere: the Workflow pane's link to its run, the
+  // agent's open_workflow.
+  const screenWaiting = useWorkflowScreenWaiting();
+  useEffect(() => {
+    if (!screenWaiting) return;
+    const taken = takeWorkflowScreen();
+    if (taken) setScreen(taken);
+  }, [screenWaiting]);
 
   // Opened at `?run=<id>`: straight to that run, whatever the app would have
   // shown first.

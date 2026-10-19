@@ -11,6 +11,7 @@ class FakeBucket:
     def __init__(self, keys: list[str]):
         self.keys = sorted(keys)
         self.calls = 0
+        self.examined = 0
 
     def list_objects_v2(self, Bucket, Prefix="", MaxKeys=1000, StartAfter=None, ContinuationToken=None, Delimiter=None):
         self.calls += 1
@@ -18,7 +19,15 @@ class FakeBucket:
         start = ContinuationToken or StartAfter
         if start:
             keys = [k for k in keys if k > start]
+        if Delimiter:
+            # A folder's own level: what's past the next "/" is one CommonPrefix.
+            folders = sorted({Prefix + k[len(Prefix):].split("/", 1)[0] + "/" for k in keys if "/" in k[len(Prefix):]})
+            files = [k for k in keys if "/" not in k[len(Prefix):]]
+            self.examined += len(folders) + len(files)
+            return {"CommonPrefixes": [{"Prefix": f} for f in folders], "Contents": [{"Key": k, "Size": 1} for k in files],
+                    "IsTruncated": False}
         page = keys[:MaxKeys]
+        self.examined += len(page)
         resp = {"Contents": [{"Key": k, "Size": 1} for k in page], "IsTruncated": len(keys) > MaxKeys}
         if resp["IsTruncated"]:
             resp["NextContinuationToken"] = page[-1]
@@ -67,3 +76,16 @@ def test_a_search_matches_the_path_below_the_folder(monkeypatch):
     assert [f["key"] for f in found["files"]] == ["logs/2024/app.log"]
     # The folder's own name isn't part of what's matched under it.
     assert _search(monkeypatch, bucket, "logs", prefix="logs/")["files"] == []
+
+
+def test_a_path_is_listed_at_once_as_aws_s3_ls_lists_it(monkeypatch):
+    """A real bucket: "POP/69/" past 33,000 keys, and the name scan hadn't got
+    there. With a "/" it's a prefix S3 lists itself, as `aws s3 ls` does."""
+    bucket = FakeBucket([f"AAA/{i:06d}.bin" for i in range(40_000)]
+                        + ["POP/69/MU/fw.bin", "POP/69/SM/fw.bin", "POP/69/notes.txt", "POP/70/MU/fw.bin"])
+    found = _search(monkeypatch, bucket, "POP/69/")
+    assert [f["prefix"] for f in found["folders"]] == ["POP/69/MU/", "POP/69/SM/"]
+    assert [f["key"] for f in found["files"]] == ["POP/69/notes.txt"]
+    assert found["mode"] == "path" and bucket.calls == 1 and bucket.examined == 3
+    # Without the trailing "/": the folders that start so, as aws s3 ls says.
+    assert [f["prefix"] for f in _search(monkeypatch, bucket, "POP/6")["folders"]] == ["POP/69/"]

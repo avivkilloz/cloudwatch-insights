@@ -9,7 +9,7 @@ drawing a pane that silently lacks an input.
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -40,6 +40,8 @@ InputType = Literal[
 Render = Literal[
     "text", "code", "json", "table", "diff", "badge", "error", "list", "files", "tags", "http_response", "attach",
     "logs", "run", "histogram", "stream",
+    # {label, href}: a link -- one into the app (`?run=17`) is shown in place.
+    "link",
 ]
 OutputAction = Literal["copy", "export", "attach", "select"]
 
@@ -600,10 +602,52 @@ def _load(path: Path) -> Manifest:
 
 
 @lru_cache(maxsize=1)
+def bundled() -> dict[str, Manifest]:
+    """The manifests that ship with the platform, by id. Loaded once."""
+    return {m.id: m for m in (_load(path) for path in sorted(MANIFEST_DIR.glob("*.yaml")))}
+
+
+# Pane types made in the platform (the Builder, PLATFORM_PLAN.md §24, D103):
+# kept in Postgres and the store, put here by `builder.load` -- at start, on a
+# save in this replica, and when another replica's save moves the generation.
+_built: dict[str, Manifest] = {}
+_merged: Optional[dict[str, Manifest]] = None
+_listeners: list[Callable[[], None]] = []
+
+
 def manifests() -> dict[str, Manifest]:
-    """Every pane type's manifest, by id, in catalogue order. Loaded once."""
-    loaded = [_load(path) for path in sorted(MANIFEST_DIR.glob("*.yaml"))]
-    return {m.id: m for m in sorted(loaded, key=lambda m: (m.order, m.id))}
+    """Every pane type's manifest, by id, in catalogue order: the bundled ones
+    and those built here (never in a bundled one's place)."""
+    global _merged
+    if _merged is None:
+        ships = bundled()
+        merged = {**ships, **{k: m for k, m in _built.items() if k not in ships}}
+        _merged = dict(sorted(merged.items(), key=lambda kv: (kv[1].order, kv[0])))
+    return _merged
+
+
+def set_built(built: dict[str, Manifest]) -> None:
+    """The built pane types, all of them, replacing what was here; whatever
+    keeps its own copy of the kinds (the agent's KINDS) is told."""
+    global _merged
+    _built.clear()
+    _built.update(built)
+    _merged = None
+    for listener in _listeners:
+        listener()
+
+
+def on_change(listener: Callable[[], None]) -> None:
+    _listeners.append(listener)
+
+
+def parse_source(source: str) -> Manifest:
+    """A manifest from YAML text, checked by the same strict model as a file."""
+    try:
+        data = yaml.safe_load(source)
+        return Manifest.model_validate(data)
+    except (yaml.YAMLError, ValidationError) as e:
+        raise ManifestError(str(e)) from None
 
 
 def get(type_: str) -> Optional[Manifest]:

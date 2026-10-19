@@ -26,7 +26,7 @@ inputs:
       action: list_workflows
       placeholder: Choose a workflow…
     # Another workflow's parameters aren't this one's.
-    resets: [in.params, out.summary, out.stages]
+    resets: [in.params, out.summary, out.stages, out.runLink]
   - key: params
     type: workflow_params
     of: workflow
@@ -45,7 +45,7 @@ actions:
     busy_label: Running…
     stop_label: Cancel run
     requires: { workflow: Choose a workflow first. }
-    resets: [out.summary, out.stages]
+    resets: [out.summary, out.stages, out.runLink]
     poll:
       handler: platform.workflows.poll
       stop: platform.workflows.cancel
@@ -56,6 +56,8 @@ outputs:
   - key: stages
     render: table
     actions: [copy, export, attach]
+  - key: runLink
+    render: link
   - key: run
     render: run
 layout:
@@ -71,6 +73,7 @@ layout:
     when: { output: summary, present: true }
     items:
       - output: summary
+      - output: runLink
       - output: stages
 agent:
   run: Starts the workflow as the user with these parameters and follows it in the pane; you get its summary and stages.

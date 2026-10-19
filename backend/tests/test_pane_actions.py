@@ -59,7 +59,8 @@ def aws(monkeypatch) -> dict:
         return {"bucket": bucket, "bucket_region": "eu-west-1", "prefix": prefix,
                 "folders": [{"name": "2024", "prefix": f"{prefix}2024/"}],
                 "files": [{"key": f"{prefix}a.txt", "name": "a.txt", "size": 1, "last_modified": None, "storage_class": None}],
-                "continuation_token": None, "scanned": 1 if search else 0}
+                "continuation_token": None, "scanned": 1 if search else 0,
+                "mode": "name" if search else "browse"}
 
     monkeypatch.setattr(s3_client, "browse_bucket", browse)
     return calls
@@ -103,7 +104,8 @@ def test_scan_pages_with_the_cursor_it_returned(aws):
 
 def test_browse_takes_its_inputs_and_doesnt_write_them_back(aws):
     out = _act("buckets", "browse", {"connection": _environment(), "bucket": "logs", "prefix": "a/", "search": "x"}).json()
-    assert set(out) == {"bucketRegion", "activeSearch", "folders", "files", "continuationToken", "searched", "searchGoesOn"}
+    assert set(out) == {"bucketRegion", "activeSearch", "folders", "files", "continuationToken", "searched", "searchGoesOn",
+                        "searchNote"}
     assert out["activeSearch"] == "x" and aws["browse"][0] == {"bucket": "logs", "prefix": "a/", "search": "x", "token": None}
 
 

@@ -44,6 +44,10 @@ class UserGroup(Base):
     # turns it on for a group deliberately. The Admin group gets it on
     # creation (bootstrap.py) and on the upgrade that adds this (main.py).
     agent_enabled = Column(Boolean, nullable=False, server_default="false")
+    # The Builder (PLATFORM_PLAN.md D71, §24): makes pane types -- and, as the
+    # builder grows, steps and workflows. Off unless an admin turns it on; an
+    # admin group builds whatever this says.
+    builder_enabled = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     users = relationship("User", back_populates="group")
@@ -731,6 +735,26 @@ class PublishedTemplate(Base):
     label = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     state = Column(JSON, nullable=False)
+    # The saved template it was published from, so its publisher's Add lists
+    # offer the published one in its place, not both under one name. Not in
+    # the store: a saved template is this deployment's, and its owner's.
+    saved_session_id = Column(Integer, ForeignKey("saved_sessions.id", ondelete="SET NULL"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class BuiltPaneType(Base):
+    """A pane type made in the platform (the Builder, PLATFORM_PLAN.md §24,
+    D103): its manifest as the YAML it was written in, kept verbatim like a
+    workflow's (the store repo's `panes/<name>.yaml`). Checked by the same
+    strict model as a bundled manifest, and loaded beside them."""
+
+    __tablename__ = "built_pane_types"
+
+    id = Column(String(64), primary_key=True)
+    source = Column(Text, nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -214,6 +214,25 @@ def _remove_workflow(db: Session, row: models.Workflow) -> None:
     db.delete(row)
 
 
+def _load_pane(db: Session, data: dict, row: Optional[models.BuiltPaneType],
+               actor: Optional[models.User]) -> models.BuiltPaneType:
+    from . import builder
+
+    return builder.store_load(db, data, row, actor)
+
+
+def _remove_pane(db: Session, row: models.BuiltPaneType) -> None:
+    db.query(models.GroupPaneGrant).filter_by(pane_type=row.id).delete()
+    db.delete(row)
+
+
+def _pane_label(row: models.BuiltPaneType) -> str:
+    try:
+        return str((yaml.safe_load(row.source) or {}).get("label") or row.id)
+    except yaml.YAMLError:
+        return row.id
+
+
 def _load_template(db: Session, data: dict, row: Optional[models.PublishedTemplate],
                    actor: Optional[models.User]) -> models.PublishedTemplate:
     from . import templates
@@ -240,6 +259,11 @@ KINDS: dict[str, Kind] = {
             key="workflow", directory="workflows", contributes="workflows", noun="workflow",
             model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
             builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
+        ),
+        Kind(
+            key="pane", directory="panes", contributes="panes", noun="pane type",
+            model=models.BuiltPaneType, dump=lambda r: {}, load=_load_pane, remove=_remove_pane,
+            builtin=lambda r: False, seeded=lambda r: False, label=_pane_label, file=lambda r: r.source,
         ),
         Kind(
             key="template", directory="templates", contributes="templates", noun="template",

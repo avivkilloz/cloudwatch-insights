@@ -214,6 +214,10 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
         context = json.loads(found.group(1))
         names = ", ".join(e["name"] for e in context.get("environments", []))
         return _say(f"You're {context.get('user')}, and you can reach: {names or 'nothing'}.")
+    if lowered.startswith("show workflow "):
+        if step == 0:
+            return _call("open_workflow", workflow_id=text[len("show workflow "):].strip())
+        return _say(f"It's on the Workflows page: {results[0][1].get('shown')}.")
     if "which run" in lowered:  # a run's chat prefixes who asked
         found = re.search(r"get_workflow_run \(this chat's run\):\n(\{.*\})", reads)
         if not found:

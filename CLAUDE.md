@@ -70,6 +70,7 @@ backend/app/
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
   templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
+  builder.py         the Builder: pane types made in the platform, checked and merged into the registry (§24)
   blobs.py           the blob store: filesystem or S3, metadata in `blobs` (§8.2, D91)
   store.py           the store repo: what's built here, written through to git as a plugin (§21)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
@@ -745,7 +746,13 @@ their own (the rail's Workflows row), never a session.
   (`components/WorkflowParamFields.tsx`) and stored as key -> value
   (`coerce_params` also takes a connection's label, a list comma-separated;
   rows from before the form still read). Its picker has no `load_label`, so
-  it loads by itself (`OptionsPicker`, once per mount).
+  it loads by itself (`OptionsPicker`, once per mount). It links to its run
+  (`runLink`, an output of `render: link`): a link into the app (`?run=`,
+  `?workflow=`) is shown in place by `workflowFocus.followAppLink`, never a
+  page load. The agent's `open_workflow` returns the same as `show`
+  (`{href}`), which the agent service passes on beside `session_id` and the
+  browser follows (always for `open_workflow`; with Follow for a run
+  `run_workflow` waited on).
   **This run** (`workflow_runs.chat`, merged by turn id, `GET/POST
   /api/workflow-runs/{id}/chat`): the agent panel's second tab while a run is
   on screen (`setRunFocus`), sent as `scope: "run"` with `run_id`; the agent
@@ -764,12 +771,33 @@ id, kept in the store (`Kind` `template`).
   parameters removed; a secret-looking header's value blanked. What changed
   is answered in words and shown to the publisher.
 - **Offered** to whoever's group may use each of its panes
-  (`templates.usable`, `pane_access.granted`) -- no grant of its own.
+  (`templates.usable`, `pane_access.granted`) -- no grant of its own -- in
+  place of the saved template it was published from (`saved_session_id`,
+  told only to its owner as `from_saved_session_id`): both, under one name,
+  read as a duplicate.
 - **Opened by the server** (`templates.instantiate`): the environment the
   opener chose (and can reach) set, `variables.apply` per pane, the log
   groups re-keyed, then `live_store.create`; the browser `openFromServer`s
   it. From Add with one environment it opens at once; otherwise the default
   page's card asks. The agent: `get_context.templates`, `open_template`.
+
+**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D106; `builder.py`,
+`routers/builder.py`, `pages/BuilderPage.tsx`). Phase 5-1: pane types made in
+the platform, for a group with `builder_enabled` (admins always).
+- **A built pane type is a manifest**, kept verbatim in `built_pane_types` and
+  the store (`Kind` `pane`, `panes/<name>.yaml`, its `id:` line added), checked
+  by the same strict model plus `builder.check` (always v2 and rendered; no
+  `flag` or `connection_types`; handlers and live functions must exist; not a
+  bundled id). Nothing of the builder's own code runs until Phase 6.
+- **The registry merges it** (`pane_manifest.set_built`; `bundled()` stays
+  cached, `manifests()` is the merge) and tells listeners -- the agent's
+  `KINDS` is rebuilt in place. The saving replica loads at once; others follow
+  the `builder.generation` Settings row within 5 s (`builder.manager`). Tests
+  reset it in conftest (`builder.load`). Anything holding manifests at import
+  time would miss a built one: read `manifests()` when needed.
+- **Its builder's group is granted it on creation**; others when an admin
+  grants it (D65). The browser reloads pane types, the user and the catalogue
+  after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

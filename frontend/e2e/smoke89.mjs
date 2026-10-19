@@ -19,7 +19,7 @@ const SOURCE = readFileSync(new URL("../../examples/workflows/02-cloudwatch-erro
   `label: ${LABEL}`,
 );
 const FORM = `${SHOWN} .workflow-pane-params`;
-const SEARCH_BOX = `${SHOWN} input[placeholder="Search filenames under this folder…"]`;
+const SEARCH_BOX = `${SHOWN} input[placeholder^="Search names"]`;
 
 async function api(page, method, path, body) {
   return page.evaluate(

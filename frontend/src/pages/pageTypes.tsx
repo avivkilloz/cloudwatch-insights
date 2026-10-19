@@ -1,5 +1,6 @@
 import { JSX } from "react";
 import AgentPage from "./AgentPage";
+import BuilderPage from "./BuilderPage";
 import WorkflowsPage from "./WorkflowsPage";
 
 /**
@@ -14,7 +15,7 @@ import WorkflowsPage from "./WorkflowsPage";
  * Everything below `home` shows as a card on the home page, under Platform.
  */
 
-export type PageId = "home" | "settings" | "agent" | "workflows" | "chat" | "code";
+export type PageId = "home" | "settings" | "agent" | "workflows" | "builder" | "chat" | "code";
 
 export interface PageDef {
   id: PageId;
@@ -79,6 +80,19 @@ export const PAGES: PageDef[] = [
     onHome: true,
     enabledFor: () => true,
     render: () => <WorkflowsPage />,
+  },
+  {
+    id: "builder",
+    label: "Builder",
+    description: "Make pane types of your own.",
+    help:
+      "Make pane types of your own, written as the same definition every pane is: inputs, actions -- a request to " +
+      "a connection, or an action the platform already has -- and a layout. Yours to use at once; other groups' " +
+      "when an admin grants them.",
+    onHome: true,
+    // A group's Builder, or an admin (D71).
+    enabledFor: (user) => !!user?.builder_enabled,
+    render: () => <BuilderPage />,
   },
   {
     id: "chat",

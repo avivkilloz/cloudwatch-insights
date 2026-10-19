@@ -202,6 +202,7 @@ def publish(
     now = datetime.datetime.utcnow()
     row = models.PublishedTemplate(
         id=new_id, label=label.strip(), description=(description or "").strip() or None, state=state,
+        saved_session_id=saved.id,
         created_by_id=user.id, created_at=now, updated_by_id=user.id, updated_at=now,
     )
     db.add(row)
