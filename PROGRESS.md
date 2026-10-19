@@ -1248,6 +1248,32 @@ label; the run header's status pill centred beside its buttons.
   the chat (the record is ready for them, D88), and a workflow's MQTT step
   counting toward `max_running`.
 
+**4b-3 built: the doors between workflows and sessions (PLATFORM_PLAN.md
+§22.10, D95–D98).**
+- **Investigate in a session** (the run page; the agent's `investigate_run`):
+  what a run found as a stacked session of panes -- each pane-action stage's
+  inputs and outputs, a pane per `for_each` item (ten at most), notes, files
+  and decisions in the description. Driving it found the inputs stored as
+  plain lists where the browser keeps tagged Sets, and CloudWatch's pane
+  saying "0 environment(s) selected" over its rows (a step sets only the log
+  groups): both go through the agent's own conversion and `implies` now.
+- **Make repeatable** (the session card, admins): the session drafted into a
+  workflow -- a step per pane with a server action, its environments
+  parameters -- opened in the editor unsaved. The draft read the browser's
+  tagged Sets as values and made two parameters of one environment; fixed,
+  and a description of several lines is a `|` block.
+- **The Workflow pane**: pick a workflow, give its parameters as name/value
+  rows (a connection by name), Run; it follows the run (summary, a row per
+  stage), Cancel run stops it, and the run is recorded with trigger `pane`.
+  Its picker drew nothing: a picker without a Load button never loaded,
+  though the manifest schema said it would -- it loads by itself now.
+- **This run**: the agent panel's second tab while a run is on screen, a
+  conversation kept on the run for its readers; each turn reads the run
+  first.
+- Tests: backend `test_workflow_doors.py` (6) and a run-scope case in
+  `test_agent_chat.py`; agent service a run-chat turn (37); browser `smoke88`
+  (20), failing against the old frontend.
+
 Not verified here, for the user to check on their deployment: a real model
 through their LiteLLM choosing tools sensibly (the prompt is in
 `platform-agent/app/prompt.py`), the agent image building in CI (no Docker

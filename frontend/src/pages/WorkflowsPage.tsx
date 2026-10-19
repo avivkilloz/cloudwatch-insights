@@ -19,6 +19,7 @@ import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../component
 import { useAuth } from "../AuthContext";
 import { useSessions } from "../sessions/SessionContext";
 import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
+import { Draft, setRunFocus, takeDraft, useDraftWaiting } from "../workflowFocus";
 
 /*
  * Workflows (PLATFORM_PLAN.md §20.7, §22): a page of their own, never a
@@ -101,6 +102,18 @@ export default function WorkflowsPage() {
     const run = runParam();
     return run ? { kind: "run", id: run } : { kind: "list" };
   });
+  // A workflow drafted from a session (Make repeatable, D96): opened in the
+  // editor, unsaved, whatever this page was showing.
+  const draftWaiting = useDraftWaiting();
+  const [draft, setDraft] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (!draftWaiting) return;
+    const taken = takeDraft();
+    if (taken) {
+      setDraft(taken);
+      setScreen({ kind: "new" });
+    }
+  }, [draftWaiting]);
 
   // Opened at `?run=<id>`: straight to that run, whatever the app would have
   // shown first.
@@ -122,7 +135,7 @@ export default function WorkflowsPage() {
   // found two.
   if (view !== "workflows") return null;
   if (screen.kind === "workflow") return <WorkflowView id={screen.id} open={open} />;
-  if (screen.kind === "new") return <WorkflowView id={null} open={open} />;
+  if (screen.kind === "new") return <WorkflowView key={draft?.source ?? "new"} id={null} open={open} draft={draft} />;
   if (screen.kind === "run") return <RunView id={screen.id} open={open} />;
   return <ListView open={open} />;
 }
@@ -272,12 +285,12 @@ function RunsTable({ runs, open, showWorkflow }: { runs: WorkflowRun[]; open: (s
 
 // ------------------------------------------------------------------- one workflow
 
-function WorkflowView({ id, open }: { id: string | null; open: (s: Screen) => void }) {
+function WorkflowView({ id, open, draft }: { id: string | null; open: (s: Screen) => void; draft?: Draft | null }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [newId, setNewId] = useState("");
+  const [newId, setNewId] = useState(draft?.id ?? "");
   const isNew = id === null;
 
   const load = useCallback(async () => {
@@ -349,6 +362,7 @@ function WorkflowView({ id, open }: { id: string | null; open: (s: Screen) => vo
       {(isNew || workflow?.can_edit || workflow?.source) && (
         <DefinitionSection
           workflow={workflow}
+          initialSource={isNew ? draft?.source : undefined}
           isNew={isNew}
           newId={newId}
           setNewId={setNewId}
@@ -619,19 +633,21 @@ function TextParam({
 
 function DefinitionSection({
   workflow,
+  initialSource,
   isNew,
   newId,
   setNewId,
   saved,
 }: {
   workflow: Workflow | null;
+  initialSource?: string;
   isNew: boolean;
   newId: string;
   setNewId: (v: string) => void;
   saved: (w: Workflow) => void;
 }) {
   const editable = isNew || !!workflow?.can_edit;
-  const [source, setSource] = useState(workflow?.source ?? NEW_SOURCE);
+  const [source, setSource] = useState(workflow?.source ?? initialSource ?? NEW_SOURCE);
   const [problems, setProblems] = useState<WorkflowProblem[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -762,7 +778,30 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
-  const { view } = useSessions();
+  const [investigating, setInvestigating] = useState(false);
+  const { view, openFromServer } = useSessions();
+
+  // The agent panel's second tab is this run's chat while it's on screen
+  // (D98) -- for whoever may read it; anyone else has nothing to ask about.
+  const focusTitle = run?.readable ? `${run.workflow_label} #${run.number}` : null;
+  useEffect(() => {
+    setRunFocus(focusTitle ? { runId: id, title: focusTitle } : null);
+  }, [id, focusTitle]);
+  useEffect(() => () => setRunFocus(null), []);
+
+  // Investigate (D95): what the run found, as panes in a new session.
+  async function investigate() {
+    setInvestigating(true);
+    setError(null);
+    try {
+      const made = await api.investigateRun(id);
+      await openFromServer(made.session_id);
+    } catch (e) {
+      setError(readableError(e));
+    } finally {
+      setInvestigating(false);
+    }
+  }
 
   const load = useCallback(() => {
     api
@@ -819,6 +858,7 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
   if (!run) {
     return <div className="panel">{error ? <p className="error-text">{error}</p> : <p className="muted">Loading…</p>}</div>;
   }
+  const hasPaneStages = (run.definition?.steps ?? []).some((s) => !!s.pane);
   return (
     <div className="panel credential-view workflow-run">
       <ViewHead back={() => open({ kind: "workflow", id: run.workflow_id })} title={`${run.workflow_label} #${run.number}`}>
@@ -830,6 +870,16 @@ function RunView({ id, open }: { id: number; open: (s: Screen) => void }) {
         )}
         {!live && !waiting && run.readable && (
           <button onClick={() => act(() => api.rerunWorkflowRun(run.id), (r) => open({ kind: "run", id: r.id }))}>Rerun</button>
+        )}
+        {run.readable && hasPaneStages && (
+          <button
+            className="secondary"
+            onClick={investigate}
+            disabled={investigating || live}
+            title="Open what this run found as panes in a new session, to sort, chart, look into and run again"
+          >
+            {investigating ? "Opening…" : "Investigate in a session"}
+          </button>
         )}
         <button
           className="secondary"

@@ -1266,6 +1266,10 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D91 | 2026-10-17 | **The blob store (§8.2, D7) is `blobs.py`, filesystem or S3, chosen in Helm's `storage:`; Postgres keeps the metadata and every download is checked against it**. A step's outputs over 1 MiB keep their cut-down copy in the row and the whole (to 64 MiB) as a blob, which later steps and a resumed run read whole (§22.8). | Large outputs were cut for every reader, later steps included. |
 | D92 | 2026-10-17 | **Artifacts are a step kind (`artifact:` a name, a value, json/csv/text) written to the blob store and downloaded from the run page; run blobs are kept 90 days by default** (§22.8). | A file is what a run hands on: an export, a report. |
 | D94 | 2026-10-19 | **A workflow parameter's choices load the way a pane picker's do: `options_from` names a pane input with a loader and gives its inputs from the other parameters; the form lists them as the person filling it in, and still takes typed text. `multiple` makes a text parameter a list** (§22.9). | The user's ask (pick log groups once an environment is chosen). Borrowing the pane input's loader keeps one way of listing things; a builder's own parameters (Phase 5) will use the same seam. |
+| D95 | 2026-10-19 | **Investigate a run opens a new session of the asker's: a pane per stage that ran a pane action (a `for_each` stage's first ten items each), with the inputs it ran with and its outputs as the pane's own, drawn by the pane renderers; notes and files go in its description** (§22.10). | A stage's outputs were a table or JSON on the run page; in a session people and the agent can sort, chart, expand rows and run again. |
+| D96 | 2026-10-19 | **Make repeatable drafts a workflow from a session -- a step per pane with a server action, its set inputs as `with`, each connection-valued input a parameter defaulting to what it holds -- and opens it in the editor, unsaved** (§22.10). | A draft to finish by hand, not a workflow made behind the person's back; editing stays an admin's (D84). |
+| D97 | 2026-10-19 | **The workflow pane is a manifest like any other** (group Platform, no flag: granted per group): a workflow picker, parameters as name/value rows, Run as a background run polled into its summary and stages, Stop cancelling the run (§22.10). | No hand-drawn pane: it proves the seam a plugin uses. Parameters typed as text take a connection by name. |
+| D98 | 2026-10-19 | **"This run" is a run's own chat**: stored on the run, shared by its readers, its turns reading the run first (`get_workflow_run`); the agent panel's second tab is "This run" on a run page (§22.10). | The question about a run is asked looking at it; it's the run's, as a session's chat is the session's. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
 ## 13. Phase 1 in detail: credentials
@@ -4544,6 +4548,49 @@ name, while its pane lists them once an environment is picked.
 - With it, from the same report: the form's rows have a gap of their own (a
   help line ran into the next row's field) and its controls are the row's
   28px, level with their labels; a stage's "Inputs" is the detail's 13px.
+
+### 22.10 4b-3: the doors (planned and built 2026-10-19, D95–D98)
+
+- **Investigate in a session** (D95): the run page's button, and the agent's
+  `investigate_run`, for whoever may read the run. A new session of theirs,
+  named after the run, stacked: a pane per stage that ran a pane action, its
+  inputs as the step ran them (`_tz` and defaults left out; put in the shape
+  the browser stores through the agent's own `convert` -- a tagged Set where
+  the pane keeps one -- with what they imply: a step sets only CloudWatch's
+  log groups, and the pane said "0 environment(s) selected"), its outputs
+  written as the pane's own record (`pane_outputs.write`, `ranAt`), so the
+  pane renderers draw them -- CloudWatch's rows as logs, a table as a table.
+  A `for_each` stage gives a pane per item, the first ten. Notes, files and
+  decisions go in the session's description. Nothing runs again: it is what
+  the run found, to dig into.
+- **Make repeatable** (D96): the session card's button, for admins (editing
+  is theirs, D84). `POST /api/workflows/draft` turns the session into YAML: a
+  step per pane whose kind has a main server action (handler, request or
+  background run), its id from the pane's title, `with` its inputs that
+  differ from their defaults; every connection-valued input becomes a
+  parameter (one per distinct connection, defaulting to it), and a log-group
+  or index selection keyed by that connection is written over the
+  parameter; an input the others imply (the environments of the log groups)
+  is left to the step. Several lines of text are a `|` block. The editor
+  opens with it; nothing is saved until Create.
+- **The workflow pane** (D97, `manifests/workflow.yaml`): `workflow` (its
+  options listed by `platform.workflows.list`, the workflows the person may
+  run -- a picker with no `load_label` now loads by itself once what its
+  loader requires is set, as the manifest schema always said; it drew
+  nothing before), `params` (name/value rows),
+  Run (`workflows.start`, a background run: `workflows.poll` writes Summary
+  and Stages every 2 s until the run finishes, `workflows.cancel` is Stop).
+  A run started there acts as the person who pressed Run, like any run.
+  Parameters arrive as text, so a connection may be named, not only
+  numbered (`coerce_params` matches a reachable connection's label), and a
+  list may be comma-separated.
+- **This run** (D98): `workflow_runs.chat` (turns, the last 40), read and
+  appended by the run's readers (`GET/POST /api/workflow-runs/{id}/chat`,
+  merged by turn id, so two people's messages don't overwrite each other).
+  The chat request's `scope: "run"` with `run_id`: checked readable, the
+  turn reads the run first and the prompt keeps to it; its token is a
+  Global turn's otherwise (it may open a session to investigate). The agent
+  panel shows "This run" instead of "Session" while a run is on screen.
 
 ## 12. Research sources
 

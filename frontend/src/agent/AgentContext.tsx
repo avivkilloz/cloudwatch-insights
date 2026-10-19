@@ -24,6 +24,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { AgentChatMessage, AgentEvent, AgentStatus, api, ApiError } from "../api";
 import { useAuth } from "../AuthContext";
 import { useSessions, useWriteSessionState } from "../sessions/SessionContext";
+import { RunFocus, useRunFocus } from "../workflowFocus";
 import { SessionSelection } from "./selection";
 
 export interface AgentStep {
@@ -75,7 +76,8 @@ export interface AgentTurn {
 // matching inside a longer word ("@platform-agentic").
 const AGENT_MENTION = /@platform-agent\b/i;
 
-export type AgentScope = "global" | "session";
+/** "run": a workflow run's own chat (D98), stored on the run, its readers'. */
+export type AgentScope = "global" | "session" | "run";
 export type AgentLayout = "dock" | "float";
 
 /** The session state key a session's conversation lives under. */
@@ -100,9 +102,11 @@ interface AgentApi {
   globalTurns: AgentTurn[];
   /** A session's conversation, the turn in flight included. */
   sessionTurns: (sessionId: string) => AgentTurn[];
+  /** A run's conversation, the turn in flight included. */
+  runTurns: (runId: number) => AgentTurn[];
   running: boolean;
   /** Which conversation the running turn belongs to. */
-  runningIn: { scope: AgentScope; sessionId: string | null } | null;
+  runningIn: { scope: AgentScope; sessionId: string | null; runId?: number | null } | null;
   /** The turn this browser is streaming, if any: its steps are live here;
    * another browser's running turn has only its question to show. */
   liveTurnId: string | null;
@@ -111,6 +115,8 @@ interface AgentApi {
   clear: (scope: AgentScope) => void;
   /** The session the Session tab is about: the one on screen. */
   viewingSessionId: string | null;
+  /** The run on screen, which the second tab is about instead ("This run"). */
+  viewingRun: RunFocus | null;
   /** Whether that session has anyone else on it -- once it does, the agent
    * only answers a message that mentions it, so the compose box can say so. */
   viewingSessionShared: boolean;
@@ -287,7 +293,15 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // joins that session's stored conversation only once it's over: writing
   // every streamed word into session state would sync the session a word at
   // a time.
-  const [live, setLive] = useState<{ scope: AgentScope; sessionId: string | null; turn: AgentTurn } | null>(null);
+  const [live, setLive] = useState<{
+    scope: AgentScope;
+    sessionId: string | null;
+    runId?: number | null;
+    turn: AgentTurn;
+  } | null>(null);
+  // Runs' conversations, as fetched from each run (D98): kept on the server,
+  // since a run isn't a session and has no synced state to ride in.
+  const [runChats, setRunChats] = useState<Record<number, AgentTurn[]>>({});
   const [follow, setFollow] = useState(true);
   // Defaults to whichever makes sense for what's on screen right now (a
   // session, or not) -- not persisted, so a fresh load re-decides rather
@@ -315,6 +329,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const viewingSessionId = view === "session" ? activeId : null;
+  const runFocus = useRunFocus();
+  const viewingRun = view === "workflows" ? runFocus : null;
+  const viewingRunId = viewingRun?.runId ?? null;
 
   // Opening a session (not just switching between two already-open ones --
   // that leaves whatever tab you picked alone) defaults the panel to the
@@ -334,6 +351,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // what has been said at that moment without `ask` changing every render.
   const viewingRef = useRef(viewingSessionId);
   viewingRef.current = viewingSessionId;
+  const viewingRunRef = useRef(viewingRunId);
+  viewingRunRef.current = viewingRunId;
+  const runChatsRef = useRef(runChats);
+  runChatsRef.current = runChats;
   const followRef = useRef(follow);
   followRef.current = follow;
   const globalRef = useRef(globalTurns);
@@ -383,6 +404,29 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     refreshShared(viewingSessionId);
   }, [viewingSessionId, refreshShared]);
 
+  const loadRunChat = useCallback((runId: number) => {
+    api
+      .getRunChat(runId)
+      .then((r) => setRunChats((prev) => ({ ...prev, [runId]: r.turns as AgentTurn[] })))
+      .catch(() => undefined);
+  }, []);
+  // The run on screen's chat: fetched when it comes on screen, and again
+  // every few seconds while its tab is open -- someone else on the run may be
+  // writing in it, and a run has no event stream of its own.
+  useEffect(() => {
+    if (viewingRunId === null) return;
+    loadRunChat(viewingRunId);
+    if (!open || tab !== "session") return;
+    const timer = window.setInterval(() => loadRunChat(viewingRunId), 5000);
+    return () => window.clearInterval(timer);
+  }, [viewingRunId, open, tab, loadRunChat]);
+  const putRunChat = useCallback((runId: number, turns: AgentTurn[]) => {
+    api
+      .addRunChat(runId, turns)
+      .then((r) => setRunChats((prev) => ({ ...prev, [runId]: r.turns as AgentTurn[] })))
+      .catch(() => undefined);
+  }, []);
+
   function isShared(sessionId: string): boolean {
     const role = sessionsRef.current.find((s) => s.id === sessionId)?.role;
     return (role !== undefined && role !== "owner") || sharedSessionsRef.current.has(sessionId);
@@ -409,12 +453,24 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     [sessions, live],
   );
 
+  const runTurns = useCallback(
+    (runId: number) => {
+      const turns = runChats[runId] ?? [];
+      return live && live.scope === "run" && live.runId === runId
+        ? [...turns.filter((t) => t.id !== live.turn.id), live.turn]
+        : turns;
+    },
+    [runChats, live],
+  );
+
   const ask = useCallback(
     (text: string, scope: AgentScope, selection?: SessionSelection) => {
       const question = text.trim();
       if (!question || abortRef.current) return;
       const sessionId = scope === "session" ? viewingRef.current : null;
       if (scope === "session" && !sessionId) return;
+      const runId = scope === "run" ? viewingRunRef.current : null;
+      if (scope === "run" && runId === null) return;
 
       // Several people can share one session's conversation (the Global tab
       // never has more than one); once it's actually shared, every turn
@@ -423,8 +479,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       // every line of a chat, drowning out the people in it. An ordinary,
       // unshared session keeps behaving exactly as it always did: no
       // author, no gating, nothing prefixed onto the question.
+      // A run's chat is its readers' -- the starter's group and admins -- so
+      // it says who asked, as a shared session's does; the agent answers
+      // every message there, as in an unshared session.
       const shared = scope === "session" && isShared(sessionId!);
-      const author = shared && userRef.current ? { id: userRef.current.id, name: userRef.current.username } : undefined;
+      const byName = (shared || scope === "run") && userRef.current;
+      const author = byName ? { id: userRef.current!.id, name: userRef.current!.username } : undefined;
       if (shared && !AGENT_MENTION.test(question)) {
         const id = `t${Date.now().toString(36)}${(turnCounter++).toString(36)}`;
         const chatTurn: AgentTurn = { id, question, author, answer: "", steps: [], status: "done", agentInvoked: false };
@@ -434,7 +494,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
       const promptQuestion = author ? `${author.name}: ${question}` : question;
       const attachment = selection ? withAttachment(promptQuestion, selection) : null;
-      const earlier = scope === "global" ? globalRef.current : storedTurns(sessionId!);
+      const earlier =
+        scope === "global" ? globalRef.current : scope === "run" ? (runChatsRef.current[runId!] ?? []) : storedTurns(sessionId!);
       const messages = [
         ...history(earlier),
         { role: "user" as const, content: attachment ? attachment.content : promptQuestion },
@@ -451,7 +512,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         author,
         agentInvoked: true,
       };
-      setLive({ scope, sessionId, turn: first });
+      setLive({ scope, sessionId, runId, turn: first });
+      if (scope === "run") putRunChat(runId!, [first]);
       // The question goes into the session's chat now, not when it's
       // answered: everyone else on the session -- and this user's other tabs
       // -- see it and that the agent is working on it, rather than nothing
@@ -496,9 +558,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
                 : s,
             ),
           }));
-          // A session's chat is about the session already on screen; only
-          // the global one goes places.
-          if (scope === "global" && event.ok && event.session_id && followRef.current) {
+          // A session's chat is about the session already on screen; the
+          // global one goes places, and a run's opens what investigates it.
+          if (scope !== "session" && event.ok && event.session_id && followRef.current) {
             setPendingFollow(event.session_id);
           }
         } else if (event.type === "error") {
@@ -510,7 +572,13 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
       api
         .agentChat(
-          { messages, viewing_session_id: scope === "session" ? sessionId : viewingRef.current, timezone: timezone(), scope },
+          {
+            messages,
+            viewing_session_id: scope === "session" ? sessionId : viewingRef.current,
+            timezone: timezone(),
+            scope,
+            ...(scope === "run" ? { run_id: runId } : {}),
+          },
           onEvent,
           controller.signal,
         )
@@ -528,6 +596,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           const done = forKeeping(turn);
           if (scope === "global") {
             setGlobalTurns((prev) => [...prev, done]);
+          } else if (scope === "run") {
+            putRunChat(runId!, [done]);
           } else {
             const others = storedTurns(sessionId!).filter((t) => t.id !== id);
             writeSessionState(sessionId!, SESSION_CHAT_KEY, [...others, done].slice(-KEPT_TURNS));
@@ -535,7 +605,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           setLive(null);
         });
     },
-    [storedTurns, writeSessionState],
+    [storedTurns, writeSessionState, putRunChat],
   );
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
@@ -543,7 +613,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     (scope: AgentScope) => {
       if (abortRef.current) return;
       if (scope === "global") setGlobalTurns([]);
-      else if (viewingRef.current) writeSessionState(viewingRef.current, SESSION_CHAT_KEY, []);
+      // A run's chat is everyone's who reads the run: not one person's to clear.
+      else if (scope === "session" && viewingRef.current) writeSessionState(viewingRef.current, SESSION_CHAT_KEY, []);
     },
     [writeSessionState],
   );
@@ -558,13 +629,15 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       status,
       globalTurns: shownGlobal,
       sessionTurns,
+      runTurns,
       running: live !== null,
-      runningIn: live ? { scope: live.scope, sessionId: live.sessionId } : null,
+      runningIn: live ? { scope: live.scope, sessionId: live.sessionId, runId: live.runId ?? null } : null,
       liveTurnId: live?.turn.id ?? null,
       ask,
       stop,
       clear,
       viewingSessionId,
+      viewingRun,
       viewingSessionShared: viewingSessionId ? isShared(viewingSessionId) : false,
       refreshShared,
       follow,
@@ -580,11 +653,13 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       status,
       shownGlobal,
       sessionTurns,
+      runTurns,
       live,
       ask,
       stop,
       clear,
       viewingSessionId,
+      viewingRun,
       refreshShared,
       sessions,
       sharedSessions,

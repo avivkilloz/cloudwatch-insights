@@ -579,8 +579,28 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
     if unknown:
         raise WorkflowError(f"This workflow has no parameter {', '.join(unknown)}.")
     out: dict[str, Any] = {}
+    reach: dict[Optional[str], list[dict]] = {}
+
+    def targets(kind: Optional[str]) -> list[dict]:
+        if kind not in reach:
+            reach[kind] = connections.targets(db, user, kind)
+        return reach[kind]
+
+    def connection(p: Param, raw: Any) -> int:
+        """A connection by id, or -- typed as text, in the workflow pane's
+        rows -- by its name as the pickers show it (D97)."""
+        if isinstance(raw, int) or str(raw).strip().isdigit():
+            return int(raw)
+        named = [t["id"] for t in targets(p.connection_type) if str(t["label"]).lower() == str(raw).strip().lower()]
+        if len(named) != 1:
+            raise WorkflowError(f"{p.label or p.key}: there is no connection called {raw} that you can reach.")
+        return named[0]
+
     for p in params:
         value = given.get(p.key, p.default)
+        # A list typed as text (the workflow pane's rows) is comma-separated.
+        if (p.multiple or p.type == "connections") and isinstance(value, str):
+            value = [v.strip() for v in value.split(",") if v.strip()]
         if p.multiple:
             # A list of texts; a lone value (an old form, the agent) is one item.
             value = [str(v).strip() for v in (value if isinstance(value, list) else [value]) if v not in (None, "")]
@@ -596,17 +616,19 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
             elif p.type == "bool":
                 value = value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "on")
             elif p.type == "connection":
-                value = int(value)
+                value = connection(p, value)
             elif p.type == "connections":
-                value = [int(v) for v in (value if isinstance(value, list) else [value])]
+                value = [connection(p, v) for v in (value if isinstance(value, list) else [value])]
             elif p.type == "text" and not p.multiple:
                 value = str(value)
+        except WorkflowError:
+            raise  # already said, by name (a ValueError too)
         except (TypeError, ValueError):
             raise WorkflowError(f"{p.label or p.key} isn't a valid {p.type}.") from None
         if p.type == "choice" and value not in p.choices and str(value) not in [str(c) for c in p.choices]:
             raise WorkflowError(f"{p.label or p.key} must be one of {', '.join(map(str, p.choices))}.")
         if p.type in ("connection", "connections"):
-            reachable = {t["id"] for t in connections.targets(db, user, p.connection_type)}
+            reachable = {t["id"] for t in targets(p.connection_type)}
             for cid in value if isinstance(value, list) else [value]:
                 if cid not in reachable:
                     raise WorkflowError(f"{p.label or p.key}: connection {cid} isn't one you can reach.")

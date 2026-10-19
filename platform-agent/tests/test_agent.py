@@ -60,6 +60,12 @@ async def get_session(session_id: str, ctx: Context) -> dict:
 
 
 @stub.tool()
+async def get_workflow_run(run_id: int, ctx: Context) -> dict:
+    _auth(ctx)
+    return {"id": run_id, "number": 3, "status": "failed", "steps": [{"id": "scan", "status": "failed", "error": "Throttled"}]}
+
+
+@stub.tool()
 async def set_pane_inputs(session_id: str, pane_id: str, inputs: dict, ctx: Context) -> dict:
     _auth(ctx)
     return {"session_id": session_id, "pane": {"pane_id": pane_id, "inputs": inputs}, "note": "Only the inputs changed; nothing ran."}
@@ -235,6 +241,18 @@ def test_a_session_chat_starts_from_the_session_as_it_is_now(settings):
     assert sent[-1]["role"] == "user" and sent[-1]["content"].startswith("hello")
     assert "get_session (this chat's session):" in sent[-1]["content"] and '"pane_id":"iot"' in sent[-1]["content"]
     assert "get_session (this chat's session):" not in sent[0]["content"]
+
+
+def test_a_runs_chat_starts_from_the_run_as_it_is_now(settings):
+    """This run (D98): the turn reads the run, not a session, and the prompt
+    keeps to it."""
+    fake_llm.REQUESTS.clear()
+    events = _events(settings, "why did it fail?", focus={"kind": "run", "run_id": 12, "title": "Table check #3"})
+    reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble") and e["name"] != "check_answer"]
+    assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("get_workflow_run", {"run_id": 12})]
+    sent = fake_llm.REQUESTS[0]["messages"]
+    assert "chat of one workflow run" in sent[0]["content"] and "Table check #3" in sent[0]["content"]
+    assert "get_workflow_run (this chat's run):" in sent[-1]["content"] and "Throttled" in sent[-1]["content"]
 
 
 def test_the_context_is_whoever_asked_this_turn_not_what_an_earlier_answer_said(settings, monkeypatch):

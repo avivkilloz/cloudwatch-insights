@@ -214,6 +214,12 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
         context = json.loads(found.group(1))
         names = ", ".join(e["name"] for e in context.get("environments", []))
         return _say(f"You're {context.get('user')}, and you can reach: {names or 'nothing'}.")
+    if "which run" in lowered:  # a run's chat prefixes who asked
+        found = re.search(r"get_workflow_run \(this chat's run\):\n(\{.*\})", reads)
+        if not found:
+            return _say("I wasn't given a run this turn.")
+        run = json.loads(found.group(1))
+        return _say(f"This is {run.get('workflow_label')} #{run.get('number')}, and it {run.get('status')}.")
     if lowered.startswith("encode "):
         plain = text[len("encode ") :]
         if step == 0:

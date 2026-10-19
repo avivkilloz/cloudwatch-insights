@@ -85,8 +85,10 @@ class AgentChatRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     # "global": the platform-wide chat, free to create and change any
     # session. "session": the chat of the session in viewing_session_id,
-    # which the agent is told to keep to.
-    scope: Literal["global", "session"] = "global"
+    # which the agent is told to keep to. "run": a workflow run's own chat
+    # (D98), about the run in run_id.
+    scope: Literal["global", "session", "run"] = "global"
+    run_id: Optional[int] = None
 
 
 def _event(payload: dict) -> str:
@@ -124,6 +126,15 @@ async def agent_chat(
             raise HTTPException(status_code=404, detail="That session doesn't exist any more, so there's nothing to talk about.")
         focus = {"session_id": row.client_id, "title": row.title}
         scope_id = row.id
+    elif payload.scope == "run":
+        # Its readers' only (D84): the turn reads the run's outputs.
+        from .. import workflows
+
+        run = db.get(models.WorkflowRun, payload.run_id) if payload.run_id else None
+        workflow = db.get(models.Workflow, run.workflow_id) if run else None
+        if run is None or workflow is None or not workflows.can_read(current_user, run):
+            raise HTTPException(status_code=404, detail="That run isn't there for you, so there's nothing to talk about.")
+        focus = {"kind": "run", "run_id": run.id, "title": f"{workflow.label} #{run.number}"}
 
     token = tokens.mint(
         db,

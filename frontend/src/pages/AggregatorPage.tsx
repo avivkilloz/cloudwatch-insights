@@ -10,7 +10,7 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { api, SavedSession, SessionMember, SessionPermission, UserSuggestion } from "../api";
+import { api, readableError, SavedSession, SessionMember, SessionPermission, UserSuggestion } from "../api";
 import {
   SessionKeyScope,
   useDropSessionKeys,
@@ -29,6 +29,7 @@ import { every, ON_OPEN_CHOICES, REFRESH_CHOICES } from "../panes/refresh";
 import { nextTitle } from "../sessions/naming";
 import { PaneTitles, PaneTypes, newPane, paneTitle, paneType } from "../sessions/panes";
 import { useAuth } from "../AuthContext";
+import { offerDraft } from "../workflowFocus";
 import { domainLabel, PaneSelection, PaneSelectionContext } from "../components/paneSelection";
 import { publishSelection } from "../agent/selection";
 import { useAgent } from "../agent/AgentContext";
@@ -1141,9 +1142,26 @@ export default function AggregatorPage() {
   // all portal into the one slot otherwise.
   const cardInRail = usePanesInRail();
   const railSlot = useRailSlot();
-  const { sessions, activeId, view, rename } = useSessions();
+  const { sessions, activeId, view, rename, show, flushAll } = useSessions();
   const { refreshShared } = useAgent();
+  const { user: me } = useAuth();
+  const [draftError, setDraftError] = useState<string | null>(null);
   const onScreen = view === "session" && scope !== null && activeId === scope.id;
+  // Make repeatable (D96): the session as it is now drafted into a workflow,
+  // opened in the editor unsaved. Pushed first -- the server drafts from what
+  // it holds, and the last second of edits may still be on the debounce.
+  async function makeRepeatable() {
+    if (!scope) return;
+    setDraftError(null);
+    try {
+      await flushAll();
+      const drafted = await api.draftWorkflow(scope.id);
+      offerDraft({ id: drafted.suggested_id, source: drafted.source });
+      show("workflows");
+    } catch (e) {
+      setDraftError(readableError(e));
+    }
+  }
   const thisSession = scope ? sessions.find((s) => s.id === scope.id) : undefined;
   const [description, setDescription] = useSessionState<string>(SESSION_DESCRIPTION_KEY, "");
   // The session's auto-refresh, for every pane that can and hasn't one of its
@@ -1439,6 +1457,18 @@ export default function AggregatorPage() {
               </button>
             ))}
         </CardRow>
+        {me?.is_admin && (
+          <CardRow label="Workflow">
+            <button
+              className="secondary session-card-repeat"
+              onClick={makeRepeatable}
+              title="Draft a workflow from this session -- a step per pane, its environments as parameters -- to finish in the editor"
+            >
+              Make repeatable…
+            </button>
+            {draftError && <span className="error-text">{draftError}</span>}
+          </CardRow>
+        )}
       </CardSection>
       <CardSection>
         <CardRow label="Members">

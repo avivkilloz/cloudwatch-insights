@@ -188,6 +188,24 @@ def test_a_session_chat_tells_the_agent_which_session_it_is_about(monkeypatch):
     assert received[0]["scope_id"] is None
 
 
+def test_a_runs_chat_tells_the_agent_which_run_it_is_about(monkeypatch):
+    """This run (D98): focused on the run, for its readers only, and not held
+    to a session -- it may open one to investigate."""
+    from app import workflows
+
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
+    made = client.post("/api/workflows", json={"id": "chat_wf", "source": "label: Chatty\nsteps:\n  - id: a\n    note: hi\n"})
+    assert made.status_code == 201, made.text
+    run = client.post("/api/workflows/chat_wf/runs", json={"params": {}}).json()
+    workflows.drain()
+    received.clear()
+    assert client.post("/api/agent/chat", json={**ASK, "scope": "run", "run_id": run["id"]}).status_code == 200
+    assert received[0]["body"]["focus"] == {"kind": "run", "run_id": run["id"], "title": "Chatty #1"}
+    assert received[0]["scope_id"] is None
+    assert client.post("/api/agent/chat", json={**ASK, "scope": "run", "run_id": 999999}).status_code == 404
+    assert _tokens_left() == 0
+
+
 def test_a_session_chat_for_a_session_that_is_gone_is_refused(monkeypatch):
     monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_port}")
     resp = client.post("/api/agent/chat", json={**ASK, "viewing_session_id": "nope", "scope": "session"})

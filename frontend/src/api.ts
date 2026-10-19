@@ -475,7 +475,7 @@ export interface WorkflowRun {
   error?: string | null;
   steps?: WorkflowRunStep[];
   /** The workflow as it was when the run started (a run's own page only). */
-  definition?: { parameters?: WorkflowParam[] };
+  definition?: { parameters?: WorkflowParam[]; steps?: { id: string; pane?: string }[] };
   artifacts?: (BlobRef & { position: number | null })[];
 }
 
@@ -643,7 +643,13 @@ export function readableError(e: unknown): string {
  * the turn's stream ends; `signal` stops it (and the agent with it).
  */
 async function agentChat(
-  body: { messages: AgentChatMessage[]; viewing_session_id: string | null; timezone: string; scope: "global" | "session" },
+  body: {
+    messages: AgentChatMessage[];
+    viewing_session_id: string | null;
+    timezone: string;
+    scope: "global" | "session" | "run";
+    run_id?: number | null;
+  },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -859,6 +865,19 @@ export const api = {
       }),
     }),
   listApprovals: () => req<WorkflowApproval[]>("/approvals"),
+  /** A new session of the caller's holding what the run found (D95). */
+  investigateRun: (runId: number) =>
+    req<{ session_id: string; title: string }>(`/workflow-runs/${runId}/investigate`, { method: "POST" }),
+  /** A workflow drafted from a session, for the editor (D96); nothing saved. */
+  draftWorkflow: (sessionId: string) =>
+    req<{ source: string; errors: WorkflowProblem[]; suggested_id: string }>("/workflows/draft", {
+      method: "POST",
+      body: JSON.stringify({ session: sessionId }),
+    }),
+  /** This run's own chat (D98), shared by its readers. */
+  getRunChat: (runId: number) => req<{ turns: unknown[] }>(`/workflow-runs/${runId}/chat`),
+  addRunChat: (runId: number, turns: unknown[]) =>
+    req<{ turns: unknown[] }>(`/workflow-runs/${runId}/chat`, { method: "POST", body: JSON.stringify({ turns }) }),
   decideApproval: (id: number, approve: boolean, comment?: string) =>
     req<WorkflowRun>(`/approvals/${id}/${approve ? "approve" : "deny"}`, {
       method: "POST",

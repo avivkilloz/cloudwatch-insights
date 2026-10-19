@@ -40,7 +40,7 @@ from langchain_openai import ChatOpenAI
 
 from . import grounding
 from .config import Settings
-from .prompt import SYSTEM_PROMPT, session_prompt, turn_reads
+from .prompt import SYSTEM_PROMPT, run_prompt, session_prompt, turn_reads
 from .repair import VALID_NAME, TurnGuard
 from .text import StepText, looping
 
@@ -211,7 +211,7 @@ async def run_turn(
     """Runs one turn and yields its events. `messages` is the conversation so
     far, the user's new message last, as {"role": "user" | "assistant",
     "content", "steps"?}. `focus` ({"session_id", "title"}) makes it a
-    session's own chat. `model` stands in for the configured one in tests."""
+    session's own chat; ({"kind": "run", "run_id", "title"}) a workflow run's. `model` stands in for the configured one in tests."""
     client = MultiServerMCPClient(
         {
             "platform": {
@@ -243,7 +243,14 @@ async def run_turn(
         yield event
     context = seen[-1] if len(seen) > 1 else None
     session = None
-    if focus:
+    run = None
+    on_run = bool(focus) and focus.get("kind") == "run"
+    if focus and on_run:
+        before = len(seen)
+        async for event in _read(by_name, "get_workflow_run", {"run_id": focus["run_id"]}, "turn-run", seen):
+            yield event
+        run = seen[-1] if len(seen) > before else None
+    elif focus:
         before = len(seen)
         async for event in _read(by_name, "get_session", {"session_id": focus["session_id"]}, "turn-session", seen):
             yield event
@@ -262,13 +269,16 @@ async def run_turn(
                 out.append(f"(session {session_id} couldn't be read: {_reason(e)})")
         return out
 
-    prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
+    if on_run:
+        prompt = SYSTEM_PROMPT + run_prompt(focus["run_id"], focus["title"])
+    else:
+        prompt = SYSTEM_PROMPT + (session_prompt(focus["session_id"], focus["title"]) if focus else "")
     client = httpx.AsyncClient(timeout=120)
     guard = TurnGuard(
         set(by_name),
         check_model=build_check_model(settings, client) if settings.check else None,
         read_sessions=read_sessions,
-        focus=focus["session_id"] if focus else None,
+        focus=focus["session_id"] if focus and not on_run else None,
     )
     agent = create_agent(model or build_model(settings, client), tools, system_prompt=prompt, middleware=[guard])
     history = conversation(messages, set(by_name))
@@ -277,7 +287,7 @@ async def run_turn(
     # away. There, in a shared chat, a model answered an admin "there's no
     # IoT Prod" from what an earlier answer had told someone without it,
     # though the admin's own read said otherwise.
-    history[-1] = HumanMessage(content=_text(history[-1].content) + turn_reads(context or None, session or None))
+    history[-1] = HumanMessage(content=_text(history[-1].content) + turn_reads(context or None, session or None, run or None))
     names: dict[str, str] = {}
     answer = ""
     thought = False
