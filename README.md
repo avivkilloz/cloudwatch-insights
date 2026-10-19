@@ -875,6 +875,19 @@ past a failure with `continue_on_error`.
   Run files are kept 90 days.
 - The agent can list, run and read workflows too ("run the table check on
   Prod"); a step needing approval waits for you, never the agent.
+- **Investigate in a session**: on a run's page, opens what it found as a new
+  session -- a pane per stage that ran a pane's action, holding the query it
+  ran and what came back, to sort, chart, look into and run again by hand;
+  its notes and files in the session's description.
+- **Make repeatable** (an admin's, on a session's card): drafts a workflow
+  from the session -- a step per pane, its environments as parameters -- and
+  opens it in the editor to check and save.
+- **The Workflow pane** (Platform, granted to a group like any pane): runs a
+  workflow from inside a session -- pick it, give its parameters as name and
+  value (an environment by its name), Run -- and follows it there.
+- **This run**: while a run is on screen, the agent panel's second tab is a
+  conversation about that run ("why did the scan fail?"), kept with the run
+  for everyone who may see it.
 - **Examples** to paste in and run are in `examples/workflows/` (one needs
   nothing at all: `01-try-me.yaml`).
 

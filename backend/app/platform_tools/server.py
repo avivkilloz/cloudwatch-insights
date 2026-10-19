@@ -1536,6 +1536,27 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
 
 
 @mcp.tool()
+async def investigate_run(run_id: int) -> dict:
+    """Opens a new session holding what a workflow run found: a pane per stage that ran a pane action, with the
+    inputs it ran with and its results, to look into, sort, chart or run again. Nothing runs again. Only for a run
+    the user may read (theirs, their group's, or as an admin)."""
+    from .. import workflow_doors, workflows
+
+    with _acting() as (db, user, caller):
+        if caller.session_scope_id is not None:
+            raise InputError(_OUT_OF_SCOPE)
+        run = db.get(models.WorkflowRun, run_id)
+        workflow = db.get(models.Workflow, run.workflow_id) if run else None
+        if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+            raise InputError(f"There is no run {run_id} the user can see.")
+        try:
+            row = workflow_doors.investigate(db, user, run)
+        except workflows.WorkflowError as e:
+            raise InputError(str(e)) from None
+        return _describe_session(db, row, user.id)
+
+
+@mcp.tool()
 async def get_workflow_run(run_id: int) -> dict:
     """A workflow run as it stands: its status, each step's status, error and a sample of its outputs."""
     from .. import workflows

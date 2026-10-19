@@ -188,6 +188,10 @@ interface SessionsApi {
    * the default page. */
   goHome: () => void;
   activate: (id: string) => void;
+  /** Shows a session the server just made for this user (a run investigated,
+   * D95): fetched and taken in at once, rather than when its announcement
+   * arrives -- the click that made it wants it on screen now. */
+  openFromServer: (id: string) => Promise<void>;
   rename: (id: string, title: string) => void;
   reorder: (id: string, toIndex: number) => void;
   show: (view: ViewKind) => void;
@@ -871,6 +875,15 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
     setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
   }, []);
 
+  const openFromServer = useCallback(
+    async (id: string) => {
+      const row = await api.getLiveSession(id);
+      sync.receive(row, (s: PersistedSession) => migrateSessionList([s])[0] ?? s);
+      setWorkspace((w) => ({ ...w, activeId: id, view: "session" }));
+    },
+    [sync],
+  );
+
   const setHome = useCallback((id: string | null) => {
     (id ? api.setHomeSession(id) : api.clearHomeSession()).then(setHomeState, (e: unknown) =>
       setNotice(`Couldn't ${id ? "set" : "change"} your home page: ${readableError(e)}`),
@@ -1040,6 +1053,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       setHome,
       goHome,
       activate,
+      openFromServer,
       rename,
       reorder,
       show,
@@ -1066,6 +1080,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       setHome,
       goHome,
       activate,
+      openFromServer,
       rename,
       reorder,
       show,

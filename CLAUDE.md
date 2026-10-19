@@ -67,6 +67,8 @@ backend/app/
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
   workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner,
                      approvals (§22)
+  workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
+                     session, the Workflow pane's handlers, a run's own chat (§22.10)
   blobs.py           the blob store: filesystem or S3, metadata in `blobs` (§8.2, D91)
   store.py           the store repo: what's built here, written through to git as a plugin (§21)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
@@ -700,7 +702,8 @@ their own (the rail's Workflows row), never a session.
   `workflows.drain()` (no lifespan, no manager).
 - **The run page** reads the run every second while it's going, and is
   `?run=<id>` (`setRunParam`; opening the app at it shows it). Stage outputs
-  are a table for rows, JSON otherwise -- the pane renderers come with 4b-3.
+  are a table for rows, JSON otherwise -- the pane renderers are a session
+  away (Investigate, below).
 - The agent has `list_workflows`, `run_workflow` (waits up to `wait_seconds`),
   `get_workflow_run`.
 - **4b-2** (§22.8, D87–D93): a `poll` action is a step -- started and polled
@@ -723,6 +726,26 @@ their own (the rail's Workflows row), never a session.
   `_whole_outputs` reads back for later steps; `artifact:` steps; deleting a
   workflow removes its files; `blobs.clean` hourly. Tests set `STORAGE_PATH`
   to a temp dir (conftest).
+- **4b-3, the doors** (§22.10, D95–D98; `workflow_doors.py`). **Investigate**
+  (the run page's button, the agent's `investigate_run`, a reader's only): a
+  new stacked session, a pane per stage that ran a pane action (a `for_each`
+  stage a pane per item, ten at most), its inputs as the step ran them --
+  through the agent's `panes.convert`, so tagged Sets stay Sets, and with
+  what they imply (`kind.implies`: log groups tick their environment) -- its
+  outputs written as the pane's own record; notes, files and decisions in the
+  description. **Make repeatable** (the session card, admins): `POST
+  /api/workflows/draft` writes YAML (a step per pane with a server action,
+  each connection a parameter, implied inputs left out, several lines a `|`
+  block), handed to the editor through `workflowFocus.ts`'s `offerDraft`,
+  unsaved. **The Workflow pane** (`manifests/workflow.yaml`, handlers
+  `platform.workflows.*`): a background run whose poll writes the run's
+  summary and stages; parameters as name/value rows (`coerce_params` takes a
+  connection's label, a list comma-separated). Its picker has no
+  `load_label`, so it loads by itself (`OptionsPicker`, once per mount).
+  **This run** (`workflow_runs.chat`, merged by turn id, `GET/POST
+  /api/workflow-runs/{id}/chat`): the agent panel's second tab while a run is
+  on screen (`setRunFocus`), sent as `scope: "run"` with `run_id`; the agent
+  service reads `get_workflow_run` before the model speaks (`run_prompt`).
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

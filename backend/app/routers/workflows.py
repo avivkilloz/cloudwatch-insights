@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, models, workflows
+from .. import auth, models, workflow_doors, workflows
 from ..db import get_db
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -37,6 +37,14 @@ class RunIn(BaseModel):
     timezone: Optional[str] = None
     # Rerun from this stage on, the ones before copied (D90).
     from_step: Optional[str] = None
+
+
+class DraftIn(BaseModel):
+    session: str
+
+
+class ChatIn(BaseModel):
+    turns: list[dict[str, Any]]
 
 
 class DecisionIn(BaseModel):
@@ -105,6 +113,13 @@ def validate(payload: SourceIn, _admin: models.User = Depends(auth.require_admin
     except workflows.WorkflowError as e:
         return {"ok": False, "errors": e.errors}
     return {"ok": True, "errors": [], "definition": definition.model_dump(by_alias=True, exclude_none=True)}
+
+
+@router.post("/draft")
+def draft(payload: DraftIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    """A workflow drafted from a session for the editor (D96): YAML, its
+    problems, and an id to suggest. Nothing is saved."""
+    return _guard(lambda: workflow_doors.draft_from_session(db, admin, payload.session))
 
 
 @router.post("", status_code=201)
@@ -197,6 +212,35 @@ def recent_runs(
 def get_run(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     run = _run(db, user, run_id)
     return workflows.summary(db, run, user, detail=True)
+
+
+@runs_router.post("/{run_id}/investigate", status_code=201)
+def investigate(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    """A new session of the caller's holding what the run found (D95)."""
+    run = _run(db, user, run_id)
+    row = _guard(lambda: workflow_doors.investigate(db, user, run))
+    return {"session_id": row.client_id, "title": row.title}
+
+
+def _readable(db: Session, user: models.User, run_id: int) -> models.WorkflowRun:
+    run = _run(db, user, run_id)
+    if not workflows.can_read(user, run):
+        raise HTTPException(status_code=403, detail="This run's chat is its starter's, their group's and admins'.")
+    return run
+
+
+@runs_router.get("/{run_id}/chat")
+def get_chat(run_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    """This run's own chat (D98), as its readers share it."""
+    return {"turns": workflow_doors.chat(_readable(db, user, run_id))}
+
+
+@runs_router.post("/{run_id}/chat")
+def post_chat(run_id: int, payload: ChatIn, db: Session = Depends(get_db),
+              user: models.User = Depends(auth.get_current_user)):
+    """Turns added to (or updated in) this run's chat, merged by id."""
+    run = _readable(db, user, run_id)
+    return {"turns": workflow_doors.add_chat(db, run, payload.turns[-workflow_doors.CHAT_KEPT:])}
 
 
 @runs_router.post("/{run_id}/cancel")

@@ -32,6 +32,7 @@ function describe(step: AgentStep): string {
   if (step.preamble && step.name === "get_context")
     return done ? "Checked who's asking and what they can reach" : "Checking who's asking…";
   if (step.preamble && step.name === "get_session") return done ? "Read this session as it is now" : "Reading this session…";
+  if (step.preamble && step.name === "get_workflow_run") return done ? "Read this run as it is now" : "Reading this run…";
   // The platform's check of the answer against what ran (platform-agent's
   // check.py): a failed one is followed by the agent's redo.
   if (step.preamble && step.name === "check_answer") {
@@ -52,6 +53,14 @@ function describe(step: AgentStep): string {
       return done ? "Listed OpenSearch domains" : "Listing OpenSearch domains…";
     case "list_options":
       return done ? "Listed the choices for a pane" : "Listing the choices for a pane…";
+    case "list_workflows":
+      return done ? "Listed the workflows" : "Listing the workflows…";
+    case "run_workflow":
+      return `${done ? "Ran" : "Running"} workflow “${String(a.workflow_id ?? "")}”`;
+    case "get_workflow_run":
+      return done ? "Read a workflow run" : "Reading a workflow run…";
+    case "investigate_run":
+      return done ? "Opened the run as a session" : "Opening the run as a session…";
     case "create_session":
       return `${done ? "Created" : "Creating"} session “${String(a.title ?? "")}”`;
     case "add_pane":
@@ -210,6 +219,9 @@ const INTRO: Record<AgentScope, string> = {
   session:
     "Talk to it about this session: have it write or change a pane's query, add or arrange panes, or check some " +
     "rows in a pane and ask about them.",
+  run:
+    "Ask about this run: what it ran with, what a stage found, why one failed or waits. It can open the run as a " +
+    "session to look further, or start it again. Everyone who can see the run's outputs shares this chat.",
 };
 
 const SHARED_INTRO =
@@ -221,6 +233,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     status,
     globalTurns,
     sessionTurns,
+    runTurns,
     running,
     runningIn,
     liveTurnId,
@@ -231,6 +244,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
     setFollow,
     setTab,
     viewingSessionId,
+    viewingRun,
     viewingSessionShared,
   } = useAgent();
   const { user } = useAuth();
@@ -305,12 +319,18 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
       el.setSelectionRange(pos, pos);
     });
   }
-  const turns = scope === "global" ? globalTurns : sessionId ? sessionTurns(sessionId) : [];
+  const runId = scope === "run" ? (viewingRun?.runId ?? null) : null;
+  const turns =
+    scope === "global" ? globalTurns : scope === "run" ? (runId !== null ? runTurns(runId) : []) : sessionId ? sessionTurns(sessionId) : [];
   const last = turns[turns.length - 1];
   const checked = selection.summaries.reduce((n, s) => n + s.count, 0);
   // Busy elsewhere: one turn at a time, and it isn't in this conversation.
   const busyElsewhere =
-    running && runningIn !== null && (runningIn.scope !== scope || (scope === "session" && runningIn.sessionId !== sessionId));
+    running &&
+    runningIn !== null &&
+    (runningIn.scope !== scope ||
+      (scope === "session" && runningIn.sessionId !== sessionId) ||
+      (scope === "run" && runningIn.runId !== runId));
 
   // Keeps the newest step or word in view as it arrives.
   useEffect(() => {
@@ -335,7 +355,9 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             "The platform agent isn't turned on for your group. An admin can turn it on in Settings, under User groups."
           : scope === "session" && !sessionId
             ? "Open a session to talk to the agent about it."
-            : null;
+            : scope === "run" && runId === null
+              ? "Open a run to talk to the agent about it."
+              : null;
 
   function send() {
     if (!input.trim() || running) return;
@@ -349,6 +371,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
         {turns.length === 0 && !unavailable && (
           <p className="muted">
             {scope === "session" && sessionTitle ? <strong>{sessionTitle}. </strong> : null}
+            {scope === "run" && viewingRun ? <strong>{viewingRun.title}. </strong> : null}
             {shared ? SHARED_INTRO : INTRO[scope]}
           </p>
         )}
@@ -365,13 +388,15 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           The agent is still answering in{" "}
           {runningIn.scope === "global"
             ? "the Global chat"
-            : `“${sessions.find((x) => x.id === runningIn.sessionId)?.title ?? "another session"}”`}
+            : runningIn.scope === "run"
+              ? "a run's chat"
+              : `“${sessions.find((x) => x.id === runningIn.sessionId)?.title ?? "another session"}”`}
           ; it can take this when it's done.{" "}
           <button
             className="link-button"
             onClick={() => {
               if (runningIn.scope === "session" && runningIn.sessionId) activate(runningIn.sessionId);
-              setTab(runningIn.scope);
+              setTab(runningIn.scope === "global" ? "global" : "session");
             }}
           >
             Show
@@ -421,8 +446,18 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
               }
             }}
             onBlur={() => setMention(null)}
-            placeholder={shared ? "Chat, or mention @platform-agent…" : scope === "session" ? "Ask about this session…" : "Ask the agent…"}
-            aria-label={scope === "session" ? "Message the agent about this session" : "Message the agent"}
+            placeholder={
+              shared
+                ? "Chat, or mention @platform-agent…"
+                : scope === "session"
+                  ? "Ask about this session…"
+                  : scope === "run"
+                    ? "Ask about this run…"
+                    : "Ask the agent…"
+            }
+            aria-label={
+              scope === "session" ? "Message the agent about this session" : scope === "run" ? "Message the agent about this run" : "Message the agent"
+            }
             disabled={!!unavailable}
           />
           {mention && mentionSuggestions.length > 0 && (
@@ -447,12 +482,12 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           )}
         </div>
         <div className="agent-compose-actions">
-          {scope === "global" && (
+          {scope !== "session" && (
             <label className="agent-follow" title="Go to each session the agent works on, as it gets there">
               <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
             </label>
           )}
-          {turns.length > 0 && !running && (
+          {turns.length > 0 && !running && scope !== "run" && (
             <button className="secondary" onClick={() => clear(scope)}>
               Clear
             </button>

@@ -53,9 +53,11 @@ class ChatMessage(BaseModel):
 
 
 class Focus(BaseModel):
-    """The session a session-scoped chat belongs to."""
+    """What a scoped chat belongs to: a session, or a workflow run (D98)."""
 
-    session_id: str = Field(max_length=64)
+    kind: Literal["session", "run"] = "session"
+    session_id: Optional[str] = Field(default=None, max_length=64)
+    run_id: Optional[int] = None
     title: str = Field(max_length=200)
 
 
@@ -98,7 +100,7 @@ async def chat(
         settings,
         [m.model_dump(exclude_none=True) for m in payload.messages],
         x_platform_token,
-        focus=payload.focus.model_dump() if payload.focus else None,
+        focus=payload.focus.model_dump(exclude_none=True) if payload.focus else None,
     )
     return StreamingResponse(
         sse(events),

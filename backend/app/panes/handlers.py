@@ -723,6 +723,14 @@ def _topics(value: Any) -> list[str]:
     return [t.strip() for t in (value if isinstance(value, list) else []) if isinstance(t, str) and t.strip()]
 
 
+def _doors():
+    """The workflow pane's handlers (D97) live with the other doors between
+    workflows and sessions; imported when called, as they import a great deal."""
+    from .. import workflow_doors
+
+    return workflow_doors
+
+
 def mqtt_connect(db: Session, user: models.User, inputs: dict[str, Any], _cursor: Any) -> dict[str, Any]:
     """Opens an MQTT connection to the environment's IoT Core endpoint, as
     the caller, subscribed to the pane's topics. A background run (D54)
@@ -822,6 +830,10 @@ ACTIONS: dict[str, Handler] = {
     "aws.iot.thing_detail": iot_thing_detail,
     "aws.iot.cert_detail": iot_cert_detail,
     "http.send": http_send,
+    "platform.workflows.list": lambda db, user, inputs, _c: _doors().pane_list(db, user, inputs),
+    "platform.workflows.start": lambda db, user, inputs, _c: _doors().pane_start(db, user, inputs),
+    "platform.workflows.poll": lambda db, user, inputs, _c: _doors().pane_poll(db, user, inputs),
+    "platform.workflows.cancel": lambda db, user, inputs, _c: _doors().pane_cancel(db, user, inputs),
     "aws.logs.list_log_groups": logs_list_log_groups,
     "aws.cloudwatch.start": cloudwatch_start,
     "aws.cloudwatch.poll": cloudwatch_poll,

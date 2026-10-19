@@ -55,6 +55,9 @@ the faked backend below too; so does `smoke86` (approvals, artifacts, rerun
 from a stage), whose approved step sends HTTP to a `.fake` host. Its artifact
 is written to the backend's `STORAGE_PATH` (default `/data/files`): start the
 backend with a directory it can write, or the run fails at that step.
+`smoke88` (investigate a run, make a session repeatable, the Workflow pane, a
+run's chat) needs the same, and the agent with the fake model for the run's
+chat (its `which run` script answers from the run the turn read).
 
 `smoke83` (the store repo) makes a bare git repo on disk and points the store at
 it by a `file://` URL, which the backend refuses unless it was started with

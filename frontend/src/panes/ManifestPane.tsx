@@ -1348,7 +1348,20 @@ function OptionsPicker({
   const busy = !!pane.busy[spec.action];
   const current = value == null ? "" : String(value);
   const options = loaded ?? [];
-  const showSelect = options.length > 0 || current !== "";
+  // No button (the manifest's word for it): the loader runs once the select
+  // is drawn with what it requires set -- the Workflow pane's list of
+  // workflows needs nothing, and a Load button for it was one click too many.
+  const auto = !spec.load_label && !!loader;
+  const missing = loader ? missingInput(loader, pane.inputs) : null;
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!auto || !loader || asked.current || loaded !== undefined || busy || missing !== null) return;
+    // Once per mount: a loader that fails leaves the options unset, and
+    // asking again on every render would hammer the server with it.
+    asked.current = true;
+    pane.run(loader);
+  }, [auto, loader, loaded, busy, missing, pane]);
+  const showSelect = auto || options.length > 0 || current !== "";
   return (
     <>
       {spec.load_label && loader && (

@@ -78,12 +78,27 @@ into a pane and running it is how to build one for them.
 READS_MARK = "\n\n---\n[Read by the platform for this message"
 
 
-def turn_reads(context: Optional[str], session: Optional[str]) -> str:
+def run_prompt(run_id: int, title: str) -> str:
+    """What a workflow run's own chat adds (D98): it is about that one run."""
+    return f"""
+This conversation is the chat of one workflow run: "{title}" (run_id {run_id}). \
+Everything asked here is about it: what it ran, with which parameters, what each \
+stage returned, why one failed or waits. The run as it is now -- its status, \
+parameters, stages, their outputs (a sample) and errors -- was read at the start \
+of this turn and is attached to the latest message; get_workflow_run reads it \
+again. Answer from it. To look further into what it found, investigate_run opens \
+it as a session of panes; to try again, run_workflow starts a new run. You can't \
+approve or deny a step that waits: say who may, on the run's page. Several people \
+may be talking here, each message prefixed with who wrote it.
+"""
+
+
+def turn_reads(context: Optional[str], session: Optional[str], run: Optional[str] = None) -> str:
     """The reads made at the start of the turn, to go after the latest
     message: the last thing the model reads before it answers, and plainly
     tied to whoever sent that message. Passed as the tools returned them
     (JSON), not paraphrased."""
-    if not context and not session:
+    if not context and not session and not run:
         return ""
     out = (
         f"{READS_MARK}, just now, as the person who sent it. What they can reach and what the session holds is "
@@ -93,6 +108,8 @@ def turn_reads(context: Optional[str], session: Optional[str]) -> str:
         out += f"\nget_context:\n{_compact(context)}\n"
     if session:
         out += f"\nget_session (this chat's session):\n{_compact(session)}\n"
+    if run:
+        out += f"\nget_workflow_run (this chat's run):\n{_compact(run)}\n"
     return out
 
 

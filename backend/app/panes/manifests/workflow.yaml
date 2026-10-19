@@ -1,0 +1,71 @@
+id: workflow
+label: Workflow
+order: 300
+group: Platform
+category: Platform
+# No flag (D65): granted to no group until an admin ticks it -- and a run
+# still needs the workflow's own grant (D84).
+about: >-
+  Runs a workflow from inside a session: pick one, give its parameters as name/value rows, and Run. The run is the same
+  as one started on the Workflows page -- as you, recorded there -- and the pane follows it: a summary and each stage's
+  status as it goes.
+description: Run a workflow from a session and follow it here.
+help: >-
+  Pick a workflow, fill in its parameters as name -> value rows (a connection by its name or id, a list as
+  comma-separated values) and Run. It runs as you; Stop cancels it. The whole run, its outputs and files are on the
+  Workflows page.
+state: v2
+rendered: true
+inputs:
+  - key: workflow
+    type: text
+    label: Workflow
+    default: ""
+    help: The workflow to run (list_options lists the ones the user may run).
+    options:
+      action: list_workflows
+      placeholder: Choose a workflow…
+    resets: [out.summary, out.stages]
+  - key: params
+    type: headers
+    label: Parameters
+    help: "The workflow's parameters: name -> value. A connection by its name or id; a list comma-separated."
+actions:
+  - id: list_workflows
+    handler: platform.workflows.list
+  - id: run
+    main: true
+    handler: platform.workflows.start
+    run_label: Run
+    busy_label: Running…
+    stop_label: Cancel run
+    requires: { workflow: Choose a workflow first. }
+    resets: [out.summary, out.stages]
+    poll:
+      handler: platform.workflows.poll
+      stop: platform.workflows.cancel
+      every: 2
+outputs:
+  - key: summary
+    render: text
+  - key: stages
+    render: table
+    actions: [copy, export, attach]
+  - key: run
+    render: run
+layout:
+  - title: Workflow
+    items:
+      - input: workflow
+      - input: params
+      - toolbar:
+          - action: run
+          - stop: run
+          - output: run
+  - title: Run
+    when: { output: summary, present: true }
+    items:
+      - output: summary
+      - output: stages
+agent:
+  run: Starts the workflow as the user with these parameters and follows it in the pane; you get its summary and stages.

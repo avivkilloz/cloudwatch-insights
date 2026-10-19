@@ -747,12 +747,14 @@ class WorkflowRun(Base):
     started_by_name = Column(String, nullable=True)
     # The group the starter was in: who may read the run (D84).
     group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
-    trigger = Column(String(16), nullable=False, default="manual")  # manual agent rerun
+    trigger = Column(String(16), nullable=False, default="manual")  # manual agent rerun pane
     # The starter's time zone, for a step over a time range (Prometheus').
     timezone = Column(String(64), nullable=True)
     rerun_of = Column(Integer, nullable=True)
     # The step a rerun started from (D90): the ones before it were copied.
     rerun_from = Column(String(64), nullable=True)
+    # The run's own chat, "This run" (D98): turns, shared by its readers.
+    chat = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     cancel_requested = Column(Boolean, nullable=False, server_default="false")
     replica = Column(String, nullable=True)

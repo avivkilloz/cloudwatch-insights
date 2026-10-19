@@ -11,11 +11,14 @@ import AgentChat from "./AgentChat";
  * toggle).
  */
 export default function AgentPanel({ account }: { account?: ReactNode }) {
-  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, running, runningIn } = useAgent();
+  const { tab, setTab, layout, setLayout, setOpen, viewingSessionId, viewingRun, running, runningIn } = useAgent();
+  // On a run's page the second tab is that run's own chat (D98), not a
+  // session's: the tab stays "session", the conversation it shows is the run's.
+  const second = viewingRun ? "run" : "session";
   // A dot on the other tab while its conversation has a turn running, so
   // switching away doesn't hide that the agent is still at it.
-  const busy = (scope: "global" | "session") =>
-    running && runningIn?.scope === scope && tab !== scope ? (
+  const busy = (scope: "global" | "session" | "run") =>
+    running && runningIn?.scope === scope && (scope === "global" ? tab !== "global" : tab !== "session") ? (
       <span className="agent-tab-busy" title="The agent is still answering here" aria-label="(answering)" />
     ) : null;
   return (
@@ -37,10 +40,16 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
             aria-selected={tab === "session"}
             className={`agent-tab${tab === "session" ? " active" : ""}`}
             onClick={() => setTab("session")}
-            title={viewingSessionId ? "This session: change it, ask about what's checked in it" : "Open a session first"}
+            title={
+              viewingRun
+                ? `This run: ${viewingRun.title} -- what it ran, what it found, why a stage failed`
+                : viewingSessionId
+                  ? "This session: change it, ask about what's checked in it"
+                  : "Open a session first"
+            }
           >
-            Session
-            {busy("session")}
+            {viewingRun ? "This run" : "Session"}
+            {busy(second)}
           </button>
         </div>
         <div className="agent-panel-actions">
@@ -62,7 +71,7 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
           )}
         </div>
       </div>
-      <AgentChat scope={tab} />
+      <AgentChat scope={tab === "global" ? "global" : second} />
     </div>
   );
 }
