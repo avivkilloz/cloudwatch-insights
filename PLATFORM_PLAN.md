@@ -1265,6 +1265,7 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D90 | 2026-10-17 | **Rerun from a stage is a new run of the old run's definition and parameters, the steps before it copied as they were** -- only for someone who may read the old run; resuming after an approval is the same mechanism: a run carries on from its records (§22.8). | The stages before were run against that definition; rerunning them against a newer one would mix two workflows in one run. |
 | D91 | 2026-10-17 | **The blob store (§8.2, D7) is `blobs.py`, filesystem or S3, chosen in Helm's `storage:`; Postgres keeps the metadata and every download is checked against it**. A step's outputs over 1 MiB keep their cut-down copy in the row and the whole (to 64 MiB) as a blob, which later steps and a resumed run read whole (§22.8). | Large outputs were cut for every reader, later steps included. |
 | D92 | 2026-10-17 | **Artifacts are a step kind (`artifact:` a name, a value, json/csv/text) written to the blob store and downloaded from the run page; run blobs are kept 90 days by default** (§22.8). | A file is what a run hands on: an export, a report. |
+| D94 | 2026-10-19 | **A workflow parameter's choices load the way a pane picker's do: `options_from` names a pane input with a loader and gives its inputs from the other parameters; the form lists them as the person filling it in, and still takes typed text. `multiple` makes a text parameter a list** (§22.9). | The user's ask (pick log groups once an environment is chosen). Borrowing the pane input's loader keeps one way of listing things; a builder's own parameters (Phase 5) will use the same seam. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
 ## 13. Phase 1 in detail: credentials
@@ -4520,6 +4521,29 @@ As planned, with these settled in the building:
   templates have CEL's strings and math extensions (a summary of rows needs
   `join`), and a map or list given to a `text` input is sent as its JSON (an
   HTTP body written as a CEL map reached the API as Python's repr).
+
+### 22.9 Parameters whose choices load (2026-10-19, D94)
+
+Reported on trying the examples: the CloudWatch one asked for a log group by
+name, while its pane lists them once an environment is picked.
+- **`options_from: { pane, input, with }`** on a text parameter: `input` is a
+  pane input with a loader (its manifest's `options.action`); `with` gives the
+  loader's inputs as templates over the *other* parameters only (no `steps`,
+  checked on save). `POST /api/workflows/{id}/parameters/{key}/options` runs it
+  through `run_handler`/`run_request` as the caller -- their grant, their
+  connections -- and flattens what comes back: `{options}` as it is, a
+  two-level picker's `{groups}` (one per environment) into one list, a group
+  that failed as an error. Until the parameters it reads are set it answers
+  `needs`; a loader's failure is said, never raised.
+- **The form** lists again a moment after a parameter it reads changes, shows
+  "Choose Environment first" / "N to choose from" / the loader's error, and
+  keeps the field typeable (a datalist): the list helps, it doesn't rule.
+- **`multiple: true`** makes a text parameter a list of strings: chips, a pick
+  from the list or Enter adds one; a lone value given (the agent, an old
+  rerun) is a list of one.
+- With it, from the same report: the form's rows have a gap of their own (a
+  help line ran into the next row's field) and its controls are the row's
+  28px, level with their labels; a stage's "Inputs" is the detail's 13px.
 
 ## 12. Research sources
 

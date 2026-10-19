@@ -682,6 +682,13 @@ their own (the rail's Workflows row), never a session.
   `if`/`for_each` are expressions, braces optional. A map or list given to a
   `text` input is sent as its JSON (`_inputs`: an HTTP body). The files in
   `examples/workflows/` are checked by the tests -- keep them valid.
+- **A parameter's choices load like a pane picker's** (D94, §22.9):
+  `options_from: {pane, input, with}` borrows a pane input's loader, `with`
+  over the other parameters only; `parameter_options` runs it as the caller
+  through `run_handler`/`run_request` and flattens `{options}`/`{groups}`
+  (`_flat_options`). `multiple` makes a text parameter a list. The form
+  (`TextParam`, `useParamOptions`) lists again when a parameter it reads
+  changes and stays typeable.
 - **A run acts as its starter** (every step through `pane_access.require` and
   the handler's own connection check), and **its inputs and outputs are its
   starter's, their group's and admins'** (`can_read`, D84) -- other granted

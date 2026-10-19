@@ -137,6 +137,21 @@ def put_grants(workflow_id: str, payload: GrantsIn, db: Session = Depends(get_db
     return _out(db, admin, row, detail=True)
 
 
+class OptionsIn(BaseModel):
+    params: dict[str, Any] = {}
+
+
+@router.post("/{workflow_id}/parameters/{key}/options")
+def parameter_options(workflow_id: str, key: str, payload: OptionsIn, db: Session = Depends(get_db),
+                      user: models.User = Depends(auth.get_current_user)):
+    """A parameter's choices for the Build with parameters form (D94), listed
+    by its pane input's loader as the caller, from the form's values so far."""
+    row = _workflow(db, user, workflow_id)
+    if not workflows.can_run(db, user, row):
+        raise HTTPException(status_code=403, detail="Your group may not run this workflow.")
+    return _guard(lambda: workflows.parameter_options(db, user, row, key, payload.params))
+
+
 @router.post("/{workflow_id}/runs", status_code=201)
 def start_run(workflow_id: str, payload: RunIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     row = _workflow(db, user, workflow_id)

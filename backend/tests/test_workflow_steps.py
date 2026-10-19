@@ -540,3 +540,69 @@ steps:
 @pytest.mark.parametrize("path", sorted(Path(__file__).resolve().parents[2].joinpath("examples", "workflows").glob("*.yaml")))
 def test_the_example_workflows_are_valid(path):
     assert _errors(path.read_text()) == [], path.name
+
+
+# ---------------------------------------------------------------- parameters whose options load (D94)
+
+GROUPS = """label: Groups
+parameters:
+  - { key: env, type: connection, connection_type: aws, label: Environment, required: true }
+  - key: groups
+    label: Log groups
+    multiple: true
+    required: true
+    options_from:
+      pane: logs-cloudwatch
+      input: logGroupSelection
+      with: { connections: "{{ [params.env] }}" }
+steps:
+  - id: q
+    pane: logs-cloudwatch
+    action: run
+    with:
+      logGroupSelection: "{{ {string(params.env): params.groups} }}"
+      queryString: "fields @message"
+"""
+
+
+@pytest.mark.parametrize(
+    "params, says",
+    [
+        ("  - { key: n, type: int, options_from: { pane: tables, input: tableName } }\n", "for a text parameter"),
+        ("  - { key: t, options_from: { pane: tables, input: limit } }\n", "no input 'limit' whose options load"),
+        ("  - { key: t, options_from: { pane: nope, input: x } }\n", "no pane type 'nope'"),
+        ("  - { key: t, options_from: { pane: tables, input: tableName, with: { connection: '{{ params.zzz }}' } } }\n",
+         "params.zzz isn't another parameter"),
+        ("  - { key: t, options_from: { pane: tables, input: tableName, with: { connection: '{{ steps.a.outputs }}' } } }\n",
+         "from the other parameters only"),
+    ],
+)
+def test_a_parameters_options_source_is_checked(params, says):
+    errors = _errors(f"label: t\nparameters:\n{params}steps:\n  - id: a\n    note: hi\n")
+    assert any(says in e for e in errors), errors
+
+
+def test_a_parameter_lists_its_options_from_a_pane_inputs_loader(monkeypatch, cloudwatch, fast_polls):
+    from app import aws_client
+
+    monkeypatch.setattr(aws_client, "list_log_groups", lambda account, region, identity: [{"name": "/app"}, {"name": "/worker"}])
+    env = _environment()
+    _wf(GROUPS)
+    url = "/api/workflows/wf/parameters/groups/options"
+    assert client.post(url, json={"params": {}}).json() == {"options": [], "needs": ["Environment"]}
+    listed = client.post(url, json={"params": {"env": env}}).json()
+    assert [o["value"] for o in listed["options"]] == ["/app", "/worker"] and "errors" not in listed
+    assert client.post("/api/workflows/wf/parameters/env/options", json={"params": {}}).status_code == 400
+
+    # Listed as the caller: a group without the pane gets the reason, not the groups.
+    _, bob = _member("bob", ["tables"], env, grant="wf")
+    refused = bob.post(url, json={"params": {"env": env}}).json()
+    assert refused["options"] == [] and refused["error"]
+
+    # Several values, a lone one taken as a list of one.
+    done = _finished(_run("wf", {"env": env, "groups": ["/app", "/worker"]})["id"])
+    assert done["status"] == "succeeded", done
+    assert _step(done, "q")["inputs"]["logGroupSelection"] == {str(env): ["/app", "/worker"]}
+    done = _finished(_run("wf", {"env": env, "groups": "/app"})["id"])
+    assert _step(done, "q")["inputs"]["logGroupSelection"] == {str(env): ["/app"]}
+    assert client.post("/api/workflows/wf/runs", json={"params": {"env": env, "groups": []}}).status_code == 400

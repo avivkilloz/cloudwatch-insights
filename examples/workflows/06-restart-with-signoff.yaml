@@ -1,7 +1,10 @@
 # Sending HTTP reaches outside the platform, so this step always waits for
 # approval; here it asks for someone other than whoever started the run
-# (`by: others`). Needs an HTTP API connection (Settings → Environments) for
-# your ops API.
+# (`by: others`). It shows the pattern; it has nothing to restart unless the
+# Ops API connection you pick (Settings → Environments, an HTTP API) has a
+# POST /services/<name>/restart. Pointed at any other API, the approval and
+# the send work the same, and the note says what came back -- a 404 too: an
+# answer isn't a failure.
 label: Restart a service (with sign-off)
 description: POSTs a restart to the ops API once someone else has approved it.
 parameters:
