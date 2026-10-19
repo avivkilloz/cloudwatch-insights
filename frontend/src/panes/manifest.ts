@@ -37,7 +37,9 @@ export type InputType =
   | "credential"
   | "connection"
   | "connections"
-  | "topics";
+  | "topics"
+  /** A workflow's parameters as its own fields; `of` names the input holding the workflow. */
+  | "workflow_params";
 
 /** A choice whose options come from a server action (a loader). */
 export interface Options {
@@ -78,6 +80,8 @@ export interface ManifestInput {
   optional: boolean;
   examples?: { by: string; values: Record<string, string[]> };
   grow?: number;
+  /** A `workflow_params` input's workflow: the input holding its id. */
+  of?: string;
   hint?: string;
   pairs: Record<string, string>;
 }
@@ -242,7 +246,7 @@ export function textOf(text: Text | undefined, inputs: Record<string, unknown>):
 
 /** `{now}` in a default is the current Unix time, when the pane first draws it. */
 export function defaultOf(input: ManifestInput): unknown {
-  const value = input.default ?? (input.type === "bool" ? false : input.type === "headers" ? [] : "");
+  const value = input.default ?? (input.type === "bool" ? false : input.type === "headers" ? [] : input.type === "workflow_params" ? {} : "");
   return typeof value === "string" ? value.replace(/\{now\}/g, String(Math.floor(Date.now() / 1000))) : value;
 }
 

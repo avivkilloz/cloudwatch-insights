@@ -511,6 +511,8 @@ class S3BrowseResponse(BaseModel):
     folders: list[S3FolderInfo] = []
     files: list[S3FileInfo] = []
     continuation_token: Optional[str] = None
+    # A search's keys looked at by this request (0 when browsing a folder).
+    scanned: int = 0
 
 
 # ---- Cognito tab ----

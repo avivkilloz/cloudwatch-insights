@@ -100,6 +100,7 @@ _TYPE_NAMES = {
     "opensearch_indices": "list of {environment_id, domain_name, domain_endpoint, indices: [index names]}",
     "topics": "list of MQTT topic filters (+ one level, # the rest)",
     "headers": "object: name -> value",
+    "workflow_params": "object: parameter key -> value (list_workflows gives the workflow's parameters)",
     "credential": "credential name or id (get_context lists the ones the user can use)",
     "connection": "connection id or name (get_context's http_apis, of this input's connection_type)",
     "connections": "list of connection ids or names",
@@ -207,7 +208,7 @@ def agent_value(spec: Input, stored: Any) -> Any:
     """A stored input in the shape `convert` takes it back in, so what the
     agent reads it can write. The two differ only where the pane keeps rows
     for its editor: a headers input is name -> value to the agent."""
-    if spec.kind == "headers" and isinstance(stored, list):
+    if spec.kind in ("headers", "workflow_params") and isinstance(stored, list):
         return {str(r.get("key")): r.get("value", "") for r in stored if isinstance(r, dict) and r.get("key")}
     return stored
 
@@ -313,6 +314,16 @@ def convert(spec: Input, value: Any, rc: RunContext) -> Any:
         # The editor always ends in an empty row to type the next header into.
         rows.append({"id": len(rows) + 1, "key": "", "value": ""})
         return rows
+    if kind == "workflow_params":
+        # Checked when the run starts (workflows.coerce_params), against the
+        # workflow chosen then -- not here, where the workflow may change next.
+        if value is None or value == []:
+            return {}
+        if isinstance(value, list) and all(isinstance(r, dict) for r in value):
+            value = {r.get("key"): r.get("value") for r in value if r.get("key")}
+        if not isinstance(value, dict):
+            raise InputError(f'{spec.key} must be an object of parameter key -> value, e.g. {{"env": "Prod"}}.')
+        return {str(k): v for k, v in value.items()}
     raise InputError(f"Unknown input kind {kind}.")  # a bug here, not the agent's
 
 

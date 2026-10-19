@@ -6,14 +6,14 @@ category: Platform
 # No flag (D65): granted to no group until an admin ticks it -- and a run
 # still needs the workflow's own grant (D84).
 about: >-
-  Runs a workflow from inside a session: pick one, give its parameters as name/value rows, and Run. The run is the same
+  Runs a workflow from inside a session: pick one, fill in its parameters, and Run. The run is the same
   as one started on the Workflows page -- as you, recorded there -- and the pane follows it: a summary and each stage's
   status as it goes.
 description: Run a workflow from a session and follow it here.
 help: >-
-  Pick a workflow, fill in its parameters as name -> value rows (a connection by its name or id, a list as
-  comma-separated values) and Run. It runs as you; Stop cancels it. The whole run, its outputs and files are on the
-  Workflows page.
+  Pick a workflow, fill in its parameters -- the same fields as the Workflows page's Run, an environment picked by
+  name, choices listed where the workflow lists them -- and Run. It runs as you; Cancel run stops it. The whole run,
+  its outputs and files are on the Workflows page.
 state: v2
 rendered: true
 inputs:
@@ -25,11 +25,16 @@ inputs:
     options:
       action: list_workflows
       placeholder: Choose a workflow…
-    resets: [out.summary, out.stages]
+    # Another workflow's parameters aren't this one's.
+    resets: [in.params, out.summary, out.stages]
   - key: params
-    type: headers
+    type: workflow_params
+    of: workflow
     label: Parameters
-    help: "The workflow's parameters: name -> value. A connection by its name or id; a list comma-separated."
+    default: {}
+    help: >-
+      The workflow's parameters: key -> value (list_workflows lists them). A connection by its name or id; a list as a
+      list, or comma-separated.
 actions:
   - id: list_workflows
     handler: platform.workflows.list

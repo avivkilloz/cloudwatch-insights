@@ -32,6 +32,9 @@ InputType = Literal[
     "connection",
     "connections",
     "topics",
+    # A workflow's parameters as its own fields (the Workflow pane, §22.10):
+    # parameter key -> value, the workflow named by the input `of` names.
+    "workflow_params",
 ]
 
 Render = Literal[
@@ -152,6 +155,8 @@ class ManifestInput(_Strict):
     # A `headers` editor's wording: the name box's placeholder and the add
     # button ({key: Header name, add: Add header}).
     pairs: dict[str, str] = {}
+    # A `workflow_params` input's workflow: the input holding its id.
+    of: Optional[str] = None
 
 
 class Page(_Strict):
@@ -505,6 +510,8 @@ class Manifest(_Strict):
                 raise ValueError(f"input {i.key}'s children come from an action {i.options.children} that isn't declared")
             if i.type == "choice" and not i.choices:
                 raise ValueError(f"choice input {i.key} has no choices")
+            if (i.type == "workflow_params") != (i.of is not None) or (i.of is not None and i.of not in inputs):
+                raise ValueError(f"input {i.key}: a workflow_params input names the input holding its workflow (of:)")
             if i.type in ("connection", "connections") and not i.connection_type:
                 raise ValueError(f"connection input {i.key} needs a connection_type")
             for value, sets in i.choice_sets.items():

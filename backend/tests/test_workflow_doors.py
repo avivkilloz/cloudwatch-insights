@@ -191,3 +191,27 @@ def test_a_runs_chat_is_kept_on_the_run_for_its_readers():
 
     _, bob = _member("bob", ["tables"], None, grant="chatty")
     assert bob.get(url).status_code == 403
+
+
+def test_the_workflow_panes_parameters_are_the_workflows_own(aws):
+    """The pane's parameters are a form of the workflow's own fields
+    (`workflow_params`): stored as key -> value, which Run starts with --
+    and the agent sets the same shape, rows from before the form included."""
+    from app.panes import manifest as pane_manifest
+    from app.platform_tools import panes as agent_panes
+
+    env = _environment()
+    _create(SCANS, "scans")
+    spec = next(i for i in pane_manifest.get("workflow").inputs if i.key == "params")
+    assert spec.type == "workflow_params" and spec.of == "workflow"
+    with SessionLocal() as db:
+        admin = db.query(models.User).filter_by(username="admin").one()
+        rc = agent_panes.RunContext(db=db, user=admin, timezone=None)
+        kind = agent_panes.KINDS["workflow"]
+        assert agent_panes.convert(kind.input("params"), {"env": env}, rc) == {"env": env}
+        assert agent_panes.convert(kind.input("params"), [{"id": 1, "key": "env", "value": "Prod"}], rc) == {"env": "Prod"}
+        assert agent_panes.agent_value(kind.input("params"), [{"key": "env", "value": "Prod"}]) == {"env": "Prod"}
+        started = handlers.ACTIONS["platform.workflows.start"](db, admin, {"workflow": "scans", "params": {"env": env}}, None)
+    workflows.drain()
+    run = client.get(f"/api/workflow-runs/{started['handles'][0]['run_id']}").json()
+    assert run["status"] == "succeeded" and run["params"] == {"env": env}

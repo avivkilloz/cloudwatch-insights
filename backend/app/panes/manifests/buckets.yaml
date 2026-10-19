@@ -54,7 +54,7 @@ actions:
     run_label: Search
     busy_label: Search
     requires: { connection: Choose an environment first., bucket: Choose a bucket first. }
-    page: { cursor: continuationToken, append: [folders, files] }
+    page: { cursor: continuationToken, append: [folders, files], sum: [searched] }
 outputs:
   - key: bucketRegion
     render: text
@@ -90,6 +90,12 @@ outputs:
   - key: continuationToken
     render: text
     legacy_key: continuationToken
+  # How many keys the search has looked at so far (Load more adds its own).
+  - key: searched
+    render: text
+  # Set only while a search has more of the bucket to look through.
+  - key: searchGoesOn
+    render: text
 legacy_drop: [buckets]
 layout:
   - title: 1. Choose environment and bucket
@@ -102,7 +108,7 @@ layout:
           - input: bucket
       - error: list_buckets
   - title: 2. Browse
-    clear: [folders, files, continuationToken, activeSearch]
+    clear: [folders, files, continuationToken, activeSearch, searched, searchGoesOn]
     when: { input: bucket, present: true }
     items:
       - restored: browse
@@ -123,6 +129,11 @@ layout:
       - text: Searching recursively under "{{ in.prefix ?? '/' }}" for filenames containing "{{ out.activeSearch }}".
         when: { output: activeSearch, present: true }
       - output: files
+      # A search stops after a few seconds of a big bucket: saying how far it
+      # got, or an empty list read as "no such file" when it hadn't looked yet.
+      - text: >-
+          Searched {{ out.searched }} file(s) so far and the bucket has more: Load more searches on from there.
+        when: { output: searchGoesOn, present: true }
       - more: browse
 # The rows of its list, as the pane draws them (platform_tools/panes._manifest_rows).
 inspect: {}
