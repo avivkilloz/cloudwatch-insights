@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import logging
 
@@ -6,7 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.routing import Route
 
-from . import bootstrap, catalogue, connections, credential_store, credential_types, masking, models, pane_access, store, workflows
+from . import (
+    bootstrap,
+    builder,
+    catalogue,
+    connections,
+    credential_store,
+    credential_types,
+    masking,
+    models,
+    pane_access,
+    store,
+    workflows,
+)
 from .db import Base, SessionLocal, engine, ensure_columns
 from .panes import runs as pane_runs
 from .panes import saved as pane_saved
@@ -14,6 +27,7 @@ from .platform_tools import server as platform_server
 from .routers import (
     agent,
     blobs as blobs_router,
+    builder as builder_router,
     auth,
     catalogue as catalogue_router,
     credentials,
@@ -95,6 +109,14 @@ finally:
 # that can't be reached is logged; the platform starts anyway.
 store.startup()
 
+# Pane types built here (§24), beside the bundled manifests -- after the store,
+# which may have just brought some back.
+_bootstrap_db = SessionLocal()
+try:
+    builder.load(_bootstrap_db)
+finally:
+    _bootstrap_db.close()
+
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -105,9 +127,12 @@ async def lifespan(_app: FastAPI):
         pane_runs.manager.start()
         store.manager.start()
         workflows.manager.start()
+        # Another replica's save of a built pane type, seen here within seconds.
+        built = asyncio.create_task(builder.manager())
         try:
             yield
         finally:
+            built.cancel()
             await workflows.manager.stop()
             await store.manager.stop()
             await pane_runs.manager.stop()
@@ -144,6 +169,7 @@ app.include_router(saved_inputs.router)
 app.include_router(catalogue_router.router)
 app.include_router(store_router.router)
 app.include_router(templates_router.router)
+app.include_router(builder_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)

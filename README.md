@@ -908,6 +908,20 @@ past a failure with `continue_on_error`.
 - **Examples** to paste in and run are in `examples/workflows/` (one needs
   nothing at all: `01-try-me.yaml`).
 
+## The Builder
+
+Groups with the **Builder** turned on (Users → Groups; admins always) get a
+**Builder** row at the top of the side panel, for making pane types of their
+own. A pane type is written as the same definition every pane is -- its
+inputs, the actions that fill its outputs (a request to an HTTP connection,
+an action the platform already has, or a function worked out as you type) and
+its layout -- starting from a working starter or from any of the platform's
+own panes as an example. **Check** points at the line of any mistake;
+**Create** makes it, for your group to use at once (**Open in a session**);
+other groups get it when an admin grants it in Users → Groups → Panes. With a
+store repo set up, each pane type is kept there as written. A form editor
+with a live preview, and building with the agent, come next.
+
 ## The store repo
 
 Admins can point the platform at a git repo (**Settings → Store**, or the

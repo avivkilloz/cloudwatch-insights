@@ -906,6 +906,18 @@ def _refresh_floor(manifest: pane_manifest.Manifest) -> Optional[int]:
 KINDS: dict[str, PaneKind] = {m.id: _kind(m) for m in pane_manifest.manifests().values()}
 
 
+def _rebuild_kinds() -> None:
+    """A pane type built in the platform (§24) is a kind the agent can use
+    the moment it's saved, and is gone the moment it's deleted: the same dict,
+    changed in place, so every module holding it sees it."""
+    fresh = {m.id: _kind(m) for m in pane_manifest.manifests().values()}
+    KINDS.clear()
+    KINDS.update(fresh)
+
+
+pane_manifest.on_change(_rebuild_kinds)
+
+
 def input_key(kind: PaneKind, pane_id: str, key: str) -> str:
     """Where an input is stored in session state: under `in.` for a pane on
     the v2 shape, at its own name for one not yet ported."""

@@ -184,6 +184,8 @@ class UserGroupBase(BaseModel):
     tools_enabled: bool = True
     # Off unless asked for: see UserGroup.agent_enabled.
     agent_enabled: bool = False
+    # Off unless asked for: see UserGroup.builder_enabled.
+    builder_enabled: bool = False
 
 
 class UserGroupCreate(UserGroupBase):
@@ -207,6 +209,7 @@ class UserGroupUpdate(BaseModel):
     aggregator_enabled: Optional[bool] = None
     tools_enabled: Optional[bool] = None
     agent_enabled: Optional[bool] = None
+    builder_enabled: Optional[bool] = None
     environment_ids: Optional[list[int]] = None
     # Exactly the pane types it may use (D65); wins over the booleans above,
     # which are shorthand for grants of the panes that name them.
@@ -258,6 +261,8 @@ class UserOut(BaseModel):
     aggregator_enabled: bool
     tools_enabled: bool
     agent_enabled: bool = False
+    # Whether they may build pane types (§24): their group's Builder, or an admin.
+    builder_enabled: bool = False
     # The pane types the user's group may use (D65): what the catalogue offers.
     pane_types: list[str] = []
 

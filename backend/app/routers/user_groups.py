@@ -22,6 +22,7 @@ def _group_out(db: Session, group: models.UserGroup) -> schemas.UserGroupOut:
         **flags,
         aggregator_enabled=group.aggregator_enabled,
         agent_enabled=group.agent_enabled,
+        builder_enabled=group.builder_enabled,
         environment_ids=environment_ids,
         user_count=user_count,
         pane_types=sorted(pane_access.granted(group)),

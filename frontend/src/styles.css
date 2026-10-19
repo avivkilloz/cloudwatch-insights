@@ -4666,3 +4666,11 @@ textarea.workflow-source {
   margin: 0;
   padding-left: 18px;
 }
+
+/* The Builder (§24): what a definition can name, as a run of names. */
+.builder-names {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}

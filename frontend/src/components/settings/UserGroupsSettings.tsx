@@ -23,6 +23,8 @@ type Draft = {
   /** Not a pane but the same kind of yes/no: the agent acts with everything
    * else this group has, so it is its own switch, and off for a new group. */
   agent_enabled: boolean;
+  /** Makes pane types (the Builder, §24): what it builds is its group's at once, others' when granted. */
+  builder_enabled: boolean;
   environment_ids: number[];
   /** Identities as they will be saved; a new AWS role is created on Save (credential_id < 0, newRole set). */
   identities: (GroupIdentity & { newRole?: string })[];
@@ -88,6 +90,7 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
       // page switched on -- in the form, so nothing is granted unseen.
       pane_types: g?.pane_types ?? manifests().map((m) => m.id),
       agent_enabled: g?.agent_enabled ?? false,
+      builder_enabled: g?.builder_enabled ?? false,
       environment_ids: g?.environment_ids ?? [],
       identities: [],
     };
@@ -168,6 +171,7 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
         environment_ids: draft.environment_ids,
         pane_types: draft.pane_types,
         agent_enabled: draft.agent_enabled,
+        builder_enabled: draft.builder_enabled,
       };
       const saved = draft.id == null ? await api.createUserGroup({ ...payload, role_name: null }) : await api.updateUserGroup(draft.id, payload);
       const identities: GroupIdentity[] = [];
@@ -298,6 +302,16 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
                 onChange={(e) => setDraft({ ...draft, agent_enabled: e.target.checked })}
               />
               Platform agent
+            </label>
+          </CardRow>
+          <CardRow label="Builder">
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={draft.builder_enabled}
+                onChange={(e) => setDraft({ ...draft, builder_enabled: e.target.checked })}
+              />
+              Builds pane types
             </label>
           </CardRow>
         </Section>

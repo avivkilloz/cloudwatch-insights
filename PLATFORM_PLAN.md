@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder.** A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (three PRs, §24, D103–D106; 5-1, pane types as YAML, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1274,6 +1274,10 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D100 | 2026-10-19 | **Portable is decided per input by its manifest type**: AWS connection inputs follow the Environment variable (unlinked ones relinked); log groups kept under `$environment`, given to the environment chosen on opening; other connections, credentials, OpenSearch indices and a workflow's connection parameters left out; a header whose name says secret keeps its name, not its value. Every change is said, in words, to whoever publishes. | Nothing service-specific: a plugin's pane is made portable by the same rules. A template goes to a git repo, so a pasted token mustn't; and the publisher should know what the opener will have to fill in. |
 | D101 | 2026-10-19 | **Opening a published template is the server's**: the environment chosen first (asked on its card on the default page; with one environment, nothing to ask), the variable set, each pane's bound inputs copied in, the log groups re-keyed, the session made through `live_store.create`. Offered on the default page ("Ready-made sessions") and under Templates in Add and the strip's ＋. | The re-keying (connection ids as map keys) is the server's to know; the browser opens what was made, as it does an investigated run. |
 | D102 | 2026-10-19 | **Who is offered one is who may use each of its panes** (`pane_access.granted`); no grant of its own. The agent sees them in `get_context` and opens one with `open_template`. | Access is per group, per pane type (D65); a template is panes, so it needs nothing more. |
+| D103 | 2026-10-19 | **A built pane type is a manifest, nothing else**: the same YAML and strict model as a bundled one, kept verbatim (`built_pane_types`, the store's `panes/<name>.yaml`) and merged into the registry beside the files (§24). Always `state: v2`, `rendered: true`; no `flag`, no `connection_types` of its own; its actions are requests, handlers the platform has, or live functions it has. | One definition the renderer, the action endpoint, the agent and the store already understand: nothing new to keep in step, and nothing of the builder's own code runs until Phase 6. |
+| D104 | 2026-10-19 | **Phase 5 is three PRs**: 5-1 the Builder grant and pane types as YAML (check, create, store, catalogue, open in a session); 5-2 the form editor and a live preview over the same definition, and the agent's build tools (D72); 5-3 steps and workflows for builders (editing no longer an admin's alone, D84). | Something to try in each, as 4b was split. |
+| D105 | 2026-10-19 | **A pane type's builder's group is granted it on creation**; any other group when an admin grants it (D65). An edit is everyone's at once; Delete takes its grants and placements with it. | D71 "a builder uses their own work at once" -- by group, since access is never per user. |
+| D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
 
 ## 13. Phase 1 in detail: credentials
@@ -4664,6 +4668,32 @@ From §20.8 (D76). One PR, with two fixes reported beside it.
 - **A published template is offered once**: its row keeps the saved template
   it came from (`saved_session_id`), and its publisher's Add lists offer the
   published one in that one's place (Library marks it "Published").
+
+## 24. Phase 5 in detail: the Builder (planned 2026-10-19, D103–D106; 5-1 built)
+
+Three PRs (D104), each with something to try:
+
+- **5-1, pane types as YAML** (built): the Builder grant per group
+  (`builder_enabled`; admins always), the Builder page (the rail's Builder
+  row, for builders): a list of the pane types built here; an editor with an
+  Id, the YAML (from a working starter or any bundled pane's own file as an
+  example), **Check** (every problem with its line: the strict model's, and a
+  built pane's own -- an unknown handler or live function, a `flag`,
+  `connection_types`, a bundled id), **Create**/**Save**, **Delete** and
+  **Open in a session**; and what a definition can name (the handlers and
+  live functions there are). `builder.py`, `routers/builder.py`
+  (`/api/builder/schema|examples|panes|check`), the store `Kind` `pane`, the
+  registry's `set_built` (bundled stay cached; built merge in; the agent's
+  `KINDS` rebuilt in place), the catalogue's categories, and Users → Groups'
+  Builder switch.
+- **5-2, the form and the preview, and the agent's build tools**: a form
+  editor over the same definition (D73), a preview that draws the draft
+  beside the editor and runs its actions on a real connection as the
+  builder, and generic agent tools (D72): read the schema and examples,
+  validate a draft, preview it, save with the user confirming.
+- **5-3, steps and workflows for builders**: workflows editable by a
+  group's Builder, not only admins; declarative HTTP steps and composed
+  steps (§20.3) reusable across workflows.
 
 ## 12. Research sources
 
