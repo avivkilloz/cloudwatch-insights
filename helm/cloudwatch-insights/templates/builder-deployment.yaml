@@ -1,0 +1,54 @@
+{{- if and .Values.agent.enabled .Values.agent.builder.deployment.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudwatch-insights.builder.fullname" . }}
+  labels:
+    {{- include "cloudwatch-insights.builder.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.agent.builder.deployment.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloudwatch-insights.builder.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudwatch-insights.builder.selectorLabels" . | nindent 8 }}
+      {{- with .Values.agent.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # The Builder's agent (PLATFORM_PLAN.md D116), apart from the chat's: the
+      # same image and settings, given only the turns beside an editor (the
+      # backend's AGENT_BUILDER_URL). Like the agent, no AWS identity and no
+      # Kubernetes API: everything goes through the backend, as the user.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: builder
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8100
+          env:
+            {{- include "cloudwatch-insights.agent.env" . | nindent 12 }}
+          {{- with .Values.agent.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml (.Values.agent.builder.deployment.resources | default .Values.agent.resources) | nindent 12 }}
+{{- end }}

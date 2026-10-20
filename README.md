@@ -945,13 +945,18 @@ run them (DynamoDB's, say, once your group has DynamoDB).
 
 **Building with the agent**: while a pane type's editor -- or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.
-Say what it should do or what to change ("add a status filter", "make this a
-table of the reply's items"): the agent reads what a definition can say and
-what's in the editor, writes the definition, checks it, and puts it in the
-editor for you to look over. It can try a draft's action first, as you, to
-see what the reply holds. It never saves -- **Check** and **Save** are yours.
-For a large pane it changes the text a piece at a time rather than writing it
-all again.
+Say what it should do or what to change ("add a status filter", "show this
+pane's jobs and rules too"): the Builder works out what to change, looks up
+any AWS operation it needs (what it takes and where its reply keeps its
+list), changes the definition, checks it and fixes whatever the check finds
+-- a few rounds if it must -- and puts it in the editor for you to look over.
+You see each of those steps in the chat. It never saves -- **Check** and
+**Save** are yours. If it can't get the definition to check clean, it still
+puts its work in the editor and says what's left; ask it to carry on.
+
+A pane can hold several requests: give each its own `output` (`output: jobs`)
+and they fill their own tables, each keeping its rows when the other is
+fetched.
 
 ## The store repo
 

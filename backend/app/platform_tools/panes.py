@@ -613,7 +613,9 @@ def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     pane's Fetch sends, through routers/panes.run_request -- connection,
     identity, SSRF guard and masking included -- with its rows written into
     the pane."""
-    action = next((a for a in manifest.actions if a.request), None)
+    requests = [a for a in manifest.actions if a.request]
+    # The main one, when a pane has several (rows of their own, D116).
+    action = next((a for a in requests if a.main), requests[0] if requests else None)
     if action is None:
         return None
     from ..routers import panes as panes_router  # the router imports this module
@@ -625,7 +627,7 @@ def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
             )
         except HTTPException as e:
             raise _http_error(e) from None
-        rows = outputs.get("rows") or []
+        rows = outputs.get((action.request or {}).get("output") or "rows") or []
         return RunResult(
             writes={**outputs, **_ran(values)},
             summary={"rows": len(rows), "sample": _sample(rows)},

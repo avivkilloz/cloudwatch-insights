@@ -45,6 +45,8 @@ class Turn:
     steps: list[dict] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     error: Optional[str] = None
+    # What a build turn put in the editor (D116), its source.
+    proposed: Optional[str] = None
 
 
 def _fill(value: Any, names: dict[str, Any]) -> Any:
@@ -101,8 +103,14 @@ class Platform:
     def _group(self, env_id: int) -> dict:
         found = next((g for g in self.admin.get("/user-groups").json() if g["name"] == EVAL_GROUP), None)
         if found is None:
-            body = {"name": EVAL_GROUP, "role_name": "EvalRole", "environment_ids": [env_id], **{f"{f}_enabled": True for f in FLAGS}}
+            body = {"name": EVAL_GROUP, "role_name": "EvalRole", "environment_ids": [env_id], "builder_enabled": True,
+                    **{f"{f}_enabled": True for f in FLAGS}}
             resp = self.admin.post("/user-groups", json=body)
+            resp.raise_for_status()
+            found = resp.json()
+        elif not found.get("builder_enabled"):
+            # A group made before the build scenarios: the Builder turned on.
+            resp = self.admin.put(f"/user-groups/{found['id']}", json={"builder_enabled": True})
             resp.raise_for_status()
             found = resp.json()
         return found
@@ -119,9 +127,27 @@ class Platform:
         resp.raise_for_status()
         return client_id
 
-    def ask(self, client_id: str, history: list[dict]) -> Turn:
+    def draft(self, scenario: dict) -> dict:
+        """A build scenario's editor (D116): an example's source, or its own."""
+        build = scenario["build"]
+        source = build.get("source")
+        if source is None:
+            resp = self.http.get(f"/builder/examples/{build['start']}")
+            resp.raise_for_status()
+            source = resp.json()["source"]
+        return {"kind": build.get("kind", "pane"), "id": None, "title": build.get("title", ""), "source": source}
+
+    def check(self, source: str) -> dict:
+        resp = self.http.post("/builder/check", json={"source": source})
+        resp.raise_for_status()
+        return resp.json()
+
+    def ask(self, client_id: Optional[str], history: list[dict], build: Optional[dict] = None) -> Turn:
         turn = Turn()
-        body = {"messages": history, "viewing_session_id": client_id, "timezone": "UTC", "scope": "session"}
+        if build is not None:
+            body: dict = {"messages": history, "timezone": "UTC", "scope": "build", "build": build}
+        else:
+            body = {"messages": history, "viewing_session_id": client_id, "timezone": "UTC", "scope": "session"}
         with self.http.stream("POST", "/agent/chat", json=body, timeout=httpx.Timeout(30, read=TURN_SECONDS)) as resp:
             if resp.status_code != 200:
                 turn.error = f"HTTP {resp.status_code}: {resp.read().decode()[:300]}"
@@ -141,6 +167,8 @@ class Platform:
                     for step in turn.steps:
                         if step["id"] == event["id"]:
                             step.update(ok=event["ok"], summary=event.get("summary", ""))
+                    if isinstance(event.get("propose"), dict):
+                        turn.proposed = event["propose"].get("source")
                 elif kind == "notice":
                     turn.notices.append(event["message"])
                 elif kind == "error":
@@ -185,8 +213,27 @@ def _matches(actual: Any, expected: Any) -> bool:
     return actual == expected
 
 
-def judge(scenario: dict, turns: list[Turn], state: dict, names: dict[str, Any]) -> list[str]:
-    """What the scenario expected and didn't get, in a sentence each."""
+def _judge_proposal(want: dict, turns: list[Turn], checked: Optional[dict]) -> list[str]:
+    """A build scenario's `proposed`: something reached the editor; with
+    `checks: true`, it checks clean as the editor's Check says; `contains`,
+    text it must hold."""
+    proposed = next((t.proposed for t in reversed(turns) if t.proposed), None)
+    if proposed is None:
+        return ["Nothing was put in the editor."]
+    failures = []
+    if want.get("checks") and checked is not None and not checked.get("ok"):
+        problems = "; ".join(str(e.get("message")) for e in checked.get("errors") or [])
+        failures.append(f"What's in the editor doesn't check clean: {problems[:300]}")
+    for text in want.get("contains") or []:
+        if text not in proposed:
+            failures.append(f"What's in the editor has no {text!r}.")
+    return failures
+
+
+def judge(scenario: dict, turns: list[Turn], state: dict, names: dict[str, Any],
+          checked: Optional[dict] = None) -> list[str]:
+    """What the scenario expected and didn't get, in a sentence each.
+    `checked` is the editor's Check of a build scenario's proposal."""
     failures: list[str] = []
     last = turns[-1]
     if last.error:
@@ -220,12 +267,43 @@ def judge(scenario: dict, turns: list[Turn], state: dict, names: dict[str, Any])
             if got != expect["answer_check"]:
                 found = checks[-1].get("summary", "") if checks else ""
                 failures.append(f"The answer check {got}, expected {expect['answer_check']}. {found}".strip())
+        if "proposed" in expect:
+            failures += _judge_proposal(expect["proposed"], turns, checked)
         if "answer" in expect and not _matches(last.answer, expect["answer"]):
             failures.append(f"The answer doesn't match {json.dumps(expect['answer'])}: {last.answer[:200]!r}")
     return failures
 
 
+def run_build(platform: Platform, scenario: dict, names: dict[str, Any]) -> tuple[list[str], dict]:
+    """A build scenario: its messages beside an editor holding `build`'s
+    draft, each turn starting from what the last put there (as the editor
+    would), judged on what ends up in it."""
+    build = platform.draft(scenario)
+    history: list[dict] = []
+    turns: list[Turn] = []
+    for message in scenario["messages"]:
+        history.append({"role": "user", "content": _fill(message, names)})
+        turn = platform.ask(None, history, build=build)
+        turns.append(turn)
+        if turn.proposed:
+            build = {**build, "source": turn.proposed}
+        history.append({"role": "assistant", "content": turn.answer})
+    proposed = next((t.proposed for t in reversed(turns) if t.proposed), None)
+    checked = platform.check(proposed) if proposed else None
+    failures = judge(scenario, turns, {}, names, checked)
+    record = {
+        "turns": [{"answer": t.answer, "steps": [s["name"] if s.get("ok") else f"{s['name']} failed: "
+                                                 f"{(s.get('summary') or '')[:300]}" for s in t.steps],
+                   "notices": t.notices, "error": t.error} for t in turns],
+        "proposed": proposed,
+        "failures": failures,
+    }
+    return failures, record
+
+
 def run_once(platform: Platform, scenario: dict, names: dict[str, Any]) -> tuple[list[str], dict]:
+    if "build" in scenario:
+        return run_build(platform, scenario, names)
     client_id = platform.start(scenario, names)
     history: list[dict] = _fill(scenario.get("earlier", []), names)
     turns: list[Turn] = []

@@ -103,6 +103,21 @@ function describe(step: AgentStep): string {
       return done ? "Put a draft in the editor" : "Putting a draft in the editor…";
     case "edit_definition":
       return done ? "Edited the draft" : "Editing the draft…";
+    // The Builder's loop (platform-agent's builder.py, D116): its own steps,
+    // the model's two kinds of answer among them.
+    case "plan_change":
+      if (step.status === "failed") return "Couldn't work out what to change";
+      return done ? "Worked out what to change" : "Working out what to change…";
+    case "write_changes":
+      if (step.status === "failed") return "Couldn't write the changes";
+      return done ? "Wrote the changes" : "Writing the changes…";
+    case "change_definition":
+      // Failed: refused, or made and then not checking clean -- either way the
+      // loop sends it back, and the next step is the fix.
+      if (step.status === "failed") return "Tried a change: it needs fixing";
+      return done ? "Changed the draft" : "Changing the draft…";
+    case "describe_aws_operation":
+      return `${done ? "Looked up" : "Looking up"} ${String(a.service ?? "")} ${String(a.operation ?? "")}`.trimEnd();
     case "read_draft":
       return done ? "Read the draft" : "Reading the draft…";
     case "unreadable_tool_call":

@@ -91,6 +91,8 @@ class AwsRequestSpec(BaseModel):
     # How the reply becomes rows (routers/panes' `extract_rows`: at, columns,
     # explode, spread); without it, the first list in the reply.
     rows: Optional[dict[str, Any]] = None
+    # The output the rows go to, when not `rows` (routers/panes.written).
+    output: Optional[str] = None
 
 
 def is_aws(spec: Optional[dict[str, Any]]) -> bool:
@@ -146,6 +148,132 @@ def problems(manifest: pane_manifest.Manifest, spec: dict[str, Any]) -> list[tup
     for key, source in parsed.params.items():
         if isinstance(source, dict) and "input" in source and source["input"] not in {i.key for i in manifest.inputs}:
             out.append((("params", key), f"{key} reads an input {source['input']} that isn't declared."))
+    if isinstance(parsed.rows, dict) and model.output_shape is not None:
+        out += _rows_problems(name, model.output_shape, parsed.rows)
+    return out
+
+
+def _walk(shape: Any, path: str) -> tuple[Any, str]:
+    """The shape at a dotted path into a reply, and "" -- or (None, why not)."""
+    for i, part in enumerate(p for p in path.split(".") if p):
+        if shape.type_name == "list" and part.isdigit():
+            shape = shape.member
+        elif shape.type_name == "structure" and part in shape.members:
+            shape = shape.members[part]
+        elif shape.type_name == "map":
+            shape = shape.value
+        else:
+            where = ".".join(path.split(".")[:i]) or "the top"
+            if shape.type_name == "list":
+                return None, f"{where} is the list itself, so there is no {part} in it"
+            has = ", ".join(shape.members) if shape.type_name == "structure" else shape.type_name
+            return None, f"there is no {part} at {where} (it has: {has})"
+    return shape, ""
+
+
+def lists(shape: Any, prefix: str = "", depth: int = 3) -> list[str]:
+    """Where a reply keeps lists (dotted paths): what `rows.at` can name."""
+    out: list[str] = []
+    if shape is None or depth == 0 or shape.type_name != "structure":
+        return out
+    for name, member in shape.members.items():
+        path = f"{prefix}{name}"
+        if member.type_name == "list":
+            out.append(path)
+        elif member.type_name == "structure":
+            out += lists(member, path + ".", depth - 1)
+    return out
+
+
+def _rows_problems(name: str, output: Any, rows: dict[str, Any]) -> list[tuple[tuple, str]]:
+    """`rows` held to the operation's reply, offline: `at` a list that's
+    there, and each column's path a field of its items. A model that guessed
+    `at: jobs.items` got an empty table and no reason why."""
+    at = str(rows.get("at") or "")
+    if not at:
+        return []
+    shape, why = _walk(output, at)
+    if shape is None or shape.type_name != "list":
+        found = ", ".join(lists(output)) or "none"
+        reason = why or f"{at} is a {shape.type_name}, not a list"
+        return [(("rows", "at"), f"{name}'s reply: {reason}. Its lists are at: {found}.")]
+    item = shape.member
+    out: list[tuple[tuple, str]] = []
+    if rows.get("explode"):
+        item, why = _walk(item, str(rows["explode"]))
+        if item is None or item.type_name != "list":
+            return [(("rows", "explode"), f"{name}'s {at} items: {why or str(rows['explode']) + ' is not a list'}.")]
+        item = item.member
+    if item.type_name != "structure":
+        return out
+    for column, source in (rows.get("columns") or {}).items():
+        path = source.get("from") if isinstance(source, dict) else source
+        if not isinstance(path, str) or not path:
+            continue
+        found, why = _walk(item, path)
+        if found is None:
+            fields = ", ".join(item.members)
+            out.append((("rows", "columns", column), f"{name}'s {at} items have no {path} ({why}). Their fields: "
+                                                     f"{fields}."))
+    return out
+
+
+def _sketch(shape: Any, depth: int = 4, seen: Optional[set] = None) -> Any:
+    """A reply's shape as a model reads it: {field: type, list: [{...}]}."""
+    seen = seen or set()
+    kind = shape.type_name
+    if kind == "structure":
+        if depth == 0 or shape.name in seen:
+            return "{…}"
+        members = list(shape.members.items())
+        out = {k: _sketch(v, depth - 1, seen | {shape.name}) for k, v in members[:30]}
+        if len(members) > 30:
+            out["…"] = f"{len(members) - 30} more"
+        return out
+    if kind == "list":
+        return [_sketch(shape.member, depth, seen)]
+    if kind == "map":
+        return {"<key>": _sketch(shape.value, depth - 1, seen)}
+    return kind
+
+
+def describe(service: str, operation: Optional[str] = None) -> dict[str, Any]:
+    """What an AWS operation takes and answers, from botocore's model -- no
+    call, no credentials: what a builder needs to write `params` and `rows`
+    without guessing. Without an operation, the service's reads."""
+    import difflib
+
+    services = _botocore.get_available_services()
+    if service not in services:
+        close = difflib.get_close_matches(service, services, n=5, cutoff=0.5)
+        raise AwsRequestError(f"There is no AWS service called {service!r}"
+                              + (f"; did you mean {', '.join(close)}?" if close else "."))
+    model = _botocore.get_service_model(service)
+    if not operation:
+        reads = [n for n in model.operation_names if refused(service, n) is None]
+        return {"service": service, "reads": reads}
+    try:
+        name = operation_name(service, operation)
+    except AwsRequestError:
+        close = difflib.get_close_matches(operation, model.operation_names, n=5, cutoff=0.4)
+        raise AwsRequestError(f"{service} has no operation {operation!r}"
+                              + (f"; did you mean {', '.join(close)}?" if close else ".")) from None
+    op = model.operation_model(name)
+    inputs = op.input_shape
+    required = set(inputs.required_members) if inputs is not None else set()
+    params = {k: v.type_name + (" (required)" if k in required else "")
+              for k, v in (inputs.members.items() if inputs is not None else [])}
+    out: dict[str, Any] = {"service": service, "operation": name, "params": params}
+    message = refused(service, name)
+    if message:
+        out["refused"] = message
+    if op.output_shape is not None:
+        out["reply"] = _sketch(op.output_shape)
+        out["lists"] = lists(op.output_shape)
+    try:
+        out["paginates"] = _botocore.get_paginator_model(service).get_paginator(name) is not None
+    except Exception:  # noqa: BLE001 -- botocore raises for a service or operation without paginators
+        out["paginates"] = False
     return out
 
 

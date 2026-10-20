@@ -40,6 +40,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 
 from . import grounding
+from .builder import run_build
 from .config import Settings
 from .prompt import SYSTEM_PROMPT, build_prompt, run_prompt, session_prompt, turn_reads
 from .repair import STOPPED_SHORT, VALID_NAME, TurnGuard
@@ -70,6 +71,23 @@ def build_check_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpen
         max_tokens=600,
         streaming=False,
         timeout=60,
+        max_retries=1,
+    )
+
+
+def build_builder_model(settings: Settings, client: httpx.AsyncClient) -> ChatOpenAI:
+    """The Builder's (builder.py): one JSON object per call, so not streamed;
+    its own model when AGENT_BUILDER_MODEL names one -- building is where a
+    stronger model pays for itself."""
+    return ChatOpenAI(
+        http_async_client=client,
+        model=settings.builder_model or settings.model,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        temperature=settings.builder_temperature if settings.builder_temperature is not None else settings.temperature,
+        max_tokens=settings.builder_max_tokens or settings.max_tokens,
+        streaming=False,
+        timeout=300,
         max_retries=1,
     )
 
@@ -252,6 +270,18 @@ async def run_turn(
     except Exception as e:  # noqa: BLE001 -- reported to the user, not raised
         logger.warning("Could not load the platform's tools: %s", e)
         yield {"type": "error", "message": f"The agent couldn't reach the platform's tools ({_reason(e)})."}
+        return
+
+    if focus and focus.get("kind") == "build" and settings.builder == "loop":
+        # Beside an editor, the Builder's own loop (D116): the code decides
+        # every step, the model only what to change.
+        http = httpx.AsyncClient(timeout=300)
+        try:
+            async for event in run_build(tools, model or build_builder_model(settings, http), focus, messages,
+                                         settings.builder_rounds):
+                yield event
+        finally:
+            await http.aclose()
         return
 
     # Everything the turn has seen, for checking the answer against: the

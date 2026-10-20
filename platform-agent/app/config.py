@@ -32,6 +32,16 @@ class Settings:
     # D55), and by which model -- the agent's own unless set.
     check: bool = True
     check_model: Optional[str] = None
+    # A turn beside an editor (D116): "loop" runs the Builder's own loop
+    # (builder.py) -- plan, read, change by path, check, repair -- and "agent"
+    # the chat agent with build tools, as before. Its model, temperature and
+    # output ceiling default to the agent's; `builder_rounds` is how many
+    # times a draft with problems goes back to the model.
+    builder: str = "loop"
+    builder_model: Optional[str] = None
+    builder_temperature: Optional[float] = None
+    builder_max_tokens: Optional[int] = None
+    builder_rounds: int = 4
 
     @property
     def configured(self) -> bool:
@@ -52,4 +62,10 @@ def load() -> Settings:
         max_tokens=int(os.environ["AGENT_MAX_TOKENS"]) if os.environ.get("AGENT_MAX_TOKENS") else None,
         check=os.environ.get("AGENT_CHECK", "on").lower() not in ("off", "false", "0", "no"),
         check_model=os.environ.get("AGENT_CHECK_MODEL") or None,
+        builder=(os.environ.get("AGENT_BUILDER") or "loop").lower(),
+        builder_model=os.environ.get("AGENT_BUILDER_MODEL") or None,
+        builder_temperature=(float(os.environ["AGENT_BUILDER_TEMPERATURE"])
+                             if os.environ.get("AGENT_BUILDER_TEMPERATURE") else None),
+        builder_max_tokens=int(os.environ["AGENT_BUILDER_MAX_TOKENS"]) if os.environ.get("AGENT_BUILDER_MAX_TOKENS") else None,
+        builder_rounds=max(1, int(os.environ.get("AGENT_BUILDER_ROUNDS", "4"))),
     )

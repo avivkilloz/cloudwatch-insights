@@ -455,7 +455,11 @@ function Rendered({ m }: { m: PaneManifest }) {
       } else if (action.request) {
         const result = await runStored(action, sent, undefined, storedIn(opts));
         if (!took(result)) {
-          for (const o of m.outputs) setOutput(o.key, result[o.key]);
+          // One with an `output` of its own replaces only that (and `error`),
+          // as the server stores it (routers/panes.request_keys): a pane with
+          // two requests kept losing one list to the other.
+          const into = typeof action.request.output === "string" ? [action.request.output, "error"] : null;
+          for (const o of m.outputs) if (!into || into.includes(o.key)) setOutput(o.key, result[o.key]);
           setOutput("ranAt", Date.now());
           setOutput("resultsVersion", (v: unknown) => (Number(v) || 0) + 1);
         }

@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-17, Phase 4b-2 (approvals, background-run steps, the blob store; PLATFORM_PLAN.md §22.8)._
+_Last updated: 2026-10-20, Phase 5-2e (the Builder's own loop; PLATFORM_PLAN.md §24, D116–D118)._
 
 ## Platform plan
 
@@ -1298,7 +1298,30 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**#132 merged. Fixes from a Building-tab chat, and 5-2d: the form
+**This PR: the Builder's own loop (PLATFORM_PLAN.md §24, D116–D118).** The
+agent beside the editor still couldn't add jobs and rules to an IoT pane: it
+read the draft again and again, its find-and-replace edits missed, it said "I
+need to add the outputs first" and stopped. The user asked for reliability,
+new pods and agents welcome.
+- A turn beside an editor is a loop the code drives (`platform-agent/app/
+  builder.py`): plan → read what it named → changes by path → check → repair
+  (up to 4 rounds) → propose. The model answers one JSON object per call and
+  never chooses a step; out of rounds the draft still reaches the editor,
+  its problems named. Own model/rounds (`AGENT_BUILDER_*`), and optionally its
+  own Deployment (Helm `agent.builder.deployment`, `AGENT_BUILDER_URL`).
+- Changes by path (`yaml_edit.py`, `change_definition`), spliced and verified
+  by what they mean; `describe_aws_operation` from botocore's models; a
+  request's `rows.at`/columns held to the operation's reply by the check.
+- Found on the way: every request wrote `rows` and cleared the pane, so two
+  lists in one pane wiped each other -- `request.output` (D118).
+- Tests: backend `test_builder_loop.py` (10; the two-requests one fails on the
+  old clearing) and a relay case in `test_agent_chat.py`; agent +5 loop tests
+  and an evals case; browser `smoke98` (9, failing against the old frontend),
+  `smoke93` updated. Evals: `build-iot-jobs-and-rules` (the user's own
+  request) and `build-lambda-from-scratch` for a real model;
+  `fake-build-jobs-and-rules` passes against the real backend.
+
+**#133 merged. Fixes from a Building-tab chat, and 5-2d: the form
 (PLATFORM_PLAN.md §24, D114–D115).** The user asked the agent to add jobs and
 rules to a pane started from IoT; it got stuck.
 - Examples start clean (IoT failed Check on `flag:`); the reference's AWS

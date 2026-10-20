@@ -98,10 +98,83 @@ async def check_definition(kind: str, source: str, ctx: Context, definition_id: 
     return {"ok": source.startswith("label: "), "errors": []}
 
 
+# The turn's working draft, as the backend keeps it on the token (D114); the
+# stub's changes go by path over plain data, its check is two rules of the
+# real one -- enough for the Builder's loop to meet a problem and fix it.
+DRAFT = {"source": ""}
+
+
+def _stub_problems(data: dict) -> list[dict]:
+    outputs = {o.get("key") for o in data.get("outputs") or []}
+    errors = []
+    for card in data.get("layout") or []:
+        for item in card.get("items") or []:
+            if item.get("output") and item["output"] not in outputs:
+                errors.append({"line": 3, "message": f"the layout names an output {item['output']} that isn't declared"})
+    for action in data.get("actions") or []:
+        request = action.get("request") or {}
+        if request.get("operation") == "ListJobs" and (request.get("rows") or {}).get("at") != "jobs":
+            errors.append({"line": 7, "message": "ListJobs's reply: there is no items at jobs. Its lists are at: jobs."})
+    return errors
+
+
+def _stub_at(node, part: str):
+    if isinstance(node, list):
+        return next(i for i, x in enumerate(node) if isinstance(x, dict) and part in (x.get("key"), x.get("id"), x.get("title")))
+    return part
+
+
 @stub.tool()
-async def propose_definition(kind: str, source: str, summary: str, ctx: Context, definition_id: str | None = None) -> dict:
+async def read_draft(ctx: Context, start_line: int = 1, end_line: int | None = None) -> dict:
     _auth(ctx)
-    return {"ok": True, "note": "It's in the editor, unsaved.", "propose": {"kind": kind, "source": source, "summary": summary}}
+    lines = DRAFT["source"].splitlines()
+    return {"lines": len(lines), "text": "\n".join(f"{n}: {line}" for n, line in enumerate(lines, 1))}
+
+
+@stub.tool()
+async def change_definition(changes: list[dict], ctx: Context, kind: str | None = None) -> dict:
+    import yaml
+
+    _auth(ctx)
+    data = yaml.safe_load(DRAFT["source"]) or {}
+    for change in changes:
+        parts = change["path"].split("/")
+        node = data
+        try:
+            for part in parts[:-1]:
+                node = node[_stub_at(node, part)] if isinstance(node, list) else node.setdefault(part, {})
+        except StopIteration:
+            raise ToolError(f"{change['path']}: there is no such item. Nothing was changed.") from None
+        last = parts[-1]
+        if change["op"] == "set":
+            node[_stub_at(node, last) if isinstance(node, list) else last] = change["value"]
+        elif change["op"] == "add":
+            node.setdefault(last, []).append(change["value"])
+        else:
+            del node[_stub_at(node, last) if isinstance(node, list) else last]
+    DRAFT["source"] = yaml.safe_dump(data, sort_keys=False)
+    errors = _stub_problems(data)
+    return {"ok": not errors, "errors": errors, "changed": len(changes)}
+
+
+@stub.tool()
+async def describe_aws_operation(service: str, ctx: Context, operation: str | None = None) -> dict:
+    _auth(ctx)
+    return {"service": service, "operation": operation, "reply": {"jobs": [{"jobId": "string"}]}, "lists": ["jobs"]}
+
+
+@stub.tool()
+async def propose_definition(summary: str, ctx: Context, kind: str | None = None, source: str | None = None,
+                             definition_id: str | None = None, even_with_problems: bool = False) -> dict:
+    import yaml
+
+    _auth(ctx)
+    text = source if source is not None else DRAFT["source"]
+    errors = _stub_problems(yaml.safe_load(text) or {})
+    if errors and not even_with_problems:
+        raise ToolError("Nothing was put in the editor; fix these: " + "; ".join(e["message"] for e in errors))
+    out = {"ok": not errors, "propose": {"kind": kind or "pane", "source": text, "summary": summary}}
+    return {**out, "problems": "; ".join(e["message"] for e in errors)} if errors else out
 
 
 def _free_port() -> int:
@@ -525,12 +598,13 @@ def test_the_check_can_be_turned_off(settings):
 
 
 def test_a_build_chat_reads_the_reference_and_the_editor_and_proposes(settings):
-    """Building (D107): the turn reads what a definition can say and the
-    editor's text, and a proposal is passed on for the browser to put in the
-    editor -- never saved by the agent."""
+    """Building (D107) as the chat agent with build tools (AGENT_BUILDER=agent):
+    the turn reads what a definition can say and the editor's text, and a
+    proposal is passed on for the browser to put in the editor -- never saved
+    by the agent."""
     fake_llm.REQUESTS.clear()
     focus = {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Old\ndescription: x\n"}
-    events = _events(settings, "build Loud encoder", focus=focus)
+    events = _events(Settings(**{**settings.__dict__, "builder": "agent"}), "build Loud encoder", focus=focus)
     reads = [e for e in events if e["type"] == "tool_call" and e.get("preamble") and e["name"] != "check_answer"]
     assert [(r["name"], r["args"]) for r in reads] == [("get_context", {}), ("build_reference", {"kind": "pane"})]
     sent = fake_llm.REQUESTS[0]["messages"]
@@ -558,3 +632,82 @@ def test_each_stretch_between_tools_may_be_nudged_and_a_stuck_turn_says_so(setti
     stuck = _events(settings, "stuck")
     notices = [e["message"] for e in stuck if e["type"] == "notice"]
     assert any("stopped without doing it" in n for n in notices), notices
+
+
+# ---------------------------------------------------------------- the Builder's loop (D116)
+
+IOT = "label: IoT\ndescription: Things.\nactions: []\noutputs: []\nlayout: []\n"
+
+
+def _build(settings: Settings, text: str, source: str, **overrides) -> list[dict]:
+    DRAFT["source"] = source  # what the backend mints the token with
+    focus = {"kind": "build", "what": "pane", "title": "IoT", "source": source}
+    return _events(Settings(**{**settings.__dict__, **overrides}), text, focus=focus)
+
+
+def _steps(events: list[dict]) -> list[str]:
+    return [e["name"] for e in events if e["type"] == "tool_call"]
+
+
+def test_beside_an_editor_the_code_runs_the_steps_and_the_model_only_says_what_to_change(settings):
+    """A model that chose its own steps read the draft over and over, missed
+    its find-and-replace edits and stopped halfway (the IoT jobs and rules
+    chat). Now every step is the code's: the model is asked for a plan and
+    for changes by path, each one JSON object, and the draft is proposed."""
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "rename Loud encoder", "label: Old\ndescription: x\n")
+    assert _steps(events) == ["build_reference", "plan_change", "write_changes", "change_definition",
+                              "propose_definition"]
+    assert all(e.get("preamble") for e in events if e["type"] == "tool_call"), "the platform's steps, never replayed"
+    [proposed] = [e for e in events if e.get("propose")]
+    assert proposed["propose"]["source"].startswith("label: Loud encoder\n")
+    assert "Renamed it Loud encoder." in _answer(events) and "not saved yet" in _answer(events)
+    assert events[-1]["type"] == "done"
+    assert len(fake_llm.BUILDS) == 2 and not any(b.get("tools") for b in fake_llm.BUILDS), "no tools offered to it"
+
+
+def test_a_problem_goes_back_to_the_model_with_the_draft_as_it_is_and_is_fixed(settings):
+    """Asked for IoT's jobs and rules, it reads both operations first, makes
+    every part of both lists in one set of changes, and when the check says
+    the jobs' rows aren't where it said, it's told so and fixes that."""
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "add jobs and rules", IOT)
+    assert _steps(events) == [
+        "build_reference", "plan_change", "describe_aws_operation", "describe_aws_operation", "write_changes",
+        "change_definition", "write_changes", "change_definition", "propose_definition",
+    ]
+    first, second = [e for e in events if e["type"] == "tool_result" and e["name"] == "change_definition"]
+    assert not json.loads(first["summary"])["ok"] and json.loads(second["summary"])["ok"]
+    repair = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert "Reply with the changes that fix this" in repair and "Its lists are at: jobs" in repair
+    assert "describe_aws_operation iot ListJobs" in repair, "what it read stays in front of it"
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "at: jobs\n" in proposed["propose"]["source"] and "key: rules" in proposed["propose"]["source"]
+    assert "each with its own card. The check caught 1 problem on the way, fixed." in _answer(events)
+
+
+def test_out_of_rounds_the_work_so_far_goes_in_the_editor_with_its_problems_named(settings):
+    events = _build(settings, "never clean", IOT, builder_rounds=2)
+    assert _steps(events).count("write_changes") == 2
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "Card" in proposed["propose"]["source"]
+    notices = [e["message"] for e in events if e["type"] == "notice"]
+    assert notices and "isn't declared" in notices[0]
+    assert "Ask me to carry on" in _answer(events)
+
+
+def test_a_question_is_answered_and_a_change_that_cant_be_made_is_said(settings):
+    asked = _build(settings, "explain rows.at", IOT)
+    assert _steps(asked) == ["build_reference", "plan_change"] and "where the reply keeps its list" in _answer(asked)
+    refused = _build(settings, "impossible thing", IOT)
+    assert "change_definition" not in _steps(refused) and "doesn't have" in _answer(refused)
+    assert not [e for e in refused if e.get("propose")]
+
+
+def test_a_reply_that_isnt_json_is_asked_for_again(settings):
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "garbled Neat", "label: Old\n")
+    assert len(fake_llm.BUILDS) == 3, "the plan asked twice, then the change"
+    assert "wasn't the JSON object asked for" in fake_llm.BUILDS[1]["messages"][-1]["content"]
+    [proposed] = [e for e in events if e.get("propose")]
+    assert proposed["propose"]["source"] == "label: Neat\n"

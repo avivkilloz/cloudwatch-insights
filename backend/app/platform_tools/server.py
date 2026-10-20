@@ -1691,6 +1691,53 @@ async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = Non
 
 
 @mcp.tool()
+async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] = None) -> dict:
+    """Changes the working draft of the definition in the editor the user has open by path, never by text: each
+    change is {"op": "set"|"add"|"remove", "path": "where", "value": plain data (set, add), "before": an item
+    (add, optional)}. A path's parts are keys or list items, an item named by its key/id/title (or field=value, or
+    its index): "outputs/jobs/render", "actions/list/request/rows", "layout/Results/items". `set` replaces or adds
+    a key; `add` appends an item to a list (made if missing), before `before` if given; `remove` drops a key or
+    item. All or none are applied, in order, then the draft is checked: problems come back with their lines. Add
+    everything a part needs in one call -- its action, its output and its card -- so nothing names what isn't
+    there yet. Nothing reaches the editor until propose_definition."""
+    from .. import yaml_edit
+
+    with _acting() as (db, user, caller):
+        kind = _kind_of(caller, kind)
+        _may_build(user, kind)
+        source = _source_of(db, caller, None)
+        try:
+            source = yaml_edit.apply_all(source, changes)
+        except yaml_edit.EditError as e:
+            raise InputError(f"{e} Nothing was changed.") from None
+        row = _token_row(db, caller)
+        row.build_draft = source
+        db.commit()
+        errors = _checked(db, kind, source, caller.build_id, user)
+        out: dict[str, Any] = {"ok": not errors, "errors": errors, "changed": len(changes),
+                               "lines": len(source.splitlines())}
+        if errors:
+            out["near"] = _near(source, errors)
+        return out
+
+
+@mcp.tool()
+async def describe_aws_operation(service: str, operation: Optional[str] = None) -> dict:
+    """What an AWS API operation takes and answers, from the AWS SDK's own model -- no call is made: its params
+    (required marked), its reply's shape, where the reply keeps its lists (what a request's rows.at names) and
+    whether it paginates. Without an operation, the service's read operations. For writing an AWS request in a
+    pane type without guessing the fields."""
+    from .. import aws_request
+
+    with _acting() as (_db, user, _caller):
+        _may_build(user, "pane")
+        try:
+            return aws_request.describe(service, operation)
+        except aws_request.AwsRequestError as e:
+            raise InputError(str(e)) from None
+
+
+@mcp.tool()
 async def check_definition(kind: Optional[str] = None, source: Optional[str] = None,
                            definition_id: Optional[str] = None) -> dict:
     """Checks a pane type's or a workflow's YAML in full, as Check and Save do: every problem, each with its line.
@@ -1708,16 +1755,23 @@ async def check_definition(kind: Optional[str] = None, source: Optional[str] = N
 
 @mcp.tool()
 async def propose_definition(summary: str, kind: Optional[str] = None, source: Optional[str] = None,
-                             definition_id: Optional[str] = None) -> dict:
+                             definition_id: Optional[str] = None, even_with_problems: bool = False) -> dict:
     """Puts a pane type's or a workflow's YAML into the editor the user has open, replacing what's there, for them
     to review, Check and Save -- you can't save it yourself. Without `source`, the working draft (what
-    edit_definition made). It's checked first: with any problem, nothing is put there and this fails, naming them.
-    `summary` says in a sentence what you changed."""
+    edit_definition made). It's checked first: with any problem, nothing is put there and this fails, naming them
+    -- unless even_with_problems, for when the user asked for the draft as it is. `summary` says in a sentence
+    what you changed."""
     with _acting() as (db, user, caller):
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
         errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user)
+        if errors and even_with_problems:
+            # The Builder's loop (D116), when its rounds ran out: the user's
+            # editor gets the work so far -- its Check shows what's left, and
+            # "carry on" next turn starts from it rather than from scratch.
+            return {"ok": False, "problems": _problems(errors), "note": "It's in the editor with these problems.",
+                    "propose": {"kind": kind, "source": text, "summary": summary[:300]}}
         if errors:
             # A failure, not an ordinary answer: shown as a refused step, and
             # read as one -- "Put a draft in the editor ✓" over a refusal let a
