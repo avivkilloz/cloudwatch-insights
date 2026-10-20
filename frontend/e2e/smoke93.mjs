@@ -70,6 +70,20 @@ const run = async () => {
   check(!saved.some((t) => t.label === PANE_LABEL), "Nothing was saved: the user's Create does that");
   await page.screenshot({ path: `${SHOT}/smoke93-builder.png` });
 
+  // ---- 1b. started from a platform pane, as the user did with IoT: it checks
+  // clean as it comes (its flag: line failed Check first), and a change to
+  // it is one small edit to the turn's draft, the rest kept (D114)
+  await page.selectOption("#builder-start", "iot");
+  await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("searchMode"));
+  await page.click('.builder-view button:text-is("Check")');
+  await page.waitForSelector('.builder-notice:text-is("No problems found.")', { timeout: 5000 });
+  check(true, "Started from the IoT pane, the draft checks clean as it comes");
+  const edited = await ask(page, `rename IoT plus ${STAMP}`);
+  check(edited.includes("Edited the draft") && edited.includes("Put a draft in the editor"), "The agent changes it with an edit, then proposes the draft", edited);
+  const iot = await page.inputValue("#builder-source");
+  check(iot.includes(`label: IoT plus ${STAMP}`) && iot.includes("searchMode") && iot.includes("aws.iot.search"),
+    "…and the editor holds IoT with only that changed", iot.slice(0, 120));
+
   // ---- 2. a workflow's editor
   await page.click('.rail-row-page:has-text("Workflows")');
   await page.click('button:text-is("New workflow")');

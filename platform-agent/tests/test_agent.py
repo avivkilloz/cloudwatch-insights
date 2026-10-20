@@ -544,3 +544,17 @@ def test_a_build_chat_reads_the_reference_and_the_editor_and_proposes(settings):
         "check_definition", "propose_definition",
     ]
     assert "in the editor, called Loud encoder" in _answer(events)
+
+
+def test_each_stretch_between_tools_may_be_nudged_and_a_stuck_turn_says_so(settings):
+    """A long turn announced its next step a dozen times; two nudges a turn
+    were spent early, and its last "Let me put it in your editor now:" ended
+    the turn with nothing to say why."""
+    events = _events(settings, "stepwise")
+    ran = [e for e in events if e["type"] == "tool_call" and e["name"] == "run_pane"]
+    assert len(ran) == 3, [e.get("name") for e in events if e["type"] == "tool_call"]
+    assert "Done all three" in _answer(events)
+
+    stuck = _events(settings, "stuck")
+    notices = [e["message"] for e in stuck if e["type"] == "notice"]
+    assert any("stopped without doing it" in n for n in notices), notices

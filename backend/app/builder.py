@@ -171,6 +171,34 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
     return errors
 
 
+# ---------------------------------------------------------------- the examples (D72)
+
+# Top-level keys a bundled manifest has and a built one may not (`check`):
+# the id is the Builder's Id field; a flag and connection types are an
+# admin's to grant and make.
+_NOT_BUILT = ("id", "flag", "connection_types")
+
+
+def example_source(type_id: str) -> str:
+    """A bundled pane type's file as a start for a built one: comments and
+    all, without what a built pane may not say -- started from as it was,
+    IoT failed Check on its `flag:` line before anything was changed."""
+    text = (pane_manifest.MANIFEST_DIR / f"{type_id}.yaml").read_text()
+    out: list[str] = []
+    skipping = False
+    for line in text.splitlines():
+        top = re.match(r"^([A-Za-z_][\w-]*)\s*:", line)
+        if top:
+            skipping = top.group(1) in _NOT_BUILT
+        elif line and not line[0].isspace() and not line.startswith("#"):
+            skipping = False
+        if not skipping:
+            out.append(line)
+    label = pane_manifest.bundled()[type_id].label
+    head = f"# Started from {label}: its id, flag and connection types left out -- a built pane has none of its own.\n"
+    return head + "\n".join(out).strip("\n") + "\n"
+
+
 # ---------------------------------------------------------------- which handlers a builder may name (D113)
 
 
@@ -407,6 +435,13 @@ def _fields(model: Any) -> dict[str, str]:
     return out
 
 
+# How a reply becomes rows (platform_tools/panes.extract_rows), for both kinds of request.
+ROWS_DOC = (
+    "{at: where the list is (a dotted path), columns: {Column name: path in each item, or {from: path, as: "
+    "text|number|time}}, explode: a list in each item to make a row per element of, spread: an object whose keys "
+    "become columns}; without columns, each item is the row"
+)
+
 # What an AWS request looks like whole, for the agent (a working pane type).
 AWS_EXAMPLE = """label: Lambda functions
 description: The Lambda functions in each environment, with their runtime and size.
@@ -470,29 +505,35 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "input": _fields(m.ManifestInput),
             "action": _fields(m.ManifestAction),
             # A request is a mapping the action endpoint reads (routers/panes.run_request).
-            "request": {
-                "method": "GET",
-                "connection": "the input holding the connection (an HTTP type's)",
+            # An action's `request:` is one mapping, read two ways: to a
+            # connection of an HTTP type, or -- with `service` and
+            # `operation` -- an AWS API call (D110). Kept as two entries:
+            # nested under an `aws` key, a model wrote an `aws:` key that
+            # doesn't exist.
+            "request (HTTP)": {
+                "what": "an action's `request:` mapping, on a connection input of an HTTP type: a GET",
+                "connection": "the input holding the connection",
                 "path": "the input holding the path after the base URL", "fixed_path": "a path of its own instead",
                 "query": "the input holding name -> value parameters (a headers input)",
                 "params": "{name: literal | {input: key} | {window: start|end|step}}",
-                "window": "the time-range inputs a {window: ...} param reads",
+                "window": "{preset, start, end}: the time-range inputs a {window: ...} param reads",
                 "rows_at": "the input naming where the rows are in the reply (a dotted path)",
-                "rows": "{at, explode, columns: [{name, at, as: text|number|time}], spread, labels}",
-                # Any AWS read API, as data (D110): a request with a `service`.
-                "aws": {
-                    "connection": "an input of type connection (one account) or connections (several: the rows of "
-                                  "each, an Environment column first, and the ones that failed in output `error`), "
-                                  "connection_type aws",
-                    "service": "botocore's service name: lambda, ecs, sqs, rds, ec2…",
-                    "operation": "the API operation, ListFunctions (or list_functions); only reads: "
-                                 + ", ".join(aws_request.READS) + "…, never one that hands out secrets",
-                    "params": "{Name: literal | {input: key} | {window: start|end|step}}; Filter.Name nests",
-                    "paginate": "true: every page, up to max_items (default 1000, at most 5000)",
-                    "rows": "as above; left out, the reply's first list",
-                    "outputs": "rows (render table), response (one connection), error (render error; several)",
-                    "example": AWS_EXAMPLE,
-                },
+                "rows": ROWS_DOC,
+            },
+            "request (AWS)": {
+                "what": "the same `request:` mapping with `service` and `operation` (there is no `aws:` key): an AWS "
+                        "API call that reads, as the user's group",
+                "connection": "an input of type connection (one account) or connections (several: the rows of each, "
+                              "an Environment column first, and the ones that failed in output `error`), "
+                              "connection_type aws",
+                "service": "botocore's service name: lambda, ecs, sqs, iot, rds, ec2…",
+                "operation": "the API operation, ListFunctions (or list_functions); only reads: "
+                             + ", ".join(aws_request.READS) + "…, never one that hands out secrets",
+                "params": "{Name: literal | {input: key} | {window: start|end|step}}; Filter.Name nests",
+                "paginate": "true: every page, up to max_items (default 1000, at most 5000)",
+                "rows": ROWS_DOC + "; left out, the reply's first list",
+                "outputs": "rows (render table), response (one connection), error (render error; several)",
+                "example": AWS_EXAMPLE,
             },
             "output": _fields(m.ManifestOutput),
             "card": _fields(m.Card),

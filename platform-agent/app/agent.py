@@ -42,7 +42,7 @@ from langchain_openai import ChatOpenAI
 from . import grounding
 from .config import Settings
 from .prompt import SYSTEM_PROMPT, build_prompt, run_prompt, session_prompt, turn_reads
-from .repair import VALID_NAME, TurnGuard
+from .repair import STOPPED_SHORT, VALID_NAME, TurnGuard
 from .text import StepText, looping
 
 logger = logging.getLogger(__name__)
@@ -464,6 +464,8 @@ async def run_turn(
         yield {"type": "notice", "message": grounding.notice(missing)}
     if guard.notice:
         yield {"type": "notice", "message": guard.notice}
+    elif guard.stuck and answer.strip():
+        yield {"type": "notice", "message": STOPPED_SHORT}
     yield {"type": "done"}
 
 

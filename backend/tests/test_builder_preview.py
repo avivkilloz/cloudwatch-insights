@@ -97,3 +97,63 @@ def test_the_agent_previews_a_draft_before_proposing_it(mcp, monkeypatch):
     with SessionLocal() as db:
         pat_id = db.query(models.User).filter_by(username="pat2").one().id
     assert "isn't turned on" in call_error(mcp, _token(pat_id), "preview_definition", source=ONE, action="list")
+
+
+# ---------------------------------------------------------------- the turn's working draft (D114)
+
+
+def _build_token(source: str, kind: str = "pane", definition_id: str | None = None) -> str:
+    from app.platform_tools import tokens
+
+    with SessionLocal() as db:
+        admin = db.query(models.User).filter_by(username="admin").one()
+        return tokens.mint(db, admin, build={"kind": kind, "id": definition_id, "source": source})
+
+
+def test_beside_an_editor_the_agent_edits_a_draft_a_piece_at_a_time(mcp):
+    """Regenerating an IoT-sized manifest for every check ran a model out of
+    tokens; now it changes the editor's text with small edits."""
+    from tests.test_platform_tools import call_error
+
+    token = _build_token(ENCODER)
+    assert call(mcp, token, "read_draft")["text"].startswith("1: label: Shouty encoder")
+    assert call(mcp, token, "check_definition") == {"ok": True, "errors": []}
+
+    # Each find must be in the draft exactly once; otherwise nothing changes.
+    missing = call_error(mcp, token, "edit_definition", edits=[{"find": "no such text", "replace": "x"}])
+    assert "isn't in the draft" in missing
+    twice = call_error(mcp, token, "edit_definition", edits=[{"find": "    items:\n", "replace": "x"}])
+    assert "2 times" in twice
+
+    # A broken edit is kept (a change can pass through broken states) and named, with the lines around it.
+    broken = call(mcp, token, "edit_definition", edits=[{"find": "live: base64.convert", "replace": "handler: no.such"}])
+    assert broken["ok"] is False and "11: " in broken["near"] and "no.such" in broken["near"]
+    assert "no.such" in call_error(mcp, token, "propose_definition", summary="Broken.")
+
+    fixed = call(mcp, token, "edit_definition", edits=[
+        {"find": "handler: no.such", "replace": "live: base64.convert"},
+        {"find": "label: Shouty encoder", "replace": "label: Loud encoder"},
+    ])
+    assert fixed["ok"] is True
+    proposed = call(mcp, token, "propose_definition", summary="Renamed it.")
+    assert proposed["propose"]["source"] == ENCODER.replace("Shouty encoder", "Loud encoder")
+
+
+def test_outside_an_editor_there_is_no_draft(mcp):
+    from tests.test_platform_tools import call_error
+
+    assert "only beside an editor" in call_error(mcp, _token(), "check_definition", kind="pane")
+    # Given its source, a check needs no editor.
+    assert call(mcp, _token(), "check_definition", kind="pane", source=ENCODER)["ok"] is True
+
+
+def test_every_example_starts_a_pane_type_that_checks_clean():
+    """Started from as it was, IoT failed Check on its `flag:` line before
+    anything was changed."""
+    from app.panes import manifest as pane_manifest
+
+    for type_id in pane_manifest.bundled():
+        out = client.get(f"/api/builder/examples/{type_id}").json()
+        assert "flag:" not in out["source"] and not out["source"].startswith("id:"), type_id
+        checked = client.post("/api/builder/check", json={"source": out["source"]}).json()
+        assert checked == {"ok": True, "errors": []}, (type_id, checked)

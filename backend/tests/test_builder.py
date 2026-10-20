@@ -147,7 +147,7 @@ def test_a_built_pane_is_kept_in_the_store_and_comes_back(remote):
 def test_the_agent_reads_what_a_definition_can_say_and_checks_a_draft(mcp):
     token = _token()
     ref = call(mcp, token, "build_reference", kind="pane")
-    assert "label" in ref["manifest"] and "request" in ref and "base64.convert" in ref["live_functions"]
+    assert "label" in ref["manifest"] and "request (AWS)" in ref and "request (HTTP)" in ref and "base64.convert" in ref["live_functions"]
     assert "aws.dynamodb.scan" in ref["handlers"] and "tool-base64" in ref["examples"]
     example = call(mcp, token, "read_definition", kind="pane", definition_id="tool-base64")
     assert "live: base64.convert" in example["source"]
@@ -157,8 +157,12 @@ def test_the_agent_reads_what_a_definition_can_say_and_checks_a_draft(mcp):
     # A new one's id is the editor's own field: the draft isn't faulted for lacking it.
     assert call(mcp, token, "check_definition", kind="pane", source=ENCODER) == {"ok": True, "errors": []}
 
-    refused = call(mcp, token, "propose_definition", kind="pane", source="label: x\n", summary="A start.")
-    assert refused["ok"] is False and "propose" not in refused and refused["errors"]
+    from tests.test_platform_tools import call_error
+
+    # Refused as a failed step, not answered as one that went through ("Put a
+    # draft in the editor ✓" over a refusal was taken as done).
+    refused = call_error(mcp, token, "propose_definition", kind="pane", source="label: x\n", summary="A start.")
+    assert "Nothing was put in the editor" in refused and "layout" in refused
     proposed = call(mcp, token, "propose_definition", kind="pane", source=ENCODER, summary="A shouting encoder.")
     assert proposed["propose"] == {"kind": "pane", "source": ENCODER, "summary": "A shouting encoder."}
     # Nothing was saved: the user's Save is what saves.
