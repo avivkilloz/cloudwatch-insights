@@ -65,23 +65,30 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   }
 
   useEffect(() => {
+    // One load lands, or a late one puts the saved text over a restored draft.
+    let cancelled = false;
     api.stepSchema().then(
       (s) => {
+        if (cancelled) return;
         setSchema(s);
         if (isNew) setSource((current) => current || s.starter);
       },
-      (e) => setError(readableError(e)),
+      (e) => !cancelled && setError(readableError(e)),
     );
     if (!isNew) {
       api.listBuiltSteps().then(
         (list) => {
+          if (cancelled) return;
           const found = list.find((t) => t.id === id) ?? null;
           setItem(found);
           if (found) setSource(found.source);
         },
-        (e) => setError(readableError(e)),
+        (e) => !cancelled && setError(readableError(e)),
       );
     }
+    return () => {
+      cancelled = true;
+    };
   }, [id, isNew]);
 
   // The draft as the Try form reads it: its inputs, and whether it's a

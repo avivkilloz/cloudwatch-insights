@@ -297,23 +297,31 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   }
 
   useEffect(() => {
+    // One load lands: a second (StrictMode's, or a late one) arriving after
+    // the draft was put back would put the saved text over it (D125).
+    let cancelled = false;
     api.builderSchema().then(
       (s) => {
+        if (cancelled) return;
         setSchema(s);
         if (isNew) setSource((current) => current || s.starter);
       },
-      (e) => setError(readableError(e)),
+      (e) => !cancelled && setError(readableError(e)),
     );
     if (!isNew) {
       api.listBuiltPanes().then(
         (list) => {
+          if (cancelled) return;
           const found = list.find((t) => t.id === id) ?? null;
           setItem(found);
           if (found) setSource(found.source);
         },
-        (e) => setError(readableError(e)),
+        (e) => !cancelled && setError(readableError(e)),
       );
     }
+    return () => {
+      cancelled = true;
+    };
   }, [id, isNew]);
 
   async function check(): Promise<boolean> {

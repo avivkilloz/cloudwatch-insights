@@ -184,10 +184,7 @@ def _walk(shape: Any, path: str) -> tuple[Any, str]:
                 has = ", ".join(shape.members) if shape.type_name == "structure" else shape.type_name
                 return None, f"{where}'s items have no {part[1]} to pick one by (they have: {has})"
         elif part[0] == "key" and shape.type_name == "list":
-            fields = ", ".join(shape.member.members) if shape.member.type_name == "structure" else ""
-            pick = f"; pick one item by a field, as {where}[{next(iter(shape.member.members), 'Key')}=…].{part[1]}" \
-                if fields else ""
-            return None, f"{where} is a list, so there is no {part[1]} in it{pick}"
+            return None, f"{where} is the list itself, so there is no {part[1]} in it"
         elif part[0] in ("index", "match"):
             return None, f"{where} isn't a list, so {row_paths.describe(part)} picks nothing in it"
         else:
@@ -237,6 +234,11 @@ def _rows_problems(name: str, output: Any, rows: dict[str, Any]) -> list[tuple[t
             continue
         found, why = _walk(item, path)
         if found is None:
+            # A column is one value: a list in the item gives one item, picked by a field.
+            listed, _ = _walk(item, path.rsplit(".", 1)[0]) if "." in path else (None, "")
+            if listed is not None and listed.type_name == "list" and listed.member.type_name == "structure":
+                field = next(iter(listed.member.members), "Key")
+                why += f"; pick one item by a field, as {path.rsplit('.', 1)[0]}[{field}=…].{path.rsplit('.', 1)[1]}"
             items = f"{rows['explode']} (in each of {at})" if rows.get("explode") else f"{at} items"
             out.append((("rows", "columns", column), f"{name}'s {items} have no {path}: {why}."))
     return out

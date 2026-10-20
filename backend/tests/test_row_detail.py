@@ -170,8 +170,8 @@ def test_what_a_path_cant_say_is_said():
 
 def test_a_path_is_checked_against_the_operations_reply():
     errors = _check(EC2.replace("Tags[Key=Name].Value", "Tags.Name"))
-    assert errors == ["DescribeInstances's Instances (in each of Reservations) have no Tags.Name: Tags is a list, so "
-                      "there is no Name in it; pick one item by a field, as Tags[Key=…].Name."], errors
+    assert errors == ["DescribeInstances's Instances (in each of Reservations) have no Tags.Name: Tags is the list "
+                      "itself, so there is no Name in it; pick one item by a field, as Tags[Key=…].Name."], errors
     errors = _check(EC2.replace("Tags[Key=Name].Value", "Tags[Nope=Name].Value"))
     assert any("Tags's items have no Nope to pick one by (they have: Key, Value)" in e for e in errors), errors
 
@@ -191,7 +191,7 @@ def test_what_the_agent_wrote_is_told_what_a_table_reads():
 def test_rows_open_only_with_a_view_key_and_sections_are_held_to_what_they_draw():
     assert _check(EC2) == []
     assert _check(builder.DETAIL_EXAMPLE) == []
-    no_view = EC2.replace("views:\n  - {key: expanded, default: []}\n", "")
+    no_view = EC2.replace("views:\n  - {key: expanded, default: []}\n", "").replace("    resets: [view.expanded]\n", "")
     assert any("Rows open only with `expand:`" in e for e in _check(no_view))
     assert any("A detail section has no rows" in e for e in _check(EC2.replace("- fields:", "- rows:")))
 

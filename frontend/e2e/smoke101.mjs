@@ -163,7 +163,9 @@ const run = async () => {
     await page.waitForSelector('.builder-notice:has-text("your group can use it now")', { timeout: 10000 });
     const paneId = (await api(page, "GET", "/builder/panes")).body.find((t) => t.id.endsWith(PANE)).id;
     made.push(["pane", paneId]);
-    check((await page.locator(`${DOCK} .agent-turn`).count()) >= 1, "Created, the chat is still beside it");
+    // The created one's editor reads its chat back from the draft it became.
+    await page.waitForSelector(`${DOCK} .agent-turn`, { timeout: 10000 });
+    check((await page.locator(`${DOCK} .agent-turn`).first().innerText()).includes(`build ${LABEL}`), "Created, the chat is still beside it");
     await back(page);
     const built = page.locator(`.builder-list tr[data-built="${paneId}"]`);
     await built.waitFor();
