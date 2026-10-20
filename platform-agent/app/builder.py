@@ -83,6 +83,15 @@ items do.
 working action, input or card with another.
 """
 
+STEP_RULES = """\
+Step types:
+- A step type is a request (an HTTP call on a connection input of an HTTP \
+connection_type, its path, query, headers and body templated from \
+inputs.<key>) or steps (a workflow's steps, reading inputs.<key> where a \
+workflow reads params), never both; `outputs` says what steps hand on.
+- Anything but a GET changes something: a workflow asks a person first.
+"""
+
 PLAN = """\
 First, decide. Reply with:
 {{
@@ -135,7 +144,7 @@ YAML's data as JSON (a list as [..], a mapping as {..}), never text holding YAML
 
 
 def _noun(kind: str) -> str:
-    return "pane type" if kind == "pane" else "workflow"
+    return {"pane": "pane type", "step": "step type"}.get(kind, "workflow")
 
 
 def _text(content: Any) -> str:
@@ -252,7 +261,7 @@ class Builder:
         self.steps += 1
         step_id = f"build-{self.steps}"
         self.events.append({"type": "tool_call", "id": step_id, "name": label, "args": {}, "preamble": True})
-        system = SYSTEM.format(noun=_noun(self.kind)) + (PANE_RULES if self.kind == "pane" else "")
+        system = SYSTEM.format(noun=_noun(self.kind)) + {"pane": PANE_RULES, "step": STEP_RULES}.get(self.kind, "")
         conversation = [SystemMessage(content=system), HumanMessage(content=context + "\n\n" + instructions)]
         problem = ""
         for _ in range(JSON_RETRIES + 1):

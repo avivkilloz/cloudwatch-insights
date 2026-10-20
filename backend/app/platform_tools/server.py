@@ -1546,49 +1546,53 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
 
 
 def _may_build(user: models.User, kind: str) -> None:
-    """Pane types are a Builder's (or an admin's); a workflow's definition is
-    an admin's until builders may edit workflows (5-3) -- as in the UI."""
-    from .. import builder
+    """Pane types, steps and workflows are a Builder's (or an admin's), as in
+    the UI (D121); which workflow they may change is the editor's to say."""
+    from .. import builder, workflows
 
-    if kind == "pane" and not builder.can_build(user):
-        raise InputError("Building pane types isn't turned on for the user's group.")
-    if kind == "workflow" and not (user.group and user.group.is_admin):
-        raise InputError("Only an admin edits workflows' definitions, for now.")
-    if kind not in ("pane", "workflow"):
-        raise InputError('kind is "pane" or "workflow".')
+    if kind in ("pane", "step") and not builder.can_build(user):
+        raise InputError("Building pane types and steps isn't turned on for the user's group.")
+    if kind == "workflow" and not workflows.can_create(user):
+        raise InputError("Making and editing workflows is for admins and builders.")
+    if kind not in ("pane", "workflow", "step"):
+        raise InputError('kind is "pane", "workflow" or "step".')
 
 
 def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User) -> list[dict]:
-    from .. import builder, workflows
+    from .. import builder, step_types, workflows
 
     try:
         if kind == "pane":
             # A new one's id is the editor's Id field, not the draft's: not held to anything.
             # Held to the handlers the user's group may run, as the editor's Check is (D113).
             builder.preview(source, definition_id, user)
+        elif kind == "step":
+            return step_types.access_errors(db, step_types.parse(source, definition_id), user, source)
         else:
-            workflows.parse(source)
-    except (builder.BuilderError, workflows.WorkflowError) as e:
+            return workflows.access_errors(db, workflows.parse(source), user, source)
+    except (builder.BuilderError, workflows.WorkflowError, step_types.StepTypeError) as e:
         return e.errors
     return []
 
 
 @mcp.tool()
 async def build_reference(kind: str) -> dict:
-    """What a pane type's ("pane") or a workflow's ("workflow") definition may say: each part's fields and types,
-    the handlers, live functions, input types and renders there are (panes), the panes and actions a step can run
-    (workflows), and the ids whose YAML read_definition shows as examples."""
-    from .. import builder
+    """What a pane type's ("pane"), a workflow's ("workflow") or a step type's ("step") definition may say: each
+    part's fields and types, the handlers, live functions, input types and renders there are (panes), the panes,
+    actions and step types a step can run (workflows, steps), and the ids whose YAML read_definition shows."""
+    from .. import builder, step_types
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
+        if kind == "step":
+            return step_types.reference(db, user)
         return builder.reference(db, kind, user)
 
 
 @mcp.tool()
 async def read_definition(kind: str, definition_id: str) -> dict:
-    """The YAML of an existing pane type (bundled or built here) or workflow, as written -- to learn from or to
-    start a change from."""
+    """The YAML of an existing pane type (bundled or built here), workflow or step type, as written -- to learn
+    from or to start a change from."""
     from .. import builder, workflows
 
     with _acting() as (db, user, _caller):
@@ -1600,6 +1604,11 @@ async def read_definition(kind: str, definition_id: str) -> dict:
             if definition_id in pane_manifest.bundled():
                 return {"kind": kind, "id": definition_id, "source": builder.example_source(definition_id)}
             raise InputError(f"There is no pane type {definition_id}; build_reference lists the examples.")
+        if kind == "step":
+            found = db.get(models.BuiltStepType, definition_id)
+            if found is None:
+                raise InputError(f"There is no step type {definition_id}; build_reference lists them.")
+            return {"kind": kind, "id": definition_id, "source": found.source}
         workflow = db.get(models.Workflow, definition_id)
         if workflow is None or not workflows.can_run(db, user, workflow):
             raise InputError(f"There is no workflow {definition_id} the user may read; build_reference lists them.")

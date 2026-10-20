@@ -187,9 +187,10 @@ def test_the_agent_builds_only_what_its_user_may(mcp):
         bea = db.query(models.User).filter_by(username="bea").one().id
     assert "isn't turned on" in call_error(mcp, _token(pat), "build_reference", kind="pane")
     assert "isn't turned on" in call_error(mcp, _token(pat), "propose_definition", kind="pane", source=ENCODER, summary="x")
-    # A builder builds pane types; a workflow's definition is still an admin's.
+    # A builder builds pane types, and since 5-3 workflows (D121); someone else neither.
     assert call(mcp, _token(bea), "check_definition", kind="pane", source=ENCODER)["ok"]
-    assert "Only an admin" in call_error(mcp, _token(bea), "build_reference", kind="workflow")
+    assert call(mcp, _token(bea), "build_reference", kind="workflow")["kind"] == "workflow"
+    assert "for admins and builders" in call_error(mcp, _token(pat), "build_reference", kind="workflow")
 
 
 def test_with_a_store_the_yaml_may_name_it_without_its_namespace(remote):

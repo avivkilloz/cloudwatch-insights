@@ -68,6 +68,7 @@ backend/app/
   workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner,
                      approvals (§22)
   yaml_edit.py       changes to a definition's YAML by path, spliced and checked by meaning (D117)
+  step_types.py      step types made in the Builder: an HTTP request or a chain of steps, used by workflows (D122)
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
   templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
@@ -731,7 +732,23 @@ their own (the rail's Workflows row), never a session.
 - **A run acts as its starter** (every step through `pane_access.require` and
   the handler's own connection check), and **its inputs and outputs are its
   starter's, their group's and admins'** (`can_read`, D84) -- other granted
-  groups see that it happened. Editing is an admin's until the Builder grant.
+  groups see that it happened. **Editing is an admin's or its group's
+  builders'** (D121, `can_create`/`can_edit(user, workflow)`): a builder's
+  workflow gets `owner_group_id` and a grant to their group on creation;
+  granting others stays an admin's; a builder names only panes their group may
+  use (`access_errors`, at validate, save and the agent's check).
+- **Step types** (D122, `step_types.py`, `built_step_types`, store `steps/`):
+  `request` (an HTTP call on a connection input of an HTTP type, any method,
+  CEL over `inputs`; `send` mirrors `run_request`'s identity, SSRF guard and
+  masking) or `steps` (a workflow's steps over `inputs`, `outputs` mapped;
+  no approval, artifact or background run inside). A workflow step names one
+  (`step:`, `with:`); `_run_step_type` runs it, a chain inline through
+  `_run_one` (depth `MAX_DEPTH`), and `_gate` asks a person for one that's
+  `external` (any method but GET, or a chain holding one). A registry like
+  built panes', loaded by `builder.load` (one generation); the store restores
+  steps before workflows, whose check needs them. `workflows.check_steps`/
+  `check_params` are shared by both. Try (`/api/builder/steps/try`) sends a
+  draft request once, as the builder.
 - **Runs run in-process**: `start` queues (with a row per step); `manager`
   claims with `SKIP LOCKED` in any replica and runs on a thread, a heartbeat
   per step; `sweep` fails a run whose heartbeat lapsed (not resumed, D85).

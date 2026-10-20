@@ -179,3 +179,145 @@ def update_pane(type_id: str, payload: SourceIn, db: Session = Depends(get_db), 
 @router.delete("/panes/{type_id}", status_code=204)
 def delete_pane(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     _guard(lambda: builder.delete(db, user, _found(db, type_id)))
+
+
+# ---------------------------------------------------------------- step types (D122)
+
+
+class StepTypeOut(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = None
+    # "request" or "steps"; None when it doesn't load now.
+    kind: Optional[str] = None
+    # Whether a workflow's step using it waits for a person (it changes something).
+    external: bool = False
+    inputs: list[dict[str, Any]] = []
+    source: str
+    loads: bool = True
+    can_edit: bool = False
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    store_state: Optional[str] = None
+
+
+class StepTryIn(BaseModel):
+    source: str
+    id: Optional[str] = None
+    inputs: dict[str, Any] = {}
+
+
+class StepSchemaOut(BaseModel):
+    starter: str
+    chain_example: str
+    namespace: Optional[str] = None
+    reference: dict[str, Any]
+
+
+def _step_out(db: Session, user: models.User, row: models.BuiltStepType) -> dict[str, Any]:
+    from .. import step_types
+
+    by = db.get(models.User, row.updated_by_id) if row.updated_by_id else None
+    return {
+        **step_types.describe(row),
+        "updated_at": row.updated_at,
+        "updated_by": by.username if by else None,
+        "can_edit": step_types.can_edit(user, row),
+        "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="step", item_id=row.id)), (None,))[0],
+    }
+
+
+def _found_step(db: Session, type_id: str) -> models.BuiltStepType:
+    row = db.get(models.BuiltStepType, type_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="There is no such step type.")
+    return row
+
+
+def _step_guard(fn):
+    from .. import step_types
+
+    try:
+        return fn()
+    except step_types.StepTypeError as e:
+        raise HTTPException(status_code=400, detail={"message": str(e), "errors": e.errors}) from None
+
+
+@router.get("/step-schema", response_model=StepSchemaOut)
+def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    from .. import step_types, store
+
+    return {"starter": step_types.STARTER, "chain_example": step_types.CHAIN_EXAMPLE,
+            "namespace": store.namespace(db), "reference": step_types.reference(db, user)}
+
+
+@router.get("/steps", response_model=list[StepTypeOut])
+def list_steps(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    return [_step_out(db, user, r) for r in db.query(models.BuiltStepType).order_by(models.BuiltStepType.id).all()]
+
+
+@router.get("/steps/{type_id}", response_model=StepTypeOut)
+def get_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    return _step_out(db, user, _found_step(db, type_id))
+
+
+@router.post("/steps/check", response_model=CheckOut)
+def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    from .. import step_types, store
+
+    type_id = payload.id
+    if type_id is None and payload.new_id:
+        try:
+            type_id = store.full_id(db, payload.new_id, step_types.ID_RE)
+        except store.StoreError as e:
+            return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
+    try:
+        definition = step_types.parse(payload.source, type_id)
+    except step_types.StepTypeError as e:
+        return {"ok": False, "errors": e.errors}
+    errors = step_types.access_errors(db, definition, user, payload.source)
+    return {"ok": not errors, "errors": errors}
+
+
+@router.post("/steps/try")
+def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    """A draft request step sent once, as the builder -- for real: one that
+    changes something does (the editor asks first). A chain is tried in a
+    workflow, where its steps run as they will."""
+    from .. import step_types
+
+    definition = _step_guard(lambda: step_types.parse(payload.source, payload.id))
+    if definition.request is None:
+        raise HTTPException(status_code=400, detail="A chain of steps is tried in a workflow: save it, then use it in one.")
+    try:
+        inputs = step_types.inputs_for(definition, payload.inputs)
+    except Exception as e:  # noqa: BLE001 -- workflows.StepError: a required input missing
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    out = step_types.send(db, user, definition, inputs)
+    db.commit()  # a credential's use is audited
+    return out
+
+
+@router.post("/steps", response_model=StepTypeOut, status_code=201)
+def create_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    from .. import step_types
+
+    row = _step_guard(lambda: step_types.save(db, user, payload.id, payload.source))
+    return _step_out(db, user, row)
+
+
+@router.put("/steps/{type_id}", response_model=StepTypeOut)
+def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    from .. import step_types
+
+    row = _found_step(db, type_id)
+    _step_guard(lambda: step_types.save(db, user, None, payload.source, row))
+    return _step_out(db, user, row)
+
+
+@router.delete("/steps/{type_id}", status_code=204)
+def delete_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    from .. import step_types
+
+    _step_guard(lambda: step_types.delete(db, user, _found_step(db, type_id)))
+    return None

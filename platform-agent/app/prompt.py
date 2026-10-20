@@ -96,7 +96,7 @@ may be talking here, each message prefixed with who wrote it.
 def build_prompt(what: str, title: str, definition_id: Optional[str]) -> str:
     """What an editor's own chat adds (D107): it is about the definition the
     user has open, which the agent can put a draft into but never save."""
-    noun = "pane type" if what == "pane" else "workflow"
+    noun = {"pane": "pane type", "step": "step type"}.get(what, "workflow")
     named = f'"{title}" (id {definition_id})' if definition_id else f'a new {noun} ("{title}")'
     return f"""
 This conversation is beside an editor: the user is writing {named}, as YAML. \

@@ -233,6 +233,13 @@ def _pane_label(row: models.BuiltPaneType) -> str:
         return row.id
 
 
+def _load_step(db: Session, data: dict, row: Optional[models.BuiltStepType],
+               actor: Optional[models.User]) -> models.BuiltStepType:
+    from . import step_types
+
+    return step_types.store_load(db, data, row, actor)
+
+
 def _load_template(db: Session, data: dict, row: Optional[models.PublishedTemplate],
                    actor: Optional[models.User]) -> models.PublishedTemplate:
     from . import templates
@@ -256,14 +263,20 @@ KINDS: dict[str, Kind] = {
             seeded=lambda r: False, label=lambda r: r.label,
         ),
         Kind(
-            key="workflow", directory="workflows", contributes="workflows", noun="workflow",
-            model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
-            builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
-        ),
-        Kind(
             key="pane", directory="panes", contributes="panes", noun="pane type",
             model=models.BuiltPaneType, dump=lambda r: {}, load=_load_pane, remove=_remove_pane,
             builtin=lambda r: False, seeded=lambda r: False, label=_pane_label, file=lambda r: r.source,
+        ),
+        Kind(
+            key="step", directory="steps", contributes="steps", noun="step type",
+            model=models.BuiltStepType, dump=lambda r: {}, load=_load_step, remove=lambda db, row: db.delete(row),
+            builtin=lambda r: False, seeded=lambda r: False, label=_pane_label, file=lambda r: r.source,
+        ),
+        # In restore order: a workflow's check needs the step types and pane types it names.
+        Kind(
+            key="workflow", directory="workflows", contributes="workflows", noun="workflow",
+            model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
+            builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
         ),
         Kind(
             key="template", directory="templates", contributes="templates", noun="template",

@@ -312,6 +312,8 @@ threading.Thread(target=_telemetry, name="fake-mqtt-telemetry", daemon=True).sta
 
 _replies: dict[str, Any] = {}
 _hits: dict[str, int] = {}
+# What each path was last sent: how a suite sees a step type's POST (D122).
+_last: dict[str, dict] = {}
 _real_send = tools_http_client.send_request
 
 
@@ -323,6 +325,7 @@ def _send(method: str, url: str, headers=None, body=None, timeout: float = tools
         return _real_send(method, url, headers=headers, body=body, timeout=timeout)
     path = parsed.path
     _hits[path] = _hits.get(path, 0) + 1
+    _last[path] = {"method": method.upper(), "body": body, "query": parsed.query}
     found = next((v for k, v in _replies.items() if path == k or path.endswith(k)), None)
     status, text = (200, "OK") if found is not None else (404, "Not Found")
     return {
@@ -347,6 +350,12 @@ def fake_hits(path: str, _user=Depends(auth.get_current_user)) -> dict:
     """How many requests a `.fake` host has had at `path`: how a suite counts
     the runs a pane made (run on open, smoke84)."""
     return {"path": path, "hits": _hits.get(path, 0)}
+
+
+@app.get("/api/dev/fake-http/last", include_in_schema=False)
+def fake_last(path: str, _user=Depends(auth.get_current_user)) -> dict:
+    """The method, body and query a `.fake` host was last sent at `path`."""
+    return {"path": path, **_last.get(path, {})}
 
 
 @app.post("/api/dev/age-outputs", include_in_schema=False)

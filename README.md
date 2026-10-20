@@ -868,10 +868,18 @@ past a failure with `continue_on_error`.
 - **As you**: a run acts as whoever starts it, so it reaches only what your
   group can. Its parameters and results are seen by you, your group and
   admins; others who may run the workflow see only that a run happened.
-- **Writing one** is an admin's (for now), in YAML on the workflow's page:
-  **Check** points at the line of any mistake before saving. **Access** says
-  which groups may run it. With a store repo set up, each workflow is kept
-  there as written, comments and all.
+- **Writing one** is an admin's or a builder's, in YAML on the workflow's
+  page: **Check** points at the line of any mistake before saving. A
+  builder's workflow is their group's -- its builders may change it, the group
+  may run it at once -- and an admin's **Access** says which other groups may
+  run it. With a store repo set up, each workflow is kept there as written,
+  comments and all.
+- **Step types** (the Builder's Step types): a step written once and used by
+  name (`step: restart_device`, its inputs in `with`) -- a request to an HTTP
+  connection, any method, its path, query, headers and body from its inputs;
+  or a chain of steps used as one, with the outputs it hands on. One that
+  changes something (anything but a GET) waits for a person when a workflow
+  runs it.
 - **Approvals**: a step can wait for a person (`approval:`), and one that
   reaches outside the platform -- the HTTP client's Send, MQTT's Publish --
   always does. Whoever may decide sees it on the run page, with what the step
@@ -943,7 +951,14 @@ the preview says it's of an older version until you preview again. A pane can
 use the platform's own handlers only where your group may use the panes that
 run them (DynamoDB's, say, once your group has DynamoDB).
 
-**Building with the agent**: while a pane type's editor -- or a workflow's, on
+**Step types**: the Builder's second list. A step type is a request to an
+HTTP connection (any method; its path, query, headers and body templated from
+its inputs) or a chain of existing steps used as one. **Check** points at
+mistakes by line; **Try** sends a request once, as you, with the inputs you
+fill in -- for real, so one that changes something asks first. Workflows use
+it as `step: <its id>`.
+
+**Building with the agent**: while a pane type's editor -- or a step type's, or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.
 Say what it should do or what to change ("add a status filter", "show this
 pane's jobs and rules too"): the Builder works out what to change, looks up

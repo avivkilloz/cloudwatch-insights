@@ -396,6 +396,10 @@ def load(db: Session) -> None:
     _generation = setting.value if setting else None
     pane_manifest.set_built(built)
     catalogue.ensure_categories(db)
+    # Step types after the panes they may name (D122); one generation for both.
+    from . import step_types
+
+    step_types.load(db)
 
 
 def refresh(db: Session) -> None:
@@ -531,7 +535,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
     the models' own fields, the names there are to use, and where to read
     examples (D72: no per-service hints; the schema, examples and the check's
     errors are enough to build anything)."""
-    from . import pane_access, workflows
+    from . import pane_access, step_types, workflows
 
     if kind == "pane":
         m = pane_manifest
@@ -632,8 +636,17 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             for x in usable
         ],
         "examples": examples,
+        # Made in the Builder (D122): used as `step: <id>` with `with:` its inputs.
+        "step_types": [
+            {"id": k, "label": d.label, "inputs": [p.key for p in d.inputs],
+             "changes_something": step_types.external(d)}
+            for k, d in sorted(step_types.REGISTRY.items())
+        ],
         "rules": [
-            "A step is a pane's action (pane, action, with: its inputs), a note, an artifact or an approval.",
+            "A step is a pane's action (pane, action, with: its inputs), a step type (step: its id, with: its "
+            "inputs), a note, an artifact or an approval.",
+            "A step type that changes something waits for a person when the workflow runs, as an external action "
+            "does.",
             "read_definition shows an existing workflow's YAML; check_definition says every problem with its line.",
         ],
     }

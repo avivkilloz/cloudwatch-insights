@@ -70,7 +70,8 @@ MAX_ITEMS = 200
 # page and later steps see the start of a long list.
 STEP_OUTPUT_BYTES = 1024 * 1024
 HEARTBEAT_STALE_SECONDS = 300
-SCOPE = ("params", "steps", "item", "index", "run")
+# `inputs`: a step type's (D122), where a workflow has `params`.
+SCOPE = ("params", "steps", "item", "index", "run", "inputs")
 REPLICA = f"{socket.gethostname()}:{os.getpid()}"
 FINISHED = ("succeeded", "failed", "cancelled")
 # A step's own end, whatever happened to the run around it: what a resumed
@@ -154,6 +155,8 @@ class Step(_Strict):
     label: Optional[str] = None
     pane: Optional[str] = None
     action: Optional[str] = None
+    # A step type made in the Builder (D122): its inputs are `with`.
+    step: Optional[str] = None
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
     note: Optional[str] = None
     artifact: Optional[ArtifactSpec] = None
@@ -230,50 +233,79 @@ def check(definition: Definition, source: str = "") -> list[dict]:
     def err(path: tuple, message: str) -> None:
         errors.append({"line": _line(source, path) if source else None, "message": message})
 
-    keys: set[str] = set()
-    for i, p in enumerate(definition.parameters):
-        if not STEP_ID_RE.match(p.key):
-            err(("parameters", i), f"'{p.key}' can't be a parameter's key: lowercase letters, digits and _.")
-        if p.key in keys:
-            err(("parameters", i), f"Two parameters are called {p.key}.")
-        keys.add(p.key)
-        if p.type == "choice" and not p.choices:
-            err(("parameters", i), f"{p.key} is a choice with nothing to choose from.")
-        if p.type in ("connection", "connections") and not p.connection_type:
-            err(("parameters", i), f"{p.key} needs a connection_type (aws, or an HTTP type's id).")
-        if (p.multiple or p.options_from) and p.type != "text":
-            err(("parameters", i), f"{p.key}: multiple and options_from are for a text parameter.")
-        if p.options_from is not None:
-            for where, message in _check_options_from(p, [q.key for q in definition.parameters]):
-                err(("parameters", i, "options_from") + where, message)
+    check_params(definition.parameters, err, "parameters")
     if not definition.steps:
         err(("steps",), "A workflow needs at least one step.")
     if len(definition.steps) > MAX_STEPS:
         err(("steps",), f"A workflow has at most {MAX_STEPS} steps.")
+    check_steps(definition.steps, err, ("steps",))
+    return errors
+
+
+def check_params(params: list[Param], err: Callable[[tuple, str], None], field: str) -> None:
+    """A workflow's parameters, or a step type's inputs (D122): the same shape."""
+    keys: set[str] = set()
+    noun = "parameter" if field == "parameters" else "input"
+    for i, p in enumerate(params):
+        if not STEP_ID_RE.match(p.key):
+            err((field, i), f"'{p.key}' can't be a {noun}'s key: lowercase letters, digits and _.")
+        if p.key in keys:
+            err((field, i), f"Two {noun}s are called {p.key}.")
+        keys.add(p.key)
+        if p.type == "choice" and not p.choices:
+            err((field, i), f"{p.key} is a choice with nothing to choose from.")
+        if p.type in ("connection", "connections") and not p.connection_type:
+            err((field, i), f"{p.key} needs a connection_type (aws, or an HTTP type's id).")
+        if (p.multiple or p.options_from) and p.type != "text":
+            err((field, i), f"{p.key}: multiple and options_from are for a text {noun}.")
+        if p.options_from is not None:
+            for where, message in _check_options_from(p, [q.key for q in params]):
+                err((field, i, "options_from") + where, message)
+
+
+def check_steps(steps: list[Step], err: Callable[[tuple, str], None], prefix: tuple,
+                within: Optional[str] = None, chain: tuple = ()) -> None:
+    """A list of steps: a workflow's, or -- `within` -- a composed step type's
+    (D122), where what waits for a person or writes a run's files has no place
+    (the outer step is what's approved), and `chain` is the step types it's
+    inside of, so one can't contain itself."""
+    from . import step_types
 
     earlier: list[str] = []
-    for i, step in enumerate(definition.steps):
-        here = ("steps", i)
+    for i, step in enumerate(steps):
+        here = prefix + (i,)
         if not STEP_ID_RE.match(step.id):
             err(here, f"'{step.id}' can't be a step's id: lowercase letters, digits and _.")
         if step.id in earlier:
             err(here, f"Two steps are called {step.id}.")
-        is_pane = bool(step.pane or step.action or step.with_)
-        kinds = [k for k, there in (("a pane action", is_pane), ("a note", step.note is not None),
-                                    ("an artifact", step.artifact is not None)) if there]
+        is_pane = bool(step.pane or step.action or (step.with_ and step.step is None))
+        kinds = [k for k, there in (("a pane action", is_pane), ("a step type", step.step is not None),
+                                    ("a note", step.note is not None), ("an artifact", step.artifact is not None))
+                 if there]
         if len(kinds) > 1:
             err(here, f"Step {step.id} is {' and '.join(kinds)}: a step is one of them.")
         elif not kinds and step.approval is None:
-            err(here, f"Step {step.id} needs a pane and an action, a note, an artifact or an approval.")
+            err(here, f"Step {step.id} needs a pane and an action, a step type, a note, an artifact or an approval.")
         if is_pane and not (step.pane and step.action):
             err(here, f"Step {step.id} needs both a pane and an action.")
-        if not is_pane:
+        if not is_pane and step.step is None:
             for field in ("retry", "timeout", "listen"):
                 if field in step.model_fields_set:
-                    err(here + (field,), f"Step {step.id}: only a pane action has {field}.")
+                    err(here + (field,), f"Step {step.id}: only a pane action or a step type has {field}.")
         if step.pane and step.action:
             for where, message in _check_action(step):
                 err(here + where, message)
+        if step.step is not None:
+            for where, message in step_types.check_use(step, chain):
+                err(here + where, message)
+        if within is not None:
+            for field, what in (("approval", "an approval"), ("artifact", "an artifact"), ("listen", "listen")):
+                if field in step.model_fields_set:
+                    err(here + (field,), f"Step {step.id}: a step type's steps have no {what} -- the workflow's "
+                                         "step that uses it is what's approved.")
+            action = _action_of(step)
+            if action is not None and action.poll is not None:
+                err(here + ("action",), f"Step {step.id}: a background run can't be inside a step type, yet.")
         for path, text in _templates(step):
             for expr in _expressions(text, whole=path[0] in ("if", "for_each")):
                 try:
@@ -288,8 +320,9 @@ def check(definition: Definition, source: str = "") -> list[dict]:
                         err(here + path, f"Step {step.id} refers to steps.{ref}, which isn't a step before it.")
                 if "item" in _names(expr) and step.for_each is None and path[0] != "for_each":
                     err(here + path, f"Step {step.id} uses item, but it has no for_each.")
+                if within is not None and "params" in _names(expr):
+                    err(here + path, f"Step {step.id}: a step type reads its inputs (inputs.<key>), not params.")
         earlier.append(step.id)
-    return errors
 
 
 def _check_options_from(p: Param, keys: list[str]) -> list[tuple[tuple, str]]:
@@ -472,8 +505,48 @@ def _condition(text: Any, scope: dict[str, Any]) -> Any:
 # ------------------------------------------------------------------- access (D84)
 
 
-def can_edit(user: models.User) -> bool:
+def can_create(user: models.User) -> bool:
+    """Admins, and since 5-3 a group's builders (D121)."""
+    group = user.group
+    return bool(group and (group.is_admin or group.builder_enabled))
+
+
+def can_edit(user: models.User, workflow: Optional[models.Workflow] = None) -> bool:
+    """Whether `user` may change `workflow` (D121): an admin any; a builder
+    those their group made. Without a workflow: whether they may make one."""
+    if workflow is None:
+        return can_create(user)
+    group = user.group
+    if group is None:
+        return False
+    if group.is_admin:
+        return True
+    return bool(group.builder_enabled and workflow.owner_group_id is not None and workflow.owner_group_id == group.id)
+
+
+def sees_all(user: models.User) -> bool:
     return bool(user.group and user.group.is_admin)
+
+
+def visible(db: Session, user: models.User, workflow: models.Workflow) -> bool:
+    return can_edit(user, workflow) or can_run(db, user, workflow)
+
+
+def access_errors(db: Session, definition: "Definition", user: models.User, source: str = "") -> list[dict]:
+    """A builder names only panes their group may use, as a built pane names
+    only their handlers (D113): a workflow of theirs is their group's to run
+    at once (D121), and a step of a pane they were never granted would only
+    fail for every one of them. Admins may name any."""
+    if user.group is not None and user.group.is_admin:
+        return []
+    errors = []
+    for i, step in enumerate(definition.steps):
+        if step.pane and not pane_access.allowed(user.group, step.pane):
+            manifest = pane_manifest.get(step.pane)
+            errors.append({"line": _line(source, ("steps", i, "pane")) if source else None,
+                           "message": f"Step {step.id}: your group can't use {manifest.label if manifest else step.pane} "
+                                      "panes, so a workflow of yours can't run one."})
+    return errors
 
 
 def can_run(db: Session, user: models.User, workflow: models.Workflow) -> bool:
@@ -499,6 +572,13 @@ def runnable(db: Session, user: models.User) -> list[models.Workflow]:
     return [w for w in rows if can_run(db, user, w)]
 
 
+def listed(db: Session, user: models.User) -> list[models.Workflow]:
+    """What the Workflows page lists: every one for an admin; the ones a
+    person may run or edit for anyone else."""
+    rows = db.query(models.Workflow).order_by(models.Workflow.label).all()
+    return rows if sees_all(user) else [w for w in rows if visible(db, user, w)]
+
+
 # ------------------------------------------------------------------- saving
 
 
@@ -516,6 +596,8 @@ def save(db: Session, workflow_id: Optional[str], requested_id: Optional[str], s
     from . import store
 
     if workflow_id is None:
+        if not can_create(actor):
+            raise WorkflowError("Making workflows is for admins and builders.")
         try:
             new_id = store.full_id(db, requested_id or "", ID_RE)
         except store.StoreError as e:
@@ -523,18 +605,31 @@ def save(db: Session, workflow_id: Optional[str], requested_id: Optional[str], s
         if db.get(models.Workflow, new_id) is not None:
             raise WorkflowError(f"There is already a workflow {new_id}.")
         row = models.Workflow(id=new_id, created_by_id=actor.id)
+        if actor.group is not None and not actor.group.is_admin:
+            # A builder's: their group's to edit, and to run at once (the
+            # grant, below); any other group when an admin grants it (D121, as
+            # D105 for a built pane).
+            row.owner_group_id = actor.group.id
         db.add(row)
     else:
         row = db.get(models.Workflow, workflow_id)
         if row is None:
             raise WorkflowError("That workflow doesn't exist any more.")
+        if not can_edit(actor, row):
+            raise WorkflowError("Only an admin, or a builder of the group that made it, may change this workflow.")
     source = ensure_id_line(source, row.id)
     definition = parse(source)
+    errors = access_errors(db, definition, actor, source)
+    if errors:
+        db.rollback()
+        raise _fail(errors)
     row.label, row.description = definition.label, definition.description
     row.source = source
     row.definition = definition.model_dump(by_alias=True, exclude_none=True)
     row.updated_by_id, row.updated_at = actor.id, datetime.datetime.utcnow()
     db.flush()
+    if workflow_id is None and row.owner_group_id is not None:
+        db.add(models.WorkflowGrant(workflow_id=row.id, group_id=row.owner_group_id))
     store.record(db, "workflow", row.id, "write", actor)
     db.commit()
     return row
@@ -942,10 +1037,16 @@ def _refuse(db: Session, run: models.WorkflowRun, approval: models.Approval, mes
 
 def _gate(step: Step, action: Optional[pane_manifest.ManifestAction]) -> Optional[ApprovalSpec]:
     """The approval a step waits on: its own, or -- always, for an action that
-    reaches outside the platform -- one asked of whoever may read the run."""
+    reaches outside the platform, or a step type that does (D122) -- one asked
+    of whoever may read the run."""
+    from . import step_types
+
     if step.approval is not None:
         return step.approval
     if action is not None and action.effects == "external":
+        return ApprovalSpec()
+    defined = step_types.get(step.step) if step.step else None
+    if defined is not None and step_types.external(defined):
         return ApprovalSpec()
     return None
 
@@ -967,8 +1068,22 @@ def _ask(db: Session, run: models.WorkflowRun, step: Step, position: int, record
             }
         else:
             details = {"inputs": _readable(manifest, _inputs(manifest, render(step.with_, scope)))}
+    from . import step_types
+
+    defined = step_types.get(step.step) if step.step else None
+    if defined is not None:
+        if step.for_each is not None:
+            items = _items(step, scope)
+            details = {"count": len(items), "items": [render(step.with_, {**scope, "item": it, "index": i})
+                                                      for i, it in enumerate(items[:APPROVAL_DETAIL_ITEMS])]}
+        else:
+            details = {"inputs": render(step.with_, scope)}
     if gate.message:
         message = _text(render(gate.message, scope))
+    elif defined is not None:
+        many = f", {details['count']} times" if "count" in details else ""
+        reach = " It changes something outside the platform." if step_types.external(defined) else ""
+        message = f"{defined.label}{many}, as {run.started_by_name}.{reach}"
     elif manifest is not None and action is not None:
         what = action.run_label or action.id
         many = f", {details['count']} times" if "count" in details else ""
@@ -1162,7 +1277,7 @@ def _execute(db: Session, run: models.WorkflowRun, user: models.User) -> str:
                 if gate is not None:
                     _ask(db, run, step, position, record, gate, scope)
                     return run.status
-            if step.pane is None and step.note is None and step.artifact is None:
+            if step.pane is None and step.note is None and step.artifact is None and step.step is None:
                 # A bare approval: what it says is who said yes.
                 inputs, outputs, item_failed = (
                     {}, {"approved_by": approved.decided_by_name if approved else None,
@@ -1230,7 +1345,7 @@ def _items(step: Step, scope: dict) -> list:
 
 
 def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
-              record: models.WorkflowRunStep):
+              record: models.WorkflowRunStep, depth: int = 0):
     items = _items(step, scope)
     outputs, inputs, first_error = [], [], None
     for index, item in enumerate(items):
@@ -1238,7 +1353,7 @@ def _run_each(db: Session, run: models.WorkflowRun, user: models.User, step: Ste
             raise _Cancelled()
         here = {**scope, "item": item, "index": index}
         try:
-            one_inputs, one_outputs = _run_one(db, run, user, step, here, record)
+            one_inputs, one_outputs = _run_one(db, run, user, step, here, record, depth)
             inputs.append(one_inputs)
             outputs.append(one_outputs)
         except (StepError, WorkflowError, ResolveError, HTTPException, blobs.BlobError) as e:
@@ -1266,12 +1381,14 @@ def _inputs(manifest: pane_manifest.Manifest, given: Any) -> dict:
 
 
 def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
-             record: models.WorkflowRunStep) -> tuple[dict, dict]:
+             record: models.WorkflowRunStep, depth: int = 0) -> tuple[dict, dict]:
     if step.note is not None:
         text = _text(render(step.note, scope))
         return {}, {"text": text}
     if step.artifact is not None:
         return _artifact(db, run, user, step, scope, record)
+    if step.step is not None:
+        return _run_step_type(db, run, user, step, scope, record, depth)
     from .routers import panes as panes_router  # it imports a great deal
 
     manifest = pane_manifest.get(step.pane or "")
@@ -1298,6 +1415,52 @@ def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step
 
     result = _with_retries(db, run, step, record, attempt)
     return inputs, {k: v for k, v in (result or {}).items() if not k.startswith("__")}
+
+
+def _run_step_type(db: Session, run: models.WorkflowRun, user: models.User, step: Step, scope: dict,
+                   record: models.WorkflowRunStep, depth: int) -> tuple[dict, dict]:
+    """A step type made in the Builder (D122): its request, sent as the
+    starter; or its steps, run here one after another through the same
+    runners as a workflow's, their outputs what its `outputs` says."""
+    from . import step_types
+
+    defined = step_types.get(step.step or "")
+    if defined is None:
+        raise StepError(f"The step type {step.step} doesn't exist any more.")
+    if depth >= step_types.MAX_DEPTH:
+        raise StepError(f"{defined.label} runs too deep: step types inside step types, {step_types.MAX_DEPTH} at most.")
+    inputs = step_types.inputs_for(defined, render(step.with_, scope))
+    if defined.request is not None:
+        def attempt() -> dict:
+            return _call(user.id, lambda d, u: step_types.send(d, u, defined, inputs), step.timeout or CALL_TIMEOUT)
+
+        return inputs, _with_retries(db, run, step, record, attempt)
+    inner: dict[str, Any] = {"inputs": inputs, "steps": {}, "item": None, "index": None, "run": scope.get("run")}
+    for each in defined.steps or []:
+        if _cancelled(db, run):
+            raise _Cancelled()
+        if each.if_ is not None and not _truthy(_condition(each.if_, inner)):
+            inner["steps"][each.id] = {"status": "skipped", "outputs": {}}
+            continue
+        try:
+            if each.for_each is not None:
+                outputs, _, failed = _run_each(db, run, user, each, inner, record, depth + 1)
+                if failed:
+                    raise StepError(failed)
+            else:
+                _, outputs = _run_one(db, run, user, each, inner, record, depth + 1)
+            inner["steps"][each.id] = {"status": "succeeded", "outputs": outputs}
+        except (StepError, WorkflowError, ResolveError, HTTPException, blobs.BlobError) as e:
+            message = masking.mask(str(getattr(e, "detail", e)))
+            if not each.continue_on_error:
+                raise StepError(f"{defined.label}, its step {each.id}: {message}") from None
+            inner["steps"][each.id] = {"status": "failed", "outputs": {"error": message}}
+        _beat(db, run)
+    if defined.outputs:
+        outputs = render(defined.outputs, inner)
+    else:
+        outputs = {k: v["outputs"] for k, v in inner["steps"].items()}
+    return inputs, outputs if isinstance(outputs, dict) else {"value": outputs}
 
 
 def _with_retries(db: Session, run: models.WorkflowRun, step: Step, record: models.WorkflowRunStep,
