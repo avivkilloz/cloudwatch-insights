@@ -34,6 +34,7 @@ def mint(
     timezone: Optional[str] = None,
     viewing_session_id: Optional[str] = None,
     session_scope_id: Optional[int] = None,
+    build: Optional[dict] = None,
 ) -> str:
     now = datetime.datetime.utcnow()
     # Expired tokens of turns that never ended cleanly go whenever a new one
@@ -48,6 +49,9 @@ def mint(
             timezone=timezone[:64] if timezone else None,
             viewing_session_id=viewing_session_id[:64] if viewing_session_id else None,
             session_scope_id=session_scope_id,
+            build_kind=(build or {}).get("kind"),
+            build_id=(build or {}).get("id"),
+            build_draft=(build or {}).get("source") if build else None,
         )
     )
     db.commit()
@@ -64,6 +68,11 @@ class Caller:
     # The row id of the session a session chat's turn is held to; None for a
     # Global turn, which may work in any session the user can reach.
     session_scope_id: Optional[int] = None
+    # A turn beside an editor: what it holds ("pane" | "workflow"), its id
+    # once saved, and the token's hash, by which its working draft is kept.
+    build_kind: Optional[str] = None
+    build_id: Optional[str] = None
+    token_hash: Optional[str] = None
 
 
 def resolve(db: DbSession, token: str) -> Optional[Caller]:
@@ -82,6 +91,9 @@ def resolve(db: DbSession, token: str) -> Optional[Caller]:
         timezone=row.timezone,
         viewing_session_id=row.viewing_session_id,
         session_scope_id=row.session_scope_id,
+        build_kind=row.build_kind,
+        build_id=row.build_id,
+        token_hash=row.token_hash,
     )
 
 

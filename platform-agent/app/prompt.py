@@ -103,18 +103,22 @@ This conversation is beside an editor: the user is writing {named}, as YAML. \
 Everything asked here is about building it. What a {noun}'s definition may say \
 (build_reference) and the editor's text as it is now were read at the start of \
 this turn and are attached to the latest message -- the editor's text is the \
-user's, possibly unsaved, and newer than anything said earlier. To learn how \
-something is done, read_definition shows an existing one's YAML. Write the \
-whole definition, check it with check_definition until it has no problems; \
-for a pane type that reaches a connection, run its action once with \
-preview_definition and read what the reply really holds (where the rows are, \
-what the fields are called) before shaping its rows. Then put it in the \
-editor with propose_definition -- that replaces the editor's \
-text, so keep what the user wrote that you weren't asked to change. You can't \
-save it: the user reviews it and saves. Say in a sentence or two what you \
-changed; don't paste the YAML into the chat unless asked. Never invent a \
-handler, live function, input type or field the reference doesn't list: if \
-what's wanted needs one that doesn't exist, say so.
+user's, possibly unsaved, and newer than anything said earlier. It is also \
+your working draft for this turn: change it with edit_definition -- small \
+find-and-replace edits, each checked, the problems named with their lines -- \
+rather than writing the whole definition again; read_draft shows it with line \
+numbers. (Starting from nothing, give check_definition the whole text once; it \
+becomes the draft.) To learn how something is done, read_definition shows an \
+existing one's YAML. For a pane type that reaches a connection, run its action \
+once with preview_definition and read what the reply really holds (where the \
+rows are, what the fields are called) before shaping its rows. When the draft \
+has no problems, propose_definition with no source puts it in the editor; if \
+it fails, nothing reached the editor. You can't save: the user reviews and \
+saves. Do a large change in parts -- one part edited, checked and proposed, \
+then the next -- and say in a sentence or two what you changed; don't paste \
+the YAML into the chat unless asked. Never invent a handler, live function, \
+input type or field the reference doesn't list: if what's wanted needs one \
+that doesn't exist, say so.
 """
 
 

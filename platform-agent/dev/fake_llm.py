@@ -188,6 +188,17 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
                 return _call("run_pane", session_id="s1", pane_id="iot")
             return _say("I found the session you meant. Now let me run its IoT pane.")
         return _say(f"Ran it: {results[1][1]}")
+    if lowered.startswith("stepwise"):
+        # Announces each of three steps and stops, every time -- carried on
+        # when nudged. Two nudges a turn ran out on the third.
+        if step >= 3:
+            return _say(f"Done all three: {len(results)} steps ran.")
+        if nudged:
+            return _call("run_pane", session_id="s1", pane_id="iot")
+        return _say(f"Now let me run step {step + 1}.")
+    if lowered.startswith("stuck"):
+        # Says what it will do and never does it, however it's asked.
+        return _say("Let me put the corrected version in your editor now:")
     if lowered.startswith("announce"):
         if step >= 1:
             return _say(f"Searched: {results[0][1]}")
@@ -244,6 +255,18 @@ def _next(text: str, results: list[tuple[str, Any]], reads: str = "", nudged: st
                 return _say(f"It doesn't check: {results[0][1].get('errors')}")
             return _call("propose_definition", kind=kind, source=source, summary=f"Renamed it {label}.")
         return _say(f"It's in the editor, called {label}: check it and save.")
+    if lowered.startswith("rename "):
+        # Beside an editor, the label changed with one small edit to the
+        # turn's draft, then the draft proposed -- nothing written whole (D114).
+        found = re.search(r"^label: (.*)$", reads, re.M)
+        if not found:
+            return _say("I wasn't given an editor this turn.")
+        label = text[len("rename "):].strip()
+        if step == 0:
+            return _call("edit_definition", edits=[{"find": f"label: {found.group(1)}", "replace": f"label: {label}"}])
+        if step == 1:
+            return _call("propose_definition", summary=f"Renamed it {label}.")
+        return _say(f"It's in the editor, called {label}, changed with one edit.")
     if "which run" in lowered:  # a run's chat prefixes who asked
         found = re.search(r"get_workflow_run \(this chat's run\):\n(\{.*\})", reads)
         if not found:

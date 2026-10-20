@@ -4729,3 +4729,103 @@ textarea.workflow-source {
 .builder-columns + .session-card-section {
   margin-top: 12px;
 }
+
+/* The Builder's form (5-2d, D115): a block per part of the definition, an
+   item per input, action, output or card, its fields wrapping in a row. */
+.builder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.builder-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.builder-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.builder-form-head h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.builder-form-item {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.builder-form-item:first-of-type {
+  border-top: 0;
+}
+.builder-form-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.builder-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  min-width: 0;
+}
+.builder-form-field > span {
+  color: var(--muted);
+}
+.builder-form-field input[type="text"],
+.builder-form-field select {
+  width: 170px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+.builder-form-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+}
+.builder-form-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.builder-form-more,
+.builder-form-note,
+.builder-form-empty {
+  font-size: 12px;
+  margin: 0;
+}
+.builder-form-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.builder-form-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.builder-form-chips select {
+  width: auto;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}

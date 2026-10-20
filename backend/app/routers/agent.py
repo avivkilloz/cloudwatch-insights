@@ -179,6 +179,9 @@ async def agent_chat(
         timezone=payload.timezone,
         viewing_session_id=payload.viewing_session_id,
         session_scope_id=scope_id,
+        build={"kind": payload.build.kind, "id": payload.build.id, "source": payload.build.source}
+        if payload.scope == "build" and payload.build is not None
+        else None,
     )
     # The stream can run for minutes; it needs nothing more from this
     # request's database session (revoking opens its own).

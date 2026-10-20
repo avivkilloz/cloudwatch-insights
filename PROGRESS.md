@@ -1298,6 +1298,22 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**#132 merged. Fixes from a Building-tab chat, and 5-2d: the form
+(PLATFORM_PLAN.md §24, D114–D115).** The user asked the agent to add jobs and
+rules to a pane started from IoT; it got stuck.
+- Examples start clean (IoT failed Check on `flag:`); the reference's AWS
+  request no longer reads as an `aws:` key; a refused proposal fails instead
+  of showing ✓; beside an editor the agent edits a working draft with small
+  find-and-replace edits (`edit_definition`, `read_draft`) instead of
+  rewriting the manifest -- which ran it out of tokens; nudges per stretch,
+  and a turn still announcing says it stopped short.
+- 5-2d: Edit as YAML | Form, the form splicing the text (only changed lines
+  differ, comments kept), renames following the key.
+- Tests: backend `test_builder_preview.py` (+3: the draft, no draft
+  outside an editor, every example checks clean); agent +1 (fails on the
+  old guard); browser `smoke93` (+3, the IoT start and an edit) and `smoke97`
+  (14), each failing against the old code.
+
 **#131 merged. 5-2c: the Builder's preview (PLATFORM_PLAN.md §24,
 D112–D113).**
 - Preview draws the draft beside the editor with the renderer every pane uses;
@@ -1550,9 +1566,8 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 5-2d (PLATFORM_PLAN.md §24): the Builder's form editor beside the
-   YAML;
-   then 5-3, workflows and steps for builders. Scheduled and webhook runs
+1. Phase 5-3 (PLATFORM_PLAN.md §24): workflows and steps for builders.
+   Scheduled and webhook runs
    (acting as the workflow's owner, D81) are still to come.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.

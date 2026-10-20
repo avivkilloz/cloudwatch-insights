@@ -484,6 +484,13 @@ class AgentToken(Base):
     timezone = Column(String, nullable=True)
     viewing_session_id = Column(String, nullable=True)
     session_scope_id = Column(Integer, nullable=True)
+    # A turn beside an editor (the Building tab, D107): what it holds, and
+    # the turn's working copy of its text, which edit_definition changes a
+    # piece at a time and propose_definition proposes (D114). Regenerating
+    # a whole IoT-sized manifest for every check ran a model out of tokens.
+    build_kind = Column(String(16), nullable=True)
+    build_id = Column(String(200), nullable=True)
+    build_draft = Column(Text, nullable=True)
 
 
 class CredentialType(Base):

@@ -278,10 +278,16 @@ class TurnGuard(AgentMiddleware):
     ) -> None:
         super().__init__()
         self.names = tool_names | {UNREADABLE}
-        # How many times this turn was asked to carry on: twice at most, and
-        # a reply with nothing in it only once (it had nothing to say twice).
+        # How many times this turn was asked to carry on since it last
+        # called a tool: twice at most, and a reply with nothing in it only
+        # once (it had nothing to say twice). Counted per stretch, not per
+        # turn: a long building turn announced its next step a dozen times,
+        # spent the two on its first stretches, and later stopped on "Let me
+        # put it in your editor now:" with nothing to say why.
         self.nudges = 0
         self.nudged_empty = False
+        # Nudged, and still only announcing: the turn says it stopped short.
+        self.stuck = False
         self.corrected = False
         self.rechecked = False
         self.check_model = check_model
@@ -347,12 +353,20 @@ class TurnGuard(AgentMiddleware):
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelResponse:
         response = await handler(request)
         message = _last_ai(response)
+        if message is not None and (message.tool_calls or message.invalid_tool_calls):
+            self.nudges, self.nudged_empty = 0, False
         if message is not None and self._may_nudge(message) and stopped_short(message, request.messages):
             self.nudges += 1
             self.nudged_empty = self.nudged_empty or not _visible(message)
             nudge = HumanMessage(nudge_for(message, request.messages))
             response = await handler(request.override(messages=[*request.messages, message, nudge]))
             message = _last_ai(response)
+            if message is not None and (message.tool_calls or message.invalid_tool_calls):
+                self.nudges, self.nudged_empty, self.stuck = 0, False, False
+            elif message is not None and _visible(message) and stopped_short(message, request.messages):
+                # Asked and still announcing: the turn ends here, and says so
+                # rather than leave "Let me do it now:" as if it were coming.
+                self.stuck = True
         if message is not None and not self.corrected and not (message.tool_calls or message.invalid_tool_calls):
             missing = grounding.ungrounded(_visible(message), _this_turn(request.messages))
             if missing:
@@ -366,6 +380,11 @@ class TurnGuard(AgentMiddleware):
             result=[repair(m, self.names) if isinstance(m, AIMessage) else m for m in response.result],
             structured_response=response.structured_response,
         )
+
+
+STOPPED_SHORT = (
+    "The agent said what it would do next and stopped without doing it. Ask it to carry on, or to do a smaller part."
+)
 
 
 def _last_ai(response: ModelResponse) -> Optional[AIMessage]:

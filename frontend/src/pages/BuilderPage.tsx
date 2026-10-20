@@ -4,8 +4,9 @@ import { api, BuilderSchema, BuiltPaneType, readableError, WorkflowProblem } fro
 import { useAuth } from "../AuthContext";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
-import { rowProps, Section, ViewHead } from "../components/settings/settingsLayout";
+import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
 import { ActionRunner, ActionRunnerContext } from "../panes/actionRunner";
+import BuilderForm from "./BuilderForm";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest, setManifests } from "../panes/manifest";
 import { useCatalogue } from "../sessions/catalogue";
@@ -118,6 +119,8 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
   const [notice, setNotice] = useState<string | null>(said ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The same text either way (D115): the form edits it in place.
+  const [editAs, setEditAs] = useState<"yaml" | "form">("yaml");
   // The draft as the preview draws it: the text it was drawn from (its
   // actions are run with that, not with what's been typed since) and a
   // counter that remounts the pane, whose inputs may have changed.
@@ -267,18 +270,40 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
               ))}
             </select>
           </CardRow>
-          <textarea
-            id="builder-source"
-            className="workflow-source"
-            spellCheck={false}
-            rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
-            value={source}
-            onChange={(e) => {
-              setSource(e.target.value);
-              setProblems(null);
-              setNotice(null);
-            }}
-          />
+          <CardRow label="Edit as">
+            <ViewSwitch
+              views={[
+                ["yaml", "YAML"],
+                ["form", "Form"],
+              ] as const}
+              view={editAs}
+              onChange={setEditAs}
+            />
+          </CardRow>
+          {editAs === "yaml" ? (
+            <textarea
+              id="builder-source"
+              className="workflow-source"
+              spellCheck={false}
+              rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
+              value={source}
+              onChange={(e) => {
+                setSource(e.target.value);
+                setProblems(null);
+                setNotice(null);
+              }}
+            />
+          ) : (
+            <BuilderForm
+              source={source}
+              schema={schema}
+              onChange={(next) => {
+                setSource(next);
+                setProblems(null);
+                setNotice(null);
+              }}
+            />
+          )}
           {problems && problems.length > 0 && (
             <ul className="error-text workflow-problems builder-problems">
               {problems.map((p, i) => (

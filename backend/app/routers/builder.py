@@ -86,13 +86,13 @@ def schema(db: Session = Depends(get_db), user: models.User = Depends(_builder))
 
 @router.get("/examples/{type_id}")
 def example(type_id: str, _user: models.User = Depends(_builder)) -> dict[str, str]:
-    """A bundled pane type's manifest as its file says it -- the examples to
-    build from (D72), comments and all."""
+    """A bundled pane type's manifest as a start for a built one (D72),
+    comments and all, without what a built pane may not say."""
     from ..panes import manifest as pane_manifest
 
     if type_id not in pane_manifest.bundled():
         raise HTTPException(status_code=404, detail="There is no such pane type of the platform's.")
-    return {"id": type_id, "source": (pane_manifest.MANIFEST_DIR / f"{type_id}.yaml").read_text()}
+    return {"id": type_id, "source": builder.example_source(type_id)}
 
 
 @router.get("/panes", response_model=list[PaneTypeOut])

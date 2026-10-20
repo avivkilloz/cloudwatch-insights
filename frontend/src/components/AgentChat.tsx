@@ -98,7 +98,13 @@ function describe(step: AgentStep): string {
     case "preview_definition":
       return `${done ? "Tried" : "Trying"} the draft's ${String(a.action ?? "")}`;
     case "propose_definition":
+      // Refused when the draft has a problem: nothing reached the editor, and the step says so.
+      if (step.status === "failed") return "Couldn't put the draft in the editor";
       return done ? "Put a draft in the editor" : "Putting a draft in the editor…";
+    case "edit_definition":
+      return done ? "Edited the draft" : "Editing the draft…";
+    case "read_draft":
+      return done ? "Read the draft" : "Reading the draft…";
     case "unreadable_tool_call":
       // The model's tool call came back garbled; the agent answered it as a
       // call to no tool, so the model could try again (platform-agent's repair.py).

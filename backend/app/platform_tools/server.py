@@ -1589,7 +1589,7 @@ async def build_reference(kind: str) -> dict:
 async def read_definition(kind: str, definition_id: str) -> dict:
     """The YAML of an existing pane type (bundled or built here) or workflow, as written -- to learn from or to
     start a change from."""
-    from .. import workflows
+    from .. import builder, workflows
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
@@ -1598,8 +1598,7 @@ async def read_definition(kind: str, definition_id: str) -> dict:
             if row is not None:
                 return {"kind": kind, "id": definition_id, "source": row.source}
             if definition_id in pane_manifest.bundled():
-                return {"kind": kind, "id": definition_id,
-                        "source": (pane_manifest.MANIFEST_DIR / f"{definition_id}.yaml").read_text()}
+                return {"kind": kind, "id": definition_id, "source": builder.example_source(definition_id)}
             raise InputError(f"There is no pane type {definition_id}; build_reference lists the examples.")
         workflow = db.get(models.Workflow, definition_id)
         if workflow is None or not workflows.can_run(db, user, workflow):
@@ -1607,48 +1606,146 @@ async def read_definition(kind: str, definition_id: str) -> dict:
         return {"kind": kind, "id": definition_id, "source": workflow.source}
 
 
-@mcp.tool()
-async def check_definition(kind: str, source: str, definition_id: Optional[str] = None) -> dict:
-    """Checks a pane type's or a workflow's YAML in full, as Check and Save do: every problem, each with its line.
-    Saves nothing."""
-    with _acting() as (db, user, _caller):
-        _may_build(user, kind)
-        errors = _checked(db, kind, source, definition_id, user)
-        return {"ok": not errors, "errors": errors}
+# The turn's working draft (D114): beside an editor, the editor's text is kept
+# on the turn's token, changed a piece at a time by edit_definition, and the
+# tools below read it whenever they're given no `source` -- so a model never
+# writes a whole manifest again to change three lines of it.
+
+
+def _token_row(db: Session, caller: Any) -> Optional[models.AgentToken]:
+    return db.get(models.AgentToken, caller.token_hash) if getattr(caller, "token_hash", None) else None
+
+
+def _kind_of(caller: Any, kind: Optional[str]) -> str:
+    kind = kind or getattr(caller, "build_kind", None)
+    if kind is None:
+        raise InputError('Say kind: "pane" or "workflow".')
+    return kind
+
+
+def _source_of(db: Session, caller: Any, source: Optional[str]) -> str:
+    """The text a tool works on: what it was given -- which then becomes the
+    turn's draft -- or the draft, beside an editor."""
+    row = _token_row(db, caller)
+    if source is not None:
+        if row is not None and row.build_kind:
+            row.build_draft = source
+            db.commit()
+        return source
+    if row is None or not row.build_kind:
+        raise InputError("Give the definition as `source`: only beside an editor is there a draft to work on.")
+    return row.build_draft or ""
+
+
+def _problems(errors: list[dict]) -> str:
+    return "; ".join(f"line {e['line']}: {e['message']}" if e.get("line") else e["message"] for e in errors)
+
+
+def _near(source: str, errors: list[dict], around: int = 2) -> str:
+    """The draft's lines near each problem, numbered: what to make the next edit's `find` from."""
+    lines = source.splitlines()
+    shown: set[int] = set()
+    for e in errors:
+        if e.get("line"):
+            shown.update(range(max(1, e["line"] - around), min(len(lines), e["line"] + around) + 1))
+    return "\n".join(f"{n}: {lines[n - 1]}" for n in sorted(shown))
 
 
 @mcp.tool()
-async def propose_definition(kind: str, source: str, summary: str, definition_id: Optional[str] = None) -> dict:
-    """Puts a pane type's or a workflow's YAML into the editor the user has open, replacing what's there, for them
-    to review, Check and Save -- you can't save it yourself. It's checked first: with any problem, nothing is put
-    there and the problems come back to fix. `summary` says in a sentence what you changed."""
-    with _acting() as (db, user, _caller):
+async def read_draft(start_line: int = 1, end_line: Optional[int] = None) -> dict:
+    """The working draft of the definition in the editor the user has open, with its line numbers -- what
+    edit_definition changes and propose_definition proposes. Only beside an editor."""
+    with _acting() as (db, user, caller):
+        _may_build(user, _kind_of(caller, None))
+        lines = _source_of(db, caller, None).splitlines()
+        end = min(len(lines), end_line or len(lines), start_line + 399)
+        return {"lines": len(lines), "text": "\n".join(f"{n}: {lines[n - 1]}" for n in range(max(1, start_line), end + 1))}
+
+
+@mcp.tool()
+async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = None) -> dict:
+    """Changes the working draft of the definition in the editor the user has open, a piece at a time: each edit is
+    {"find": text that appears exactly once in the draft, "replace": what goes there instead} -- to add, find a
+    nearby line and replace it with itself plus the new lines. All or none are applied, in order. Then the draft is
+    checked, and any problem comes back with its line and the lines around it. Nothing reaches the editor until
+    propose_definition (with no source) puts the draft there. Far cheaper than writing the whole definition again."""
+    with _acting() as (db, user, caller):
+        kind = _kind_of(caller, kind)
         _may_build(user, kind)
-        errors = _checked(db, kind, source, definition_id, user)
+        source = _source_of(db, caller, None)
+        for i, edit in enumerate(edits or []):
+            find, replace = str(edit.get("find") or ""), str(edit.get("replace") or "")
+            count = source.count(find) if find else 0
+            if count != 1:
+                where = "isn't in the draft" if count == 0 else f"is in the draft {count} times: include more around it"
+                raise InputError(f"Edit {i + 1}'s find {find[:80]!r} {where}. Nothing was changed; read_draft shows it.")
+            source = source.replace(find, replace, 1)
+        row = _token_row(db, caller)
+        row.build_draft = source
+        db.commit()
+        errors = _checked(db, kind, source, caller.build_id, user)
+        out: dict[str, Any] = {"ok": not errors, "errors": errors, "lines": len(source.splitlines())}
         if errors:
-            return {"ok": False, "errors": errors,
-                    "note": "Nothing was put in the editor: fix these and propose again."}
-        return {"ok": True, "note": "It's in the editor, unsaved: the user reviews it and saves.",
-                "propose": {"kind": kind, "source": source, "summary": summary[:300]}}
+            out["near"] = _near(source, errors)
+        return out
 
 
 @mcp.tool()
-async def preview_definition(source: str, action: str, inputs: Optional[dict[str, Any]] = None,
+async def check_definition(kind: Optional[str] = None, source: Optional[str] = None,
+                           definition_id: Optional[str] = None) -> dict:
+    """Checks a pane type's or a workflow's YAML in full, as Check and Save do: every problem, each with its line.
+    Without `source`, the working draft beside the editor. Saves nothing."""
+    with _acting() as (db, user, caller):
+        kind = _kind_of(caller, kind)
+        _may_build(user, kind)
+        text = _source_of(db, caller, source)
+        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user)
+        out: dict[str, Any] = {"ok": not errors, "errors": errors}
+        if errors:
+            out["near"] = _near(text, errors)
+        return out
+
+
+@mcp.tool()
+async def propose_definition(summary: str, kind: Optional[str] = None, source: Optional[str] = None,
                              definition_id: Optional[str] = None) -> dict:
-    """Runs one action of a pane type's draft YAML, as the user, on real connections -- the editor's Preview, for
-    you: try a draft before proposing it, and read what its reply really holds (where the rows are, what the
-    columns are called). Nothing is saved or shown anywhere. `inputs` as set_pane_inputs takes them (a connection
-    by id). A background run or a live function can't be previewed."""
+    """Puts a pane type's or a workflow's YAML into the editor the user has open, replacing what's there, for them
+    to review, Check and Save -- you can't save it yourself. Without `source`, the working draft (what
+    edit_definition made). It's checked first: with any problem, nothing is put there and this fails, naming them.
+    `summary` says in a sentence what you changed."""
+    with _acting() as (db, user, caller):
+        kind = _kind_of(caller, kind)
+        _may_build(user, kind)
+        text = _source_of(db, caller, source)
+        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user)
+        if errors:
+            # A failure, not an ordinary answer: shown as a refused step, and
+            # read as one -- "Put a draft in the editor ✓" over a refusal let a
+            # model believe its draft had landed.
+            raise InputError(f"Nothing was put in the editor; fix these and propose again: {_problems(errors)}")
+        return {"ok": True, "note": "It's in the editor, unsaved: the user reviews it and saves.",
+                "propose": {"kind": kind, "source": text, "summary": summary[:300]}}
+
+
+@mcp.tool()
+async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = None, source: Optional[str] = None,
+                             definition_id: Optional[str] = None) -> dict:
+    """Runs one action of a pane type's draft, as the user, on real connections -- the editor's Preview, for you:
+    try a draft before proposing it, and read what its reply really holds (where the rows are, what the fields
+    are called). Without `source`, the working draft. Nothing is saved or shown anywhere. `inputs` as
+    set_pane_inputs takes them (a connection by id). A background run or a live function can't be previewed."""
     from fastapi import HTTPException
 
     from .. import builder
     from . import panes as agent_panes
 
-    with _acting() as (db, user, _caller):
+    with _acting() as (db, user, caller):
         _may_build(user, "pane")
+        text = _source_of(db, caller, source)
         try:
             result = await asyncio.to_thread(
-                builder.run_preview, db, user, source, definition_id, action, dict(inputs or {}))
+                builder.run_preview, db, user, text, definition_id or getattr(caller, "build_id", None), action,
+                dict(inputs or {}))
         except HTTPException as e:
             raise InputError(str(e.detail)) from None
         out: dict[str, Any] = {}
@@ -1658,8 +1755,8 @@ async def preview_definition(source: str, action: str, inputs: Optional[dict[str
             if isinstance(value, list) and all(isinstance(r, dict) for r in value):
                 out[key] = {"rows": len(value), "sample": agent_panes._sample(value)}
             else:
-                text = json.dumps(value, default=str)
-                out[key] = value if len(text) <= 2000 else text[:2000] + "…"
+                text_value = json.dumps(value, default=str)
+                out[key] = value if len(text_value) <= 2000 else text_value[:2000] + "…"
         return {"ok": True, "outputs": out, "note": "A preview only: nothing was saved or shown."}
 
 
