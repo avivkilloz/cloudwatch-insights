@@ -166,11 +166,7 @@ def _meaning(data: Any, change: dict) -> tuple[Any, str, Path, Any]:
                 raise
             parent[key] = change["value"]
             return new, "set", [*parent_path, key], change["value"]
-        parent = _get(new, path[:-1])
-        if isinstance(parent, list) and isinstance(path[-1], int):
-            parent[path[-1]] = change["value"]
-        else:
-            parent[path[-1]] = change["value"]
+        _get(new, path[:-1])[path[-1]] = change["value"]
         return new, "set", path, change["value"]
     if op == "add":
         if "value" not in change:
