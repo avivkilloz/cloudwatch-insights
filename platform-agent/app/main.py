@@ -61,7 +61,7 @@ class Focus(BaseModel):
     session_id: Optional[str] = Field(default=None, max_length=64)
     run_id: Optional[int] = None
     title: str = Field(max_length=200)
-    what: Optional[Literal["pane", "workflow"]] = None
+    what: Optional[Literal["pane", "workflow", "step"]] = None
     id: Optional[str] = Field(default=None, max_length=200)
     source: Optional[str] = Field(default=None, max_length=MAX_MESSAGE_CHARS)
 

@@ -69,6 +69,11 @@ Builder's loop) needs the agent and the fake model running.
 `smoke97` (the Builder's form over the starter: edits back in the YAML as
 only the lines changed) needs nothing beyond the backend.
 
+`smoke100` (5-3, as a builder: a POST step type checked, tried and created
+in the Builder's Step types, then used in a workflow of their own -- no
+Access section -- approved and sent) needs the faked backend (a `.fake` host;
+`/api/dev/fake-http/last` says what it was sent).
+
 `smoke99` (the IoT pane with Rules and Jobs as more choices of "Search for",
 built through the fake model's `add modes for jobs and rules` -- changes in a
 model's own shape, a stray `when` fixed -- then each mode's Search run) needs

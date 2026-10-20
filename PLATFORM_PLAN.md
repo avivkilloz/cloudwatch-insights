@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (three PRs, §24, D103–D120; 5-1, pane types as YAML, and 5-2 -- the agent's build tools, AWS requests, the preview, the form and the Builder's own loop -- built). A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (§24, D103–D123; 5-1, pane types as YAML, and 5-2 -- the agent's build tools, AWS requests, the preview, the form and the Builder's own loop -- built). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1290,6 +1290,9 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D118 | 2026-10-20 | **A request names the output its rows go to** (`request.output`): running it replaces only that output and `error`; without it, `rows`, and the pane cleared, as before. The agent's runner takes a pane's main request. | Every request wrote `rows` and cleared the pane, so IoT with a jobs list and a rules list -- what the user asked the agent for -- lost one whenever the other was fetched: no builder, person or model, could have made it work. |
 | D119 | 2026-10-20 | **An action can be main *when* an input says so** (`main: {input: searchMode, equals: rules}`, a layout `when` on an input): the first whose condition holds is the pane's main action, else the one that's `main: true`. The agent's run, refresh, Run on open, a bound variable's rerun, a zoom, Enter and a workflow draft all take the main action for the pane's inputs; the buttons are layout items shown by `when`. Only a handler or a request can be chosen so -- not a background run, a live function, a row action or an external one. | Things and certificates are one handler's branches in Python; a built pane can't add a branch (code is Phase 6), so its rules and jobs were buttons of their own, and the agent's run and refresh always ran the search -- in rules mode, the things handler. A mode that picks the action is data, like everything else a built pane says. |
 | D120 | 2026-10-20 | **Changes are read as models write them, and a refusal says the shape with the model's own change in it**: no op with a value is a set, a path ending `/-` an add, `replace`/`append`/`delete` the ops they mean, a list or mapping written as text the data it says (never over a text value); a field a part can't have is said with the fields it can; an inline list replaced stays inline. The "write the changes" prompt is sent as it reads (its braces were doubled). | A real model wrote `{"path", "old", "new"}` with mappings as Python text, was told only "op is not None" three rounds running, and the user saw "I couldn't make the change" over a plan that was otherwise sound. |
+| D121 | 2026-10-20 | **Workflows are a builder's too** (§24, 5-3): a group with the Builder may make workflows; one a builder makes is their group's (`owner_group_id`) -- its builders edit it, the group runs it at once -- and only an admin grants it to another group or edits one of no group's. A builder names only panes their group may use. | D84 left editing to admins "until the Builder grant"; the same rule as a built pane (D105): yours at once, others' when an admin says so. |
+| D122 | 2026-10-20 | **Step types are definitions too** (§7.3): made in the Builder, kept in the store's `steps/`, used by a workflow as `step: <id>` with its inputs in `with`. One is a declarative HTTP request -- any method, path, query, headers and body templated from its inputs, run as the workflow's starter with their group's identity, through the SSRF guard, masked -- or a chain of steps used as one, its outputs mapped. One that changes something (anything but GET, or a chain holding one) waits for a person, as an external action does; nothing inside a chain is approved apart from it. Try sends a draft request once, as the builder. | §7.3's step builder, first two options (code is Phase 6). An HTTP call that changes something had no home but the HTTP client's Send; a sequence used in several workflows was copied into each. |
+| D123 | 2026-10-20 | **The agent builds step types and workflows as it builds pane types** (the Builder's loop, D116): the build tools take `kind: step`, the reference is generated from the step type's models with the step types there are, and a builder's Building tab works beside either editor. | One loop and one set of tools for every definition, as D72 has it. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4775,9 +4778,12 @@ Three PRs (D104), each with something to try:
   action for the button, the agent, refresh and the rest; the change tool
   reads `{"path", "new"}`, `/-`, op synonyms and text-written data as meant,
   and a refusal shows the shape with the model's own change in it.
-- **5-3, steps and workflows for builders**: workflows editable by a
-  group's Builder, not only admins; declarative HTTP steps and composed
-  steps (§20.3) reusable across workflows.
+- **5-3, steps and workflows for builders** (built, D121-D123): workflows a
+  group's builders make and edit (their group's; granting others an
+  admin's); step types -- a declarative HTTP request or a chain of steps --
+  made in the Builder (Pane types | Step types), checked, tried, kept in the
+  store's `steps/`, used by workflows as `step: <id>`, one that changes
+  something waiting for a person; the agent builds them through the same loop.
 
 ## 12. Research sources
 

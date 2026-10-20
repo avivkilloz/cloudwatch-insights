@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
-export type BuildKind = "pane" | "workflow";
+export type BuildKind = "pane" | "workflow" | "step";
 
 export interface BuildFocus {
   /** One conversation per editor: "pane:<id>", "workflow:<id>", or "…:new". */

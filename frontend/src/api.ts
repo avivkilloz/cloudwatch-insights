@@ -185,6 +185,32 @@ export interface BuiltPaneType {
   loads: boolean;
 }
 
+/** A step type made in the Builder (D122): a declarative HTTP request, or a
+ * chain of steps, a workflow uses by name as one step. */
+export interface BuiltStepType {
+  id: string;
+  label: string;
+  description: string | null;
+  /** "request" or "steps"; null when it doesn't load now. */
+  kind: "request" | "steps" | null;
+  /** A workflow's step using it waits for a person: it changes something. */
+  external: boolean;
+  inputs: WorkflowParam[];
+  source: string;
+  loads: boolean;
+  can_edit: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  store_state: StoreState | null;
+}
+
+export interface StepSchema {
+  starter: string;
+  chain_example: string;
+  namespace: string | null;
+  reference: Record<string, unknown>;
+}
+
 /** What a pane type's definition may say: for the editor's reference. */
 export interface BuilderSchema {
   handlers: string[];
@@ -709,7 +735,7 @@ async function agentChat(
     timezone: string;
     scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
-    build?: { kind: "pane" | "workflow"; id: string | null; title: string; source: string };
+    build?: { kind: "pane" | "workflow" | "step"; id: string | null; title: string; source: string };
   },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,
@@ -1018,6 +1044,24 @@ export const api = {
   updateBuiltPane: (id: string, source: string) =>
     req<BuiltPaneType>(`/builder/panes/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
   deleteBuiltPane: (id: string) => req<void>(`/builder/panes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  stepSchema: () => req<StepSchema>("/builder/step-schema"),
+  listBuiltSteps: () => req<BuiltStepType[]>("/builder/steps"),
+  checkBuiltStep: (source: string, id?: string, newId?: string) =>
+    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/steps/check", {
+      method: "POST",
+      body: JSON.stringify({ source, id, new_id: newId }),
+    }),
+  /** A draft request step sent once, as you -- for real (D122). */
+  tryBuiltStep: (source: string, inputs: Record<string, unknown>, id?: string) =>
+    req<{ status: number; response: unknown; rows?: Record<string, unknown>[] }>("/builder/steps/try", {
+      method: "POST",
+      body: JSON.stringify({ source, inputs, id }),
+    }),
+  createBuiltStep: (id: string, source: string) =>
+    req<BuiltStepType>("/builder/steps", { method: "POST", body: JSON.stringify({ id, source }) }),
+  updateBuiltStep: (id: string, source: string) =>
+    req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
+  deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),
   publishTemplate: (payload: { saved_session_id: number; id: string; label: string; description?: string }) =>
     req<PublishedTemplate & { changes: string[] }>("/templates", { method: "POST", body: JSON.stringify(payload) }),

@@ -730,6 +730,10 @@ class Workflow(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    # The group whose builders may edit it (D121): the group of the builder
+    # who made it. None -- an admin's, or one from before builders -- is
+    # admins' alone.
+    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
 
 
 class PublishedTemplate(Base):
@@ -766,6 +770,24 @@ class BuiltPaneType(Base):
 
     id = Column(String(64), primary_key=True)
     source = Column(Text, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class BuiltStepType(Base):
+    """A step type made in the Builder (PLATFORM_PLAN.md §7.3, D122): a
+    declarative HTTP request or a chain of steps, used by workflows as one
+    step. Kept as its YAML, verbatim, like a pane type's (the store's
+    `steps/<name>.yaml`); `owner_group_id` is the group whose builders may
+    change it, as a workflow's (D121)."""
+
+    __tablename__ = "built_step_types"
+
+    id = Column(String(64), primary_key=True)
+    source = Column(Text, nullable=False)
+    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

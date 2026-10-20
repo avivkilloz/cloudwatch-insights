@@ -39,6 +39,10 @@ def _allowed(user: models.User) -> bool:
     return bool(user.group and user.group.agent_enabled)
 
 
+# What each kind of editor is called, for a new one's title.
+NOUNS = {"pane": "pane type", "workflow": "workflow", "step": "step type"}
+
+
 class AgentStatus(BaseModel):
     # Whether this deployment runs an agent at all.
     available: bool
@@ -80,7 +84,7 @@ class BuildFocus(BaseModel):
     a workflow), its id once saved, and its text as it is now -- unsaved,
     the user's, and newer than anything the store has."""
 
-    kind: Literal["pane", "workflow"]
+    kind: Literal["pane", "workflow", "step"]
     id: Optional[str] = Field(default=None, max_length=200)
     title: str = Field(default="", max_length=200)
     source: str = Field(default="", max_length=MAX_MESSAGE_CHARS)
@@ -156,19 +160,25 @@ async def agent_chat(
         build = payload.build
         if build is None:
             raise HTTPException(status_code=400, detail="A build chat needs the editor it's about.")
-        allowed = builder.can_build(current_user) if build.kind == "pane" else bool(
-            current_user.group and current_user.group.is_admin
-        )
+        if build.kind == "workflow":
+            # As its editor (D121): a new one is any builder's or admin's; an
+            # existing one, an admin's or its group's builders'.
+            from .. import workflows
+
+            existing = db.get(models.Workflow, build.id) if build.id else None
+            allowed = workflows.can_edit(current_user, existing)
+        else:
+            allowed = builder.can_build(current_user)
         if not allowed:
             raise HTTPException(
                 status_code=403,
-                detail="Building pane types isn't turned on for your group." if build.kind == "pane"
-                else "Only an admin edits workflows' definitions, for now.",
+                detail="Only an admin, or a builder of the group that made it, edits this workflow."
+                if build.kind == "workflow" else "Building pane types and steps isn't turned on for your group.",
             )
         focus = {
             "kind": "build",
             "what": build.kind,
-            "title": build.title or build.id or f"New {'pane type' if build.kind == 'pane' else 'workflow'}",
+            "title": build.title or build.id or f"New {NOUNS[build.kind]}",
             "source": build.source,
             **({"id": build.id} if build.id else {}),
         }

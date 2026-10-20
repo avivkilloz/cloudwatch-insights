@@ -257,10 +257,10 @@ function WaitingForYou({ open }: { open: (s: Screen) => void }) {
   );
 }
 
-/** Admins only, until the Builder grant (D84). */
+/** Admins and builders (D121): a builder's is their group's to edit and run. */
 function NewWorkflowButton({ open }: { open: (s: Screen) => void }) {
   const { user } = useAuth();
-  if (!user?.is_admin) return null;
+  if (!user?.is_admin && !user?.builder_enabled) return null;
   return <button onClick={() => open({ kind: "new" })}>New workflow</button>;
 }
 
@@ -302,6 +302,7 @@ function RunsTable({ runs, open, showWorkflow }: { runs: WorkflowRun[]; open: (s
 // ------------------------------------------------------------------- one workflow
 
 function WorkflowView({ id, open, draft }: { id: string | null; open: (s: Screen) => void; draft?: Draft | null }) {
+  const { user } = useAuth();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -385,7 +386,8 @@ function WorkflowView({ id, open, draft }: { id: string | null; open: (s: Screen
           saved={(w) => (isNew ? open({ kind: "workflow", id: w.id }) : (setWorkflow(w), load()))}
         />
       )}
-      {workflow?.can_edit && <AccessSection workflow={workflow} saved={setWorkflow} />}
+      {/* Granting other groups stays an admin's (D121, as for built panes). */}
+      {workflow?.can_edit && user?.is_admin && <AccessSection workflow={workflow} saved={setWorkflow} />}
     </div>
   );
 }

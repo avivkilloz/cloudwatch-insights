@@ -1457,7 +1457,7 @@ export default function AggregatorPage() {
               </button>
             ))}
         </CardRow>
-        {me?.is_admin && (
+        {(me?.is_admin || me?.builder_enabled) && (
           <CardRow label="Workflow">
             <button
               className="secondary session-card-repeat"

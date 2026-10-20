@@ -1,5 +1,5 @@
-"""Workflows over HTTP (PLATFORM_PLAN.md §22): definitions (an admin's until
-the Builder grant, D84), who may run them, runs and their steps.
+"""Workflows over HTTP (PLATFORM_PLAN.md §22): definitions (an admin's, and
+since 5-3 a builder's own group's, D121), who may run them, runs and steps.
 
 A run's inputs and outputs go only to whoever may read it -- its starter,
 their group, admins (`workflows.can_read`); anyone else who may run the
@@ -60,15 +60,29 @@ def _guard(fn):
 
 def _workflow(db: Session, user: models.User, workflow_id: str) -> models.Workflow:
     row = db.get(models.Workflow, workflow_id)
-    if row is None or not (workflows.can_edit(user) or workflows.can_run(db, user, row)):
+    if row is None or not workflows.visible(db, user, row):
         raise HTTPException(status_code=404, detail="There is no such workflow for you.")
     return row
+
+
+def _editable(db: Session, user: models.User, workflow_id: str) -> models.Workflow:
+    row = _workflow(db, user, workflow_id)
+    if not workflows.can_edit(user, row):
+        raise HTTPException(status_code=403, detail="Only an admin, or a builder of the group that made it, may change "
+                                                    "this workflow.")
+    return row
+
+
+def _creator(user: models.User = Depends(auth.get_current_user)) -> models.User:
+    if not workflows.can_create(user):
+        raise HTTPException(status_code=403, detail="Making workflows is for admins and builders (Users → Groups).")
+    return user
 
 
 def _run(db: Session, user: models.User, run_id: int) -> models.WorkflowRun:
     run = db.get(models.WorkflowRun, run_id)
     workflow = db.get(models.Workflow, run.workflow_id) if run else None
-    if run is None or workflow is None or not (workflows.can_edit(user) or workflows.can_run(db, user, workflow)):
+    if run is None or workflow is None or not workflows.visible(db, user, workflow):
         raise HTTPException(status_code=404, detail="There is no such run for you.")
     return run
 
@@ -86,7 +100,7 @@ def _out(db: Session, user: models.User, row: models.Workflow, detail: bool = Fa
         "description": row.description,
         "parameters": row.definition.get("parameters") or [],
         "steps": len(row.definition.get("steps") or []),
-        "can_edit": workflows.can_edit(user),
+        "can_edit": workflows.can_edit(user, row),
         "can_run": workflows.can_run(db, user, row),
         "last_run": workflows.summary(db, last, user) if last else None,
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="workflow", item_id=row.id)), (None,))[0],
@@ -94,38 +108,41 @@ def _out(db: Session, user: models.User, row: models.Workflow, detail: bool = Fa
     if detail:
         out["source"] = row.source
         out["definition"] = row.definition
-        if workflows.can_edit(user):
+        if workflows.can_edit(user, row):
             out["group_ids"] = [g.group_id for g in db.query(models.WorkflowGrant).filter_by(workflow_id=row.id)]
     return out
 
 
 @router.get("")
 def list_workflows(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
-    rows = db.query(models.Workflow).order_by(models.Workflow.label).all() if workflows.can_edit(user) else workflows.runnable(db, user)
-    return [_out(db, user, w) for w in rows]
+    return [_out(db, user, w) for w in workflows.listed(db, user)]
 
 
 @router.post("/validate")
-def validate(payload: SourceIn, _admin: models.User = Depends(auth.require_admin)):
-    """What saving would say, without saving: every problem, with its line."""
+def validate(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_creator)):
+    """What saving would say, without saving: every problem, with its line --
+    a builder's naming a pane their group can't use among them (D121)."""
     try:
         definition = workflows.parse(payload.source)
     except workflows.WorkflowError as e:
         return {"ok": False, "errors": e.errors}
+    errors = workflows.access_errors(db, definition, user, payload.source)
+    if errors:
+        return {"ok": False, "errors": errors}
     return {"ok": True, "errors": [], "definition": definition.model_dump(by_alias=True, exclude_none=True)}
 
 
 @router.post("/draft")
-def draft(payload: DraftIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def draft(payload: DraftIn, db: Session = Depends(get_db), user: models.User = Depends(_creator)):
     """A workflow drafted from a session for the editor (D96): YAML, its
     problems, and an id to suggest. Nothing is saved."""
-    return _guard(lambda: workflow_doors.draft_from_session(db, admin, payload.session))
+    return _guard(lambda: workflow_doors.draft_from_session(db, user, payload.session))
 
 
 @router.post("", status_code=201)
-def create(payload: WorkflowIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
-    row = _guard(lambda: workflows.save(db, None, payload.id, payload.source, admin))
-    return _out(db, admin, row, detail=True)
+def create(payload: WorkflowIn, db: Session = Depends(get_db), user: models.User = Depends(_creator)):
+    row = _guard(lambda: workflows.save(db, None, payload.id, payload.source, user))
+    return _out(db, user, row, detail=True)
 
 
 @router.get("/{workflow_id}")
@@ -134,14 +151,16 @@ def get_workflow(workflow_id: str, db: Session = Depends(get_db), user: models.U
 
 
 @router.put("/{workflow_id}")
-def update(workflow_id: str, payload: SourceIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
-    row = _guard(lambda: workflows.save(db, workflow_id, None, payload.source, admin))
-    return _out(db, admin, row, detail=True)
+def update(workflow_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    _editable(db, user, workflow_id)
+    row = _guard(lambda: workflows.save(db, workflow_id, None, payload.source, user))
+    return _out(db, user, row, detail=True)
 
 
 @router.delete("/{workflow_id}", status_code=204)
-def delete(workflow_id: str, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
-    workflows.delete(db, workflow_id, admin)
+def delete(workflow_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    _editable(db, user, workflow_id)
+    workflows.delete(db, workflow_id, user)
     return None
 
 
@@ -196,7 +215,7 @@ def recent_runs(
     user: models.User = Depends(auth.get_current_user),
 ):
     """Recent runs across the workflows the caller may run."""
-    visible = {w.id for w in (db.query(models.Workflow).all() if workflows.can_edit(user) else workflows.runnable(db, user))}
+    visible = {w.id for w in workflows.listed(db, user)}
     q = db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id.in_(visible or {""}))
     if mine:
         q = q.filter(models.WorkflowRun.started_by_id == user.id)

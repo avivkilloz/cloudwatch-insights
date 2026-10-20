@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-20, Phase 5-2f (modes in built panes, changes as models write them; PLATFORM_PLAN.md §24, D119–D120)._
+_Last updated: 2026-10-20, Phase 5-3 (step types and workflows for builders; PLATFORM_PLAN.md §24, D121–D123)._
 
 ## Platform plan
 
@@ -1298,7 +1298,23 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: modes a built pane can have, and changes as models write them
+**This PR: 5-3, step types and workflows for builders (PLATFORM_PLAN.md
+§24, D121–D123).** The last part of Phase 5.
+- Workflows: a builder makes them; theirs is their group's to edit and run
+  (`owner_group_id`, a grant on creation); granting other groups stays an
+  admin's; a builder names only panes their group may use.
+- Step types (`step_types.py`, `built_step_types`, store `steps/`): an HTTP
+  request (any method, templated from inputs, as the starter, SSRF-guarded,
+  masked) or a chain of steps with mapped outputs; used as `step: <id>`; one
+  that changes something waits for approval. The Builder's Step types list
+  and editor (Check, Try, Create/Save, Delete); the agent's build tools take
+  `kind: step`.
+- Tests: backend `test_step_types.py` (13), workflow/builder tests updated
+  (builders may now build workflows); browser `smoke100` (10) as a builder:
+  a POST step type checked, tried, created, used in their own workflow,
+  approved and sent.
+
+**#135 merged. Modes a built pane can have, and changes as models write them
 (PLATFORM_PLAN.md §24, D119–D120).** Asked for an IoT pane with rules and jobs
 beside things and certificates, a real model's changes (`{"path", "old",
 "new"}`) were refused three rounds running, and a mode toggle couldn't choose

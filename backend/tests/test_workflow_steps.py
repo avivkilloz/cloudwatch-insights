@@ -58,7 +58,7 @@ def fast_polls(monkeypatch):
     "snippet, says",
     [
         ("    note: hi\n    artifact: { name: a, value: 1 }\n", "is a note and an artifact"),
-        ("    note: hi\n    retry: 2\n", "only a pane action has retry"),
+        ("    note: hi\n    retry: 2\n", "only a pane action or a step type has retry"),
         ("    pane: tables\n    action: scan\n    listen: 5\n", "listen is for a connection"),
         ("    pane: tables\n", "needs both a pane and an action"),
         ("    approval: { by: someone }\n", "approval.by"),

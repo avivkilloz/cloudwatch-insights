@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
-import { api, BuilderSchema, BuiltPaneType, readableError, WorkflowProblem } from "../api";
+import { api, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, WorkflowProblem } from "../api";
 import { useAuth } from "../AuthContext";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
@@ -13,6 +13,7 @@ import { useCatalogue } from "../sessions/catalogue";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { registerManifestPanes } from "../sessions/paneTypes";
 import { useStartSession } from "../sessions/start";
+import StepEditor from "./StepEditor";
 
 /*
  * The Builder, its first part (PLATFORM_PLAN.md §24, D103-D106): pane types
@@ -28,7 +29,12 @@ import { useStartSession } from "../sessions/start";
  */
 
 // `said`: what to say on arriving -- a type just created opens as itself.
-type Screen = { kind: "list" } | { kind: "edit"; id: string | null; said?: string };
+// `what`: which list (pane types, or step types made for workflows, D122).
+type What = "pane" | "step";
+type Screen =
+  | { kind: "list"; what?: What }
+  | { kind: "edit"; id: string | null; said?: string }
+  | { kind: "step"; id: string | null; said?: string };
 
 /** After a save: the browser's pane types, the user's grants and the
  * catalogue all change -- loaded again, so the new type can be opened now. */
@@ -49,23 +55,109 @@ export default function BuilderPage() {
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
   if (view !== "builder") return null;
   if (screen.kind === "edit") return <Editor key={screen.id ?? "new"} id={screen.id} said={screen.said} open={setScreen} />;
-  return <ListView open={setScreen} />;
+  if (screen.kind === "step") {
+    return (
+      <StepEditor
+        key={screen.id ?? "new"}
+        id={screen.id}
+        said={screen.said}
+        back={() => setScreen({ kind: "list", what: "step" })}
+        opened={(id, said) => setScreen({ kind: "step", id, said })}
+      />
+    );
+  }
+  return <ListView open={setScreen} initial={screen.what ?? "pane"} />;
 }
 
-function ListView({ open }: { open: (s: Screen) => void }) {
+function ListView({ open, initial }: { open: (s: Screen) => void; initial: What }) {
+  const [what, setWhat] = useState<What>(initial);
+  return (
+    <div className="panel builder-list">
+      <div className="credential-view-head">
+        <h2>Builder</h2>
+        <div className="credential-view-actions">
+          <ViewSwitch
+            views={[
+              ["pane", "Pane types"],
+              ["step", "Step types"],
+            ] as const}
+            view={what}
+            onChange={setWhat}
+          />
+          {what === "pane" ? (
+            <button onClick={() => open({ kind: "edit", id: null })}>New pane type</button>
+          ) : (
+            <button onClick={() => open({ kind: "step", id: null })}>New step type</button>
+          )}
+        </div>
+      </div>
+      {what === "pane" ? <PaneList open={open} /> : <StepList open={open} />}
+    </div>
+  );
+}
+
+function StepList({ open }: { open: (s: Screen) => void }) {
+  const [items, setItems] = useState<BuiltStepType[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.listBuiltSteps().then(setItems, (e) => setError(readableError(e)));
+  }, []);
+  return (
+    <>
+      <p className="muted" style={{ maxWidth: "80ch" }}>
+        Steps for workflows, made here: a request to an HTTP connection -- any method, its path, query, headers and
+        body from its inputs -- or a chain of steps used as one. A workflow uses one as <code>step: its id</code>; one
+        that changes something waits for a person first. Your group's builders and admins may change it.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {items !== null && items.length === 0 && <p className="muted">None made yet.</p>}
+      {items !== null && items.length > 0 && (
+        <table className="credentials-table builder-table">
+          <thead>
+            <tr>
+              <th>Step type</th>
+              <th>Id</th>
+              <th>Is</th>
+              <th>Last changed</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((t) => (
+              <tr key={t.id} data-step={t.id} {...rowProps(() => open({ kind: "step", id: t.id }))}>
+                <td>
+                  {t.label}
+                  {!t.loads && <span className="tag error" style={{ marginLeft: 6 }}>Doesn't load</span>}
+                </td>
+                <td className="muted">{t.id}</td>
+                <td className="muted">
+                  {t.kind === "steps" ? "A chain of steps" : "A request"}
+                  {t.external ? " · changes something" : ""}
+                </td>
+                <td className="muted">
+                  {t.updated_by ?? ""}
+                  {t.updated_at ? ` · ${new Date(t.updated_at).toLocaleString()}` : ""}
+                </td>
+                <td>
+                  <StoreBadge state={t.store_state} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function PaneList({ open }: { open: (s: Screen) => void }) {
   const [items, setItems] = useState<BuiltPaneType[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     api.listBuiltPanes().then(setItems, (e) => setError(readableError(e)));
   }, []);
   return (
-    <div className="panel builder-list">
-      <div className="credential-view-head">
-        <h2>Builder</h2>
-        <div className="credential-view-actions">
-          <button onClick={() => open({ kind: "edit", id: null })}>New pane type</button>
-        </div>
-      </div>
+    <>
       <p className="muted" style={{ maxWidth: "80ch" }}>
         Pane types made here, written as the same definition every pane is: its inputs, the actions that fill its
         outputs -- a request to a connection, or an action the platform already has -- and how it's laid out. One you
@@ -103,7 +195,7 @@ function ListView({ open }: { open: (s: Screen) => void }) {
           </tbody>
         </table>
       )}
-    </div>
+    </>
   );
 }
 
