@@ -985,6 +985,25 @@ export const api = {
   builderSchema: () => req<BuilderSchema>("/builder/schema"),
   listBuiltPanes: () => req<BuiltPaneType[]>("/builder/panes"),
   builderExample: (id: string) => req<{ id: string; source: string }>(`/builder/examples/${encodeURIComponent(id)}`),
+  /** The draft as a pane type the preview draws, or its problems (D112). */
+  builderPreview: (source: string, id?: string, newId?: string) =>
+    req<{ ok: boolean; errors: WorkflowProblem[]; manifest: PaneManifest | null }>("/builder/preview", {
+      method: "POST",
+      body: JSON.stringify({ source, id, new_id: newId }),
+    }),
+  /** One of a draft's actions, run as its builder; nothing is stored. */
+  builderPreviewAction: (
+    source: string,
+    id: string | undefined,
+    action: string,
+    inputs: Record<string, unknown>,
+    cursor?: unknown,
+    timezone?: string,
+  ) =>
+    req<Record<string, unknown>>(`/builder/preview/actions/${encodeURIComponent(action)}`, {
+      method: "POST",
+      body: JSON.stringify({ source, id, inputs, cursor, timezone }),
+    }),
   /** `newId`: the Id typed for a new one, which the YAML's own id is held to. */
   checkBuiltPane: (source: string, id?: string, newId?: string) =>
     req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", {

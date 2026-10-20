@@ -929,13 +929,22 @@ Environment column, and an environment that fails says so beside it.
 Operations that change something, or hand out credentials or secret values,
 are refused. The agent's Building tab knows the shape, with a Lambda example.
 
+**Preview**: beside the editor, Preview draws the definition as the pane it
+makes -- its inputs, its buttons, its tables -- and its actions run as you, on
+your real connections, so you see what a request really answers before
+shaping its rows. Nothing is saved and no session holds it; change the text and
+the preview says it's of an older version until you preview again. A pane can
+use the platform's own handlers only where your group may use the panes that
+run them (DynamoDB's, say, once your group has DynamoDB).
+
 **Building with the agent**: while a pane type's editor -- or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.
 Say what it should do or what to change ("add a status filter", "make this a
 table of the reply's items"): the agent reads what a definition can say and
 what's in the editor, writes the definition, checks it, and puts it in the
-editor for you to look over. It never saves -- **Check** and **Save** are
-yours. A form editor with a live preview comes next.
+editor for you to look over. It can try a draft's action first, as you, to
+see what the reply holds. It never saves -- **Check** and **Save** are yours.
+A form editor beside the YAML comes next.
 
 ## The store repo
 

@@ -95,6 +95,8 @@ function describe(step: AgentStep): string {
       return `${done ? "Read" : "Reading"} “${String(a.definition_id ?? "")}” as an example`;
     case "check_definition":
       return step.status === "failed" ? "Checked a draft" : done ? "Checked a draft" : "Checking a draft…";
+    case "preview_definition":
+      return `${done ? "Tried" : "Trying"} the draft's ${String(a.action ?? "")}`;
     case "propose_definition":
       return done ? "Put a draft in the editor" : "Putting a draft in the editor…";
     case "unreadable_tool_call":

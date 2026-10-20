@@ -4700,3 +4700,32 @@ textarea.workflow-source {
   margin: 0;
   font-size: 12.5px;
 }
+
+/* The Builder's editor and its preview side by side where there's room
+   (D112), one under the other where there isn't. */
+.builder-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.builder-preview-empty,
+.builder-preview-stale {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+.builder-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+/* The grid spaces the two cards; a section's own top margin after the first
+   put the preview 10px lower, and the grid itself needs the section gap from
+   what follows it. */
+.builder-columns > .session-card-section + .session-card-section {
+  margin-top: 0;
+}
+.builder-columns + .session-card-section {
+  margin-top: 12px;
+}

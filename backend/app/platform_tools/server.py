@@ -1558,13 +1558,14 @@ def _may_build(user: models.User, kind: str) -> None:
         raise InputError('kind is "pane" or "workflow".')
 
 
-def _checked(db: Session, kind: str, source: str, definition_id: Optional[str]) -> list[dict]:
+def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User) -> list[dict]:
     from .. import builder, workflows
 
     try:
         if kind == "pane":
             # A new one's id is the editor's Id field, not the draft's: not held to anything.
-            builder.parse(source, definition_id)
+            # Held to the handlers the user's group may run, as the editor's Check is (D113).
+            builder.preview(source, definition_id, user)
         else:
             workflows.parse(source)
     except (builder.BuilderError, workflows.WorkflowError) as e:
@@ -1612,7 +1613,7 @@ async def check_definition(kind: str, source: str, definition_id: Optional[str] 
     Saves nothing."""
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
-        errors = _checked(db, kind, source, definition_id)
+        errors = _checked(db, kind, source, definition_id, user)
         return {"ok": not errors, "errors": errors}
 
 
@@ -1623,12 +1624,43 @@ async def propose_definition(kind: str, source: str, summary: str, definition_id
     there and the problems come back to fix. `summary` says in a sentence what you changed."""
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
-        errors = _checked(db, kind, source, definition_id)
+        errors = _checked(db, kind, source, definition_id, user)
         if errors:
             return {"ok": False, "errors": errors,
                     "note": "Nothing was put in the editor: fix these and propose again."}
         return {"ok": True, "note": "It's in the editor, unsaved: the user reviews it and saves.",
                 "propose": {"kind": kind, "source": source, "summary": summary[:300]}}
+
+
+@mcp.tool()
+async def preview_definition(source: str, action: str, inputs: Optional[dict[str, Any]] = None,
+                             definition_id: Optional[str] = None) -> dict:
+    """Runs one action of a pane type's draft YAML, as the user, on real connections -- the editor's Preview, for
+    you: try a draft before proposing it, and read what its reply really holds (where the rows are, what the
+    columns are called). Nothing is saved or shown anywhere. `inputs` as set_pane_inputs takes them (a connection
+    by id). A background run or a live function can't be previewed."""
+    from fastapi import HTTPException
+
+    from .. import builder
+    from . import panes as agent_panes
+
+    with _acting() as (db, user, _caller):
+        _may_build(user, "pane")
+        try:
+            result = await asyncio.to_thread(
+                builder.run_preview, db, user, source, definition_id, action, dict(inputs or {}))
+        except HTTPException as e:
+            raise InputError(str(e.detail)) from None
+        out: dict[str, Any] = {}
+        for key, value in result.items():
+            if key.startswith("__"):
+                continue
+            if isinstance(value, list) and all(isinstance(r, dict) for r in value):
+                out[key] = {"rows": len(value), "sample": agent_panes._sample(value)}
+            else:
+                text = json.dumps(value, default=str)
+                out[key] = value if len(text) <= 2000 else text[:2000] + "…"
+        return {"ok": True, "outputs": out, "note": "A preview only: nothing was saved or shown."}
 
 
 @mcp.tool()

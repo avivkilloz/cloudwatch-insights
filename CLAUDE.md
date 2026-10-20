@@ -800,7 +800,7 @@ id, kept in the store (`Kind` `template`).
   it. From Add with one environment it opens at once; otherwise the default
   page's card asks. The agent: `get_context.templates`, `open_template`.
 
-**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D111; `builder.py`,
+**The Builder** (PLATFORM_PLAN.md §24, D71, D103–D113; `builder.py`,
 `routers/builder.py`, `pages/BuilderPage.tsx`). Phase 5-1: pane types made in
 the platform, for a group with `builder_enabled` (admins always).
 - **A built pane type is a manifest**, kept verbatim in `built_pane_types` and
@@ -820,6 +820,18 @@ the platform, for a group with `builder_enabled` (admins always).
   the YAML's id to that (`new_id`); a draft without an Id isn't held to
   anything -- its id line used to fail against "draft" first, and Check
   dropped that error, so nothing after it was checked.
+- **Its handlers are its builder's group's** (D113, `usable_handlers`): only
+  handlers of pane types that group may use (admins: all), held by Check,
+  Preview, Save and the agent's check; the handler lists show only those. A
+  built pane is its group's at once, so without this a builder reached a
+  handler (DynamoDB's scan) an admin never granted them.
+- **The preview** (D112): the real `ManifestPane`, given the draft's manifest
+  from `/api/builder/preview`, in no session (outputs stay in the tab), its
+  server actions sent through `panes/actionRunner.ts`'s context to
+  `/api/builder/preview/actions` with the text it was drawn from --
+  `run_request`/`run_handler` with `draft=True` (no pane grant for a draft;
+  the Builder grant and D113 instead), nothing stored. Background runs aren't
+  previewed. The agent's `preview_definition` is the same run, sampled.
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.

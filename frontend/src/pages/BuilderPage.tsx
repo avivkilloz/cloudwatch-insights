@@ -5,7 +5,9 @@ import { useAuth } from "../AuthContext";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, ViewHead } from "../components/settings/settingsLayout";
-import { setManifests } from "../panes/manifest";
+import { ActionRunner, ActionRunnerContext } from "../panes/actionRunner";
+import ManifestPane from "../panes/ManifestPane";
+import { PaneManifest, setManifests } from "../panes/manifest";
 import { useCatalogue } from "../sessions/catalogue";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { registerManifestPanes } from "../sessions/paneTypes";
@@ -116,6 +118,10 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
   const [notice, setNotice] = useState<string | null>(said ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The draft as the preview draws it: the text it was drawn from (its
+  // actions are run with that, not with what's been typed since) and a
+  // counter that remounts the pane, whose inputs may have changed.
+  const [preview, setPreview] = useState<{ manifest: PaneManifest; source: string; n: number } | null>(null);
   useOfferBuild("pane", id, item?.label ?? (isNew ? "New pane type" : id ?? ""), true, source, (text, summary) => {
     setSource(text);
     setProblems(null);
@@ -156,6 +162,29 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
       return false;
     }
   }
+
+  async function showPreview() {
+    setNotice(null);
+    setError(null);
+    try {
+      const out = await api.builderPreview(source, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
+      setProblems(out.errors);
+      if (out.ok && out.manifest) {
+        const drawn = out.manifest;
+        setPreview((prev) => ({ manifest: drawn, source, n: (prev?.n ?? 0) + 1 }));
+      }
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  // The draft's actions go to the preview's endpoint with the text it was
+  // drawn from, run as the builder; nothing is stored (D112).
+  const runPreviewAction = useCallback<ActionRunner>(
+    (_type, action, inputs, cursor, extra) =>
+      api.builderPreviewAction(preview?.source ?? "", isNew ? undefined : id ?? undefined, action, inputs, cursor, extra?.timezone),
+    [preview?.source, isNew, id],
+  );
 
   async function save() {
     setBusy(true);
@@ -215,61 +244,85 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
           </button>
         )}
       </ViewHead>
-      <Section title="Definition">
-        {isNew && (
-          <CardRow label="Id">
-            <input id="builder-id" type="text" value={newId} placeholder="e.g. service_status" onChange={(e) => setNewId(e.target.value)} />
-            {schema?.namespace && newId.trim() && !newId.includes(":") && (
-              <p className="muted builder-saved-as">
-                Saved as <code>{`${schema.namespace}:${newId.trim()}`}</code>, in the store's namespace.
-              </p>
-            )}
+      <div className="builder-columns">
+        <Section title="Definition">
+          {isNew && (
+            <CardRow label="Id">
+              <input id="builder-id" type="text" value={newId} placeholder="e.g. service_status" onChange={(e) => setNewId(e.target.value)} />
+              {schema?.namespace && newId.trim() && !newId.includes(":") && (
+                <p className="muted builder-saved-as">
+                  Saved as <code>{`${schema.namespace}:${newId.trim()}`}</code>, in the store's namespace.
+                </p>
+              )}
+            </CardRow>
+          )}
+          <CardRow label="Start from">
+            <select id="builder-start" value="" onChange={(e) => startFrom(e.target.value)}>
+              <option value="">{isNew ? "The starter below, or an example…" : "Replace with an example…"}</option>
+              <option value="__starter">The starter</option>
+              {(schema?.examples ?? []).map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
           </CardRow>
-        )}
-        <CardRow label="Start from">
-          <select id="builder-start" value="" onChange={(e) => startFrom(e.target.value)}>
-            <option value="">{isNew ? "The starter below, or an example…" : "Replace with an example…"}</option>
-            <option value="__starter">The starter</option>
-            {(schema?.examples ?? []).map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        </CardRow>
-        <textarea
-          id="builder-source"
-          className="workflow-source"
-          spellCheck={false}
-          rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
-          value={source}
-          onChange={(e) => {
-            setSource(e.target.value);
-            setProblems(null);
-            setNotice(null);
-          }}
-        />
-        {problems && problems.length > 0 && (
-          <ul className="error-text workflow-problems builder-problems">
-            {problems.map((p, i) => (
-              <li key={i}>
-                {p.line ? <strong>Line {p.line}: </strong> : null}
-                {p.message}
-              </li>
-            ))}
-          </ul>
-        )}
-        {notice && <p className="muted builder-notice">{notice}</p>}
-        {error && <p className="error-text">{error}</p>}
-        <div className="row credential-view-foot">
-          <button onClick={save} disabled={busy || (isNew && !newId.trim())}>
-            {busy ? "Saving…" : isNew ? "Create" : "Save"}
-          </button>
-          <button className="secondary" onClick={check} disabled={busy}>
-            Check
-          </button>
-        </div>
-      </Section>
+          <textarea
+            id="builder-source"
+            className="workflow-source"
+            spellCheck={false}
+            rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value);
+              setProblems(null);
+              setNotice(null);
+            }}
+          />
+          {problems && problems.length > 0 && (
+            <ul className="error-text workflow-problems builder-problems">
+              {problems.map((p, i) => (
+                <li key={i}>
+                  {p.line ? <strong>Line {p.line}: </strong> : null}
+                  {p.message}
+                </li>
+              ))}
+            </ul>
+          )}
+          {notice && <p className="muted builder-notice">{notice}</p>}
+          {error && <p className="error-text">{error}</p>}
+          <div className="row credential-view-foot">
+            <button onClick={save} disabled={busy || (isNew && !newId.trim())}>
+              {busy ? "Saving…" : isNew ? "Create" : "Save"}
+            </button>
+            <button className="secondary" onClick={check} disabled={busy}>
+              Check
+            </button>
+            <button className="secondary" onClick={showPreview} disabled={busy}>
+              Preview
+            </button>
+          </div>
+        </Section>
+        <Section title="Preview">
+          {preview === null ? (
+            <p className="muted builder-preview-empty">
+              Preview draws the definition as the pane it makes. Its actions run as you, on real connections; nothing is
+              saved and no session holds it.
+            </p>
+          ) : (
+            <>
+              {preview.source !== source && (
+                <p className="muted builder-preview-stale">The definition has changed since this was drawn: Preview again.</p>
+              )}
+              <ActionRunnerContext.Provider value={runPreviewAction}>
+                <div className="builder-preview" key={preview.n}>
+                  <ManifestPane type={preview.manifest.id} manifest={preview.manifest} />
+                </div>
+              </ActionRunnerContext.Provider>
+            </>
+          )}
+        </Section>
+      </div>
       {schema && (
         <Section title="What it can name">
           <p className="muted" style={{ marginTop: 0 }}>
