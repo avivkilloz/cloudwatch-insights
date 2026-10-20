@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
-import { api, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, WorkflowProblem } from "../api";
+import { api, BuildDraft, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, WorkflowProblem } from "../api";
 import { useAuth } from "../AuthContext";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
@@ -13,6 +13,7 @@ import { useCatalogue } from "../sessions/catalogue";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { registerManifestPanes } from "../sessions/paneTypes";
 import { useStartSession } from "../sessions/start";
+import { DraftStatus, draftTime, useBuildDraft, useDraftList } from "./buildDraft";
 import StepEditor from "./StepEditor";
 
 /*
@@ -30,11 +31,14 @@ import StepEditor from "./StepEditor";
 
 // `said`: what to say on arriving -- a type just created opens as itself.
 // `what`: which list (pane types, or step types made for workflows, D122).
+// `draft`: a new one's draft, opened from the list (D125).
 type What = "pane" | "step";
 type Screen =
   | { kind: "list"; what?: What }
-  | { kind: "edit"; id: string | null; said?: string }
-  | { kind: "step"; id: string | null; said?: string };
+  | { kind: "edit"; id: string | null; said?: string; draft?: number }
+  | { kind: "step"; id: string | null; said?: string; draft?: number };
+
+const editorKey = (s: { id: string | null; draft?: number }) => `${s.id ?? "new"}:${s.draft ?? ""}`;
 
 /** After a save: the browser's pane types, the user's grants and the
  * catalogue all change -- loaded again, so the new type can be opened now. */
@@ -54,13 +58,16 @@ export default function BuilderPage() {
   const { view } = useSessions();
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
   if (view !== "builder") return null;
-  if (screen.kind === "edit") return <Editor key={screen.id ?? "new"} id={screen.id} said={screen.said} open={setScreen} />;
+  if (screen.kind === "edit") {
+    return <Editor key={editorKey(screen)} id={screen.id} said={screen.said} draftId={screen.draft ?? null} open={setScreen} />;
+  }
   if (screen.kind === "step") {
     return (
       <StepEditor
-        key={screen.id ?? "new"}
+        key={editorKey(screen)}
         id={screen.id}
         said={screen.said}
+        draftId={screen.draft ?? null}
         back={() => setScreen({ kind: "list", what: "step" })}
         opened={(id, said) => setScreen({ kind: "step", id, said })}
       />
@@ -99,6 +106,7 @@ function ListView({ open, initial }: { open: (s: Screen) => void; initial: What 
 function StepList({ open }: { open: (s: Screen) => void }) {
   const [items, setItems] = useState<BuiltStepType[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const drafts = useDraftList("step");
   useEffect(() => {
     api.listBuiltSteps().then(setItems, (e) => setError(readableError(e)));
   }, []);
@@ -110,8 +118,8 @@ function StepList({ open }: { open: (s: Screen) => void }) {
         that changes something waits for a person first. Your group's builders and admins may change it.
       </p>
       {error && <p className="error-text">{error}</p>}
-      {items !== null && items.length === 0 && <p className="muted">None made yet.</p>}
-      {items !== null && items.length > 0 && (
+      {items !== null && items.length === 0 && drafts.fresh.length === 0 && <p className="muted">None made yet.</p>}
+      {items !== null && items.length + drafts.fresh.length > 0 && (
         <table className="credentials-table builder-table">
           <thead>
             <tr>
@@ -123,11 +131,13 @@ function StepList({ open }: { open: (s: Screen) => void }) {
             </tr>
           </thead>
           <tbody>
+            <DraftRows drafts={drafts.fresh} cols={5} open={(d) => open({ kind: "step", id: null, draft: d.id })} />
             {items.map((t) => (
               <tr key={t.id} data-step={t.id} {...rowProps(() => open({ kind: "step", id: t.id }))}>
                 <td>
                   {t.label}
                   {!t.loads && <span className="tag error" style={{ marginLeft: 6 }}>Doesn't load</span>}
+                  <ChangedTag draft={drafts.changed.get(t.id)} />
                 </td>
                 <td className="muted">{t.id}</td>
                 <td className="muted">
@@ -150,9 +160,42 @@ function StepList({ open }: { open: (s: Screen) => void }) {
   );
 }
 
+/** A row per draft of a new one (D125), above what's built: yours alone. */
+function DraftRows({ drafts, cols, open }: { drafts: BuildDraft[]; cols: number; open: (d: BuildDraft) => void }) {
+  return (
+    <>
+      {drafts.map((d) => (
+        <tr key={`draft-${d.id}`} data-draft={d.id} {...rowProps(() => open(d))}>
+          <td>
+            {d.label || <span className="muted">Untitled</span>}
+            <span className="tag pending builder-draft-tag" title="Not created yet: only you see it">
+              Draft
+            </span>
+          </td>
+          <td className="muted">{d.new_id || "—"}</td>
+          {cols > 4 && <td className="muted">Not created yet</td>}
+          <td className="muted">you · {draftTime(d)}</td>
+          <td />
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/** Beside a built one with changes its builder hasn't saved. */
+function ChangedTag({ draft }: { draft?: BuildDraft }) {
+  if (!draft) return null;
+  return (
+    <span className="tag pending builder-draft-tag" title={`Your unsaved changes, from ${draftTime(draft)}`}>
+      Draft
+    </span>
+  );
+}
+
 function PaneList({ open }: { open: (s: Screen) => void }) {
   const [items, setItems] = useState<BuiltPaneType[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const drafts = useDraftList("pane");
   useEffect(() => {
     api.listBuiltPanes().then(setItems, (e) => setError(readableError(e)));
   }, []);
@@ -164,8 +207,8 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
         make is your group's to use at once; other groups get it when an admin grants it in Users → Groups → Panes.
       </p>
       {error && <p className="error-text">{error}</p>}
-      {items !== null && items.length === 0 && <p className="muted">None made yet.</p>}
-      {items !== null && items.length > 0 && (
+      {items !== null && items.length === 0 && drafts.fresh.length === 0 && <p className="muted">None made yet.</p>}
+      {items !== null && items.length + drafts.fresh.length > 0 && (
         <table className="credentials-table builder-table">
           <thead>
             <tr>
@@ -176,11 +219,13 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
             </tr>
           </thead>
           <tbody>
+            <DraftRows drafts={drafts.fresh} cols={4} open={(d) => open({ kind: "edit", id: null, draft: d.id })} />
             {items.map((t) => (
               <tr key={t.id} data-built={t.id} {...rowProps(() => open({ kind: "edit", id: t.id }))}>
                 <td>
                   {t.label}
                   {!t.loads && <span className="tag error" style={{ marginLeft: 6 }}>Doesn't load</span>}
+                  <ChangedTag draft={drafts.changed.get(t.id)} />
                 </td>
                 <td className="muted">{t.id}</td>
                 <td className="muted">
@@ -199,7 +244,7 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
   );
 }
 
-function Editor({ id, said, open }: { id: string | null; said?: string; open: (s: Screen) => void }) {
+function Editor({ id, said, draftId, open }: { id: string | null; said?: string; draftId: number | null; open: (s: Screen) => void }) {
   const isNew = id === null;
   const reload = useReloadPaneTypes();
   const { startOne } = useStartSession();
@@ -217,12 +262,39 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
   // actions are run with that, not with what's been typed since) and a
   // counter that remounts the pane, whose inputs may have changed.
   const [preview, setPreview] = useState<{ manifest: PaneManifest; source: string; n: number } | null>(null);
-  useOfferBuild("pane", id, item?.label ?? (isNew ? "New pane type" : id ?? ""), true, source, (text, summary) => {
+  // Kept as it's typed, with the Building chat (D125).
+  const base = isNew ? schema?.starter ?? null : item?.source ?? null;
+  const kept = useBuildDraft({
+    kind: "pane",
+    targetId: id,
+    draftId,
+    base,
+    source,
+    newId,
+    restore: (text, typedId) => {
+      setSource(text);
+      if (isNew) setNewId(typedId);
+    },
+  });
+  const title = item?.label ?? (isNew ? "New pane type" : id ?? "");
+  useOfferBuild("pane", id, title, true, source, (text, summary) => {
     setSource(text);
     setProblems(null);
     setError(null);
     setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
-  });
+  }, kept.hooks);
+  const dirty = base !== null && (source !== base || (isNew && newId.trim() !== ""));
+
+  async function discard() {
+    if (!confirm(isNew ? "Discard this draft?" : "Discard your changes and go back to what's saved?")) return;
+    await kept.discard();
+    if (isNew) open({ kind: "list" });
+    else if (base !== null) {
+      setSource(base);
+      setProblems(null);
+      setNotice(null);
+    }
+  }
 
   useEffect(() => {
     api.builderSchema().then(
@@ -286,6 +358,7 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
     try {
       if (!(await check())) return;
       const saved = isNew ? await api.createBuiltPane(newId.trim(), source) : await api.updateBuiltPane(id!, source);
+      await kept.finish(saved.id, saved.source);
       await reload();
       setItem(saved);
       setSource(saved.source);
@@ -327,7 +400,7 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
 
   return (
     <div className="panel credential-view builder-view">
-      <ViewHead back={() => open({ kind: "list" })} title={isNew ? "New pane type" : item?.label ?? id ?? ""}>
+      <ViewHead back={() => open({ kind: "list" })} title={title}>
         {!isNew && item?.loads && (
           <button className="secondary" onClick={() => startOne(item.id as SessionType)}>
             Open in a session
@@ -418,7 +491,13 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
             <button className="secondary" onClick={showPreview} disabled={busy}>
               Preview
             </button>
+            {kept.id !== null && dirty && (
+              <button className="secondary" onClick={discard} disabled={busy}>
+                Discard
+              </button>
+            )}
           </div>
+          <DraftStatus kept={kept} />
         </Section>
         <Section title="Preview">
           {preview === null ? (
@@ -460,3 +539,4 @@ function Editor({ id, said, open }: { id: string | null; said?: string; open: (s
     </div>
   );
 }
+

@@ -915,3 +915,29 @@ class Blob(Base):
     group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     expires_at = Column(DateTime, nullable=True, index=True)
+
+
+class BuildDraft(Base):
+    """What someone is building and hasn't saved (D125): a pane type's, a step
+    type's or a workflow's text as they left it, the Id they typed for a new
+    one, and their Building chat about it -- saved as they type, so leaving
+    the page loses nothing. Theirs alone, and deployment state: never the
+    store's (a plugin repo holds what was saved, not what's half made). One
+    per person per existing item (`target_id`); a new one has none, and
+    there may be several."""
+
+    __tablename__ = "build_drafts"
+    __table_args__ = (
+        Index("uq_build_drafts_target", "user_id", "kind", "target_id", unique=True,
+              postgresql_where=text("target_id IS NOT NULL")),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(16), nullable=False)
+    target_id = Column(String(64), nullable=True)
+    new_id = Column(String(64), nullable=False, default="", server_default="")
+    source = Column(Text, nullable=False, default="")
+    chat = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)

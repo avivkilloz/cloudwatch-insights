@@ -33,7 +33,7 @@ from typing import Any, Awaitable, Callable, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .. import connections, models, schemas
+from .. import connections, models, row_paths, schemas
 from ..panes import live
 from ..panes import manifest as pane_manifest
 from ..live_store import tag_set, untag
@@ -506,13 +506,14 @@ def _live_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
 
 
 def _rows_at(value: Any, path: str) -> Any:
-    for part in [p for p in (path or "").split(".") if p]:
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
-            value = value[int(part)]
-        else:
-            raise InputError(f"The reply has nothing at {path!r} (stopped at {part!r}).")
+    try:
+        steps = row_paths.parts(path or "")
+    except row_paths.PathError as e:
+        raise InputError(str(e)) from None
+    for part in steps:
+        value = row_paths.step(value, part)
+        if row_paths.missing(value):
+            raise InputError(f"The reply has nothing at {path!r} (stopped at {row_paths.describe(part)!r}).")
     return value
 
 
@@ -614,7 +615,7 @@ def _request_runner(manifest: pane_manifest.Manifest,
     pane's Fetch sends, through routers/panes.run_request -- connection,
     identity, SSRF guard and masking included -- with its rows written into
     the pane."""
-    requests = [a for a in manifest.actions if a.request]
+    requests = [a for a in manifest.actions if a.request and not a.args]
     # The main one, when a pane has several (rows of their own, D118).
     action = action or next((a for a in requests if a.main), requests[0] if requests else None)
     if action is None:
@@ -797,7 +798,9 @@ IMPLIES: dict[str, Callable[[dict], dict]] = {
     "opensearch_environments": _with_opensearch_environments,
 }
 def _list_outputs(manifest: pane_manifest.Manifest) -> list[pane_manifest.ManifestOutput]:
-    return [o for o in manifest.outputs if o.render in ("list", "files", "logs")]
+    # A table whose rows open (a built pane's, D124) is one too.
+    return [o for o in manifest.outputs if o.render in ("list", "files", "logs")
+            or (o.render == "table" and isinstance(o.config.get("detail"), dict))]
 
 
 def _shown_list(manifest: pane_manifest.Manifest, values: dict) -> Optional[pane_manifest.ManifestOutput]:
@@ -857,7 +860,7 @@ def _manifest_detail(manifest: pane_manifest.Manifest) -> Optional[Detailer]:
                     "looked up for you."
                 )
         try:
-            found = await asyncio.to_thread(panes_router.run_handler, rc.db, rc.user, manifest, action, args)
+            found = await asyncio.to_thread(panes_router.run_row, rc.db, rc.user, manifest, action, args)
         except HTTPException as e:
             raise _http_error(e) from None
         return {**row, **found}

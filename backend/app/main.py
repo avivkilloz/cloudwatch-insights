@@ -27,6 +27,7 @@ from .platform_tools import server as platform_server
 from .routers import (
     agent,
     blobs as blobs_router,
+    build_drafts as build_drafts_router,
     builder as builder_router,
     auth,
     catalogue as catalogue_router,
@@ -170,6 +171,7 @@ app.include_router(catalogue_router.router)
 app.include_router(store_router.router)
 app.include_router(templates_router.router)
 app.include_router(builder_router.router)
+app.include_router(build_drafts_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)

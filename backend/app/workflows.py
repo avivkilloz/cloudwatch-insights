@@ -646,6 +646,9 @@ def delete(db: Session, workflow_id: str, actor: models.User) -> None:
     run_ids = [r.id for r in db.query(models.WorkflowRun.id).filter_by(workflow_id=workflow_id)]
     if run_ids:
         blobs.remove(db, db.query(models.Blob).filter(models.Blob.run_id.in_(run_ids)).all())
+    from . import build_drafts
+
+    build_drafts.forget(db, "workflow", workflow_id)
     db.delete(row)
     store.record(db, "workflow", workflow_id, "delete", actor)
     db.commit()

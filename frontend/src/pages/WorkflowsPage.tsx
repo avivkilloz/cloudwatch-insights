@@ -17,6 +17,7 @@ import { ParamFields } from "../components/WorkflowParamFields";
 import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
 import { useAuth } from "../AuthContext";
+import { DraftStatus, draftTime, useBuildDraft, useDraftList } from "./buildDraft";
 import { useSessions } from "../sessions/SessionContext";
 import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
 import {
@@ -43,7 +44,8 @@ import {
  * outputs (when the row holds them cut down) download from the blob store.
  */
 
-type Screen = { kind: "list" } | { kind: "workflow"; id: string } | { kind: "new" } | { kind: "run"; id: number };
+// `buildDraft`: a new one's draft, opened from the list (D125).
+type Screen = { kind: "list" } | { kind: "workflow"; id: string } | { kind: "new"; buildDraft?: number } | { kind: "run"; id: number };
 
 const LIST_VIEWS = [
   ["workflows", "Workflows"],
@@ -151,7 +153,17 @@ export default function WorkflowsPage() {
   // found two.
   if (view !== "workflows") return null;
   if (screen.kind === "workflow") return <WorkflowView id={screen.id} open={open} />;
-  if (screen.kind === "new") return <WorkflowView key={draft?.source ?? "new"} id={null} open={open} draft={draft} />;
+  if (screen.kind === "new") {
+    return (
+      <WorkflowView
+        key={`${screen.buildDraft ?? ""}:${draft?.source ?? "new"}`}
+        id={null}
+        open={open}
+        draft={screen.buildDraft === undefined ? draft : null}
+        buildDraft={screen.buildDraft ?? null}
+      />
+    );
+  }
   if (screen.kind === "run") return <RunView id={screen.id} open={open} />;
   return <ListView open={open} />;
 }
@@ -165,6 +177,7 @@ function ListView({ open }: { open: (s: Screen) => void }) {
   const [mine, setMine] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { view: appView } = useSessions();
+  const drafts = useDraftList("workflow");
 
   useEffect(() => {
     if (appView !== "workflows") return;
@@ -200,7 +213,21 @@ function ListView({ open }: { open: (s: Screen) => void }) {
             </tr>
           </thead>
           <tbody>
-            {workflows.length === 0 && (
+            {drafts.fresh.map((d) => (
+              <tr key={`draft-${d.id}`} data-draft={d.id} {...rowProps(() => open({ kind: "new", buildDraft: d.id }))}>
+                <td>
+                  <span className="credential-name">{d.label || "Untitled"}</span>{" "}
+                  <span className="tag pending builder-draft-tag" title="Not created yet: only you see it">
+                    Draft
+                  </span>
+                </td>
+                <td>
+                  <span className="muted">Not created yet · {draftTime(d)}</span>
+                </td>
+                <td />
+              </tr>
+            ))}
+            {workflows.length === 0 && drafts.fresh.length === 0 && (
               <tr>
                 <td colSpan={3} className="muted">
                   No workflows you can run yet.
@@ -211,6 +238,11 @@ function ListView({ open }: { open: (s: Screen) => void }) {
               <tr key={w.id} data-workflow={w.id} {...rowProps(() => open({ kind: "workflow", id: w.id }))}>
                 <td>
                   <span className="credential-name">{w.label}</span> <StoreBadge state={w.store_state} />
+                  {drafts.changed.has(w.id) && (
+                    <span className="tag pending builder-draft-tag" title={`Your unsaved changes, from ${draftTime(drafts.changed.get(w.id)!)}`}>
+                      Draft
+                    </span>
+                  )}
                   {w.description && <div className="muted">{w.description}</div>}
                 </td>
                 <td>
@@ -301,7 +333,17 @@ function RunsTable({ runs, open, showWorkflow }: { runs: WorkflowRun[]; open: (s
 
 // ------------------------------------------------------------------- one workflow
 
-function WorkflowView({ id, open, draft }: { id: string | null; open: (s: Screen) => void; draft?: Draft | null }) {
+function WorkflowView({
+  id,
+  open,
+  draft,
+  buildDraft = null,
+}: {
+  id: string | null;
+  open: (s: Screen) => void;
+  draft?: Draft | null;
+  buildDraft?: number | null;
+}) {
   const { user } = useAuth();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -380,6 +422,8 @@ function WorkflowView({ id, open, draft }: { id: string | null; open: (s: Screen
         <DefinitionSection
           workflow={workflow}
           initialSource={isNew ? draft?.source : undefined}
+          draftId={buildDraft}
+          back={() => open({ kind: "list" })}
           isNew={isNew}
           newId={newId}
           setNewId={setNewId}
@@ -444,6 +488,8 @@ function ParamsForm({
 function DefinitionSection({
   workflow,
   initialSource,
+  draftId,
+  back,
   isNew,
   newId,
   setNewId,
@@ -451,6 +497,8 @@ function DefinitionSection({
 }: {
   workflow: Workflow | null;
   initialSource?: string;
+  draftId: number | null;
+  back: () => void;
   isNew: boolean;
   newId: string;
   setNewId: (v: string) => void;
@@ -465,13 +513,40 @@ function DefinitionSection({
   useEffect(() => {
     if (workflow?.source !== undefined) setSource(workflow.source);
   }, [workflow?.source]);
+  // Kept as it's typed, with the Building chat (D125). A new one's base is
+  // the starter, so one drafted from a session (Make repeatable) is kept too.
+  const base = isNew ? NEW_SOURCE : editable && workflow ? workflow.source ?? null : null;
+  const kept = useBuildDraft({
+    kind: "workflow",
+    targetId: isNew ? null : workflow?.id ?? null,
+    draftId,
+    base,
+    source,
+    newId,
+    restore: (text, typedId) => {
+      setSource(text);
+      if (isNew) setNewId(typedId);
+    },
+  });
   // The agent panel's Building tab (D107): its proposal replaces the text, unsaved.
   useOfferBuild("workflow", workflow?.id ?? null, workflow?.label ?? (newId.trim() || "New workflow"), editable && (isNew || !!workflow), source, (text, summary) => {
     setSource(text);
     setProblems(null);
     setError(null);
     setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
-  });
+  }, kept.hooks);
+  const dirty = base !== null && (source !== base || (isNew && newId.trim() !== ""));
+
+  async function discard() {
+    if (!confirm(isNew ? "Discard this draft?" : "Discard your changes and go back to what's saved?")) return;
+    await kept.discard();
+    if (isNew) back();
+    else if (base !== null) {
+      setSource(base);
+      setProblems(null);
+      setNotice(null);
+    }
+  }
 
   async function validate() {
     setNotice(null);
@@ -494,6 +569,7 @@ function DefinitionSection({
       setProblems(out.errors);
       if (!out.ok) return;
       const w = isNew ? await api.createWorkflow(newId, source) : await api.updateWorkflow(workflow!.id, source);
+      await kept.finish(w.id, w.source ?? source);
       setNotice("Saved.");
       saved(w);
     } catch (e) {
@@ -545,8 +621,14 @@ function DefinitionSection({
           <button className="secondary" onClick={validate} disabled={busy}>
             Check
           </button>
+          {kept.id !== null && dirty && (
+            <button className="secondary" onClick={discard} disabled={busy}>
+              Discard
+            </button>
+          )}
         </div>
       )}
+      {editable && <DraftStatus kept={kept} />}
     </Section>
   );
 }

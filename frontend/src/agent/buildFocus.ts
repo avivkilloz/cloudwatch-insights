@@ -12,6 +12,18 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 
 export type BuildKind = "pane" | "workflow" | "step";
 
+/** Where an editor keeps what it builds (D125): its draft, which holds the
+ * Building chat too. Works after the editor has closed -- a turn still
+ * running when its builder left saves its answer, and a proposal its text. */
+export interface BuildDraftHooks {
+  /** The conversation's key: one per editor while it's open. */
+  key: string;
+  /** The chat the draft held when it was opened (null: none yet, or not read yet). */
+  turns: unknown[] | null;
+  saveTurns: (turns: unknown[]) => void;
+  keep: (source: string) => void;
+}
+
 export interface BuildFocus {
   /** One conversation per editor: "pane:<id>", "workflow:<id>", or "…:new". */
   key: string;
@@ -21,6 +33,7 @@ export interface BuildFocus {
   title: string;
   source: () => string;
   apply: (source: string, summary: string) => void;
+  draft?: BuildDraftHooks;
 }
 
 let focus: BuildFocus | null = null;
@@ -50,6 +63,7 @@ export function useOfferBuild(
   editable: boolean,
   source: string,
   apply: (source: string, summary: string) => void,
+  draft?: BuildDraftHooks,
 ) {
   const sourceRef = useRef(source);
   sourceRef.current = source;
@@ -58,12 +72,13 @@ export function useOfferBuild(
   useEffect(() => {
     if (!editable) return;
     const mine: BuildFocus = {
-      key: `${kind}:${id ?? "new"}`,
+      key: draft?.key ?? `${kind}:${id ?? "new"}`,
       kind,
       id,
       title,
       source: () => sourceRef.current,
       apply: (text, summary) => applyRef.current(text, summary),
+      draft,
     };
     focus = mine;
     listeners.forEach((l) => l());
@@ -72,5 +87,6 @@ export function useOfferBuild(
       focus = null;
       listeners.forEach((l) => l());
     };
-  }, [kind, id, title, editable]);
+    // A draft's chat read in re-registers it, so the panel shows it.
+  }, [kind, id, title, editable, draft]);
 }

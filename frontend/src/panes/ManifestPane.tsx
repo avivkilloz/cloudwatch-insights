@@ -26,7 +26,7 @@
  * a table describes it; clicking a folder opens it), with the new values.
  */
 
-import { Dispatch, ReactNode, SetStateAction, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Dispatch, Fragment, ReactNode, SetStateAction, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, ApiError, CredentialSummary, Environment, PaneOutputs, readableError, Target, WorkflowParam } from "../api";
 import { ActionRunnerContext } from "./actionRunner";
 import ExportMenu from "../components/ExportMenu";
@@ -39,7 +39,7 @@ import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
 import { usePaneAddress, useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
 import { IndicesPicker, LogGroupsPicker, TimeRange } from "./GroupedPicker";
-import { FilesView, ListView, TagsView } from "./ListView";
+import { FilesView, ListView, TagsView, useTableDetail } from "./ListView";
 import { DiffRow, LIVE_FUNCTIONS, Outputs } from "./live";
 import {
   Card,
@@ -1891,6 +1891,8 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
     return seen;
   }, [keyed]);
   const chosen = selection.selectedObjects;
+  const detail = useTableDetail(output, pane, rows);
+  const span = columns.length + (can("select") ? 1 : 0) + (detail.opens ? 1 : 0);
 
   return (
     <div className="manifest-table">
@@ -1916,6 +1918,7 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
           <table>
             <thead>
               <tr>
+                {detail.opens && <th className="manifest-table-check" />}
                 {can("select") && <th className="manifest-table-check" />}
                 {columns.map((c) => (
                   <th key={c}>{c}</th>
@@ -1923,28 +1926,52 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
               </tr>
             </thead>
             <tbody>
-              {displayed.map((r) => (
-                <tr key={r.key} className={selection.isSelected(r) ? "selected" : undefined}>
-                  {can("select") && (
-                    <td className="manifest-table-check">
-                      <input
-                        type="checkbox"
-                        checked={selection.isSelected(r)}
-                        onChange={() => selection.toggle(r)}
-                        aria-label={`Select row ${Number(r.key) + 1}`}
-                      />
-                    </td>
-                  )}
-                  {columns.map((c) => {
-                    const text = cell(r.row?.[c]);
-                    return (
-                      <td key={c} title={text}>
-                        {text}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {displayed.map((r) => {
+                const index = Number(r.key);
+                const open = detail.isOpen(index);
+                return (
+                  <Fragment key={r.key}>
+                    <tr
+                      className={
+                        [selection.isSelected(r) && "selected", detail.opens && "manifest-table-opens"]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      onClick={detail.opens ? () => detail.toggle(index) : undefined}
+                    >
+                      {detail.opens && (
+                        <td className="manifest-table-check">
+                          <span className={`chevron ${open ? "open" : ""}`}>▶</span>
+                        </td>
+                      )}
+                      {can("select") && (
+                        <td className="manifest-table-check">
+                          <input
+                            type="checkbox"
+                            checked={selection.isSelected(r)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => selection.toggle(r)}
+                            aria-label={`Select row ${Number(r.key) + 1}`}
+                          />
+                        </td>
+                      )}
+                      {columns.map((c) => {
+                        const text = cell(r.row?.[c]);
+                        return (
+                          <td key={c} title={text}>
+                            {text}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {open && (
+                      <tr className="manifest-table-detail">
+                        <td colSpan={span}>{detail.detail(index)}</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

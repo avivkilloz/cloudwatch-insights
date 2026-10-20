@@ -367,6 +367,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     if (viewingBuildKey && liveScopeRef.current !== "global") setTab("session");
   }, [viewingBuildKey]);
 
+  // An editor's draft brings its Building chat back (D125): the turns it
+  // held, under the key the editor was opened with.
+  useEffect(() => {
+    const turns = viewingBuild?.draft?.turns;
+    if (!viewingBuild || !turns) return;
+    setBuildChats((prev) => (prev[viewingBuild.key] ? prev : { ...prev, [viewingBuild.key]: turns as AgentTurn[] }));
+  }, [viewingBuild]);
+
   // Read through refs by `ask`, so a turn asks about what is on screen and
   // what has been said at that moment without `ask` changing every render.
   const viewingRef = useRef(viewingSessionId);
@@ -615,6 +623,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           if (event.ok && event.propose && scope === "build") {
             const now = currentBuildFocus();
             if (now && now.key === buildKey) now.apply(event.propose.source, event.propose.summary ?? "");
+            // Its editor closed meanwhile: into its draft, to find there.
+            else build?.draft?.keep(event.propose.source);
           }
         } else if (event.type === "error") {
           change((t) => ({ ...t, status: "failed", error: event.message }));
@@ -653,7 +663,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           } else if (scope === "run") {
             putRunChat(runId!, [done]);
           } else if (scope === "build") {
-            setBuildChats((prev) => ({ ...prev, [buildKey!]: [...(prev[buildKey!] ?? []), done].slice(-KEPT_TURNS) }));
+            const kept = [...(buildChatsRef.current[buildKey!] ?? []), done].slice(-KEPT_TURNS);
+            setBuildChats((prev) => ({ ...prev, [buildKey!]: kept }));
+            build?.draft?.saveTurns(kept);
           } else {
             const others = storedTurns(sessionId!).filter((t) => t.id !== id);
             writeSessionState(sessionId!, SESSION_CHAT_KEY, [...others, done].slice(-KEPT_TURNS));
@@ -674,6 +686,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       else if (scope === "build" && viewingBuildRef.current) {
         const key = viewingBuildRef.current.key;
         setBuildChats((prev) => ({ ...prev, [key]: [] }));
+        viewingBuildRef.current.draft?.saveTurns([]);
       }
     },
     [writeSessionState],

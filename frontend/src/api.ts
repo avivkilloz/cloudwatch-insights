@@ -187,6 +187,24 @@ export interface BuiltPaneType {
 
 /** A step type made in the Builder (D122): a declarative HTTP request, or a
  * chain of steps, a workflow uses by name as one step. */
+/** What's being built and isn't saved (D125): the editor's text, the Id typed
+ * for a new one and the Building chat, saved as its builder types. Theirs alone. */
+export interface BuildDraft {
+  id: number;
+  kind: "pane" | "step" | "workflow";
+  /** The pane type, step type or workflow it changes; null for a new one. */
+  target_id: string | null;
+  new_id: string;
+  label: string;
+  updated_at: string;
+  turns: number;
+  /** False for a saved one's draft that holds only its chat (kept after Save). */
+  changed: boolean;
+  /** Only when read whole (one draft, or an existing one's). */
+  source?: string;
+  chat?: unknown[];
+}
+
 export interface BuiltStepType {
   id: string;
   label: string;
@@ -1062,6 +1080,16 @@ export const api = {
   updateBuiltStep: (id: string, source: string) =>
     req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
   deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listBuildDrafts: (kind: BuildDraft["kind"]) => req<BuildDraft[]>(`/build-drafts?kind=${kind}`),
+  /** This person's draft of an existing one, whole -- or none. */
+  draftOf: async (kind: BuildDraft["kind"], target: string): Promise<BuildDraft | null> =>
+    (await req<BuildDraft[]>(`/build-drafts?kind=${kind}&target=${encodeURIComponent(target)}`))[0] ?? null,
+  getBuildDraft: (id: number) => req<BuildDraft>(`/build-drafts/${id}`),
+  createBuildDraft: (payload: { kind: BuildDraft["kind"]; target_id?: string | null; new_id?: string; source?: string; chat?: unknown[] }) =>
+    req<BuildDraft>("/build-drafts", { method: "POST", body: JSON.stringify(payload) }),
+  updateBuildDraft: (id: number, payload: { target_id?: string; new_id?: string; source?: string; chat?: unknown[] }) =>
+    req<BuildDraft>(`/build-drafts/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBuildDraft: (id: number) => req<void>(`/build-drafts/${id}`, { method: "DELETE" }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),
   publishTemplate: (payload: { saved_session_id: number; id: string; label: string; description?: string }) =>
     req<PublishedTemplate & { changes: string[] }>("/templates", { method: "POST", body: JSON.stringify(payload) }),

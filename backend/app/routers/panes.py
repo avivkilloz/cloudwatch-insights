@@ -172,6 +172,42 @@ def run_request(
     values: dict[str, Any],
     draft: bool = False,
 ) -> dict[str, Any]:
+    """A request action's outputs -- or, run for a row (one with `args`), that
+    row's detail: its one row, as a list's detail sections read fields of
+    it (`{rows}` when the reply held several), or without `rows` the reply."""
+    result = _request(db, user, manifest, action, values, draft)
+    if not action.args:
+        return result
+    if not (action.request or {}).get("rows") and isinstance(result.get("response"), dict):
+        return result["response"]
+    rows = result.get((action.request or {}).get("output") or "rows")
+    if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
+        return rows[0]
+    return {"rows": rows if isinstance(rows, list) else []}
+
+
+def run_row(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """A row action, whichever kind it is: what expanding a row runs, and the
+    agent's inspect_row."""
+    if action.request is not None:
+        return run_request(db, user, manifest, action, args)
+    return run_handler(db, user, manifest, action, args)
+
+
+def _request(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    values: dict[str, Any],
+    draft: bool = False,
+) -> dict[str, Any]:
     """A declarative HTTP request (§15.7, D67): a GET on a connection of any
     HTTP type -- the API table's HTTP API, an admin's or a manifest's own --
     signed with the caller's group identity there (or the connection's own),

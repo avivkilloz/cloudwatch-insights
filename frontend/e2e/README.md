@@ -74,6 +74,12 @@ in the Builder's Step types, then used in a workflow of their own -- no
 Access section -- approved and sent) needs the faked backend (a `.fake` host;
 `/api/dev/fake-http/last` says what it was sent).
 
+`smoke101` (as a builder: a new pane type kept as a draft with its Building
+chat -- across leaving the page and a reload -- created with its chat kept, a
+saved one's change tagged and discarded, a workflow's draft; and an EC2 pane
+whose Name column is a tag and whose table rows open to their own request)
+needs the agent, the fake model and the faked backend (`/api/dev/fake-aws`).
+
 `smoke99` (the IoT pane with Rules and Jobs as more choices of "Search for",
 built through the fake model's `add modes for jobs and rules` -- changes in a
 model's own shape, a stray `when` fixed -- then each mode's Search run) needs

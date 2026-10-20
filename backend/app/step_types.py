@@ -443,6 +443,9 @@ def delete(db: Session, user: models.User, row: models.BuiltStepType) -> None:
     if users:
         raise StepTypeError(f"{', '.join(users)} use{'s' if len(users) == 1 else ''} it: change them first.")
     store.record(db, "step", row.id, "delete", user)
+    from . import build_drafts
+
+    build_drafts.forget(db, "step", row.id)
     db.delete(row)
     builder._bump(db)
     db.commit()
