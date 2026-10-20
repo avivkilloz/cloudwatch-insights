@@ -29,7 +29,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import catalogue, models, store
+from . import aws_request, catalogue, models, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -102,10 +102,14 @@ def _fail(errors: list[dict]) -> BuilderError:
     return BuilderError(text, errors)
 
 
-def parse(source: str, type_id: str) -> pane_manifest.Manifest:
+def parse(source: str, type_id: Optional[str]) -> pane_manifest.Manifest:
     """The manifest in `source`, as the pane type `type_id`, checked in full:
     the strict model a bundled manifest passes, then what only a built one
-    must -- it draws itself, it runs nothing the platform doesn't have."""
+    must -- it draws itself, it runs nothing the platform doesn't have.
+    `type_id` None: a draft whose id isn't decided yet, its own `id:` line
+    not held to anything (it was held to "draft", and that error, dropped by
+    Check, stopped every check after it: a draft with an id line checked
+    clean whatever it said)."""
     try:
         data = yaml.safe_load(source or "")
     except yaml.YAMLError as e:
@@ -113,11 +117,14 @@ def parse(source: str, type_id: str) -> pane_manifest.Manifest:
         raise _fail([{"line": mark.line + 1 if mark else None, "message": f"Not valid YAML: {getattr(e, 'problem', e)}"}])
     if not isinstance(data, dict):
         raise _fail([{"line": 1, "message": "A pane type is a mapping: label, inputs, actions, outputs, layout."}])
-    if data.get("id") not in (None, type_id):
+    # The name alone is the same id: with a store, what's made here is put in
+    # its namespace (`lambda` is saved as `default:lambda`, D78), and the
+    # saved file's id line says so. Writing the name was refused as a mistake.
+    if type_id is not None and data.get("id") not in (None, type_id, store.split_id(type_id)[1]):
         raise _fail([{"line": _line(source, ("id",)), "message": f"Its id is {type_id} (the Id above), not {data['id']}."}])
     # What every built pane is, said for it: drawn from its layout, its keys
     # under in./out./view. A built one can't be anything else.
-    data = {"state": "v2", "rendered": True, **data, "id": type_id}
+    data = {"state": "v2", "rendered": True, **data, "id": type_id or "draft"}
     # What the agent reads about it: its description, unless it says more.
     if "about" not in data and (data.get("description") or data.get("label")):
         data["about"] = data.get("description") or data.get("label")
@@ -154,6 +161,9 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
                            (("poll", "stop"), a.poll.stop if a.poll else None)):
             if name and name not in pane_handlers.ACTIONS:
                 err(("actions", i, *path), f"There is no handler {name}. Handlers: {', '.join(sorted(pane_handlers.ACTIONS))}.")
+        if aws_request.is_aws(a.request):
+            for path, message in aws_request.problems(manifest, a.request or {}):
+                err(("actions", i, "request", *path), message)
         if a.live and a.live not in pane_live.FUNCTIONS:
             err(("actions", i, "live"), f"There is no live function {a.live}. They are: {', '.join(sorted(pane_live.FUNCTIONS))}.")
     if manifest.id in pane_manifest.bundled():
@@ -309,6 +319,48 @@ def _fields(model: Any) -> dict[str, str]:
     return out
 
 
+# What an AWS request looks like whole, for the agent (a working pane type).
+AWS_EXAMPLE = """label: Lambda functions
+description: The Lambda functions in each environment, with their runtime and size.
+category: Services
+inputs:
+  - key: connections
+    type: connections
+    connection_type: aws
+    label: Environments
+actions:
+  - id: list
+    main: true
+    run_label: List
+    request:
+      connection: connections
+      service: lambda
+      operation: ListFunctions
+      paginate: true
+      rows:
+        at: Functions
+        columns:
+          Name: FunctionName
+          Runtime: Runtime
+          Memory: {from: MemorySize, as: number}
+          Modified: LastModified
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+  - key: error
+    render: error
+layout:
+  - title: Functions
+    items:
+      - input: connections
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows
+"""
+
+
 def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
     """What a pane type's or a workflow's definition may say, generically --
     the models' own fields, the names there are to use, and where to read
@@ -339,6 +391,20 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "window": "the time-range inputs a {window: ...} param reads",
                 "rows_at": "the input naming where the rows are in the reply (a dotted path)",
                 "rows": "{at, explode, columns: [{name, at, as: text|number|time}], spread, labels}",
+                # Any AWS read API, as data (D110): a request with a `service`.
+                "aws": {
+                    "connection": "an input of type connection (one account) or connections (several: the rows of "
+                                  "each, an Environment column first, and the ones that failed in output `error`), "
+                                  "connection_type aws",
+                    "service": "botocore's service name: lambda, ecs, sqs, rds, ec2…",
+                    "operation": "the API operation, ListFunctions (or list_functions); only reads: "
+                                 + ", ".join(aws_request.READS) + "…, never one that hands out secrets",
+                    "params": "{Name: literal | {input: key} | {window: start|end|step}}; Filter.Name nests",
+                    "paginate": "true: every page, up to max_items (default 1000, at most 5000)",
+                    "rows": "as above; left out, the reply's first list",
+                    "outputs": "rows (render table), response (one connection), error (render error; several)",
+                    "example": AWS_EXAMPLE,
+                },
             },
             "output": _fields(m.ManifestOutput),
             "card": _fields(m.Card),
@@ -352,8 +418,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "rules": [
                 "Leave out id (the editor's Id field, or the saved type's), state and rendered (set for you); "
                 "about defaults to the description.",
-                "An action is a request (to a connection of an HTTP type), a handler from `handlers`, or a live "
-                "function from `live_functions`.",
+                "An action is a request (a GET to a connection of an HTTP type, or with `service` any AWS read "
+                "API on an AWS connection), a handler from `handlers`, or a live function from `live_functions`. "
+                "A pane for an AWS service no handler covers is an AWS request: never say it can't be built.",
                 "read_definition shows any example's YAML; check_definition says every problem with its line.",
             ],
         }

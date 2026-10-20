@@ -921,6 +921,14 @@ own panes as an example. **Check** points at the line of any mistake;
 other groups get it when an admin grants it in Users → Groups → Panes. With a
 store repo set up, each pane type is kept there as written.
 
+**Any AWS service**: an action can call any AWS API that reads, as data --
+a `request` naming the `service` and `operation` (Lambda's `ListFunctions`,
+ECS's `DescribeServices`…), on the environments the pane's user picks, as
+their group's AWS identity. With several environments it's one table with an
+Environment column, and an environment that fails says so beside it.
+Operations that change something, or hand out credentials or secret values,
+are refused. The agent's Building tab knows the shape, with a Lambda example.
+
 **Building with the agent**: while a pane type's editor -- or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.
 Say what it should do or what to change ("add a status filter", "make this a

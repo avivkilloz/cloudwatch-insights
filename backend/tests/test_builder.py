@@ -186,3 +186,28 @@ def test_the_agent_builds_only_what_its_user_may(mcp):
     # A builder builds pane types; a workflow's definition is still an admin's.
     assert call(mcp, _token(bea), "check_definition", kind="pane", source=ENCODER)["ok"]
     assert "Only an admin" in call_error(mcp, _token(bea), "build_reference", kind="workflow")
+
+
+def test_with_a_store_the_yaml_may_name_it_without_its_namespace(remote):
+    """The id typed in the editor is saved in the store's namespace (D78); the
+    YAML naming it by that name alone was refused as a different id."""
+    assert client.get("/api/builder/schema").json()["namespace"] is None
+    _configure(remote)
+    assert client.get("/api/builder/schema").json()["namespace"] == "devops"
+    made = client.post("/api/builder/panes", json={"id": "lambda", "source": "id: lambda\n" + ENCODER})
+    assert made.status_code == 201, made.text
+    assert made.json()["id"] == "devops:lambda" and made.json()["source"].startswith("id: devops:lambda\n")
+    other = client.post("/api/builder/panes", json={"id": "loud", "source": "id: quiet\n" + ENCODER})
+    assert other.status_code == 400 and "Its id is devops:loud" in other.text
+
+
+def test_a_draft_with_an_id_line_is_still_checked_in_full():
+    """Its id line, held to "draft", failed first and Check dropped that
+    error -- so nothing after it was checked, and any mistake read as none."""
+    bad = "id: lambda\n" + ENCODER.replace("live: base64.convert", "handler: no.such")
+    out = client.post("/api/builder/check", json={"source": bad}).json()
+    assert out["ok"] is False and "There is no handler no.such" in out["errors"][0]["message"]
+    # Against the Id typed for it: the same name is fine, another isn't.
+    assert client.post("/api/builder/check", json={"source": "id: lambda\n" + ENCODER, "new_id": "lambda"}).json()["ok"]
+    other = client.post("/api/builder/check", json={"source": "id: other\n" + ENCODER, "new_id": "lambda"}).json()
+    assert other["ok"] is False and "Its id is lambda" in other["errors"][0]["message"]

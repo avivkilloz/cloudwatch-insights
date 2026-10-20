@@ -192,6 +192,8 @@ export interface BuilderSchema {
   /** The bundled pane types, whose manifests are the examples to read. */
   examples: string[];
   starter: string;
+  /** The store's namespace a new id is saved under, or null without a store (D78). */
+  namespace: string | null;
 }
 
 /** A published template (PLATFORM_PLAN.md §23, D99): plugin content, offered
@@ -983,8 +985,12 @@ export const api = {
   builderSchema: () => req<BuilderSchema>("/builder/schema"),
   listBuiltPanes: () => req<BuiltPaneType[]>("/builder/panes"),
   builderExample: (id: string) => req<{ id: string; source: string }>(`/builder/examples/${encodeURIComponent(id)}`),
-  checkBuiltPane: (source: string, id?: string) =>
-    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", { method: "POST", body: JSON.stringify({ source, id }) }),
+  /** `newId`: the Id typed for a new one, which the YAML's own id is held to. */
+  checkBuiltPane: (source: string, id?: string, newId?: string) =>
+    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", {
+      method: "POST",
+      body: JSON.stringify({ source, id, new_id: newId }),
+    }),
   createBuiltPane: (id: string, source: string) =>
     req<BuiltPaneType>("/builder/panes", { method: "POST", body: JSON.stringify({ id, source }) }),
   updateBuiltPane: (id: string, source: string) =>
