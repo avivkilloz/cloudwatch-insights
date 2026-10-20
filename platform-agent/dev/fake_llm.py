@@ -65,6 +65,9 @@ prompts (`_builder`):
                       the way a real model wrote them: {"path", "old", "new"},
                       "actions/-", values as text -- and one with a `when` an
                       action can't have, which the check names and it removes.
+- "add a clear button" -- an action with nothing to run, as a real model
+                      wrote; told a Clear is a card's, it deletes that line
+                      (a change by line) and sets `layout[0]/clear: [rows]`.
 - "bad op …"       -- an op that isn't one, until it's shown the shape.
 - "never clean"    -- a change that names an output never declared, every
                       round: the draft goes in the editor with its problems.
@@ -522,6 +525,23 @@ def _builder(messages: list[dict]) -> str:
             {"op": "add", "path": "layout", "value": _card("Jobs", "list_jobs", "jobs")},
             {"op": "add", "path": "layout", "value": _card("Rules", "list_rules", "rules")},
         ]})
+    if lowered.startswith("add a clear button"):
+        # As a real model did (D126): first an action with nothing to run;
+        # told a Clear is the card's, it drops the action by its lines and
+        # sets the card's `clear` through an item in brackets.
+        if phase == "repair" and "it's the card's `clear: [output keys]`" in asked:
+            shown = asked.split("with line numbers:\n", 1)[-1].splitlines()
+            at = next((int(m.group(1)) for line in shown if (m := re.match(r"(\d+): .*id: clear", line))), None)
+            changes: list[dict] = [{"op": "set", "path": "layout[0]/clear", "value": ["rows"]}]
+            if at is not None:
+                # The item's lines: its `- id` and the deeper ones under it.
+                end = at
+                while end < len(shown) and re.match(r"\d+: {5,}\S", shown[end]):
+                    end += 1
+                changes.insert(0, {"op": "lines", "from": at, "to": end, "text": ""})
+            return json.dumps({"summary": "A Clear on the results' card.", "changes": changes})
+        return json.dumps({"summary": "Added a clear action.", "changes": [
+            {"op": "add", "path": "actions", "value": {"id": "clear", "run_label": "Clear"}}]})
     if lowered.startswith("never clean"):
         return json.dumps({"summary": "Added a card.", "changes": [
             {"op": "add", "path": "layout", "value": {"title": f"Card {len(messages)}", "items": [{"output": "nothing"}]}}]})

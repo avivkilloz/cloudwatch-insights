@@ -77,6 +77,26 @@ export function useWorkflowScreenWaiting(): boolean {
   return useSyncExternalStore(subscribe, () => asked !== null);
 }
 
+/** A workflow to open in the Builder's Workflows (D128) -- the Workflows
+ * page's New workflow and Open in the Builder: one editor, one place. */
+export type BuilderAsk = { what: "workflow"; id: string | null };
+let builderAsk: BuilderAsk | null = null;
+
+export function openInBuilder(next: BuilderAsk) {
+  builderAsk = next;
+  emit();
+}
+
+export function takeBuilderAsk(): BuilderAsk | null {
+  const taken = builderAsk;
+  builderAsk = null;
+  return taken;
+}
+
+export function useBuilderAskWaiting(): boolean {
+  return useSyncExternalStore(subscribe, () => builderAsk !== null);
+}
+
 /**
  * A link inside the app (`?run=17`, `?workflow=orders_check`): shown in
  * place, never a page load -- a load would drop the tab's live state and

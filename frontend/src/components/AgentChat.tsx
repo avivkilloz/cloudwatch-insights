@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Avatar from "./Avatar";
 import { api } from "../api";
 import { abandoned, AgentScope, AgentStep, AgentTurn, splitThinking, useAgent } from "../agent/AgentContext";
 import { useSessionSelection } from "../agent/selection";
@@ -209,7 +210,13 @@ function TurnProgress({ turn, live }: { turn: AgentTurn; live: boolean }) {
   );
 }
 
-function Turn({ turn, mine, live }: { turn: AgentTurn; mine: boolean; live: boolean }) {
+/** Who asked, drawn beside what they said in a session's or a run's chat (D129). */
+interface Asker {
+  username: string;
+  avatarUrl?: string | null;
+}
+
+function Turn({ turn, mine, live, asker }: { turn: AgentTurn; mine: boolean; live: boolean; asker?: Asker | null }) {
   // Turns stored before reasoning was kept apart still carry it inline.
   const legacy = splitThinking(turn.answer);
   const thoughts = [turn.thoughts ?? "", legacy.thoughts].filter((t) => t.trim()).join("\n\n");
@@ -220,11 +227,22 @@ function Turn({ turn, mine, live }: { turn: AgentTurn; mine: boolean; live: bool
   const running = turn.status === "running" && !gone;
   return (
     <div className="agent-turn">
-      <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
-        {turn.author && <span className="agent-turn-author">{turn.author.name}</span>}
-        {turn.question}
-        {turn.attached && <div className="agent-attached">📎 {turn.attached}</div>}
-      </div>
+      {asker ? (
+        <div className={`agent-question-row${mine ? "" : " theirs"}`}>
+          <Avatar username={asker.username} avatarUrl={asker.avatarUrl} size={24} />
+          <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
+            {turn.author && <span className="agent-turn-author">{turn.author.name}</span>}
+            {turn.question}
+            {turn.attached && <div className="agent-attached">📎 {turn.attached}</div>}
+          </div>
+        </div>
+      ) : (
+        <div className={`agent-question${mine ? "" : " agent-question-theirs"}`}>
+          {turn.author && <span className="agent-turn-author">{turn.author.name}</span>}
+          {turn.question}
+          {turn.attached && <div className="agent-attached">📎 {turn.attached}</div>}
+        </div>
+      )}
       {/* A plain message between people never went to the agent -- nothing
           of its own to show under it. */}
       {turn.agentInvoked !== false && (
@@ -298,6 +316,35 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   const composeRef = useRef<HTMLTextAreaElement | null>(null);
 
   const sessionId = scope === "session" ? viewingSessionId : null;
+
+  // Everyone's picture in this session's chat, by user id: read with the
+  // session's participants, and again when a turn's author isn't among them
+  // (someone invited since). The turns hold only an id and a name -- a
+  // picture in every turn would be the same image stored over and over.
+  const [pictures, setPictures] = useState<Map<number, Asker>>(new Map());
+  const authorKey = (scope === "session" && sessionId ? sessionTurns(sessionId) : [])
+    .map((t) => t.author?.id)
+    .filter((id): id is number => id !== undefined && !pictures.has(id))
+    .join(",");
+  useEffect(() => {
+    if (scope !== "session" || !sessionId) return;
+    let cancelled = false;
+    api.listSessionParticipants(sessionId).then(
+      (list) =>
+        !cancelled &&
+        setPictures(new Map(list.map((p) => [p.user_id, { username: p.username, avatarUrl: p.avatar_url ?? null }]))),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, sessionId, authorKey]);
+  const me: Asker | null = user ? { username: user.username, avatarUrl: user.avatar_url } : null;
+  const askerOf = (t: AgentTurn): Asker | null => {
+    if (scope !== "session" && scope !== "run") return null;
+    if (!t.author || t.author.id === user?.id) return me;
+    return pictures.get(t.author.id) ?? { username: t.author.name };
+  };
 
   // Who "@" can mention in this session's chat: every current participant,
   // plus the agent's own handle, which is always offerable. Fetched fresh
@@ -433,7 +480,13 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
           </p>
         )}
         {turns.map((t) => (
-          <Turn key={t.id} turn={t} mine={!t.author || t.author.id === user?.id} live={t.id === liveTurnId} />
+          <Turn
+            key={t.id}
+            turn={t}
+            mine={!t.author || t.author.id === user?.id}
+            live={t.id === liveTurnId}
+            asker={askerOf(t)}
+          />
         ))}
         <div ref={endRef} />
       </div>

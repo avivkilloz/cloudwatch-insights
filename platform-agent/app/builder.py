@@ -86,6 +86,8 @@ that open (example)` does. A config key the reference's `output config` \
 doesn't list does nothing.
 - A column's path is not JMESPath: a list item is picked by a field, \
 Tags[Key=Name].Value.
+- A Clear button is the card's `clear: [output keys]` (the results it \
+empties), shown while one holds something -- never an action.
 - Keep what already works. Change or add what's asked; never replace a \
 working action, input or card with another.
 """
@@ -129,6 +131,8 @@ Each change: `op` set (replace or add a key), add (append an item to a list -- m
 `before` an item) or remove (a key or an item); `path` where, its parts separated by "/": mapping keys, and list \
 items named by their key, id or title (or field=value, or their index); `value` plain data, written as it would \
 be in YAML. Paths name the draft as it is now. Make all of the change in this one reply.
+Or by line, when that's plainer (stray lines, a block to rewrite): {{"op": "lines", "from": 72, "to": 74, \
+"text": "what goes there"}} -- the draft's lines as numbered below, both kept in, `text` empty to delete them.
 If you must read something first, reply {{"lookups": [...], "examples": [...]}} with no changes. If it can't be \
 done with what the reference lists, reply {{"give_up": "why, for the user"}}.
 """.format()  # Its braces doubled like PLAN's: sent as they were, the model read {{"op": …}} and made up its own.
@@ -147,7 +151,8 @@ reply doesn't have is replaced with one it does.
 SHAPE = """\
 Each change is exactly {"op": "set" | "add" | "remove", "path": "where", "value": the data} -- `value` is the \
 YAML's data as JSON (a list as [..], a mapping as {..}), never text holding YAML; `add` appends to the list at \
-`path`; `remove` has no value. Nothing else goes in a change."""
+`path`; `remove` has no value -- or by line, {"op": "lines", "from": 72, "to": 74, "text": "new lines, or empty \
+to delete"}. Nothing else goes in a change."""
 
 
 def _noun(kind: str) -> str:

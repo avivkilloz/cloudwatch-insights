@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-20, Phase 5-3b (drafts of what's built, and rows that open; PLATFORM_PLAN.md §24, D124–D125)._
+_Last updated: 2026-10-21, Phase 5-3c (one Builder, line numbers, a Clear the agent can add, pictures; PLATFORM_PLAN.md §24, D126–D129)._
 
 ## Platform plan
 
@@ -1298,7 +1298,24 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: drafts of what's built, and an EC2 pane the agent can build
+**This PR: one Builder, line numbers, a Clear the agent can add, and
+pictures (PLATFORM_PLAN.md §24, D126–D129).** Five asks after #137.
+- The agent asked for a Clear button wrote an action with nothing to run,
+  `resets: [rows]`, then keys named `[40]` it couldn't remove. Now: changes
+  by line (`{"op": "lines", …}`, bottom-up, a duplicate key refused), `[2]`
+  only ever a list item, and the reference, loop rules and errors say a
+  Clear is a card's `clear: [outputs]`.
+- `components/CodeEditor.tsx`: line numbers in the pane, step and workflow
+  editors, Check's lines marked; in the Builder the editor is as tall as the
+  preview beside it.
+- The Builder has Pane types | Workflows | Step types; the Workflows page's
+  New workflow (and Open in the Builder) open the Builder's workflow editor.
+- Members and the session chat show each person's picture.
+- Tests: backend `test_builder_clear.py` (5); browser `smoke102` (14),
+  failing against the old frontend; smoke85/100 make their workflow in the
+  Builder now.
+
+**#137 merged. Drafts of what's built, and an EC2 pane the agent can build
 (PLATFORM_PLAN.md §24, D124–D125).** Two reports after #136.
 - Drafts (`build_drafts.py`, `build_drafts` table, `/api/build-drafts`,
   `pages/buildDraft.tsx`): leaving the Builder (or a workflow's editor)

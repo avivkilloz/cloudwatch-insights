@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
 import { api, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowProblem } from "../api";
+import CodeEditor, { problemLines } from "../components/CodeEditor";
 import { CardRow } from "../components/SessionCard";
 import { ParamFields } from "../components/WorkflowParamFields";
 import { Section, ViewHead } from "../components/settings/settingsLayout";
@@ -194,15 +195,14 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               </select>
             </CardRow>
           )}
-          <textarea
+          <CodeEditor
             id="step-source"
-            className="workflow-source"
-            spellCheck={false}
             readOnly={!editable}
-            rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
+            minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
             value={source}
-            onChange={(e) => {
-              setSource(e.target.value);
+            marked={problemLines(problems)}
+            onChange={(text) => {
+              setSource(text);
               setProblems(null);
               setNotice(null);
             }}

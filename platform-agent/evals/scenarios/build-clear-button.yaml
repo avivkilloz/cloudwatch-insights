@@ -1,0 +1,15 @@
+name: build-clear-button
+about: >-
+  The user's own words (D126): a Clear button on a pane listing rows. A real model wrote a "clear" action with
+  nothing to run, then `resets: [rows]`, then top-level keys named `[40]` it couldn't remove. What reaches the editor
+  must check clean and empty the rows from a card's `clear`, with no action for it.
+build:
+  kind: pane
+  start: api-table
+  title: New pane type
+messages:
+  - "can we add a clear button to clear results when I wish?"
+expect:
+  - proposed:
+      checks: true
+      contains: ["clear:"]

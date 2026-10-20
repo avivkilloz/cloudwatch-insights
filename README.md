@@ -979,6 +979,17 @@ Rules, Jobs) where each mode runs its own action. Mark each mode's action
 mode (`when:` on the layout item); the agent, auto-refresh and Enter then run
 whatever the mode picks, as the button does.
 
+**One place to build**: the Builder lists **Pane types**, **Workflows** and
+**Step types**. New workflow on the Workflows page opens the Builder's
+workflow editor too; a workflow is run, and its runs kept, on the Workflows
+page (**Runs ▸**). Every editor numbers its lines, and marks the ones
+**Check** names; beside a pane's preview the editor grows to the preview's
+height.
+
+**A Clear button**: a card's `clear: [rows]` empties those results, for
+everyone looking, and shows only while there's something to clear -- ask the
+agent for one and that's what it adds.
+
 **Drafts**: whatever you build is kept as you type -- a pane type, a step
 type or a workflow, its Id and your Building chat about it. Leave the page,
 or close the tab, and it's waiting: a new one is listed as a **Draft** (only

@@ -20,6 +20,7 @@ import {
 } from "../sessions/SessionContext";
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { PaneMenuSlot } from "../components/paneMenuSlot";
+import Avatar from "../components/Avatar";
 import Icon from "../components/Icon";
 import SessionVariables from "../components/SessionVariables";
 import { announceVariableChange, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "../panes/variables";
@@ -1478,7 +1479,10 @@ export default function AggregatorPage() {
           <div className="session-members">
             {members.map((m) => (
               <div className="session-member" key={m.user_id}>
-                <span className="session-member-name">{m.username}</span>
+                <span className="session-member-name">
+                  <Avatar username={m.username} avatarUrl={m.avatar_url} size={22} />
+                  <span className="session-member-username">{m.username}</span>
+                </span>
                 <select
                   className="session-member-permission"
                   value={m.permission}

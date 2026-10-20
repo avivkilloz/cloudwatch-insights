@@ -722,6 +722,8 @@ class SessionMemberOut(BaseModel):
     user_id: int
     username: str
     permission: SessionPermission
+    # Their picture, beside their name in the card's Members (D129).
+    avatar_url: Optional[str] = None
 
 
 class SessionMemberCreate(BaseModel):
@@ -753,6 +755,8 @@ class SessionParticipant(BaseModel):
     user_id: int
     username: str
     role: SessionRole
+    # Their picture: the session chat draws it beside what they said (D129).
+    avatar_url: Optional[str] = None
 
 
 # ---- Session categories ----
