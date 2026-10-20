@@ -1311,7 +1311,7 @@ pictures (PLATFORM_PLAN.md §24, D126–D129).** Five asks after #137.
 - The Builder has Pane types | Workflows | Step types; the Workflows page's
   New workflow (and Open in the Builder) open the Builder's workflow editor.
 - Members and the session chat show each person's picture.
-- Tests: backend `test_builder_clear.py` (5); browser `smoke102` (14),
+- Tests: backend `test_builder_clear.py` (5), `test_session_members.py` updated for `avatar_url`; browser `smoke102` (14),
   failing against the old frontend; smoke85/100 make their workflow in the
   Builder now.
 
