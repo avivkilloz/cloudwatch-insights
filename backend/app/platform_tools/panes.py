@@ -608,14 +608,15 @@ def extract_rows(response: Any, spec: dict[str, Any]) -> list[dict]:
     return rows
 
 
-def _request_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+def _request_runner(manifest: pane_manifest.Manifest,
+                    action: Optional[pane_manifest.ManifestAction] = None) -> Optional[Runner]:
     """A declarative HTTP action (§15.7), for the agent: the same request the
     pane's Fetch sends, through routers/panes.run_request -- connection,
     identity, SSRF guard and masking included -- with its rows written into
     the pane."""
     requests = [a for a in manifest.actions if a.request]
-    # The main one, when a pane has several (rows of their own, D116).
-    action = next((a for a in requests if a.main), requests[0] if requests else None)
+    # The main one, when a pane has several (rows of their own, D118).
+    action = action or next((a for a in requests if a.main), requests[0] if requests else None)
     if action is None:
         return None
     from ..routers import panes as panes_router  # the router imports this module
@@ -712,12 +713,33 @@ def _summary(manifest: pane_manifest.Manifest, outputs: dict[str, Any], page: Op
     return out
 
 
-def _handler_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+def _chosen_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
+    """A pane whose main action an input chooses (D119): each run runs the one
+    the pane's inputs choose, as its button would -- a handler or a request."""
+    if not any(isinstance(a.main, pane_manifest.When) for a in manifest.actions):
+        return None
+
+    async def run(rc: RunContext, values: dict) -> RunResult:
+        action = manifest.main_action(values)
+        runner = None
+        if action is not None and action.handler:
+            runner = _handler_runner(manifest, action)
+        elif action is not None and action.request is not None:
+            runner = _request_runner(manifest, action)
+        if runner is None:
+            raise InputError(f"{manifest.label} has nothing to run for these inputs.")
+        return await runner(rc, values)
+
+    return run
+
+
+def _handler_runner(manifest: pane_manifest.Manifest,
+                    main: Optional[pane_manifest.ManifestAction] = None) -> Optional[Runner]:
     """A ported pane's run, for the agent (§16.3.1): what picking its inputs
     in the pane would have run (the on_change actions whose inputs are set --
     DynamoDB's describe), then its main action, through the very function the
     browser's action endpoint calls. A fresh run, never Load more."""
-    main = manifest.main_action()
+    main = main or manifest.main_action()
     if manifest.state != "v2" or main is None or main.handler is None:
         return None
     # Reaching outside the platform (the HTTP client's Send) is a person's to
@@ -858,7 +880,7 @@ def _kind(manifest: pane_manifest.Manifest) -> PaneKind:
             if action.handler:
                 run = HANDLERS[action.handler]
                 break
-    run = run or _handler_runner(manifest) or _live_runner(manifest) or _request_runner(manifest)
+    run = run or _chosen_runner(manifest) or _handler_runner(manifest) or _live_runner(manifest) or _request_runner(manifest)
     inspect = manifest.inspect
     return PaneKind(
         type=manifest.id,

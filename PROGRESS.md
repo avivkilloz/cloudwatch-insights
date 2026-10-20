@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-20, Phase 5-2e (the Builder's own loop; PLATFORM_PLAN.md §24, D116–D118)._
+_Last updated: 2026-10-20, Phase 5-2f (modes in built panes, changes as models write them; PLATFORM_PLAN.md §24, D119–D120)._
 
 ## Platform plan
 
@@ -1298,7 +1298,25 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the Builder's own loop (PLATFORM_PLAN.md §24, D116–D118).** The
+**This PR: modes a built pane can have, and changes as models write them
+(PLATFORM_PLAN.md §24, D119–D120).** Asked for an IoT pane with rules and jobs
+beside things and certificates, a real model's changes (`{"path", "old",
+"new"}`) were refused three rounds running, and a mode toggle couldn't choose
+a built pane's action: IoT's two modes are one handler's branches.
+- `main: {input: …, equals: …}`: the first action whose condition holds is
+  main, else the `main: true` one -- for the agent's run, refresh, Run on
+  open, a bound variable's rerun, a zoom, Enter and workflow drafts.
+- The change tool reads no-op-with-a-value as a set, `/-` as an add, op
+  synonyms, and lists/mappings written as text; a refusal shows the shape
+  with the model's own change in it; a field a part can't have is said with
+  those it can; an inline list stays inline; the change prompt's braces
+  were doubled.
+- Tests: backend `test_builder_modes.py` (10); agent +2 (both fail on the
+  old builder.py); browser `smoke99` (9): the user's pane built through the
+  agent from changes in a model's own shape, then each mode's Search filling
+  its own table. Evals: `build-iot-modes` (the user's words).
+
+**#134 merged. The Builder's own loop (PLATFORM_PLAN.md §24, D116–D118).** The
 agent beside the editor still couldn't add jobs and rules to an IoT pane: it
 read the draft again and again, its find-and-replace edits missed, it said "I
 need to add the outputs first" and stopped. The user asked for reliability,

@@ -62,6 +62,12 @@ def _scalar_text(value: Any) -> str:
     return json.dumps(value) if "\n" in text else text
 
 
+def _flow_text(value: Any) -> Optional[str]:
+    """A list or mapping as inline YAML, or None when it's too long for one line."""
+    text = yaml.dump(value, Dumper=_Dumper, default_flow_style=True, sort_keys=False, width=10**9, allow_unicode=True).strip()
+    return text if "\n" not in text and len(text) <= 100 else None
+
+
 def _is_scalar(value: Any) -> bool:
     return value is None or isinstance(value, (str, int, float, bool))
 
@@ -325,6 +331,14 @@ def _splice(src: str, root: yaml.Node, new: Any, op: str, path: Path, extra: Any
             old = None
         if isinstance(old, yaml.ScalarNode) and old.style in (None, "", "'", '"') and not _empty(old):
             return src[:old.start_mark.index] + _scalar_text(_get(new, path)) + src[old.end_mark.index:]
+    if op == "set" and isinstance(_get(new, path), (list, dict)) and not isinstance(parent, yaml.SequenceNode):
+        # An inline list or mapping replaced is written inline again
+        # (`choices: [things, certificates, rules]`), as long as it fits a line.
+        old = (_pair(parent, last) or (None, None))[1] if isinstance(parent, yaml.MappingNode) else None
+        if isinstance(old, (yaml.SequenceNode, yaml.MappingNode)) and old.flow_style:
+            text = _flow_text(_get(new, path))
+            if text is not None:
+                return src[:old.start_mark.index] + text + src[old.end_mark.index:]
     if getattr(parent, "flow_style", False):
         return None
     if op == "add":
@@ -400,10 +414,85 @@ def _means(text: str, data: Any) -> bool:
         return False
 
 
+# What a model writes for an op, as what it means.
+OPS = {"set": "set", "replace": "set", "update": "set", "change": "set", "modify": "set",
+       "add": "add", "append": "add", "insert": "add", "remove": "remove", "delete": "remove"}
+
+SHAPE = '{"op": "set" | "add" | "remove", "path": "outputs/jobs/render", "value": plain data}'
+
+
+def _as_data(value: Any, path: str, data: Any) -> Any:
+    """A value a model wrote as YAML or JSON text (`"[things, rules]"`,
+    `"{'id': 'search', 'main': True}"`) where a list or a mapping goes: the
+    data it says. Left as text where text belongs -- over a string, or where
+    it doesn't read as a list or a mapping."""
+    if not isinstance(value, str) or not value.strip().startswith(("{", "[")):
+        return value
+    try:
+        current = _get(data, resolve(data, parse_path(path)))
+    except (EditError, KeyError, IndexError, TypeError):
+        current = None
+    if isinstance(current, str):
+        return value
+    for reader in (yaml.safe_load, _literal):
+        try:
+            parsed = reader(value)
+        except Exception:  # noqa: BLE001 -- not that kind of text; try the next reading
+            continue
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    return value
+
+
+def _literal(text: str) -> Any:
+    import ast
+
+    return ast.literal_eval(text)
+
+
+def normalise(change: Any, data: Any = None) -> dict:
+    """A change as `apply` takes it, from the shapes models write (D120):
+    `{"path", "new"}` with no op is a set, a path ending `/-` is an add to
+    that list (`actions/-`), `replace`/`append`/`delete` are set/add/remove,
+    and a list or mapping written as text is that data. A real model sent
+    `{"path", "old", "new"}` three rounds running, each refused for its op,
+    so nothing it meant ever reached the check."""
+    if not isinstance(change, dict):
+        raise EditError(f"A change is {SHAPE}, not {json.dumps(change)[:80]}.")
+    out = dict(change)
+    if "value" not in out:
+        for alias in ("new", "new_value", "to", "with"):
+            if alias in out:
+                out["value"] = out[alias]
+                break
+    path = str(out.get("path") or "").strip()
+    op = OPS.get(str(out.get("op") or "").strip().lower())
+    if path.endswith("/-"):
+        # JSON Patch's "the end of this list".
+        path = path[:-2]
+        if op in (None, "set"):
+            op = "add"
+    if op is None:
+        if out.get("op"):
+            raise EditError(f'A change\'s op is "set", "add" or "remove", not {out["op"]!r}: {SHAPE}.')
+        if "value" in out:
+            op = "set"
+        else:
+            raise EditError(f"A change needs an op and, to set or add, a value: {SHAPE}.")
+    clean: dict = {"op": op, "path": path}
+    if op != "remove":
+        if "value" not in out:
+            raise EditError(f"A change that does {op} needs a value: {SHAPE}.")
+        clean["value"] = _as_data(out["value"], path, data) if data is not None else out["value"]
+    if out.get("before") not in (None, ""):
+        clean["before"] = out["before"]
+    return clean
+
+
 def apply(source: str, change: dict) -> str:
     """The text with one change made, or EditError saying why it can't be."""
     if not isinstance(change, dict):
-        raise EditError('A change is {"op", "path", "value"?}.')
+        raise EditError(f"A change is {SHAPE}.")
     try:
         data = yaml.safe_load(source) if source.strip() else {}
         root = yaml.compose(source) if source.strip() else None
@@ -411,7 +500,7 @@ def apply(source: str, change: dict) -> str:
         raise EditError(f"The draft doesn't read as YAML, so it can't be changed by path: {e}") from None
     if not isinstance(data, dict):
         raise EditError("The draft isn't a mapping at the top.")
-    new, op, path, extra = _meaning(data, change)
+    new, op, path, extra = _meaning(data, normalise(change, data))
     if root is None:
         return _dump(new)
     candidates = [_splice(source, root, new, op, path, extra)]
@@ -445,6 +534,6 @@ def apply_all(source: str, changes: list[dict]) -> str:
         try:
             source = apply(source, change)
         except EditError as e:
-            raise EditError(f"Change {i} ({change.get('op') if isinstance(change, dict) else '?'} "
-                            f"{change.get('path') if isinstance(change, dict) else ''}): {e}") from None
+            what = f"{change.get('op') or 'no op'} {change.get('path')}" if isinstance(change, dict) else "?"
+            raise EditError(f"Change {i} ({what}): {e}") from None
     return source

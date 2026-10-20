@@ -127,7 +127,9 @@ def _refresh(
     from ..routers import panes as panes_router  # it imports this module
     from . import handlers as pane_handlers
 
-    action = manifest.refresh_action()
+    # The main action for the pane's inputs as stored (D119: IoT's rules mode
+    # refreshes its rules, not its things).
+    action = manifest.refresh_action(stored_inputs(row, manifest, pane))
     if action is None:
         raise HTTPException(status_code=400, detail=f"{manifest.label} panes don't refresh by themselves.")
     if member is not None and member.permission == "viewer" and unreachable(db, user, manifest, stored_inputs(row, manifest, pane)):

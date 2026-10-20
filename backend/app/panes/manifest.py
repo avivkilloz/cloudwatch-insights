@@ -74,6 +74,18 @@ class When(_Strict):
     error: Optional[str] = None
 
 
+def holds(when: When, values: dict[str, Any]) -> bool:
+    """An input condition against inputs, as the browser's `shown` reads it."""
+    if when.input is None:
+        return True
+    value = values.get(when.input)
+    if when.equals is not None:
+        return value == when.equals
+    if when.not_in is not None:
+        return value not in when.not_in
+    return (value not in (None, "")) == (True if when.present is None else when.present)
+
+
 class Examples(_Strict):
     """Example values for a text input, by another input's value (IoT's
     queries by mode): what "Show examples" lists, each with a Use button."""
@@ -239,7 +251,13 @@ class ManifestAction(_Strict):
     stop_label: Optional[str] = None
     # The action run_pane runs for the agent. A pane's on_change actions whose
     # inputs are set run first, as picking them in the pane would have.
-    main: bool = False
+    # Or main *when* an input says so (D119): `main: {input: searchMode,
+    # equals: rules}` -- a pane whose one button does a different thing per
+    # mode (IoT's things or certificates are one handler's branches; a built
+    # pane's rules and jobs are requests of their own). The first action whose
+    # condition holds is the main one, else the one that's plainly `true`;
+    # the agent's run, refresh, a bound variable and Enter all follow it.
+    main: Union[bool, When] = False
     # Run in the background and polled by the server (§16.9.1): the run is
     # written into the session as `out.run`, its results as it goes.
     poll: Optional[Poll] = None
@@ -502,8 +520,18 @@ class Manifest(_Strict):
                 for ref in [a.page.cursor, *a.page.append, *a.page.sum]:
                     if ref not in outputs:
                         raise ValueError(f"action {a.id} pages an output {ref} that isn't declared")
-        if sum(1 for a in self.actions if a.main) > 1:
-            raise ValueError("only one action can be the main one")
+        if sum(1 for a in self.actions if a.main is True) > 1:
+            raise ValueError("only one action can be the main one (the others may be main `when` an input says)")
+        for a in self.actions:
+            if isinstance(a.main, When):
+                w = a.main
+                if w.input is None or w.output is not None or w.error is not None:
+                    raise ValueError(f"action {a.id} is main when an input says: `main: {{input: …, equals: …}}`")
+                if w.input not in inputs:
+                    raise ValueError(f"action {a.id} is main when an input {w.input} that isn't declared")
+                if a.poll is not None or a.effects is not None or a.live is not None or a.args:
+                    raise ValueError(f"action {a.id} can't be main by an input: only a handler or a request can, "
+                                     "not a background run, a live function, a row action or an external one")
         for i in self.inputs:
             check_text(i.label)
             check_text(i.placeholder)
@@ -573,15 +601,27 @@ class Manifest(_Strict):
                 out[v.legacy_key] = f"view.{v.key}"
         return out
 
-    def main_action(self) -> Optional[ManifestAction]:
-        return next((a for a in self.actions if a.main), None)
+    def main_action(self, values: Optional[dict[str, Any]] = None) -> Optional[ManifestAction]:
+        """The main action for these inputs (D119): the first that's main
+        `when` they say so, else the one that's main outright. Without
+        inputs, the one that's main outright (else the first of either)."""
+        if values is not None:
+            for a in self.actions:
+                if isinstance(a.main, When) and holds(a.main, values):
+                    return a
+        return next((a for a in self.actions if a.main is True), None) or next(
+            (a for a in self.actions if a.main), None)
 
-    def refresh_action(self) -> Optional[ManifestAction]:
+    def mains(self) -> list[ManifestAction]:
+        """Every action that is, or may be, the main one."""
+        return [a for a in self.actions if a.main]
+
+    def refresh_action(self, values: Optional[dict[str, Any]] = None) -> Optional[ManifestAction]:
         """What an auto-refresh runs (§18.3): the pane's main action, or its
         request (the API table's Fetch) -- unless it reaches outside the
         platform (Send), is worked out as you type, or is a stream that never
         ends (MQTT), none of which a timer should run again."""
-        action = self.main_action() or next((a for a in self.actions if a.request is not None), None)
+        action = self.main_action(values) or next((a for a in self.actions if a.request is not None), None)
         if action is None or action.effects == "external" or action.live is not None:
             return None
         if action.poll is not None and action.poll.append:

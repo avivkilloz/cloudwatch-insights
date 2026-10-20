@@ -150,8 +150,10 @@ async def change_definition(changes: list[dict], ctx: Context, kind: str | None 
             node[_stub_at(node, last) if isinstance(node, list) else last] = change["value"]
         elif change["op"] == "add":
             node.setdefault(last, []).append(change["value"])
-        else:
+        elif change["op"] == "remove":
             del node[_stub_at(node, last) if isinstance(node, list) else last]
+        else:
+            raise ToolError(f"Change 1: A change's op is \"set\", \"add\" or \"remove\", not {change['op']!r}. Nothing was changed.")
     DRAFT["source"] = yaml.safe_dump(data, sort_keys=False)
     errors = _stub_problems(data)
     return {"ok": not errors, "errors": errors, "changed": len(changes)}
@@ -711,3 +713,24 @@ def test_a_reply_that_isnt_json_is_asked_for_again(settings):
     assert "wasn't the JSON object asked for" in fake_llm.BUILDS[1]["messages"][-1]["content"]
     [proposed] = [e for e in events if e.get("propose")]
     assert proposed["propose"]["source"] == "label: Neat\n"
+
+
+def test_the_change_prompt_is_sent_as_it_reads(settings):
+    """Its JSON was sent with doubled braces ({{"op": …}}), and a real model
+    wrote changes in a shape of its own."""
+    fake_llm.BUILDS.clear()
+    _build(settings, "rename Neat", "label: Old\n")
+    sent = fake_llm.BUILDS[1]["messages"][-1]["content"]
+    assert "Now write the change." in sent and '{"op": "set", "path": "label"' in sent and "{{" not in sent
+
+
+def test_changes_that_cant_be_made_come_back_with_the_shape_and_their_own_change_in_it(settings):
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "bad op Tidy", "label: Old\n")
+    assert _steps(events) == ["build_reference", "plan_change", "write_changes", "change_definition", "write_changes",
+                              "change_definition", "propose_definition"]
+    told = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert 'Each change is exactly {"op": "set" | "add" | "remove"' in told
+    assert 'Your first change, written that way: {"op": "set", "path": "label", "value": "Tidy"}' in told
+    [proposed] = [e for e in events if e.get("propose")]
+    assert proposed["propose"]["source"] == "label: Tidy\n"

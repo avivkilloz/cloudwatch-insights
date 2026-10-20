@@ -330,6 +330,15 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   `error`. botocore loads models offline (`problems` checks names and
   parameters with no AWS call); tests use a `Stubber` client, the dev
   backend `PUT /api/dev/fake-aws`.
+- **An action can be main *when* an input says so** (D119): `main: {input:
+  searchMode, equals: rules}` (a `When` on inputs only); `Manifest.
+  main_action(values)` / the browser's `mainAction(m, inputs)` take the first
+  whose condition holds, else the `main: true` one. Everything that runs "the
+  pane" passes the inputs: the agent (`panes._chosen_runner`), refresh and
+  Run on open (`refresh_action(stored inputs)`), a bound variable's rerun, a
+  zoom, Enter on a `submit` naming a main action, a workflow draft. Only a
+  handler or a request can be chosen so. The buttons are layout items with
+  `when`; actions themselves have no `when`.
 - **A request may name its `output`** (D118, `routers/panes.written`/
   `request_keys`): its rows go there and a run replaces only that output and
   `error`. Without one it writes `rows` and replaces every output, so two
@@ -893,6 +902,13 @@ the platform, for a group with `builder_enabled` (admins always).
   else refused. The Python twin of `pages/builderYaml.ts`. An alias (`*x`)
   can't be changed through. `describe_aws_operation` is botocore's model
   (no call), and `aws_request.problems` holds `rows.at`/columns to the reply.
+  Changes are read as models write them (D120, `yaml_edit.normalise`): no op
+  with a value is a set, `/-` an add, `replace`/`append`/`delete`, lists and
+  mappings written as text (never over a text value); a refusal carries
+  `SHAPE`, and the builder loop adds the model's own first change rewritten.
+  A field a part can't have is reported with the fields it can
+  (`builder._fields_at`). The loop's prompts are `.format()`ed even without
+  placeholders: their braces are doubled.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is
