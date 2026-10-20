@@ -96,7 +96,7 @@ def test_a_path_that_names_nothing_says_whats_there_and_nothing_changes():
         yaml_edit.apply(both, {"op": "remove", "path": "layout/A/items/a"})
     assert yaml_edit.apply(both, {"op": "remove", "path": "layout/A/items/output=a"}).endswith("      - input: a\n")
     with pytest.raises(yaml_edit.EditError, match='op is "set", "add" or "remove"'):
-        yaml_edit.apply(IOT, {"op": "replace", "path": "label", "value": "x"})
+        yaml_edit.apply(IOT, {"op": "patch", "path": "label", "value": "x"})
 
 
 def test_missing_parents_are_made_and_inline_ones_written_out():
