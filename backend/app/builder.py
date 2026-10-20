@@ -641,6 +641,7 @@ views:
   - {key: expanded, default: []}
 layout:
   - title: Stacks
+    clear: [rows]
     items:
       - input: connections
       - toolbar:
@@ -774,6 +775,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",
+                "A Clear button is a card's `clear: [output keys]` -- the results it empties (never `run`); it "
+                "shows by itself while one of them holds something. It isn't an action, and an action with nothing "
+                "to run doesn't check.",
                 "Rows that open to show more (a row's detail): the table's config.detail names a row action -- an "
                 "action with args read from the row -- and config.expand a declared view key; see `rows that "
                 "open (example)`. An output's config says only what `output config` lists.",

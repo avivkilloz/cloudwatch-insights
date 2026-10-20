@@ -103,6 +103,8 @@ steps:
     with: {connection: "{{ params.api }}", device: d7, reason: "a test"}
 `);
     await page.click('.workflow-view button:text-is("Create")');
+    // Made in the Builder's Workflows (D128); its runs are the Workflows page's.
+    await page.click('.workflow-view button:text-is("Runs ▸")', { timeout: 10000 });
     await page.waitForSelector('.workflow-view button:text-is("Run ▸")', { timeout: 10000 });
     const sections = await page.locator(".workflow-view .settings-section h3, .workflow-view h3").allInnerTexts();
     check(!sections.some((t) => t.trim() === "Access"), "It's the builder's group's: no Access section (granting is an admin's)", JSON.stringify(sections));

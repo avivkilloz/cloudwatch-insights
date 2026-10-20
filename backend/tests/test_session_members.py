@@ -40,10 +40,11 @@ def test_invite_list_and_default_permission():
 
     resp = client.post("/api/live-sessions/s1/members", json={"username": "bob"})
     assert resp.status_code == 201, resp.text
-    assert resp.json() == {"user_id": resp.json()["user_id"], "username": "bob", "permission": "editor"}
+    assert resp.json() == {"user_id": resp.json()["user_id"], "username": "bob", "permission": "editor",
+                           "avatar_url": None}
 
     listed = client.get("/api/live-sessions/s1/members").json()
-    assert listed == [{"user_id": listed[0]["user_id"], "username": "bob", "permission": "editor"}]
+    assert listed == [{"user_id": listed[0]["user_id"], "username": "bob", "permission": "editor", "avatar_url": None}]
 
 
 def test_invite_with_viewer_permission():

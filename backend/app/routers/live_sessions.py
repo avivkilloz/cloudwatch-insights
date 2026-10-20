@@ -556,7 +556,8 @@ def delete_live_session(
 
 
 def _member_out(member: models.SessionMember) -> schemas.SessionMemberOut:
-    return schemas.SessionMemberOut(user_id=member.user_id, username=member.user.username, permission=member.permission)
+    return schemas.SessionMemberOut(user_id=member.user_id, username=member.user.username, permission=member.permission,
+                                    avatar_url=member.user.avatar_url)
 
 
 def _member(db: Session, session_id: int, user_id: int) -> models.SessionMember:
@@ -597,10 +598,13 @@ def list_session_participants(
     as any other participant's."""
     row, _ = _reachable(db, current_user, client_id)
     owner = db.get(models.User, row.user_id)
-    out = [schemas.SessionParticipant(user_id=row.user_id, username=owner.username, role="owner")] if owner else []
+    out = [schemas.SessionParticipant(user_id=row.user_id, username=owner.username, role="owner",
+                                      avatar_url=owner.avatar_url)] if owner else []
     members = db.query(models.SessionMember).filter(models.SessionMember.session_id == row.id).all()
     out += [
-        schemas.SessionParticipant(user_id=m.user_id, username=m.user.username, role=m.permission) for m in members
+        schemas.SessionParticipant(user_id=m.user_id, username=m.user.username, role=m.permission,
+                                   avatar_url=m.user.avatar_url)
+        for m in members
     ]
     return out
 

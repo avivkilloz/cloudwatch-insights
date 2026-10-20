@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
-import { api, BuildDraft, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, WorkflowProblem } from "../api";
+import { api, BuildDraft, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, Workflow, WorkflowProblem } from "../api";
 import { useAuth } from "../AuthContext";
+import CodeEditor, { problemLines } from "../components/CodeEditor";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
@@ -15,6 +16,8 @@ import { registerManifestPanes } from "../sessions/paneTypes";
 import { useStartSession } from "../sessions/start";
 import { DraftStatus, draftTime, useBuildDraft, useDraftList } from "./buildDraft";
 import StepEditor from "./StepEditor";
+import { WorkflowEditor } from "./WorkflowsPage";
+import { takeBuilderAsk, useBuilderAskWaiting } from "../workflowFocus";
 
 /*
  * The Builder, its first part (PLATFORM_PLAN.md §24, D103-D106): pane types
@@ -31,11 +34,13 @@ import StepEditor from "./StepEditor";
 
 // `said`: what to say on arriving -- a type just created opens as itself.
 // `what`: which list (pane types, or step types made for workflows, D122).
-// `draft`: a new one's draft, opened from the list (D125).
-type What = "pane" | "step";
+// `draft`: a new one's draft, opened from the list (D125). Workflows are
+// built here too, beside pane and step types (D128).
+type What = "pane" | "workflow" | "step";
 type Screen =
   | { kind: "list"; what?: What }
   | { kind: "edit"; id: string | null; said?: string; draft?: number }
+  | { kind: "workflow"; id: string | null; draft?: number }
   | { kind: "step"; id: string | null; said?: string; draft?: number };
 
 const editorKey = (s: { id: string | null; draft?: number }) => `${s.id ?? "new"}:${s.draft ?? ""}`;
@@ -57,7 +62,25 @@ function useReloadPaneTypes(): () => Promise<void> {
 export default function BuilderPage() {
   const { view } = useSessions();
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
+  // Asked from the Workflows page: New workflow, Open in the Builder.
+  const asked = useBuilderAskWaiting();
+  useEffect(() => {
+    if (!asked) return;
+    const taken = takeBuilderAsk();
+    if (taken) setScreen({ kind: "workflow", id: taken.id });
+  }, [asked]);
   if (view !== "builder") return null;
+  if (screen.kind === "workflow") {
+    return (
+      <WorkflowEditor
+        key={editorKey(screen)}
+        id={screen.id}
+        draftId={screen.draft ?? null}
+        back={() => setScreen({ kind: "list", what: "workflow" })}
+        opened={(id) => setScreen({ kind: "workflow", id })}
+      />
+    );
+  }
   if (screen.kind === "edit") {
     return <Editor key={editorKey(screen)} id={screen.id} said={screen.said} draftId={screen.draft ?? null} open={setScreen} />;
   }
@@ -86,20 +109,70 @@ function ListView({ open, initial }: { open: (s: Screen) => void; initial: What 
           <ViewSwitch
             views={[
               ["pane", "Pane types"],
+              ["workflow", "Workflows"],
               ["step", "Step types"],
             ] as const}
             view={what}
             onChange={setWhat}
           />
-          {what === "pane" ? (
-            <button onClick={() => open({ kind: "edit", id: null })}>New pane type</button>
-          ) : (
-            <button onClick={() => open({ kind: "step", id: null })}>New step type</button>
-          )}
+          {what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane type</button>}
+          {what === "workflow" && <button onClick={() => open({ kind: "workflow", id: null })}>New workflow</button>}
+          {what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step type</button>}
         </div>
       </div>
-      {what === "pane" ? <PaneList open={open} /> : <StepList open={open} />}
+      {what === "pane" && <PaneList open={open} />}
+      {what === "workflow" && <WorkflowList open={open} />}
+      {what === "step" && <StepList open={open} />}
     </div>
+  );
+}
+
+/** The workflows this person may change (D121), and their drafts of new ones. */
+function WorkflowList({ open }: { open: (s: Screen) => void }) {
+  const [items, setItems] = useState<Workflow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const drafts = useDraftList("workflow");
+  useEffect(() => {
+    api.listWorkflows().then((list) => setItems(list.filter((w) => w.can_edit)), (e) => setError(readableError(e)));
+  }, []);
+  return (
+    <>
+      <p className="muted" style={{ maxWidth: "80ch" }}>
+        Steps run more than once, the same way each time: pane actions, step types, approvals -- written as a
+        definition. One you make is your group's to edit and run; they're run, and their runs kept, on the Workflows
+        page.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {items !== null && items.length === 0 && drafts.fresh.length === 0 && <p className="muted">None made yet.</p>}
+      {items !== null && items.length + drafts.fresh.length > 0 && (
+        <table className="credentials-table builder-table">
+          <thead>
+            <tr>
+              <th>Workflow</th>
+              <th>Id</th>
+              <th>Steps</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <DraftRows drafts={drafts.fresh} cols={4} open={(d) => open({ kind: "workflow", id: null, draft: d.id })} />
+            {items.map((w) => (
+              <tr key={w.id} data-workflow={w.id} {...rowProps(() => open({ kind: "workflow", id: w.id }))}>
+                <td>
+                  {w.label}
+                  <ChangedTag draft={drafts.changed.get(w.id)} />
+                </td>
+                <td className="muted">{w.id}</td>
+                <td className="muted">{w.steps}</td>
+                <td>
+                  <StoreBadge state={w.store_state} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 
@@ -454,14 +527,13 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             />
           </CardRow>
           {editAs === "yaml" ? (
-            <textarea
+            <CodeEditor
               id="builder-source"
-              className="workflow-source"
-              spellCheck={false}
-              rows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
+              minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
               value={source}
-              onChange={(e) => {
-                setSource(e.target.value);
+              marked={problemLines(problems)}
+              onChange={(text) => {
+                setSource(text);
                 setProblems(null);
                 setNotice(null);
               }}

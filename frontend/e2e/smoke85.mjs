@@ -82,6 +82,8 @@ const run = async () => {
     check(problem.startsWith("Line 10:") && problem.includes("no action 'runn'"), "Check names the mistake and its line", problem);
     await page.fill("#workflow-source", SOURCE);
     await page.click('.workflow-view button:text-is("Create")');
+    // Made in the Builder's Workflows (D128); its runs are the Workflows page's.
+    await page.click('.workflow-view button:text-is("Runs ▸")', { timeout: 10000 });
     await page.waitForSelector('.workflow-view button:text-is("Run ▸")');
     check((await page.locator(".workflow-view .credential-view-head h2").innerText()) === `Jobs up ${STAMP}`, "Created, its page opens");
 

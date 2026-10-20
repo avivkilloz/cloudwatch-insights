@@ -345,6 +345,7 @@ export interface SessionMember {
   user_id: number;
   username: string;
   permission: SessionPermission;
+  avatar_url?: string | null;
 }
 
 /** A username-prefix match for the invite field's suggestion dropdown --
@@ -365,6 +366,7 @@ export interface SessionParticipant {
   user_id: number;
   username: string;
   role: SessionRole;
+  avatar_url?: string | null;
 }
 
 // ---- Tools page ----

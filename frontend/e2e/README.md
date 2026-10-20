@@ -74,6 +74,13 @@ in the Builder's Step types, then used in a workflow of their own -- no
 Access section -- approved and sent) needs the faked backend (a `.fake` host;
 `/api/dev/fake-http/last` says what it was sent).
 
+`smoke102` (as a builder: the Builder's Pane types / Workflows / Step types,
+the Workflows page's New workflow opening the Builder's editor, line numbers
+and Check's line marked, the editor as tall as the preview, the fake model's
+`add a clear button` fixed by a change by line into a card's `clear`, and
+pictures in a shared session's Members and chat) needs the agent, the fake
+model and the faked backend.
+
 `smoke101` (as a builder: a new pane type kept as a draft with its Building
 chat -- across leaving the page and a reload -- created with its chat kept, a
 saved one's change tagged and discarded, a workflow's draft; and an EC2 pane

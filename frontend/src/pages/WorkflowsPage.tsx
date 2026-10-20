@@ -12,6 +12,7 @@ import {
   WorkflowRun,
   WorkflowRunStep,
 } from "../api";
+import CodeEditor, { problemLines } from "../components/CodeEditor";
 import { CardRow } from "../components/SessionCard";
 import { ParamFields } from "../components/WorkflowParamFields";
 import { StoreBadge } from "../components/settings/StoreSettings";
@@ -22,6 +23,8 @@ import { useSessions } from "../sessions/SessionContext";
 import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
 import {
   Draft,
+  openInBuilder,
+  openWorkflowScreen,
   setRunFocus,
   takeDraft,
   takeWorkflowScreen,
@@ -194,7 +197,7 @@ function ListView({ open }: { open: (s: Screen) => void }) {
         <span className="muted">
           {view === "workflows" ? "Steps you run more than once, the same way each time." : "Recent runs, newest first."}
         </span>
-        {view === "workflows" && <NewWorkflowButton open={open} />}
+        {view === "workflows" && <NewWorkflowButton />}
         {view === "runs" && (
           <label className="checkbox-item">
             <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Mine only
@@ -289,11 +292,22 @@ function WaitingForYou({ open }: { open: (s: Screen) => void }) {
   );
 }
 
-/** Admins and builders (D121): a builder's is their group's to edit and run. */
-function NewWorkflowButton({ open }: { open: (s: Screen) => void }) {
+/** Admins and builders (D121): a builder's is their group's to edit and run.
+ * Made in the Builder's Workflows, beside pane and step types (D128). */
+function NewWorkflowButton() {
   const { user } = useAuth();
+  const { show } = useSessions();
   if (!user?.is_admin && !user?.builder_enabled) return null;
-  return <button onClick={() => open({ kind: "new" })}>New workflow</button>;
+  return (
+    <button
+      onClick={() => {
+        openInBuilder({ what: "workflow", id: null });
+        show("builder");
+      }}
+    >
+      New workflow
+    </button>
+  );
 }
 
 function RunsTable({ runs, open, showWorkflow }: { runs: WorkflowRun[]; open: (s: Screen) => void; showWorkflow?: boolean }) {
@@ -345,6 +359,7 @@ function WorkflowView({
   buildDraft?: number | null;
 }) {
   const { user } = useAuth();
+  const { show } = useSessions();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +416,11 @@ function WorkflowView({
           </button>
         )}
         {workflow?.can_edit && (
+          <button className="secondary" onClick={() => (openInBuilder({ what: "workflow", id: workflow.id }), show("builder"))}>
+            Open in the Builder
+          </button>
+        )}
+        {workflow?.can_edit && (
           <button className="danger" onClick={remove}>
             Delete
           </button>
@@ -431,6 +451,85 @@ function WorkflowView({
         />
       )}
       {/* Granting other groups stays an admin's (D121, as for built panes). */}
+      {workflow?.can_edit && user?.is_admin && <AccessSection workflow={workflow} saved={setWorkflow} />}
+    </div>
+  );
+}
+
+/**
+ * A workflow in the Builder (D128): its definition and who may run it --
+ * built beside pane and step types; its runs are the Workflows page's
+ * ("Runs ▸"). The Workflows page's New workflow opens this.
+ */
+export function WorkflowEditor({
+  id,
+  draftId,
+  back,
+  opened,
+}: {
+  id: string | null;
+  draftId: number | null;
+  back: () => void;
+  opened: (id: string) => void;
+}) {
+  const { user } = useAuth();
+  const { show } = useSessions();
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [newId, setNewId] = useState("");
+  const isNew = id === null;
+  useEffect(() => {
+    if (id === null) return;
+    let cancelled = false;
+    api.getWorkflow(id).then(
+      (w) => !cancelled && setWorkflow(w),
+      (e) => !cancelled && setError(readableError(e)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function remove() {
+    if (!workflow || !window.confirm(`Delete ${workflow.label}, and its runs?`)) return;
+    try {
+      await api.deleteWorkflow(workflow.id);
+      back();
+    } catch (e) {
+      setError(readableError(e));
+    }
+  }
+
+  if (!isNew && !workflow) {
+    return <div className="panel">{error ? <p className="error-text">{error}</p> : <p className="muted">Loading…</p>}</div>;
+  }
+  return (
+    <div className="panel credential-view builder-view workflow-view">
+      <ViewHead back={back} title={isNew ? "New workflow" : workflow!.label}>
+        {workflow && (
+          <button
+            className="secondary"
+            onClick={() => (openWorkflowScreen({ kind: "workflow", id: workflow.id }), show("workflows"))}
+          >
+            Runs ▸
+          </button>
+        )}
+        {workflow?.can_edit && (
+          <button className="danger" onClick={remove}>
+            Delete
+          </button>
+        )}
+      </ViewHead>
+      {error && <p className="error-text">{error}</p>}
+      <DefinitionSection
+        workflow={workflow}
+        draftId={draftId}
+        back={back}
+        isNew={isNew}
+        newId={newId}
+        setNewId={setNewId}
+        saved={(w) => (isNew ? opened(w.id) : setWorkflow(w))}
+      />
       {workflow?.can_edit && user?.is_admin && <AccessSection workflow={workflow} saved={setWorkflow} />}
     </div>
   );
@@ -587,19 +686,18 @@ function DefinitionSection({
         </CardRow>
       )}
       {editable ? (
-        <textarea
+        <CodeEditor
           id="workflow-source"
-          className="workflow-source"
-          spellCheck={false}
-          rows={Math.min(30, Math.max(12, source.split("\n").length + 1))}
+          minRows={Math.min(30, Math.max(12, source.split("\n").length + 1))}
           value={source}
-          onChange={(e) => {
-            setSource(e.target.value);
+          marked={problemLines(problems)}
+          onChange={(text) => {
+            setSource(text);
             setProblems(null);
           }}
         />
       ) : (
-        <pre className="workflow-source">{source}</pre>
+        <CodeEditor id="workflow-source" readOnly minRows={Math.min(30, source.split("\n").length + 1)} value={source} />
       )}
       {problems && problems.length > 0 && (
         <ul className="error-text workflow-problems">

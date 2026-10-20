@@ -4851,3 +4851,105 @@ textarea.workflow-source {
 .builder-draft-status {
   margin: 8px 0 0;
 }
+
+/* A definition's YAML with its line numbers (D127, components/CodeEditor.tsx):
+   the gutter and the text share one font, size and line height, so each
+   number sits level with its line; lines don't wrap. It grows to the height
+   its card is given -- beside a tall preview, the card stretches to it. */
+.code-editor {
+  display: flex;
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.code-editor-gutter {
+  flex: none;
+  overflow: hidden;
+  padding: 8px 8px 8px 10px;
+  min-width: 2.5em;
+  text-align: right;
+  color: var(--text-dim);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+.code-editor-gutter > div {
+  white-space: pre;
+}
+.code-editor-gutter > .bad {
+  color: var(--error);
+  font-weight: 600;
+}
+.code-editor-gutter-end {
+  height: 16px;
+}
+textarea.code-editor-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre;
+  overflow: auto;
+  resize: none;
+  height: auto;
+}
+textarea.code-editor-text:focus {
+  outline: none;
+}
+.code-editor:focus-within {
+  border-color: var(--accent);
+}
+/* The Builder's two columns are one height: the definition's card stretches
+   to the preview's, and its editor takes what's spare. */
+.builder-columns {
+  align-items: stretch;
+}
+.builder-columns > .session-card-section {
+  display: flex;
+  flex-direction: column;
+}
+.builder-columns > .session-card-section > .code-editor {
+  min-height: 300px;
+}
+
+/* Who's in a session, and who said what in its chat, with their pictures (D129). */
+.session-member-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-member-username {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-question-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  align-self: flex-end;
+  max-width: 92%;
+  flex-direction: row-reverse;
+}
+.agent-question-row.theirs {
+  align-self: flex-start;
+  flex-direction: row;
+}
+.agent-question-row > .agent-question {
+  align-self: auto;
+  max-width: none;
+  min-width: 0;
+}
+.agent-question-row > .avatar {
+  flex: none;
+}

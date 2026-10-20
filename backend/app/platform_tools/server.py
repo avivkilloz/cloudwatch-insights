@@ -1706,7 +1706,9 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
     (add, optional)}. A path's parts are keys or list items, an item named by its key/id/title (or field=value, or
     its index): "outputs/jobs/render", "actions/list/request/rows", "layout/Results/items". `set` replaces or adds
     a key; `add` appends an item to a list (made if missing), before `before` if given; `remove` drops a key or
-    item. All or none are applied, in order, then the draft is checked: problems come back with their lines. Add
+    item. Or by line: {"op": "lines", "from": 72, "to": 74, "text": "new lines, empty to delete"}, the draft's lines
+    as read_draft numbers them (several are made bottom-up, so each one's numbers hold). All or none are applied,
+    in order, then the draft is checked: problems come back with their lines. Add
     everything a part needs in one call -- its action, its output and its card -- so nothing names what isn't
     there yet. Nothing reaches the editor until propose_definition."""
     from .. import yaml_edit

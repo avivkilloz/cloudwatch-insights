@@ -949,6 +949,23 @@ the platform, for a group with `builder_enabled` (admins always).
   JMESPath -- at run and in the offline check. A built pane's table/list
   `config` and detail sections are held to `builder.CONFIG`/`SECTION_KEYS`:
   keep them in step with what the renderer reads.
+- **Changes by line, and Clear** (D126): `yaml_edit` also takes `{"op":
+  "lines", "from", "to", "text"}` -- the draft's lines as the loop shows them
+  numbered, made bottom-up before the path changes, refused if a key ends up
+  said twice in one mapping (YAML keeps the last silently: a stray
+  `run_label` renamed another action's button). A path part `[2]` (or
+  `actions[2]`) is a list item; asked of a mapping it's an error, never a
+  new key. A Clear button is a card's `clear:`, never an action: the
+  reference, the loop's rules and the no-kind action error say so.
+- **The editors** (D127, `components/CodeEditor.tsx`): pane, step and
+  workflow YAML with a line gutter (lines don't wrap, the gutter follows the
+  scroll, Check's lines marked); the textarea keeps its id
+  (`#builder-source` etc.) for the suites. In the Builder the two columns
+  stretch to one height and the editor fills the definition's card.
+- **Workflows in the Builder** (D128): Pane types | Workflows | Step types;
+  `WorkflowEditor` (WorkflowsPage.tsx) is the Builder's -- definition and
+  access, Runs ▸ to the Workflows page. The Workflows page's New workflow and
+  "Open in the Builder" go there through `workflowFocus.openInBuilder`.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is
@@ -1270,6 +1287,12 @@ browser keeps its edits to itself, so one made an editor did until a
 reload). Before this, none was announced: a session shared with someone
 showed up only when the owner next wrote it, since `commit_write` is what
 tells every participant (`smoke70`).
+
+**Pictures** (D129): `SessionMemberOut`/`SessionParticipant` carry
+`avatar_url`; the card's Members and each question in a session or run chat
+show the asker's (`AgentChat`'s `pictures`, read from `/participants` by
+user id and again for an author not yet among them) -- never stored in
+`agentChat`, which would repeat the same image per turn.
 
 **The invite field suggests usernames as you type.** A follow-up to phase 2's
 UI, not a new access-control phase: `GET /api/users/suggest?prefix=` (new,

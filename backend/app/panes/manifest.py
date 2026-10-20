@@ -271,7 +271,11 @@ class ManifestAction(_Strict):
     def _one_kind(self) -> "ManifestAction":
         kinds = [k for k in ("handler", "live", "request") if getattr(self, k) is not None]
         if len(kinds) != 1:
-            raise ValueError(f"action {self.id} needs exactly one of handler, live or request, not {kinds or 'none'}")
+            # A model wrote a "clear" action, with nothing to run, four rounds running.
+            hint = ("; a button that only empties results isn't an action: it's the card's `clear: [output keys]`, "
+                    "shown while one of them holds something") if not kinds else ""
+            raise ValueError(f"action {self.id} needs exactly one of handler, live or request, not {kinds or 'none'}"
+                             f"{hint}")
         return self
 
 
@@ -492,7 +496,10 @@ class Manifest(_Strict):
             part, _, key = ref.partition(".")
             known = {"in": inputs, "out": outputs | {"ranAt", "resultsVersion"}, "view": views}.get(part)
             if known is None or key not in known:
-                raise ValueError(f"'{ref}' names no input (in.), output (out.) or view key (view.)")
+                bare = [f"{p}.{ref}" for p, names in (("in", inputs), ("out", outputs), ("view", views))
+                         if ref in names]
+                said = f": did you mean {' or '.join(bare)}?" if bare else ""
+                raise ValueError(f"'{ref}' names no input (in.), output (out.) or view key (view.){said}")
 
         for a in self.actions:
             for ref in a.on_change:

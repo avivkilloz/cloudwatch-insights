@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any, Optional, Union
 
 import yaml
@@ -81,7 +82,21 @@ def parse_path(path: Union[str, list]) -> list[str]:
     parts = [p.strip() for p in str(path).strip().strip("/").split("/")]
     if not parts or not all(parts):
         raise EditError(f"The path {path!r} is empty or has an empty part; write it like outputs/jobs.")
-    return parts
+    # `actions[2]/label`, as JSON paths write an item: the list, then `[2]`.
+    out: list[str] = []
+    for part in parts:
+        m = re.fullmatch(r"([^\[\]]+)((?:\[[^\[\]]*\])+)", part)
+        if m:
+            out.append(m.group(1))
+            out += re.findall(r"\[[^\[\]]*\]", m.group(2))
+        else:
+            out.append(part)
+    return out
+
+
+def _bracketed(part: str) -> Optional[str]:
+    """`[2]` or `[key=jobs]`: an item of a list, as its brackets say."""
+    return part[1:-1].strip() if len(part) > 1 and part[0] == "[" and part[-1] == "]" else None
 
 
 def _label(item: Any) -> str:
@@ -125,6 +140,11 @@ def resolve(data: Any, parts: list[str], last_may_be_new: bool = False) -> Path:
         where = "/".join(parts[:n]) or "the top"
         last = n == len(parts) - 1
         if isinstance(node, dict):
+            if part not in node and (_bracketed(part) is not None or part.isdigit()):
+                # An item of a list asked of a mapping: never a new key named
+                # `[40]` (a model's, which then sat at the top unremovable).
+                keys = ", ".join(map(str, node)) or "nothing"
+                raise EditError(f"{where} is a mapping, not a list, so {part} picks nothing in it; its keys: {keys}.")
             if part not in node:
                 if last and last_may_be_new:
                     out.append(part)
@@ -134,7 +154,7 @@ def resolve(data: Any, parts: list[str], last_may_be_new: bool = False) -> Path:
             out.append(part)
             node = node[part]
         elif isinstance(node, list):
-            index = _find(node, part, where)
+            index = _find(node, _bracketed(part) if _bracketed(part) is not None else part, where)
             out.append(index)
             node = node[index]
         else:
@@ -164,7 +184,9 @@ def _meaning(data: Any, change: dict) -> tuple[Any, str, Path, Any]:
             path = resolve(new, parts, last_may_be_new=True)
         except EditError:
             # A missing parent mapping is made: set actions/x/request/rows/at
-            # on a request without rows.
+            # on a request without rows -- never a key named like an item.
+            if _bracketed(parts[-1]) is not None or parts[-1].isdigit():
+                raise
             path = resolve(new, parts[:-1], last_may_be_new=True)
             parent_path, key = path, parts[-1]
             parent = _ensure(new, parent_path)
@@ -418,7 +440,8 @@ def _means(text: str, data: Any) -> bool:
 OPS = {"set": "set", "replace": "set", "update": "set", "change": "set", "modify": "set",
        "add": "add", "append": "add", "insert": "add", "remove": "remove", "delete": "remove"}
 
-SHAPE = '{"op": "set" | "add" | "remove", "path": "outputs/jobs/render", "value": plain data}'
+SHAPE = ('{"op": "set" | "add" | "remove", "path": "outputs/jobs/render", "value": plain data}, or by line '
+         '{"op": "lines", "from": 72, "to": 74, "text": "what goes there (empty to delete)"}')
 
 
 def _as_data(value: Any, path: str, data: Any) -> Any:
@@ -460,12 +483,16 @@ def normalise(change: Any, data: Any = None) -> dict:
     if not isinstance(change, dict):
         raise EditError(f"A change is {SHAPE}, not {json.dumps(change)[:80]}.")
     out = dict(change)
+    if _is_lines(out):
+        return _line_change(out)
     if "value" not in out:
         for alias in ("new", "new_value", "to", "with"):
             if alias in out:
                 out["value"] = out[alias]
                 break
-    path = str(out.get("path") or "").strip()
+    raw = out.get("path")
+    # A path given as its parts is those parts (its text was "['label']").
+    path = "/".join(str(p) for p in raw) if isinstance(raw, list) else str(raw or "").strip()
     op = OPS.get(str(out.get("op") or "").strip().lower())
     if path.endswith("/-"):
         # JSON Patch's "the end of this list".
@@ -489,10 +516,86 @@ def normalise(change: Any, data: Any = None) -> dict:
     return clean
 
 
+def _is_lines(change: dict) -> bool:
+    op = str(change.get("op") or "").strip().lower()
+    return op in ("lines", "replace_lines", "delete_lines", "insert_lines") or (
+        not change.get("path") and any(k in change for k in ("from", "line")))
+
+
+def _line_change(out: dict) -> dict:
+    """`{"op": "lines", "from", "to", "text"}`: lines `from`..`to` of the
+    draft as shown (numbered from 1, both kept in) replaced by `text` -- empty
+    to delete them, `to` one before `from` to insert. The draft is shown to
+    the model numbered and the check names lines, so a model asked to delete
+    "lines 72-74" wrote `remove lines.72` and three paths that weren't."""
+    try:
+        start = int(out.get("from", out.get("line")))
+        end = int(out.get("to", start))
+    except (TypeError, ValueError):
+        raise EditError(f"A change by line names its lines as numbers: {SHAPE}.") from None
+    text = out.get("text", out.get("value", ""))
+    if isinstance(text, list):
+        text = "\n".join(str(t) for t in text)
+    if not isinstance(text, str):
+        raise EditError(f"A change by line gives its new lines as text: {SHAPE}.")
+    return {"op": "lines", "from": start, "to": end, "text": text}
+
+
+def _apply_lines(source: str, change: dict) -> str:
+    lines = source.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    start, end = change["from"], change["to"]
+    if not (1 <= start <= len(lines) + 1 and start - 1 <= end <= len(lines)):
+        raise EditError(f"The draft has {len(lines)} lines; lines {start} to {end} aren't all in it.")
+    new = change["text"].split("\n") if change["text"] else []
+    if new and new[-1] == "":
+        new = new[:-1]
+    text = "\n".join(lines[:start - 1] + new + lines[end:]) + "\n"
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise EditError(f"With lines {start}-{end} changed so, the draft doesn't read as YAML: {e}") from None
+    if not isinstance(data, dict):
+        raise EditError(f"With lines {start}-{end} changed so, the draft isn't a mapping at the top.")
+    twice = _duplicate(yaml.compose(text))
+    if twice:
+        # YAML keeps the last of two keys without a word: a line left behind
+        # (an item's `run_label` after its `- id` went) renamed another
+        # action's button.
+        key, line = twice
+        raise EditError(f"With lines {start}-{end} changed so, line {line} says {key} a second time in one mapping; "
+                        "change the lines that belong with it too.")
+    return text
+
+
+def _duplicate(node: Optional[yaml.Node]) -> Optional[tuple[str, int]]:
+    """A key said twice in one mapping, and the line it's said again on."""
+    if isinstance(node, yaml.MappingNode):
+        seen: set = set()
+        for key, value in node.value:
+            name = getattr(key, "value", None)
+            if isinstance(name, str):
+                if name in seen:
+                    return name, key.start_mark.line + 1
+                seen.add(name)
+            found = _duplicate(value)
+            if found:
+                return found
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            found = _duplicate(item)
+            if found:
+                return found
+    return None
+
+
 def apply(source: str, change: dict) -> str:
     """The text with one change made, or EditError saying why it can't be."""
     if not isinstance(change, dict):
         raise EditError(f"A change is {SHAPE}.")
+    if _is_lines(change):
+        return _apply_lines(source, _line_change(change))
     try:
         data = yaml.safe_load(source) if source.strip() else {}
         root = yaml.compose(source) if source.strip() else None
@@ -530,7 +633,17 @@ def apply_all(source: str, changes: list[dict]) -> str:
     named (`Change 2: …`)."""
     if not isinstance(changes, list) or not changes:
         raise EditError("Give at least one change.")
+    # Changes by line name lines of the draft as it was shown: made first,
+    # the last lines first, so each one's numbers still hold.
+    by_line = [(i, normalise(c)) for i, c in enumerate(changes, 1) if isinstance(c, dict) and _is_lines(c)]
+    for i, change in sorted(by_line, key=lambda pair: -pair[1]["from"]):
+        try:
+            source = _apply_lines(source, change)
+        except EditError as e:
+            raise EditError(f"Change {i} (lines {change['from']}-{change['to']}): {e}") from None
     for i, change in enumerate(changes, 1):
+        if isinstance(change, dict) and _is_lines(change):
+            continue
         try:
             source = apply(source, change)
         except EditError as e:
