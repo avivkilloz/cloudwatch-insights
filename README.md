@@ -958,6 +958,12 @@ A pane can hold several requests: give each its own `output` (`output: jobs`)
 and they fill their own tables, each keeping its rows when the other is
 fetched.
 
+A pane can have modes: a choice input ("Search for": Things, Certificates,
+Rules, Jobs) where each mode runs its own action. Mark each mode's action
+`main: {input: searchMode, equals: rules}` and show its button only in that
+mode (`when:` on the layout item); the agent, auto-refresh and Enter then run
+whatever the mode picks, as the button does.
+
 ## The store repo
 
 Admins can point the platform at a git repo (**Settings → Store**, or the

@@ -69,6 +69,11 @@ Builder's loop) needs the agent and the fake model running.
 `smoke97` (the Builder's form over the starter: edits back in the YAML as
 only the lines changed) needs nothing beyond the backend.
 
+`smoke99` (the IoT pane with Rules and Jobs as more choices of "Search for",
+built through the fake model's `add modes for jobs and rules` -- changes in a
+model's own shape, a stray `when` fixed -- then each mode's Search run) needs
+the agent, the fake model and the faked backend.
+
 `smoke98` (the Builder's loop: IoT's jobs and rules added beside the editor
 through the fake model's `add jobs and rules`, a problem the check found sent
 back and fixed, then both lists fetched into their own tables) needs the

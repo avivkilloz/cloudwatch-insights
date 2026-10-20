@@ -1,0 +1,18 @@
+name: build-iot-modes
+about: >-
+  The user's own words, the second time (D119, D120): rules and jobs as more choices of IoT's "Search for". A real
+  model wrote its changes as {"path", "old", "new"} and was refused three rounds running; it also put `when` on an
+  action. What reaches the editor must check clean, keep the things/certificates search, and choose the main action
+  by the mode.
+build:
+  kind: pane
+  start: iot
+  title: New pane type
+messages:
+  - >-
+    create new iot pane that in addition to things and certificates I can also list rules and jobs, as more choices
+    of "Search for"
+expect:
+  - proposed:
+      checks: true
+      contains: ["ListJobs", "ListTopicRules", "aws.iot.search", "input: searchMode"]

@@ -60,6 +60,12 @@ prompts (`_builder`):
                       lists (action, output, card each) with the jobs' rows
                       at a path the reply doesn't have; told so by the
                       check, it sets the right one.
+- "add modes for jobs and rules" -- the same, as two more choices of IoT's
+                      "Search for", each its own main action (D119), written
+                      the way a real model wrote them: {"path", "old", "new"},
+                      "actions/-", values as text -- and one with a `when` an
+                      action can't have, which the check names and it removes.
+- "bad op …"       -- an op that isn't one, until it's shown the shape.
 - "never clean"    -- a change that names an output never declared, every
                       round: the draft goes in the editor with its problems.
 - "explain …"      -- a question: answered, nothing changed.
@@ -434,6 +440,39 @@ RULES = {
 }
 
 
+def _mode(mode: str) -> dict:
+    return {"input": "searchMode", "equals": mode}
+
+
+# As a real model wrote them (the user's chat): no op, `new` (or `old`/`new`),
+# "/-" for the end of a list, lists and mappings as text.
+MODES = [
+    {"path": "label", "new": "IoT, with rules and jobs"},
+    {"path": "inputs/searchMode/choices", "old": "[things, certificates]", "new": "[things, certificates, rules, jobs]"},
+    {"path": "inputs/searchMode/choice_labels", "old": "{things: Things, certificates: Certificates}",
+     "new": "{things: Things, certificates: Certificates, rules: Rules, jobs: Jobs}"},
+    {"path": "actions/-", "new": str({
+        "id": "list_rules", "run_label": "Search", "main": _mode("rules"), "when": _mode("rules"),
+        "request": {"connection": "connections", "service": "iot", "operation": "ListTopicRules", "paginate": True,
+                    "output": "rules", "rows": {"at": "rules", "columns": {"Rule": "ruleName", "Topic": "topicPattern"}}},
+    })},
+    {"path": "actions/-", "new": str({
+        "id": "list_jobs", "run_label": "Search", "main": _mode("jobs"),
+        "request": {"connection": "connections", "service": "iot", "operation": "ListJobs", "paginate": True,
+                    "output": "jobs", "rows": {"at": "jobs", "columns": {"Job": "jobId", "Status": "status"}}},
+    })},
+    {"path": "outputs/-", "new": "{'key': 'rules', 'render': 'table'}"},
+    {"path": "outputs/-", "new": "{'key': 'jobs', 'render': 'table'}"},
+    {"path": "layout/2. Search/items/input=queryString/when", "new": {"input": "searchMode", "not_in": ["rules", "jobs"]}},
+    {"path": "layout/2. Search/items/-1/toolbar/action=search/when", "new": {"input": "searchMode", "not_in": ["rules", "jobs"]}},
+    {"path": "layout/2. Search/items/-1/toolbar/-", "new": {"action": "list_rules", "when": _mode("rules")}},
+    {"path": "layout/2. Search/items/-1/toolbar/-", "new": {"action": "list_jobs", "when": _mode("jobs")}},
+    {"path": "layout/3. Results/clear", "old": "[thingResults, certResults]", "new": "[thingResults, certResults, rules, jobs]"},
+    {"path": "layout/3. Results/items/-", "new": {"output": "rules", "when": _mode("rules")}},
+    {"path": "layout/3. Results/items/-", "new": {"output": "jobs", "when": _mode("jobs")}},
+]
+
+
 def _card(title: str, action: str, output: str) -> dict:
     return {"title": title, "items": [{"toolbar": [{"action": action}]}, {"output": output}]}
 
@@ -452,11 +491,22 @@ def _builder(messages: list[dict]) -> str:
         return json.dumps({"change": False, "answer": "rows.at says where the reply keeps its list.", "lookups": []})
     if phase == "plan":
         lookups = []
-        if "jobs and rules" in lowered:
+        if "jobs and rules" in lowered and not lowered.startswith("add modes"):
             lookups = [{"service": "iot", "operation": "ListJobs"}, {"service": "iot", "operation": "ListTopicRules"}]
         return json.dumps({"change": True, "plan": f"Do this: {request}.", "lookups": lookups, "examples": []})
     if lowered.startswith("impossible"):
         return json.dumps({"give_up": "That needs a handler the platform doesn't have."})
+    if lowered.startswith("add modes for jobs and rules"):
+        if phase == "repair":
+            # Told an action has no `when`, it takes the stray one off.
+            return json.dumps({"summary": "Took off a when.", "changes": [{"op": "delete", "path": "actions/list_rules/when"}]})
+        return json.dumps({"summary": "Rules and jobs are two more choices of Search for, each searched by its own "
+                                      "request.", "changes": MODES})
+    if lowered.startswith("bad op"):
+        label = request[len("bad op"):].strip()
+        if "Your first change, written that way" in asked:
+            return json.dumps({"summary": f"Renamed it {label}.", "changes": [{"op": "set", "path": "label", "value": label}]})
+        return json.dumps({"summary": "x", "changes": [{"op": "patch", "path": "label", "value": label}]})
     if "jobs and rules" in lowered:
         if phase == "repair":
             # Told where ListJobs keeps its list (the check names it).

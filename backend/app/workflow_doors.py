@@ -146,10 +146,11 @@ def _slug(text: str, taken: set[str], fallback: str) -> str:
     return out
 
 
-def _server_action(manifest: pane_manifest.Manifest) -> Optional[pane_manifest.ManifestAction]:
-    """What a step would run for this pane: its main action if the server runs
-    it, else its request (the API table's Fetch)."""
-    main = manifest.main_action()
+def _server_action(manifest: pane_manifest.Manifest, inputs: Optional[dict[str, Any]] = None
+                   ) -> Optional[pane_manifest.ManifestAction]:
+    """What a step would run for this pane: its main action for its inputs if
+    the server runs it, else its request (the API table's Fetch)."""
+    main = manifest.main_action(inputs)
     if main is not None and (main.handler or main.request is not None):
         return main
     return next((a for a in manifest.actions if a.request is not None), None)
@@ -206,7 +207,8 @@ def draft_from_session(db: Session, user: models.User, client_id: str) -> dict[s
     for pane_id in state.get("services") or []:
         pane_type = (state.get("paneTypes") or {}).get(pane_id, pane_id)
         manifest = pane_manifest.get(pane_type)
-        action = _server_action(manifest) if manifest else None
+        inputs = {i.key: state.get(f"{pane_id}.in.{i.key}") for i in manifest.inputs} if manifest else {}
+        action = _server_action(manifest, inputs) if manifest else None
         if manifest is None or action is None:
             continue
         title = (state.get("paneTitles") or {}).get(pane_id) or manifest.label

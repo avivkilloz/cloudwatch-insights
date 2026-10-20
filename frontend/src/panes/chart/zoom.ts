@@ -12,7 +12,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { LayoutItem, PaneManifest } from "../manifest";
+import { LayoutItem, mainAction, PaneManifest } from "../manifest";
 import { PaneApi, Values } from "../paneApi";
 
 type Spec = { preset: string; start: string; end: string };
@@ -63,8 +63,9 @@ export function useZoomDepth(key: string): number {
 
 function rerun(pane: PaneApi, changes: Values) {
   pane.changeInputs(changes);
-  const main = pane.m.actions.find((a) => a.main);
-  if (main) pane.run(main, { inputs: { ...pane.inputs, ...changes } });
+  const inputs = { ...pane.inputs, ...changes };
+  const main = mainAction(pane.m, inputs);
+  if (main) pane.run(main, { inputs });
 }
 
 /** Zooms the pane at `key` into [start, end] (epoch ms) and runs it again. */

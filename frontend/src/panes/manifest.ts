@@ -113,7 +113,8 @@ export interface ManifestAction {
   requires: Record<string, string>;
   page?: Page;
   resets: string[];
-  main: boolean;
+  /** Main outright, or main when an input says so (D119): see `mainAction`. */
+  main: boolean | When;
   /** A row action's inputs, as paths into `row.` and `group.`. */
   args: Record<string, string>;
   /** Run in the background, polled by the server into the session (D51). */
@@ -227,6 +228,30 @@ export interface PaneManifest {
 let loaded: PaneManifest[] = [];
 
 /** Called once, with what `/api/pane-types` returned, before sessions mount. */
+function present(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+/** A `when`'s input condition against inputs -- the backend's `manifest.holds`. */
+export function inputHolds(when: When, inputs: Record<string, unknown>): boolean {
+  if (when.input === undefined) return true;
+  const value = inputs[when.input];
+  if (when.equals !== undefined) return value === when.equals;
+  if (when.not_in !== undefined) return !when.not_in.includes(value);
+  return present(value) === (when.present ?? true);
+}
+
+/** The pane's main action for these inputs (D119): the first that's main
+ * `when` they say so, else the one that's main outright -- what a bound
+ * variable's change, a zoom and Enter run, as the agent and refresh do. */
+export function mainAction(m: PaneManifest, inputs: Record<string, unknown>): ManifestAction | undefined {
+  return (
+    m.actions.find((a) => typeof a.main === "object" && inputHolds(a.main, inputs)) ??
+    m.actions.find((a) => a.main === true) ??
+    m.actions.find((a) => !!a.main)
+  );
+}
+
 export function setManifests(list: PaneManifest[]): void {
   loaded = [...list].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 }

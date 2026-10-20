@@ -74,6 +74,13 @@ write `rows` and running one clears the others.
 - A new list in a pane needs three things, in the same set of changes: its \
 action, its output, and a layout item showing it (with a toolbar holding the \
 action's button). Never one without the others.
+- A pane with modes (a choice input) whose button does something different per \
+mode: add a choice per mode, one action per mode with `main: {input: <mode>, \
+equals: <value>}` (the existing one may stay `main: true` for the rest), and \
+each button shown with `when` for its mode. Actions have no `when`; layout \
+items do.
+- Keep what already works. Change or add what's asked; never replace a \
+working action, input or card with another.
 """
 
 PLAN = """\
@@ -108,7 +115,7 @@ items named by their key, id or title (or field=value, or their index); `value` 
 be in YAML. Paths name the draft as it is now. Make all of the change in this one reply.
 If you must read something first, reply {{"lookups": [...], "examples": [...]}} with no changes. If it can't be \
 done with what the reference lists, reply {{"give_up": "why, for the user"}}.
-"""
+""".format()  # Its braces doubled like PLAN's: sent as they were, the model read {{"op": …}} and made up its own.
 
 REPAIR = """\
 {what}
@@ -117,6 +124,14 @@ Reply with the changes that fix this, in the same shape as before ({{"summary", 
 as it is now (below). Fix the cause, not the symptom: an item named but not declared is declared; a field the \
 reply doesn't have is replaced with one it does.
 """
+
+# Said again whenever changes couldn't be made at all: a model that wrote
+# {"path", "old", "new"} was told only that its op was wrong, and wrote the
+# same three rounds running.
+SHAPE = """\
+Each change is exactly {"op": "set" | "add" | "remove", "path": "where", "value": the data} -- `value` is the \
+YAML's data as JSON (a list as [..], a mapping as {..}), never text holding YAML; `add` appends to the list at \
+`path`; `remove` has no value. Nothing else goes in a change."""
 
 
 def _noun(kind: str) -> str:
@@ -363,8 +378,12 @@ class Builder:
             for event in self.flush():
                 yield event
             if not ok:
+                again = " You sent changes that couldn't be made before, the same way: write them as below." if out == problems else ""
                 problems = out
-                instructions = REPAIR.format(what=f"Your changes couldn't be made, so none were: {out}")
+                example = _reshaped(changes)
+                instructions = REPAIR.format(what=f"Your changes couldn't be made, so none were: {out}{again}\n\n"
+                                                  f"{SHAPE}" + (f"\nYour first change, written that way: {example}"
+                                                                if example else ""))
                 continue
             applied = True
             result = _json(out)
@@ -409,6 +428,21 @@ class Builder:
 
 class BuildFailed(Exception):
     """A turn the Builder can't carry on with; the message is the user's."""
+
+
+def _reshaped(changes: Any) -> str:
+    """The model's first change in the shape asked for, as far as it can be
+    read -- an example in its own terms beats a rule restated."""
+    first = changes[0] if isinstance(changes, list) and changes else None
+    if not isinstance(first, dict) or not first.get("path"):
+        return ""
+    path = str(first["path"])
+    value = next((first[k] for k in ("value", "new", "new_value") if k in first), None)
+    op = "add" if path.endswith("/-") else ("remove" if value is None else "set")
+    out: dict[str, Any] = {"op": op, "path": path.removesuffix("/-")}
+    if op != "remove":
+        out["value"] = value
+    return json.dumps(out, ensure_ascii=False)[:400]
 
 
 def _json(text: str) -> dict:

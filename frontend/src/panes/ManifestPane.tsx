@@ -44,7 +44,9 @@ import { DiffRow, LIVE_FUNCTIONS, Outputs } from "./live";
 import {
   Card,
   defaultOf,
+  inputHolds,
   LayoutItem,
+  mainAction,
   manifest as findManifest,
   ManifestAction,
   ManifestInput,
@@ -545,8 +547,8 @@ function Rendered({ m }: { m: PaneManifest }) {
       return;
     }
     const ran = changeInputs(diff);
-    const main = m.actions.find((a) => a.main);
     const next = { ...inputs, ...diff };
+    const main = mainAction(m, next);
     if (main && m.refresh && ranAt && !ran.includes(main.id) && missingInput(main, next) === null) run(main, { inputs: next });
     // Only when what the variables give changes; the inputs it reads are this render's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -693,14 +695,7 @@ function present(value: unknown): boolean {
 
 function shown(when: When | undefined, pane: PaneApi): boolean {
   if (!when) return true;
-  if (when.input !== undefined) {
-    const value = pane.inputs[when.input];
-    if (when.equals !== undefined && value !== when.equals) return false;
-    if (when.not_in !== undefined && when.not_in.includes(value)) return false;
-    if (when.equals === undefined && when.not_in === undefined && present(value) !== (when.present ?? true)) {
-      return false;
-    }
-  }
+  if (!inputHolds(when, pane.inputs)) return false;
   if (when.error !== undefined && !pane.errors[when.error]) return false;
   if (when.output !== undefined && present(pane.outputs[when.output]) !== (when.present ?? true)) return false;
   return true;
@@ -1080,7 +1075,10 @@ function InputView({ input, pane, place }: { input: ManifestInput; pane: Pane; p
   const value = pane.inputs[input.key];
   const set = (v: unknown) => pane.changeInputs({ [input.key]: v });
   const submit = () => {
-    const action = actionById(pane, input.submit);
+    let action = actionById(pane, input.submit);
+    // Enter on a main action runs the main one for the inputs as they are
+    // (D119): in IoT's rules mode, the rules' request, not the search.
+    if (action?.main) action = mainAction(pane.m, pane.inputs) ?? action;
     if (action) pane.run(action);
   };
   const inline = place === "toolbar" || place === "aside" || place === "line";

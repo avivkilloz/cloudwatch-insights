@@ -136,12 +136,46 @@ def parse(source: str, type_id: Optional[str]) -> pane_manifest.Manifest:
             loc = tuple(err["loc"])
             where = ".".join(str(p) for p in loc)
             message = err["msg"].removeprefix("Value error, ")
+            if err["type"] == "extra_forbidden":
+                # Said with what may be there: "Extra inputs are not permitted"
+                # left a model guessing, and it guessed `when` on an action.
+                fields = _fields_at(loc[:-1])
+                if fields:
+                    message = f"there is no {loc[-1]} here; it may say: {', '.join(fields)}"
             errors.append({"line": _line(source, loc) if loc else None, "message": f"{where}: {message}" if where else message})
         raise _fail(errors) from None
     errors = check(manifest, source)
     if errors:
         raise _fail(errors)
     return manifest
+
+
+def _model_in(annotation: Any) -> Any:
+    """The pydantic model an annotation holds (through Optional, list, Union)."""
+    from typing import get_args
+
+    from pydantic import BaseModel
+
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for arg in get_args(annotation):
+        found = _model_in(arg)
+        if found is not None:
+            return found
+    return None
+
+
+def _fields_at(loc: tuple) -> list[str]:
+    """The fields the part of a manifest at `loc` may have."""
+    model: Any = pane_manifest.Manifest
+    for part in loc:
+        if isinstance(part, int):
+            continue
+        field = model.model_fields.get(str(part)) if model is not None else None
+        model = _model_in(field.annotation) if field is not None else None
+        if model is None:
+            return []
+    return [name for name in model.model_fields if name not in ("legacy_key",)]
 
 
 def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
@@ -549,6 +583,8 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "output": _fields(m.ManifestOutput),
             "card": _fields(m.Card),
             "layout_item": _fields(m.LayoutItem),
+            "when": {**_fields(m.When), "what": "a layout item shown only when it holds; an action's `main` may be "
+                                               "one, on an input"},
             "input_types": list(m.InputType.__args__),
             "renders": list(m.Render.__args__),
             "handlers": sorted(usable_handlers(user)),
@@ -566,6 +602,10 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",
+                "A pane with modes (a choice input) whose button does a different thing per mode: one action per "
+                "mode, each `main: {input: <mode>, equals: <value>}` (or one `main: true` for the rest), each "
+                "button in the layout shown with `when` for its mode. Actions have no `when`; layout items do.",
+                "Keep what already works: change or add what's asked, never replace a working action.",
                 "Handlers are only those listed here: the ones of pane types the user's group may use.",
             ],
         }
