@@ -66,6 +66,9 @@ builder group) needs nothing beyond the backend.
 workflow's editor, through the fake model's `build <label>` script) needs the
 agent and the fake model running.
 
+`smoke97` (the Builder's form over the starter: edits back in the YAML as
+only the lines changed) needs nothing beyond the backend.
+
 `smoke96` (the Builder's preview, as a builder without DynamoDB: an AWS
 request run in it, a live function, a refused handler) needs the faked
 backend too.

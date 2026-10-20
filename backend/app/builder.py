@@ -415,6 +415,9 @@ def schema(user: Any = None) -> dict[str, Any]:
         "schema": pane_manifest.Manifest.model_json_schema(),
         "handlers": sorted(usable_handlers(user) if user is not None else pane_handlers.ACTIONS),
         "live": sorted(pane_live.FUNCTIONS),
+        # What the form editor offers in its pickers (5-2d).
+        "input_types": list(pane_manifest.InputType.__args__),
+        "renders": list(pane_manifest.Render.__args__),
         "examples": sorted(pane_manifest.bundled()),
         "starter": STARTER,
     }

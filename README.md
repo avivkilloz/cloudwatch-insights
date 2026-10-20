@@ -929,6 +929,12 @@ Environment column, and an environment that fails says so beside it.
 Operations that change something, or hand out credentials or secret values,
 are refused. The agent's Building tab knows the shape, with a Lambda example.
 
+**Form**: Edit as YAML or Form -- the form shows what a pane is made of (its
+inputs, the actions that fill its outputs, the outputs and the cards they're
+laid out in) and changes the YAML in place: switch back and only what you
+changed is different, comments included. Renaming an input renames it wherever
+the pane uses it. Anything the form doesn't cover stays in the YAML.
+
 **Preview**: beside the editor, Preview draws the definition as the pane it
 makes -- its inputs, its buttons, its tables -- and its actions run as you, on
 your real connections, so you see what a request really answers before
@@ -944,7 +950,8 @@ table of the reply's items"): the agent reads what a definition can say and
 what's in the editor, writes the definition, checks it, and puts it in the
 editor for you to look over. It can try a draft's action first, as you, to
 see what the reply holds. It never saves -- **Check** and **Save** are yours.
-A form editor beside the YAML comes next.
+For a large pane it changes the text a piece at a time rather than writing it
+all again.
 
 ## The store repo
 

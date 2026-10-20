@@ -189,6 +189,9 @@ export interface BuiltPaneType {
 export interface BuilderSchema {
   handlers: string[];
   live: string[];
+  /** What the form editor's pickers offer (5-2d). */
+  input_types: string[];
+  renders: string[];
   /** The bundled pane types, whose manifests are the examples to read. */
   examples: string[];
   starter: string;

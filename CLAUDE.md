@@ -832,6 +832,14 @@ the platform, for a group with `builder_enabled` (admins always).
   `run_request`/`run_handler` with `draft=True` (no pane grant for a draft;
   the Builder grant and D113 instead), nothing stored. Background runs aren't
   previewed. The agent's `preview_definition` is the same run, sampled.
+- **The form** (5-2d, D115, `pages/BuilderForm.tsx`): Edit as YAML | Form
+  over the one text. Every change goes through `pages/builderYaml.ts` --
+  `setIn`/`deleteIn`/`append`/`swap`, splices at the `yaml` package's node
+  offsets -- never `doc.toString()`: re-printing re-folded descriptions and
+  re-spaced inline mappings, a hundred-line diff for a label. A rename
+  follows the key into the layout and the requests. What the form doesn't
+  cover stays the YAML's ("+N in the YAML"). Examples come without id, flag
+  and connection types (`builder.example_source`), so they check clean.
 - **Its builder's group is granted it on creation**; others when an admin
   grants it (D65). The browser reloads pane types, the user and the catalogue
   after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
@@ -845,7 +853,11 @@ the platform, for a group with `builder_enabled` (admins always).
   tab is then **Building** (scope `"build"`, its turns in memory per editor
   key). The turn carries the editor's text; the router lets only whoever may
   edit it ask; the agent service reads `build_reference` first and attaches
-  the text (`prompt.build_prompt`, `turn_reads`). Tools: `build_reference`
+  the text (`prompt.build_prompt`, `turn_reads`). The text is also the turn's
+  **working draft** (D114, on the token: `build_kind/id/draft`):
+  `edit_definition` changes it with find-and-replace edits, checked;
+  `read_draft` shows it numbered; check/propose/preview use it without a
+  `source`, and a refused proposal fails (it showed ✓). Tools: `build_reference`
   (`builder.reference`, generated from the models -- never hand-written
   docs), `read_definition`, `check_definition`, `propose_definition` -- the
   last only returns a checked draft as `propose`, which the browser puts in
@@ -1383,8 +1395,10 @@ fixed where it happens:
   announces a step before anything ran, **and, after it has called tools, a
   last sentence that plainly looks ahead** ("Now let me run the workflow.",
   "Next, I'll…" -- `_ANNOUNCES_AFTER`; "I'll keep it running" is a report),
-  or a reply the provider cut off at its length limit (`cut_off`). Twice a
-  turn at most, an empty reply once. A real turn read the workflows, said
+  or a reply the provider cut off at its length limit (`cut_off`). Twice per
+  stretch between tool calls (it was per turn, and a long build turn spent
+  them early), an empty reply once; still announcing after a nudge, the turn
+  ends with a notice that it stopped short (`guard.stuck`). A real turn read the workflows, said
   what it would do next and stopped; the user had to tell it so.
 - **A step that loops is stopped** (`text.looping`: its last 160 characters
   already seen 4 times), its words retracted, with a readable error. And

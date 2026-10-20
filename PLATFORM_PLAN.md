@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (three PRs, §24, D103–D113; 5-1, pane types as YAML, 5-2's agent build tools, 5-2b's AWS requests and 5-2c's preview built). A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (three PRs, §24, D103–D115; 5-1, pane types as YAML, and 5-2 -- the agent's build tools, AWS requests, the preview and the form -- built). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1283,6 +1283,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D111 | 2026-10-19 | **A built pane's YAML may name it by its short name** (`lambda` for `default:lambda`, D78), and **Check checks the whole draft**, its id held to the Id typed above as Create will save it. | The id line was compared with "draft", failed first, and Check dropped that error -- so nothing after it was checked, and a draft with an `id:` line read as clean whatever it said. |
 | D112 | 2026-10-20 | **The preview is the real renderer drawing the draft, its actions run by the server as the builder, nothing stored** (§24): the draft's manifest is served by `/api/builder/preview`, the pane is in no session, and its actions go to a draft endpoint through the same runners with `draft=True` (the pane access a draft can't have yet is the Builder grant, D113 holding its handlers). The form editor moves to 5-2d. | A second renderer for previews would drift from the one panes use; a scratch session would put a draft in the registry, the store and other replicas. The preview is what makes the YAML usable; a form is its own piece of work. |
 | D113 | 2026-10-20 | **A built pane runs only handlers of pane types its builder's group may use** (`builder.usable_handlers`, by the bundled panes that run each; admins all): checked by Check, Preview, Save and the agent, and the handler lists show only those. | A built pane is its builder's group's at once (D105), so naming DynamoDB's scan reached a table the admin never granted that group. HTTP and AWS requests need no such rule: they run as the group's own identity on connections it sees. |
+| D114 | 2026-10-20 | **Beside an editor, the agent edits a working draft a piece at a time** (§24): the editor's text is kept on the turn's token; `edit_definition` applies find-and-replace edits (each found exactly once, all or none) and checks, naming problems with their lines and the lines around; `read_draft` shows it numbered; check/propose/preview use it without a `source`. A refused proposal is a failed step. | Building jobs and rules onto the IoT pane, a model rewrote a 300-line manifest for every check, ran out of tokens and stopped on "Let me put it in your editor now:" -- under a "Put a draft in the editor ✓" that had been refused. |
+| D115 | 2026-10-20 | **The form edits the YAML's text in place**: each change is a splice at the node it's about (`yaml` package offsets), never a re-print of the document; it covers the parts a pane is made of and leaves the rest to the YAML. | Re-printed, a changed label re-folded every description and re-spaced every inline mapping: a hundred-line diff in the editor and in the store repo's history (D73). |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4736,8 +4738,22 @@ Three PRs (D104), each with something to try:
   it really gets. On the way (D113): a builder names only handlers of pane
   types their group may use -- Check, Preview, Save, the agent's check and
   the lists of handlers all say so.
-- **5-2d, the form**: a form editor over the same definition (D73), beside
-  the YAML.
+- **5-2d, the form** (built, D115): Edit as YAML | Form over the one text.
+  The form (`pages/BuilderForm.tsx`) covers what a pane is made of -- label,
+  description, category; inputs (key, type, label, connection type);
+  actions (a handler, a live function, an HTTP or AWS request with its
+  connection, service/operation or path, rows at, button, main); outputs
+  (key, how shown, label); cards (title, what each holds) -- adds, removes
+  and reorders items, and renames an input, output or action everywhere the
+  layout and requests name it. Every change is a splice of the text
+  (`pages/builderYaml.ts`, the `yaml` package's node offsets): only the lines
+  changed differ, comments and wrapping kept; what the form doesn't cover
+  stays the YAML's, and an item says how many more settings it has there.
+- **Fixes from the IoT build chat** (D114): examples start clean (no id, flag
+  or connection types); the reference's AWS request isn't under an `aws` key;
+  a refused proposal fails; the turn keeps a working draft beside an editor,
+  changed by `edit_definition`'s small edits; nudges are counted per stretch
+  between tool calls, and a turn still announcing says it stopped short.
 - **5-3, steps and workflows for builders**: workflows editable by a
   group's Builder, not only admins; declarative HTTP steps and composed
   steps (§20.3) reusable across workflows.
