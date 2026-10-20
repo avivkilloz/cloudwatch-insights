@@ -29,7 +29,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_request, catalogue, models, pane_access, row_paths, store
+from . import aws_request, catalogue, models, pane_access, row_paths, runner_client, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -201,6 +201,11 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
         elif a.request is not None:
             for path, message in _path_problems((a.request or {}).get("rows")):
                 err(("actions", i, "request", "rows", *path), message)
+        if a.code is not None:
+            # Lines of the code, under `code: |`, are counted from the line after it.
+            base = _line(source, ("actions", i, "code")) if source else None
+            for at, message in runner_client.problems(a.code):
+                errors.append({"line": base + at if base and at else base, "message": f"actions.{i}.code: {message}"})
         if a.live and a.live not in pane_live.FUNCTIONS:
             err(("actions", i, "live"), f"There is no live function {a.live}. They are: {', '.join(sorted(pane_live.FUNCTIONS))}.")
     views = {v.key for v in manifest.views}
@@ -537,6 +542,9 @@ def schema(user: Any = None) -> dict[str, Any]:
         "renders": list(pane_manifest.Render.__args__),
         "examples": sorted(pane_manifest.bundled()),
         "starter": STARTER,
+        # Code (D134): a working example, and whether it can run here (D135).
+        "code_example": CODE_EXAMPLE,
+        "runner": runner_client.configured(),
     }
 
 
@@ -586,6 +594,42 @@ CONFIG_DOC = {
                 "{table: a list's path, columns: [{label, value: template over row}]}, {list: path, summary}, "
                 "{tags: path}, {json: path}, {grid: [{title, json}]}] -- d is the detail",
 }
+
+# An action that's code (D134), run in the runner as whoever uses the pane.
+CODE_EXAMPLE = """label: Devices, online first
+description: Code that reshapes an API's reply -- online devices first.
+inputs:
+  - key: connection
+    type: connection
+    connection_type: http_api
+    label: API
+actions:
+  - id: list
+    main: true
+    run_label: List
+    code: |
+      def run(inputs, ctx):
+          reply = ctx.http(inputs["connection"], "/devices")
+          items = reply.json()["items"]
+          items.sort(key=lambda d: not d.get("online"))
+          ctx.log(len(items), "devices")
+          return {"rows": items}
+outputs:
+  - key: rows
+    render: table
+    actions: [copy, export]
+  - key: error
+    render: error
+layout:
+  - title: Devices
+    clear: [rows]
+    items:
+      - input: connection
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows
+"""
 
 # Rows that open to show more, from a request of their own (a working pane type).
 DETAIL_EXAMPLE = """label: Stacks
@@ -751,6 +795,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                            "`output`); error (several connections: the ones that failed)",
                 "example": AWS_EXAMPLE,
             },
+            "code (an action's)": {**runner_client.SDK_DOC, "example": CODE_EXAMPLE},
             "output": _fields(m.ManifestOutput),
             "output config": CONFIG_DOC,
             "rows that open (example)": DETAIL_EXAMPLE,
@@ -775,6 +820,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",
+                "An action may be code (`code: |` defining run(inputs, ctx)) where data runs out: reshaping a reply, "
+                "joining two calls. It runs in the runner as whoever uses the pane, reaching connections only "
+                "through ctx.http / ctx.aws, and returns the outputs. Prefer a request when one will do.",
                 "A Clear button is a card's `clear: [output keys]` -- the results it empties (never `run`); it "
                 "shows by itself while one of them holds something. It isn't an action, and an action with nothing "
                 "to run doesn't check.",
@@ -804,7 +852,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "actions": [
                     {"id": a.id, "runs": "request" if a.request else ("background" if a.poll else "handler"),
                      **({"effects": a.effects} if a.effects else {})}
-                    for a in x.actions if (a.handler or a.request) and not a.live
+                    for a in x.actions if (a.served or a.request) and not a.live
                 ],
                 "inputs": [i.key for i in x.inputs if not i.sensitive],
             }

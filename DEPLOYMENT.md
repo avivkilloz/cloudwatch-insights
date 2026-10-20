@@ -317,6 +317,45 @@ Things worth knowing:
   there (`AGENT_BUILDER_URL`) and every other turn to the agent.
   `agent.builder.mode=agent` goes back to the chat agent with build tools.
 
+### The runner (optional)
+
+Code written in the Builder -- a pane's action or a step that's `code:` --
+runs in the runner (`runner/` in the repo, image
+`ghcr.io/<owner>/cloudwatch-insights-runner`, built by `runner-ci.yml`),
+never in the backend. Without it, code is checked and saved, and running it
+says the runner isn't set up. The runner holds nothing: no database, no
+cloud identity, no secret but the key the backend starts jobs with. A job's
+only way out is a call back to the backend, made there as the person running
+the code, through the same connections, identities and SSRF guard as
+everything else.
+```bash
+kubectl -n cloudwatch-insights create secret generic cloudwatch-insights-runner \
+  --from-literal=RUNNER_TOKEN="$(openssl rand -hex 32)"
+```
+and add to the install:
+```bash
+  --set runner.enabled=true \
+  --set runner.token.existingSecret=cloudwatch-insights-runner \
+  --set runner.image.repository=ghcr.io/<owner>/cloudwatch-insights-runner
+```
+Things worth knowing:
+- It runs as **root with every capability dropped but SETUID, SETGID, CHOWN
+  and KILL** (`runner.securityContext`, read-only root filesystem, `/tmp` an
+  `emptyDir`): each job drops to a uid of its own slot, so jobs can't read
+  each other or the runner, and whatever a job leaves is swept as that uid
+  when it ends. A policy that forbids root pods (Pod Security `restricted`)
+  needs an exception for this one Deployment; a runner started as non-root
+  still works, but its jobs then share its uid.
+- A **NetworkPolicy** (`runner.networkPolicy`, on by default) lets its pods
+  reach only the backend and DNS, and only the backend reach them. It's
+  enforced only where the cluster's network plugin enforces NetworkPolicy;
+  `runner.networkPolicy.dnsLabels` selects your DNS pods if they aren't
+  labelled `k8s-app: kube-dns`.
+- `runner.concurrency` jobs at once per pod (4), each with `runner.jobMemoryMb`
+  (512) and at most 120 s; a job waiting more than 10 s for a slot is turned
+  away ("busy"), so add replicas for more. Each job is a row in
+  `runner_jobs` (who, what for, how long, how it ended -- never its inputs).
+
 To set the initial admin password explicitly (recommended), add:
 ```bash
   --set backend.auth.existingSecret=cloudwatch-insights-admin

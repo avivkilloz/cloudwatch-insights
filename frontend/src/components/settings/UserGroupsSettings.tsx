@@ -311,7 +311,7 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
                 checked={draft.builder_enabled}
                 onChange={(e) => setDraft({ ...draft, builder_enabled: e.target.checked })}
               />
-              Builds pane types
+              Builds panes, workflows and steps
             </label>
           </CardRow>
         </Section>

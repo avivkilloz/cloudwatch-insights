@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-21, Phase 5-3c (one Builder, line numbers, a Clear the agent can add, pictures; PLATFORM_PLAN.md §24, D126–D129)._
+_Last updated: 2026-10-21, Phase 6-1 (code in the runner; PLATFORM_PLAN.md §25, D130–D135) and the Builder's lists renamed Panes / Workflows / Steps._
 
 ## Platform plan
 
@@ -1298,7 +1298,35 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: one Builder, line numbers, a Clear the agent can add, and
+**This PR: Panes / Workflows / Steps, and Phase 6-1 -- code in the runner
+(PLATFORM_PLAN.md §25, D130–D135).** The user's ask after #138: rename the
+Builder's lists and do the next step.
+- The Builder's lists are **Panes**, **Workflows** and **Steps** ("New
+  pane", "New step"; the group grant "Builds panes, workflows and steps").
+- §25 plans Phase 6 as four PRs (D130). 6-1 is built: an action of a built
+  pane, or a step, can be Python (`code: |` defining `run(inputs, ctx)`).
+  - `runner/`, a service of its own: it holds nothing. Each job is a fresh
+    isolated interpreter under limits, run as its slot's uid and swept as
+    that uid afterwards.
+  - The SDK's `ctx.http`/`ctx.aws` call back to the backend's broker, which
+    makes the call as the person running the code (their identity, the SSRF
+    guard, masking). A pane's code reads; a step's `changes: true` waits for
+    approval.
+  - Without `RUNNER_URL`, code is checked but not run.
+  - Builder: "An action that's code" and "Code" starters, the code's log
+    under the preview and under Try, failures with their line.
+  - Helm: a runner Deployment, Service and NetworkPolicy (backend and DNS
+    only), the token from an existing Secret, and every capability dropped
+    but SETUID, SETGID, CHOWN and KILL. docker-compose and `runner-ci.yml`
+    (tests as a user and as root; image) added.
+- Tests:
+  - `runner/tests` (12);
+  - backend `test_code.py` (11: a real runner subprocess, callbacks to the
+    backend);
+  - browser `smoke103` (6), failing against the old frontend;
+  - smoke92–102 updated for the names.
+
+**#138 merged. One Builder, line numbers, a Clear the agent can add, and
 pictures (PLATFORM_PLAN.md §24, D126–D129).** Five asks after #137.
 - The agent asked for a Clear button wrote an action with nothing to run,
   `resets: [rows]`, then keys named `[40]` it couldn't remove. Now: changes
@@ -1662,9 +1690,11 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 5-3 (PLATFORM_PLAN.md §24): workflows and steps for builders.
-   Scheduled and webhook runs
-   (acting as the workflow's owner, D81) are still to come.
+1. Phase 6-2 (PLATFORM_PLAN.md §25): a code action's or step's `requirements:`,
+   locked with uv on save, a venv per lock built by the runner. Then 6-3 (code
+   in loaders, live and background runs) and 6-4 (the browser runtime).
+   Scheduled and webhook runs (acting as the workflow's owner, D81) are still
+   to come.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
    add a scenario for every conversation the agent gets wrong.
 3. **Platform agent, phase 3.**

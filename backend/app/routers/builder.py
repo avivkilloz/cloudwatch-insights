@@ -188,7 +188,7 @@ class StepTypeOut(BaseModel):
     id: str
     label: str
     description: Optional[str] = None
-    # "request" or "steps"; None when it doesn't load now.
+    # "request", "steps" or "code"; None when it doesn't load now.
     kind: Optional[str] = None
     # Whether a workflow's step using it waits for a person (it changes something).
     external: bool = False
@@ -210,6 +210,9 @@ class StepTryIn(BaseModel):
 class StepSchemaOut(BaseModel):
     starter: str
     chain_example: str
+    code_example: str
+    # Whether code can run here (RUNNER_URL, D135).
+    runner: bool = False
     namespace: Optional[str] = None
     reference: dict[str, Any]
 
@@ -247,7 +250,10 @@ def _step_guard(fn):
 def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import step_types, store
 
+    from .. import runner_client
+
     return {"starter": step_types.STARTER, "chain_example": step_types.CHAIN_EXAMPLE,
+            "code_example": step_types.CODE_EXAMPLE, "runner": runner_client.configured(),
             "namespace": store.namespace(db), "reference": step_types.reference(db, user)}
 
 
@@ -287,12 +293,18 @@ def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.Use
     from .. import step_types
 
     definition = _step_guard(lambda: step_types.parse(payload.source, payload.id))
-    if definition.request is None:
+    if definition.steps is not None:
         raise HTTPException(status_code=400, detail="A chain of steps is tried in a workflow: save it, then use it in one.")
     try:
         inputs = step_types.inputs_for(definition, payload.inputs)
     except Exception as e:  # noqa: BLE001 -- workflows.StepError: a required input missing
         raise HTTPException(status_code=400, detail=str(e)) from None
+    if definition.code is not None:
+        # Code that changes something does, here too: the editor asked first.
+        outputs = step_types.run_code(db, user, definition, inputs, f"try:{payload.id or 'draft'}",
+                                      may_change=definition.changes)
+        logs = outputs.pop("__logs", "")
+        return {"status": 200, "response": outputs, "logs": logs}
     out = step_types.send(db, user, definition, inputs)
     db.commit()  # a credential's use is audited
     return out

@@ -1145,10 +1145,10 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (§24, D103–D129; 5-1, pane types as YAML, and 5-2 -- the agent's build tools, AWS requests, the preview, the form and the Builder's own loop -- built). A per-group grant (D71); declarative HTTP steps,
+- [x] **Phase 5: The builder** (§24, D103–D129; 5-1, pane types as YAML, and 5-2 -- the agent's build tools, AWS requests, the preview, the form and the Builder's own loop -- built). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
-- [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
+- [ ] **Phase 6: The isolated runner and code steps** (§25, D130–D135; 6-1 built). A separate runner service,
   egress limits, and short-lived credentials per job. One venv per plugin version,
   built with uv from a locked `requirements.txt` at install time (§8.1). The
   `platform_sdk` package. The browser runtime for plugin and builder code: the
@@ -1299,6 +1299,12 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D127 | 2026-10-21 | **Every definition editor numbers its lines** (`components/CodeEditor.tsx`): pane, step and workflow YAML, lines unwrapped, the gutter following the scroll, the lines Check names marked. In the Builder the definition's card stretches to the preview's height and the editor takes what's spare. | Check names problems by line; counting down a textarea was the builder's job. |
 | D128 | 2026-10-21 | **Workflows are built in the Builder** (Pane types / Workflows / Step types): the Workflows page's New workflow and "Open in the Builder" open the Builder's workflow editor (its definition and access; Runs ▸ back to the Workflows page). The Workflows page keeps running, runs and its own editor. | All the builders in one place. |
 | D129 | 2026-10-21 | **People's pictures in a shared session**: the card's Members and each question in the session (and run) chat show the asker's picture, looked up by user id from `/participants` -- never stored in the turns. | Who said what at a glance; a picture per turn would store the same image over and over. |
+| D130 | 2026-10-21 | **Phase 6 is four PRs**: 6-1 code actions in the runner (the service, the SDK, the broker; code in a pane action and a step type); 6-2 dependencies; 6-3 code wherever a definition runs something (loaders, live, background runs); 6-4 the browser runtime (§25). | Each is usable alone; isolation and the broker come first because everything after rests on them. |
+| D131 | 2026-10-21 | **The runner is a separate service holding nothing**: no database, no secrets, no cloud credentials; a job is code, inputs and a callback token, run as a fresh isolated subprocess (`python -I -S`, an empty directory, the SDK alone on its path) under limits (time, CPU, memory, files, processes, output). | §7.4's trust level for code: a separate container, no database access, no ambient credentials. What it can't hold it can't leak. |
+| D132 | 2026-10-21 | **Each concurrent job runs as a uid of its own slot**, dropped to from root inside the runner's container. | Jobs share a container; on one uid, a job could read another's files or `/proc` and act with its token. |
+| D133 | 2026-10-21 | **Code reaches the world only through the platform** (the SDK's `ctx.http`/`ctx.aws` are calls back to the backend with the job's token, made as the person running it through a declarative request's own path: connection, identity, SSRF guard, masking); the runner's pods may reach only the backend (a NetworkPolicy). | §20.3's egress proxy, with no proxy to run: code never holds a secret, so a pane built to send its user's token elsewhere has none to send, and reaches nothing its user couldn't. |
+| D134 | 2026-10-21 | **Code is part of the definition**: `code: |` (Python defining `run(inputs, ctx)`) on a built pane's action or a step type, one file in the store. A pane action's code returns its outputs and only reads (GET, AWS reads); a step type's says `changes: true` to change something, and waits for a person like any external step. Standard library only until 6-2. | One text in every editor (form, YAML, agent) and one file in the store, as everything built here is; reads and writes split as declarative requests already are. |
+| D135 | 2026-10-21 | **Without a runner, code is checked and kept but not run**, and running it says why (`RUNNER_URL`). | A deployment without the runner still opens definitions that have code, and nobody is surprised by a silent no-op. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4798,6 +4804,67 @@ Three PRs (D104), each with something to try:
   step types; line numbers in every editor, one as tall as the preview; a
   Clear the agent can add (a card's `clear`, changes by line); pictures in a
   shared session.
+
+## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D135; 6-1 built)
+
+Everything built so far is data: requests, CEL, chains of steps. Phase 6 lets a
+builder write **Python** where data runs out -- reshape a reply, call two APIs
+and join them, compute what no expression can -- without that code ever running
+inside the backend, holding a secret, or reaching further than the person who
+runs it. Four PRs (D130), each with something to try:
+
+- **6-1, code actions in the runner** (built): the runner service, the SDK and
+  the broker; a `code:` action in a built pane and a `code:` step type.
+  - **The runner** (`runner/`, its own image and Deployment; D131): one
+    endpoint, `POST /jobs`, behind a shared token (`RUNNER_TOKEN`). No
+    database, no secrets, no cloud credentials -- it holds nothing worth
+    stealing. Each job is a fresh subprocess of its own interpreter in
+    isolated mode (`-I -S`: no site-packages, no environment, the SDK the only
+    thing on its path), in an empty directory, with limits: wall clock
+    (`timeout`, 30 s by default, 120 s at most), CPU, memory (512 MiB), file
+    size, open files and processes; its output capped. Running as root (its
+    image does), each concurrent job drops to a uid of its own slot (D132),
+    so no job can read another's files, memory or token, or the runner's.
+    What a job leaves is swept as that uid when it ends -- every process it
+    started (one that left its process group would otherwise be there,
+    same uid, for the slot's next job), then its directory -- since the
+    runner keeps no capability but SETUID, SETGID, CHOWN and KILL (Helm's
+    `runner.securityContext`; docker-compose the same) and so can't even list
+    a job's files itself.
+  - **Code reaches the world only through the platform** (D133): `ctx.http`
+    and `ctx.aws` are calls back to the backend (`POST /api/runner/calls`)
+    with the job's own token, made there **as the person running it** through
+    the very paths a declarative request takes -- the connection resolved for
+    them, their group's identity applied, the SSRF guard, the reply masked.
+    So code never sees a credential, and §20.3's "pane built to send the
+    token of whoever runs it somewhere else" has nothing to send. The broker
+    *is* the egress proxy §20.3 planned, with nothing extra to run. A
+    NetworkPolicy (Helm) lets the runner's pods reach only the backend.
+  - **Code is part of the definition** (D134): `code: |` -- Python defining
+    `run(inputs, ctx)` -- on a built pane's action (a fourth kind beside
+    handler, live and request) or a step type (beside request and steps), so
+    it's one file in the store and one text in every editor. A pane action's
+    return is its outputs (only declared keys); a step type's, its outputs.
+    Standard library only until 6-2. Check compiles it (a syntax error at its
+    YAML line) and wants a `run`; Preview, the action endpoint, the agent,
+    refresh and workflows run it through one function. A pane's code reads:
+    `ctx.http` is GET only and AWS is reads only, as declarative requests are.
+    A step type's code that changes something says `changes: true`, waits for
+    a person like any external step, and may then send any method.
+  - **Without a runner** (`RUNNER_URL` unset), code is checked and kept but
+    not run: running it says so (D135).
+  - Each job is a row (`runner_jobs`: who, what for, its token's hash, when,
+    how long, how it ended, how many calls), so a run is accountable and its
+    token dies with it.
+- **6-2, dependencies**: a code action's or step's `requirements:` locked
+  with uv on save (exact versions, hashes, wheels only, from a mirror if an
+  admin sets one), a venv per lock built and cached by the runner, never at
+  run time (§8.1, D71).
+- **6-3, code everywhere a definition runs something**: loaders (an input's
+  options), `run: live` code (debounced, §4.5 tier 2), background runs
+  (`poll`), per-group limits, and a jobs view in Settings.
+- **6-4, the browser runtime** (§4.5 tier 3): the sandboxed origin, its
+  postMessage SDK, custom renderers.
 
 ## 12. Research sources
 

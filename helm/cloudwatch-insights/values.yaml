@@ -349,6 +349,82 @@ agent:
     initialDelaySeconds: 5
     periodSeconds: 10
 
+# The runner (runner/ in the repo, PLATFORM_PLAN.md §25): where code written in
+# the Builder runs -- a pane's action or a step that's `code:`. It holds
+# nothing: a job's only way out is a call back to the backend, made there as
+# the user running the code (their identity, the SSRF guard, the reply
+# masked). Without it, code is checked and saved but doesn't run. Off by
+# default.
+runner:
+  enabled: false
+  image:
+    repository: ghcr.io/avivkilloz/cloudwatch-insights-runner
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Jobs hold no state between them, so any number of replicas works.
+  replicaCount: 1
+
+  service:
+    port: 8200
+
+  # The key the backend starts jobs with: an existing Secret, so it stays the
+  # same across upgrades and ArgoCD syncs.
+  #   kubectl create secret generic cloudwatch-insights-runner \
+  #     --from-literal=RUNNER_TOKEN="$(openssl rand -hex 32)"
+  token:
+    existingSecret: ""
+    existingSecretKey: RUNNER_TOKEN
+
+  # Jobs at once per pod (each its own uid), and each one's memory.
+  concurrency: 4
+  jobMemoryMb: 512
+  # Room for jobs' files (each may write 16 MiB).
+  tmpSize: 256Mi
+
+  # Its pods may reach the backend and DNS only. `dnsLabels` select the
+  # cluster's DNS pods (kube-dns / CoreDNS on most clusters).
+  networkPolicy:
+    enabled: true
+    dnsLabels:
+      k8s-app: kube-dns
+
+  # Root without the capabilities root usually has: what dropping to a slot's
+  # uid needs (SETUID, SETGID), giving it its home (CHOWN) and stopping a job
+  # past its time (KILL). Leave it so; the jobs never run as root.
+  securityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+      add: [SETUID, SETGID, CHOWN, KILL]
+    seccompProfile:
+      type: RuntimeDefault
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2560Mi
+
+  podAnnotations: {}
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
 frontend:
   image:
     repository: ghcr.io/avivkilloz/cloudwatch-insights-frontend

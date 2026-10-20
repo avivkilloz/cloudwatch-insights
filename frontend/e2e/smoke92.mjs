@@ -62,7 +62,7 @@ const run = async () => {
     // ---- 1. a new pane type, checked
     await signIn(builder, { username: BUILDER, password: "pw-123456" });
     await builder.click('.rail-row-page:has-text("Builder")');
-    await builder.click('.builder-list button:text-is("New pane type")');
+    await builder.click('.builder-list button:text-is("New pane")');
     await builder.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label: Service status"));
     check(true, "A new pane type starts from a working starter");
     await builder.fill("#builder-id", ID);

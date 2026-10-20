@@ -70,11 +70,19 @@ Builder's loop) needs the agent and the fake model running.
 only the lines changed) needs nothing beyond the backend.
 
 `smoke100` (5-3, as a builder: a POST step type checked, tried and created
-in the Builder's Step types, then used in a workflow of their own -- no
+in the Builder's Steps, then used in a workflow of their own -- no
 Access section -- approved and sent) needs the faked backend (a `.fake` host;
 `/api/dev/fake-http/last` says what it was sent).
 
-`smoke102` (as a builder: the Builder's Pane types / Workflows / Step types,
+`smoke103` (6-1, as a builder: a pane whose action is code, previewed --
+reaching an API through `ctx.http`, its log under the preview -- code that
+fails naming its line, created and run in a session; a step that's code,
+tried) needs the faked backend started with `RUNNER_URL`, `RUNNER_TOKEN` and
+`RUNNER_CALLBACK_URL`, and the runner itself (`cd runner && RUNNER_TOKEN=…
+uvicorn app.main:app --port 8200`; as root, as its image runs, each job gets
+a uid of its own).
+
+`smoke102` (as a builder: the Builder's Panes / Workflows / Steps,
 the Workflows page's New workflow opening the Builder's editor, line numbers
 and Check's line marked, the editor as tall as the preview, the fake model's
 `add a clear button` fixed by a change by line into a card's `clear`, and

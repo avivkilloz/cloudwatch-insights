@@ -78,7 +78,7 @@ def test_a_background_run_cant_be_chosen_by_an_input():
     main = next(a for a in data["actions"] if a.get("main"))
     source = yaml_edit.apply(cloudwatch, {"op": "set", "path": f"actions/{main['id']}/main",
                                           "value": {"input": data["inputs"][0]["key"], "present": True}})
-    assert any("only a handler or a request can" in p for p in _problems(source)), _problems(source)
+    assert any("only a handler, code or a request can" in p for p in _problems(source)), _problems(source)
 
 
 def _stub_iot(monkeypatch) -> list[str]:

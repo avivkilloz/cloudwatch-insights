@@ -48,6 +48,11 @@ services:
       # a directory on the volume below. STORAGE_TYPE=s3 and STORAGE_S3_* for
       # a bucket instead (DEPLOYMENT.md).
       STORAGE_PATH: /data/files
+      # Where code written in the Builder runs (the runner, below), and how
+      # its jobs call back. Unset, code is checked and saved but doesn't run.
+      RUNNER_URL: http://runner:8200
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-dev-runner-token}
+      RUNNER_CALLBACK_URL: http://backend:8000
     volumes:
       - backend-files:/data/files
     ports:
@@ -79,6 +84,17 @@ services:
       AGENT_CHECK_MODEL: ${AGENT_CHECK_MODEL:-}
     depends_on:
       - backend
+
+  # Runs code written in the Builder, each job as a uid of its own, under
+  # limits, holding nothing; its only way out is a call back to the backend.
+  # The key is for local development only; set your own for anything real.
+  runner:
+    build: ./runner
+    environment:
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-dev-runner-token}
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
+    security_opt: ["no-new-privileges:true"]
 
   fake-model:
     build: ./platform-agent

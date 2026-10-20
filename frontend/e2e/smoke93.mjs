@@ -49,7 +49,7 @@ const run = async () => {
 
   // ---- 1. a new pane type
   await page.click('.rail-row-page:has-text("Builder")');
-  await page.click('.builder-list button:text-is("New pane type")');
+  await page.click('.builder-list button:text-is("New pane")');
   await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label: Service status"));
   const tabs = await page.locator(`${DOCK} .agent-tab`).allInnerTexts();
   check(tabs[1]?.startsWith("Building"), "The Builder's editor makes the panel's second tab Building", JSON.stringify(tabs));
@@ -58,7 +58,7 @@ const run = async () => {
     "…and opening the editor selects it",
   );
   const intro = await page.locator(`${DOCK} .agent-transcript`).innerText();
-  check(intro.includes("New pane type") && intro.includes("never saves"), "…its intro says what's open and that it won't save", intro);
+  check(intro.includes("New pane") && intro.includes("never saves"), "…its intro says what's open and that it won't save", intro);
 
   const turn = await ask(page, `build ${PANE_LABEL}`);
   check(turn.includes("Read what a definition can say"), "The turn read what a definition can say", turn);

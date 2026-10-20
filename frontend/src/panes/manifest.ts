@@ -107,6 +107,8 @@ export interface ManifestAction {
   handler?: string;
   live?: string;
   request?: Record<string, unknown>;
+  /** A built pane's Python (D134), run in the runner: its outputs come back as a handler's do. */
+  code?: string;
   effects?: "external";
   run_on: "change" | "click";
   on_change: string[];
@@ -326,4 +328,9 @@ export function migratePaneKeys(state: Record<string, unknown>): Record<string, 
     }
   }
   return out ?? state;
+}
+
+/** Run by the server's `run_handler`: a handler, or a built pane's code (D134). */
+export function served(action: ManifestAction): boolean {
+  return !!action.handler || typeof action.code === "string";
 }

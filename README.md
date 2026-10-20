@@ -874,7 +874,7 @@ past a failure with `continue_on_error`.
   may run it at once -- and an admin's **Access** says which other groups may
   run it. With a store repo set up, each workflow is kept there as written,
   comments and all.
-- **Step types** (the Builder's Step types): a step written once and used by
+- **Steps** (the Builder's Steps): a step written once and used by
   name (`step: restart_device`, its inputs in `with`) -- a request to an HTTP
   connection, any method, its path, query, headers and body from its inputs;
   or a chain of steps used as one, with the outputs it hands on. One that
@@ -951,12 +951,24 @@ the preview says it's of an older version until you preview again. A pane can
 use the platform's own handlers only where your group may use the panes that
 run them (DynamoDB's, say, once your group has DynamoDB).
 
-**Step types**: the Builder's second list. A step type is a request to an
+**Steps**: the Builder's third list. A step is a request to an
 HTTP connection (any method; its path, query, headers and body templated from
 its inputs) or a chain of existing steps used as one. **Check** points at
 mistakes by line; **Try** sends a request once, as you, with the inputs you
 fill in -- for real, so one that changes something asks first. Workflows use
 it as `step: <its id>`.
+
+**Code**: where a request can't say it -- reshape a reply, join two APIs,
+work something out -- an action or a step can be Python (`code: |`, defining
+`run(inputs, ctx)`; Start from "An action that's code" or "Code"). It runs in
+the platform's runner, never in the backend, and reaches out only through
+`ctx.http(connection, path)` and `ctx.aws(connection, service, operation)`,
+which the platform makes as whoever runs it -- their identity, the same
+guards -- so code never holds a credential. A pane's code only reads; a
+step's that changes something says `changes: true` and waits for a person in
+a workflow. What it logs (`ctx.log`, `print`) shows under the preview and
+under Try; a failure names its line. The standard library only, 30 seconds
+and 512 MiB a run. Without a runner (DEPLOYMENT.md) code is kept but not run.
 
 **Building with the agent**: while a pane type's editor -- or a step type's, or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.
@@ -979,8 +991,8 @@ Rules, Jobs) where each mode runs its own action. Mark each mode's action
 mode (`when:` on the layout item); the agent, auto-refresh and Enter then run
 whatever the mode picks, as the button does.
 
-**One place to build**: the Builder lists **Pane types**, **Workflows** and
-**Step types**. New workflow on the Workflows page opens the Builder's
+**One place to build**: the Builder lists **Panes**, **Workflows** and
+**Steps**. New workflow on the Workflows page opens the Builder's
 workflow editor too; a workflow is run, and its runs kept, on the Workflows
 page (**Runs ▸**). Every editor numbers its lines, and marks the ones
 **Check** names; beside a pane's preview the editor grows to the preview's

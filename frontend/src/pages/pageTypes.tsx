@@ -80,11 +80,11 @@ export const PAGES: PageDef[] = [
   {
     id: "builder",
     label: "Builder",
-    description: "Make pane types and step types of your own.",
+    description: "Make panes, workflows and steps of your own.",
     help:
-      "Make pane types of your own, written as the same definition every pane is: inputs, actions -- a request to " +
+      "Make panes of your own, written as the same definition every pane is: inputs, actions -- a request to " +
       "a connection, or an action the platform already has -- and a layout. Yours to use at once; other groups' " +
-      "when an admin grants them. And step types for workflows: a request, or a chain of steps used as one.",
+      "when an admin grants them. And workflows, and steps for them: a request, or a chain of steps used as one.",
     // A group's Builder, or an admin (D71).
     enabledFor: (user) => !!user?.builder_enabled,
     render: () => <BuilderPage />,

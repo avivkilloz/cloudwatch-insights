@@ -70,7 +70,9 @@ backend/app/
   yaml_edit.py       changes to a definition's YAML by path, spliced and checked by meaning (D117)
   row_paths.py       paths into a reply for a request's rows: dotted, [0], [Key=Name] (D124)
   build_drafts.py    what's being built and not saved: text, Id and Building chat, per person (D125)
-  step_types.py      step types made in the Builder: an HTTP request or a chain of steps, used by workflows (D122)
+  step_types.py      step types made in the Builder: an HTTP request, a chain of steps or code, used by workflows (D122)
+  runner_client.py   code run in the runner: a job per run (runner_jobs, its token), problems() before it runs (§25)
+  outbound.py        what code sends out (ctx.http / ctx.aws), made here as whoever runs it (D133)
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
   templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
@@ -90,6 +92,9 @@ backend/app/
   routers/           one file per resource; every route is auth-gated
 backend/tests/       pytest, one file per area, real Postgres (no mocks of our own code)
 backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch/MQTT faked, for e2e
+
+runner/              the code runner (§25): app/ (POST /jobs; a subprocess per job, its slot's uid, limits),
+                     sdk/ (platform_sdk -- ctx.http/aws/log -- and bootstrap.py, what a job runs), tests/
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
                      streamed /chat, check.py the answer check, builder.py the Builder's
@@ -962,10 +967,41 @@ the platform, for a group with `builder_enabled` (admins always).
   scroll, Check's lines marked); the textarea keeps its id
   (`#builder-source` etc.) for the suites. In the Builder the two columns
   stretch to one height and the editor fills the definition's card.
-- **Workflows in the Builder** (D128): Pane types | Workflows | Step types;
+- **Workflows in the Builder** (D128): Panes | Workflows | Steps (the user's names: never "Pane types");
   `WorkflowEditor` (WorkflowsPage.tsx) is the Builder's -- definition and
   access, Runs ▸ to the Workflows page. The Workflows page's New workflow and
   "Open in the Builder" go there through `workflowFocus.openInBuilder`.
+
+**Code** (PLATFORM_PLAN.md §25, D130–D135; `runner/`, `runner_client.py`,
+`outbound.py`, `routers/runner.py`). Python a builder writes, `code: |`
+defining `run(inputs, ctx)`, on a built pane's action (a fourth kind beside
+handler, live and request; `ManifestAction.served` is "handler or code", use
+it wherever a handler used to be asked for) or a step type.
+- **Never run in the backend.** `runner_client.run` mints a job (a
+  `runner_jobs` row, its token hashed), POSTs it to the runner
+  (`RUNNER_URL`, `RUNNER_TOKEN`) and finishes the row; without a runner it's
+  a 503 that says so (D135), and Check still checks (`problems`: parses,
+  has a two-argument `run`, at its YAML line).
+- **The runner holds nothing** (D131-D132): a fresh `python -I -S
+  bootstrap.py` per job, limits by rlimit, as its slot's uid when the runner
+  is root (its image is, with every capability dropped but SETUID, SETGID,
+  CHOWN, KILL), and swept as that uid after (`jobs._sweep`: its processes,
+  then its files). A job's interpreter is the runner's own real one
+  (`RUNNER_PYTHON`): a slot's uid can't enter a venv in someone's home.
+- **Out only through the platform** (D133): the SDK's `ctx.http`/`ctx.aws`
+  POST `/api/runner/calls` with the job's token; `outbound` makes the call as
+  the job's user -- the connection by id or name among theirs, its own type
+  passed to `resolve_target` (not AWS's), their identity injected, the SSRF
+  guard, masked. A pane's code reads (GET/HEAD; AWS through `refused`); a
+  step type's `changes: true` is `external` (approval) and its job
+  `may_change`. Calls are capped (200) in the database, not the SDK alone.
+- A pane's code returns only outputs it declares (`run_code`, unless it's a
+  row action); a preview also gets `__logs` and a failure's log in its
+  error. The Builder shows "The code's log"; the step editor's Try shows the
+  outputs and the log. `runner_jobs` older than 30 days are pruned hourly.
+- Tests: `runner/tests` (as root the isolation ones run: CI runs them both
+  ways), backend `test_code.py` (a real runner subprocess and the backend in
+  a thread for its callbacks), `smoke103`.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

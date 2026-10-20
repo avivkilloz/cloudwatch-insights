@@ -101,7 +101,7 @@ def _check(source: str) -> list[str]:
     (("method: POST", "method: SEND"), "method is one of"),
     (('/devices/{{ inputs.device }}/restart', '/devices/{{ inputs.devise }}/restart'), "inputs.devise isn't one of"),
     (('/devices/{{ inputs.device }}/restart', '/devices/{{ params.device }}/restart'), "read its inputs"),
-    (("description: Asks", "steps: []\ndescription: Asks"), "a request or steps: one of them"),
+    (("description: Asks", "steps: []\ndescription: Asks"), "a request, steps or code: one of them"),
     (("request:", "requests:"), "there is no requests here; a step type may say"),
 ])
 def test_a_step_type_that_cant_run_is_said_with_its_line(change, says):

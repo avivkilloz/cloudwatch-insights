@@ -19,7 +19,7 @@ const run = async () => {
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
   await clearWorkspace(page);
   await page.click('.rail-row-page:has-text("Builder")');
-  await page.click('.builder-list button:text-is("New pane type")');
+  await page.click('.builder-list button:text-is("New pane")');
   await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label: Service status"));
   const before = await page.inputValue("#builder-source");
 

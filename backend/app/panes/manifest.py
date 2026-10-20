@@ -226,6 +226,9 @@ class ManifestAction(_Strict):
     handler: Optional[str] = None  # a Python function, by name (platform_tools/panes.HANDLERS)
     live: Optional[str] = None  # a live function (D43): reruns as the inputs change
     request: Optional[dict[str, Any]] = None  # a declarative HTTP request (§15.7)
+    # A built pane's own Python (D134): `def run(inputs, ctx)`, run in the
+    # runner as whoever runs the pane, its return the action's outputs.
+    code: Optional[str] = None
     # A run that reaches outside the platform, which the agent may not start
     # until the approval step exists.
     effects: Optional[Literal["external"]] = None
@@ -269,14 +272,24 @@ class ManifestAction(_Strict):
 
     @model_validator(mode="after")
     def _one_kind(self) -> "ManifestAction":
-        kinds = [k for k in ("handler", "live", "request") if getattr(self, k) is not None]
+        kinds = [k for k in ("handler", "live", "request", "code") if getattr(self, k) is not None]
         if len(kinds) != 1:
             # A model wrote a "clear" action, with nothing to run, four rounds running.
             hint = ("; a button that only empties results isn't an action: it's the card's `clear: [output keys]`, "
                     "shown while one of them holds something") if not kinds else ""
-            raise ValueError(f"action {self.id} needs exactly one of handler, live or request, not {kinds or 'none'}"
-                             f"{hint}")
+            raise ValueError(f"action {self.id} needs exactly one of handler, live, request or code, not "
+                             f"{kinds or 'none'}{hint}")
+        # Code reads, in the runner, and answers (D134); a background run or
+        # one that changes something outside is a step's, after approval.
+        if self.code is not None and (self.poll is not None or self.effects is not None):
+            raise ValueError(f"action {self.id}'s code can't be a background run or change something outside: "
+                             "a pane's code reads (a step type's may change something)")
         return self
+
+    @property
+    def served(self) -> bool:
+        """Run by the server through `run_handler`: a handler, or code (D134)."""
+        return bool(self.handler) or self.code is not None
 
 
 class ManifestOutput(_Strict):
@@ -537,7 +550,7 @@ class Manifest(_Strict):
                 if w.input not in inputs:
                     raise ValueError(f"action {a.id} is main when an input {w.input} that isn't declared")
                 if a.poll is not None or a.effects is not None or a.live is not None or a.args:
-                    raise ValueError(f"action {a.id} can't be main by an input: only a handler or a request can, "
+                    raise ValueError(f"action {a.id} can't be main by an input: only a handler, code or a request can, "
                                      "not a background run, a live function, a row action or an external one")
         for i in self.inputs:
             check_text(i.label)

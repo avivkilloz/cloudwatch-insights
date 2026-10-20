@@ -151,7 +151,7 @@ def _server_action(manifest: pane_manifest.Manifest, inputs: Optional[dict[str, 
     """What a step would run for this pane: its main action for its inputs if
     the server runs it, else its request (the API table's Fetch)."""
     main = manifest.main_action(inputs)
-    if main is not None and (main.handler or main.request is not None):
+    if main is not None and (main.served or main.request is not None):
         return main
     return next((a for a in manifest.actions if a.request is not None), None)
 

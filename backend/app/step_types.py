@@ -46,7 +46,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from . import connections, credential_types, masking, models, store, tools_http_client, workflows
+from . import connections, credential_types, masking, models, runner_client, store, tools_http_client, workflows
 from .resolve import ResolveError, resolve_identity_values, resolve_target
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,12 @@ class Definition(_Strict):
     inputs: list[workflows.Param] = []
     request: Optional[HttpRequest] = None
     steps: Optional[list[workflows.Step]] = None
+    # Python defining run(inputs, ctx), run in the runner as the workflow's
+    # starter (D134); its return is the step's outputs.
+    code: Optional[str] = None
+    # Code that changes something outside says so: the workflow's step then
+    # waits for a person, and its calls may then do more than read.
+    changes: bool = False
     # A chain's outputs, each a template over its steps; without them, each
     # step's outputs under its id.
     outputs: dict[str, Any] = {}
@@ -179,8 +185,18 @@ def check(definition: Definition, source: str = "", chain: tuple = ()) -> list[d
 
     workflows.check_params(definition.inputs, err, "inputs")
     inputs = {p.key: p for p in definition.inputs}
-    if (definition.request is None) == (definition.steps is None):
-        err(("request",) if definition.request else (), "A step type is a request or steps: one of them.")
+    kinds = [k for k in ("request", "steps", "code") if getattr(definition, k) is not None]
+    if len(kinds) != 1:
+        err((kinds[1],) if len(kinds) > 1 else (), "A step type is a request, steps or code: one of them.")
+    if definition.changes and definition.code is None:
+        err(("changes",), "changes is said by code; a request changes something when it isn't a GET.")
+    if definition.code is not None:
+        base = _line(source, ("code",)) if source else None
+        for at, message in runner_client.problems(definition.code):
+            err_line = base + at if base and at else base
+            errors.append({"line": err_line, "message": f"code: {message}"})
+        if definition.outputs:
+            err(("outputs",), "Code's outputs are what its run returns.")
     if definition.request is not None:
         _check_request(definition.request, inputs, err)
         if definition.outputs:
@@ -257,6 +273,8 @@ def external(definition: Definition, depth: int = 0) -> bool:
     uses it waits for a person, as an `effects: external` action does."""
     if definition.request is not None:
         return definition.request.method.upper() != "GET"
+    if definition.code is not None:
+        return definition.changes
     for step in definition.steps or []:
         action = workflows._action_of(step)
         if action is not None and action.effects == "external":
@@ -368,6 +386,21 @@ def send(db: Session, user: models.User, definition: Definition, inputs: dict[st
         except InputError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
     return out
+
+
+def run_code(db: Session, user: models.User, definition: Definition, inputs: dict[str, Any], purpose: str,
+             may_change: bool) -> dict[str, Any]:
+    """Its code, in the runner as `user` (D134): what `run` returns is the
+    step's outputs (a mapping; anything else as `value`), plus the code's log.
+    `may_change` only for a step a person approved (or its builder's Try,
+    which asks first)."""
+    try:
+        result = runner_client.run(db, user, definition.code or "", inputs, purpose, may_change=may_change)
+    except runner_client.CodeError as e:
+        detail = str(e) + (f"\n\nIts log:\n{e.logs[-2000:]}" if e.logs else "")
+        raise HTTPException(status_code=e.status, detail=detail) from None
+    outputs = result.outputs if isinstance(result.outputs, dict) else {"value": result.outputs}
+    return {**outputs, "__logs": result.logs}
 
 
 # ---------------------------------------------------------------- saving
@@ -524,6 +557,23 @@ outputs:
 """
 
 
+CODE_EXAMPLE = """label: Online devices
+description: The devices online at a site, worked out by code run in the runner as whoever runs the workflow.
+inputs:
+  - key: connection
+    type: connection
+    connection_type: http_api
+  - key: site
+    default: north
+code: |
+  def run(inputs, ctx):
+      reply = ctx.http(inputs["connection"], "/devices", query={"site": inputs["site"]})
+      online = [d for d in reply.json()["items"] if d.get("online")]
+      ctx.log(len(online), "online")
+      return {"rows": online, "count": len(online)}
+"""
+
+
 def _fields(model: Any) -> dict[str, str]:
     from . import builder
 
@@ -538,8 +588,10 @@ def reference(db: Session, user: models.User) -> dict[str, Any]:
     workflow = builder.reference(db, "workflow", user)
     return {
         "kind": "step",
-        "what": "A step type, as YAML: label, description, inputs, and a request or steps (with outputs). Templates "
-                "are CEL in {{ }} over inputs (and, in steps, steps.<id>.outputs, item, index, run).",
+        "what": "A step type, as YAML: label, description, inputs, and a request, steps (with outputs) or code. "
+                "Templates are CEL in {{ }} over inputs (and, in steps, steps.<id>.outputs, item, index, run).",
+        "code": {**runner_client.SDK_DOC, "changes": "true when the code changes something outside (any method "
+                                                      "but GET): the workflow's step waits for a person first"},
         "definition": _fields(Definition),
         "input": _fields(workflows.Param),
         "request": {**_fields(HttpRequest), "method": " | ".join(METHODS) + " (anything but GET waits for a "
@@ -550,7 +602,7 @@ def reference(db: Session, user: models.User) -> dict[str, Any]:
                    "each step's outputs under its id",
         "panes": workflow.get("panes", []),
         "step_types": [{"id": k, "label": d.label, "inputs": [p.key for p in d.inputs]} for k, d in sorted(REGISTRY.items())],
-        "examples": {"request": STARTER, "steps": CHAIN_EXAMPLE},
+        "examples": {"request": STARTER, "steps": CHAIN_EXAMPLE, "code": CODE_EXAMPLE},
         "rules": [
             "A request's connection is an input of type connection with an HTTP connection_type (http_api, or one "
             "made in Settings -> Environments -> Types); it runs as whoever runs the workflow.",
@@ -567,7 +619,8 @@ def describe(row: models.BuiltStepType) -> dict[str, Any]:
         "id": row.id,
         "label": definition.label if definition else label_of(row),
         "description": definition.description if definition else None,
-        "kind": ("request" if definition.request else "steps") if definition else None,
+        "kind": ("request" if definition.request else "code" if definition.code is not None else "steps")
+        if definition else None,
         "external": external(definition) if definition else False,
         "inputs": [p.model_dump(exclude_none=True) for p in definition.inputs] if definition else [],
         "loads": definition is not None,

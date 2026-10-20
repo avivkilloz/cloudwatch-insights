@@ -225,6 +225,10 @@ export interface BuiltStepType {
 export interface StepSchema {
   starter: string;
   chain_example: string;
+  /** A step that's Python, run in the runner (D134). */
+  code_example: string;
+  /** Whether code can run here (RUNNER_URL, D135). */
+  runner: boolean;
   namespace: string | null;
   reference: Record<string, unknown>;
 }
@@ -239,6 +243,9 @@ export interface BuilderSchema {
   /** The bundled pane types, whose manifests are the examples to read. */
   examples: string[];
   starter: string;
+  /** An action that's Python, run in the runner (D134), and whether it can run here (D135). */
+  code_example: string;
+  runner: boolean;
   /** The store's namespace a new id is saved under, or null without a store (D78). */
   namespace: string | null;
 }
@@ -1073,7 +1080,7 @@ export const api = {
     }),
   /** A draft request step sent once, as you -- for real (D122). */
   tryBuiltStep: (source: string, inputs: Record<string, unknown>, id?: string) =>
-    req<{ status: number; response: unknown; rows?: Record<string, unknown>[] }>("/builder/steps/try", {
+    req<{ status: number; response: unknown; rows?: Record<string, unknown>[]; logs?: string }>("/builder/steps/try", {
       method: "POST",
       body: JSON.stringify({ source, inputs, id }),
     }),

@@ -106,7 +106,7 @@ const run = async () => {
     // ---- 1. one Builder: pane types, workflows, step types
     await page.click('.rail-row-page:has-text("Builder")');
     const tabs = await page.locator(".builder-list .segmented button").allInnerTexts();
-    check(JSON.stringify(tabs) === '["Pane types","Workflows","Step types"]', "The Builder lists pane types, workflows and step types", JSON.stringify(tabs));
+    check(JSON.stringify(tabs) === '["Panes","Workflows","Steps"]', "The Builder lists panes, workflows and steps", JSON.stringify(tabs));
     await page.click('.rail-row-page:has-text("Workflows")');
     await page.click('.workflows-list button:text-is("New workflow")');
     await page.waitForSelector(".builder-view #workflow-source");
@@ -135,7 +135,7 @@ const run = async () => {
     const pane = await api(page, "POST", "/builder/panes", { id: PANE, source: EC2 });
     made.push(pane.body.id);
     await page.reload();
-    await toBuilderList(page, "Pane types");
+    await toBuilderList(page, "Panes");
     await page.click(`.builder-list tr[data-built="${pane.body.id}"]`);
     await page.waitForFunction((s) => document.querySelector("#builder-source")?.value.includes(`label: Instances ${s}`), STAMP);
     await page.fill(`${DOCK} .agent-compose-input`, "add a clear button");

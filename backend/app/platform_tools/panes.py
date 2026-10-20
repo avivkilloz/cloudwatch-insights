@@ -723,7 +723,7 @@ def _chosen_runner(manifest: pane_manifest.Manifest) -> Optional[Runner]:
     async def run(rc: RunContext, values: dict) -> RunResult:
         action = manifest.main_action(values)
         runner = None
-        if action is not None and action.handler:
+        if action is not None and action.served:
             runner = _handler_runner(manifest, action)
         elif action is not None and action.request is not None:
             runner = _request_runner(manifest, action)
@@ -741,7 +741,7 @@ def _handler_runner(manifest: pane_manifest.Manifest,
     DynamoDB's describe), then its main action, through the very function the
     browser's action endpoint calls. A fresh run, never Load more."""
     main = main or manifest.main_action()
-    if manifest.state != "v2" or main is None or main.handler is None:
+    if manifest.state != "v2" or main is None or not main.served:
         return None
     # Reaching outside the platform (the HTTP client's Send) is a person's to
     # do until the approval step exists: no run, and run_help says so. A
@@ -753,7 +753,7 @@ def _handler_runner(manifest: pane_manifest.Manifest,
 
     before = [
         a for a in manifest.actions
-        if a.handler and a.on_change and a is not main and not _is_loader(manifest, a) and a.effects != "external"
+        if a.served and a.on_change and a is not main and not _is_loader(manifest, a) and a.effects != "external"
     ]
 
     async def run(rc: RunContext, values: dict) -> RunResult:

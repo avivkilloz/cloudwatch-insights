@@ -113,10 +113,51 @@ def run_handler(
     message = pane_handlers.missing(action.requires, inputs)
     if message:
         raise HTTPException(status_code=400, detail=message)
+    if action.code is not None:
+        return run_code(db, user, manifest, action, inputs, draft)
     handler = pane_handlers.ACTIONS.get(action.handler or "")
     if handler is None:  # a manifest naming a handler that doesn't exist fails its tests
         raise HTTPException(status_code=500, detail=f"{manifest.label}'s {action.id} has no handler.")
     return handler(db, user, inputs, cursor)
+
+
+def run_code(
+    db: Session,
+    user: models.User,
+    manifest: pane_manifest.Manifest,
+    action: pane_manifest.ManifestAction,
+    inputs: dict[str, Any],
+    draft: bool = False,
+) -> dict[str, Any]:
+    """A built pane's code (D134), in the runner as `user`: what `run`
+    returns is the action's outputs -- only those the pane declares -- or,
+    run for a row (`args`), that row's detail. A preview's answer carries the
+    code's log too (`__logs`), for its builder."""
+    from .. import runner_client
+
+    purpose = f"{'preview' if draft else 'pane'}:{manifest.id}/{action.id}"
+    try:
+        result = runner_client.run(db, user, action.code or "", inputs, purpose)
+    except runner_client.CodeError as e:
+        detail = str(e)
+        if draft and e.logs:
+            detail += f"\n\nIts log:\n{e.logs[-2000:]}"
+        raise HTTPException(status_code=e.status, detail=detail) from None
+    outputs = result.outputs
+    if not isinstance(outputs, dict):
+        raise HTTPException(status_code=400, detail=f"{manifest.label}'s {action.id} returned "
+                                                    f"{type(outputs).__name__}; its run returns a mapping of outputs.")
+    if not action.args:
+        declared = {o.key for o in manifest.outputs}
+        unknown = sorted(k for k in outputs if k not in declared and not k.startswith("_"))
+        if unknown:
+            raise HTTPException(status_code=400, detail=(
+                f"{manifest.label}'s {action.id} returned {', '.join(unknown)}, which "
+                f"{'is not an output' if len(unknown) == 1 else 'are not outputs'} it declares "
+                f"({', '.join(sorted(declared)) or 'none'})."))
+    if draft:
+        outputs = {**outputs, "__logs": result.logs}
+    return outputs
 
 
 def _query(value: Any) -> dict[str, str]:
@@ -333,7 +374,7 @@ def run_action(
     _unsaved(db, current_user, manifest, payload)
     if action is not None and action.request is not None:
         result = run_request(db, current_user, manifest, action, inputs)
-    elif action is not None and action.handler is not None and manifest.state == "v2":
+    elif action is not None and action.served and manifest.state == "v2":
         result = run_handler(db, current_user, manifest, action, inputs, payload.cursor)
     else:
         raise HTTPException(status_code=404, detail=f"{manifest.label} has no server action '{action_id}'.")

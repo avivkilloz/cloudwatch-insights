@@ -1,0 +1,74 @@
+{{- if .Values.runner.enabled }}
+{{- if not .Values.runner.token.existingSecret }}
+{{- fail "runner.enabled needs runner.token.existingSecret: a Secret holding the key the backend and the runner share (a generated one would change on every sync)." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudwatch-insights.runner.fullname" . }}
+  labels:
+    {{- include "cloudwatch-insights.runner.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.runner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloudwatch-insights.runner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudwatch-insights.runner.selectorLabels" . | nindent 8 }}
+      {{- with .Values.runner.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # Holds nothing (PLATFORM_PLAN.md D131): no database, no secret but the
+      # key the backend starts jobs with, no cloud identity, no Kubernetes API.
+      # A job reaches the world only through the backend, as its user.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }}"
+          imagePullPolicy: {{ .Values.runner.image.pullPolicy }}
+          # Root, so each job can drop to its slot's own uid (D132), with every
+          # capability gone but those the dropping, its home's owner and
+          # stopping a job past its time need. The jobs never run as root.
+          securityContext:
+            {{- toYaml .Values.runner.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8200
+          env:
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.token.existingSecret }}
+                  key: {{ .Values.runner.token.existingSecretKey }}
+            - name: RUNNER_CONCURRENCY
+              value: {{ .Values.runner.concurrency | quote }}
+            - name: RUNNER_MEMORY_MB
+              value: {{ .Values.runner.jobMemoryMb | quote }}
+          volumeMounts:
+            # Jobs' directories; the image itself is read-only.
+            - name: tmp
+              mountPath: /tmp
+          {{- with .Values.runner.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.runner.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.runner.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.runner.tmpSize }}
+{{- end }}
