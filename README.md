@@ -979,6 +979,22 @@ Rules, Jobs) where each mode runs its own action. Mark each mode's action
 mode (`when:` on the layout item); the agent, auto-refresh and Enter then run
 whatever the mode picks, as the button does.
 
+**Drafts**: whatever you build is kept as you type -- a pane type, a step
+type or a workflow, its Id and your Building chat about it. Leave the page,
+or close the tab, and it's waiting: a new one is listed as a **Draft** (only
+you see it), a saved one you've changed has a Draft tag, and opening either
+puts back the text and the chat as you left them. **Create** or **Save**
+makes it real and keeps the chat with it; **Discard** goes back to what's
+saved.
+
+**Rows that open**: a table's rows can open to more about one row, fetched
+when you open it -- `config: {detail: {action: <a row action>, sections:
+[...]}, expand: expanded}`, with `views: [{key: expanded, default: []}]`. The
+row action has `args` read from the row (`{connections: row.Environment,
+instance_id: row.Instance ID}`) and is any request, an AWS one included. A
+column can pick an item of a list by a field: `Tags[Key=Name].Value` is the
+Name tag's value.
+
 ## The store repo
 
 Admins can point the platform at a git repo (**Settings → Store**, or the

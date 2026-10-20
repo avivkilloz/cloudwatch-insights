@@ -1271,6 +1271,7 @@ th {
 }
 
 .chevron {
+  display: inline-block;
   transition: transform 0.1s ease;
   color: var(--text-dim);
   font-size: 10px;
@@ -4828,4 +4829,25 @@ textarea.workflow-source {
   height: 28px;
   padding: 0 6px;
   font-size: 12.5px;
+}
+
+/* A table whose rows open (D124): the row is the toggle, its detail a full-width row under it. */
+.manifest-table-scroll tr.manifest-table-opens {
+  cursor: pointer;
+}
+.manifest-table-scroll tr.manifest-table-detail > td {
+  white-space: normal;
+  max-width: none;
+  padding: 0;
+}
+.manifest-table-scroll tr.manifest-table-detail .result-row-detail {
+  margin: 0;
+}
+
+/* A draft (D125): in the Builder's and Workflows' lists, and the line under an editor. */
+.builder-draft-tag {
+  margin-left: 6px;
+}
+.builder-draft-status {
+  margin: 8px 0 0;
 }

@@ -79,6 +79,13 @@ mode: add a choice per mode, one action per mode with `main: {input: <mode>, \
 equals: <value>}` (the existing one may stay `main: true` for the rest), and \
 each button shown with `when` for its mode. Actions have no `when`; layout \
 items do.
+- Rows that open to show more of one row: the table's `config.detail` names a \
+row action (an action with `args` read from the row, its own request) and \
+`config.expand` a view key declared in `views` -- as the reference's `rows \
+that open (example)` does. A config key the reference's `output config` \
+doesn't list does nothing.
+- A column's path is not JMESPath: a list item is picked by a field, \
+Tags[Key=Name].Value.
 - Keep what already works. Change or add what's asked; never replace a \
 working action, input or card with another.
 """

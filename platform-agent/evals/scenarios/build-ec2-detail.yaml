@@ -1,0 +1,17 @@
+name: build-ec2-detail
+about: >-
+  The user's own words (D124): EC2 instances with a row that opens to an instance's detail. A real model wrote the
+  Name column as JMESPath (`Tags[?Key == 'Name'].Value | [0]`), refused four rounds running, and made rows open with
+  a table config nothing reads (`on_select`). What reaches the editor must check clean, take the Name from the tags,
+  and open a row through a row action.
+build:
+  kind: pane
+  source: ""
+  title: New pane type
+messages:
+  - >-
+    create a pane that lists ec2 instances with expandable items that display an ec2 instance details
+expect:
+  - proposed:
+      checks: true
+      contains: ["service: ec2", "DescribeInstances", "Tags[", "expand:", "detail:", "args:"]

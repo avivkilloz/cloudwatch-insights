@@ -29,7 +29,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_request, catalogue, models, pane_access, store
+from . import aws_request, catalogue, models, pane_access, row_paths, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -196,13 +196,89 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
             if name and name not in pane_handlers.ACTIONS:
                 err(("actions", i, *path), f"There is no handler {name}. Handlers: {', '.join(sorted(pane_handlers.ACTIONS))}.")
         if aws_request.is_aws(a.request):
-            for path, message in aws_request.problems(manifest, a.request or {}):
+            for path, message in aws_request.problems(manifest, a.request or {}, a.args):
                 err(("actions", i, "request", *path), message)
+        elif a.request is not None:
+            for path, message in _path_problems((a.request or {}).get("rows")):
+                err(("actions", i, "request", "rows", *path), message)
         if a.live and a.live not in pane_live.FUNCTIONS:
             err(("actions", i, "live"), f"There is no live function {a.live}. They are: {', '.join(sorted(pane_live.FUNCTIONS))}.")
+    views = {v.key for v in manifest.views}
+    for i, o in enumerate(manifest.outputs):
+        allowed = CONFIG.get(o.render)
+        if allowed is not None:
+            for key in o.config:
+                if key not in allowed:
+                    err(("outputs", i, "config", key),
+                        f"A {o.render} output's config has no {key}; it may say: {', '.join(allowed)}. Rows that "
+                        "open to show more are `detail: {action: <a row action>}` with `expand:` (the reference's "
+                        "`rows that open (example)`).")
+        detail = o.config.get("detail")
+        if isinstance(detail, dict):
+            for key in detail:
+                if key not in DETAIL_KEYS:
+                    err(("outputs", i, "config", "detail", key),
+                        f"A row detail has no {key}; it may say: {', '.join(DETAIL_KEYS)}.")
+        sections = detail.get("sections") if isinstance(detail, dict) else detail
+        for path, message in _section_problems(sections, ("outputs", i, "config", "detail")
+                                               + (("sections",) if isinstance(detail, dict) else ())):
+            err(path, message)
+        if detail is not None and o.render in ("table", "list"):
+            expand = o.config.get("expand")
+            if not isinstance(expand, str) or expand not in views:
+                err(("outputs", i, "config"),
+                    f"Rows open only with `expand:` naming a view key that holds which are open -- add "
+                    f"`expand: expanded` here and `views: [{{key: expanded, default: []}}]` at the top level.")
     if manifest.id in pane_manifest.bundled():
         err(("id",), f"{manifest.id} is one of the platform's own pane types.")
     return errors
+
+
+# What a table's or a list's `config` may say (the browser's TableView and
+# panes/ListView.tsx read these): a key it doesn't read did nothing, so a
+# model's made-up `on_select` looked like a feature that didn't work.
+CONFIG: dict[str, tuple[str, ...]] = {
+    "table": ("detail", "expand", "domain", "chart"),
+    "list": ("summary", "detail", "expand", "row_key", "groups", "count", "empty", "export", "toolbar", "domain",
+             "busy", "chart"),
+}
+DETAIL_KEYS = ("action", "sections", "include", "include_help", "noun", "merge")
+# What a detail section may say (panes/DetailSections.tsx).
+SECTION_KEYS = ("title", "fields", "entries", "list", "summary", "detail", "open", "gap", "table", "columns", "tags",
+                "grid", "json", "empty", "warnings", "prefix")
+
+
+def _section_problems(sections: Any, at: tuple) -> list[tuple[tuple, str]]:
+    if not isinstance(sections, list):
+        return []
+    out: list[tuple[tuple, str]] = []
+    for n, section in enumerate(sections):
+        if not isinstance(section, dict):
+            out.append(((*at, n), "A detail section is a mapping, e.g. {title: Tags, table: Tags, columns: [...]}."))
+            continue
+        for key in section:
+            if key not in SECTION_KEYS:
+                out.append(((*at, n, key), f"A detail section has no {key}; it may say: {', '.join(SECTION_KEYS)}."))
+        out += _section_problems(section.get("detail"), (*at, n, "detail"))
+    return out
+
+
+def _path_problems(rows: Any) -> list[tuple[tuple, str]]:
+    """A request's `rows` paths that aren't paths (row_paths): checked for
+    any request, where an AWS one's are also held to its reply."""
+    if not isinstance(rows, dict):
+        return []
+    out: list[tuple[tuple, str]] = []
+    paths = [((key,), rows.get(key)) for key in ("at", "explode", "spread")]
+    for column, source in (rows.get("columns") or {}).items():
+        paths.append((("columns", column), source.get("from") if isinstance(source, dict) else source))
+    for path, value in paths:
+        if isinstance(value, str) and value:
+            try:
+                row_paths.parts(value)
+            except row_paths.PathError as e:
+                out.append((path, str(e)))
+    return out
 
 
 # ---------------------------------------------------------------- the examples (D72)
@@ -370,6 +446,9 @@ def delete(db: Session, user: models.User, row: models.BuiltPaneType) -> None:
     db.query(models.GroupPaneGrant).filter_by(pane_type=row.id).delete()
     db.query(models.CataloguePlacement).filter_by(pane_type=row.id).delete()
     store.record(db, "pane", row.id, "delete", user)
+    from . import build_drafts
+
+    build_drafts.forget(db, "pane", row.id)
     db.delete(row)
     _bump(db)
     db.commit()
@@ -478,10 +557,97 @@ def _fields(model: Any) -> dict[str, str]:
 
 # How a reply becomes rows (platform_tools/panes.extract_rows), for both kinds of request.
 ROWS_DOC = (
-    "{at: where the list is (a dotted path), columns: {Column name: path in each item, or {from: path, as: "
+    "{at: where the list is (a path), columns: {Column name: path in each item, or {from: path, as: "
     "text|number|time}}, explode: a list in each item to make a row per element of, spread: an object whose keys "
-    "become columns}; without columns, each item is the row"
+    "become columns}; without columns, each item is the row. Paths: " + row_paths.SYNTAX
 )
+
+# What a table's or list's `config` says (CONFIG), for the reference.
+CONFIG_DOC = {
+    "table": {
+        "detail": "rows that open: {action: a row action (one with args), sections: what the opened row shows "
+                  "(left out: its detail as JSON)}",
+        "expand": "the view key holding which rows are open (declare it: views: [{key: expanded, default: []}]; "
+                  "the action that lists the rows resets it: resets: [view.expanded])",
+        "domain": "what the agent's chat calls attached rows", "chart": "the view key of its chart",
+    },
+    "list": {
+        "summary": "each row's line: [{tag|msg|muted: template over row, when: {field, equals|present}}]",
+        "detail": "as a table's; or `json` (the row itself), or sections over the row",
+        "expand": "as a table's", "row_key": "the field that names a row", "groups": "a fan-out's groups",
+        "count": "template", "empty": "text when there are no rows", "export": "file name",
+        "toolbar": "always | rows",
+    },
+    "row action": "an action with args: {input: row.<column> | group.<field>} -- its inputs read from the row, "
+                  "not the pane's. A request as one (AWS: connection: <the connections input>, args giving it "
+                  "row.Environment) answers with its one row as the detail, or {rows} when the reply held "
+                  "several; without `rows`, the whole reply",
+    "sections": "[{title}, {fields: [{label, value: template over d}]}, {entries: an object's path}, "
+                "{table: a list's path, columns: [{label, value: template over row}]}, {list: path, summary}, "
+                "{tags: path}, {json: path}, {grid: [{title, json}]}] -- d is the detail",
+}
+
+# Rows that open to show more, from a request of their own (a working pane type).
+DETAIL_EXAMPLE = """label: Stacks
+description: CloudFormation stacks; open one for its resources.
+category: Services
+inputs:
+  - {key: connections, type: connections, connection_type: aws, label: Environments}
+actions:
+  - id: list
+    main: true
+    run_label: List
+    resets: [view.expanded]
+    request:
+      connection: connections
+      service: cloudformation
+      operation: DescribeStacks
+      paginate: true
+      rows:
+        at: Stacks
+        columns:
+          Stack: StackName
+          Status: StackStatus
+          Owner: Tags[Key=owner].Value
+          Created: CreationTime
+  - id: resources
+    args: {connections: row.Environment, stack: row.Stack}
+    request:
+      connection: connections
+      service: cloudformation
+      operation: DescribeStackResources
+      params: {StackName: {input: stack}}
+      rows:
+        at: StackResources
+        columns: {Resource: LogicalResourceId, Type: ResourceType, Status: ResourceStatus}
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+    config:
+      expand: expanded
+      detail:
+        action: resources
+        sections:
+          - title: Resources
+            table: rows
+            columns:
+              - {label: Resource, value: "{{ row.Resource }}"}
+              - {label: Type, value: "{{ row.Type }}"}
+              - {label: Status, value: "{{ row.Status }}"}
+  - key: error
+    render: error
+views:
+  - {key: expanded, default: []}
+layout:
+  - title: Stacks
+    items:
+      - input: connections
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows
+"""
 
 OUTPUT_DOC = (
     "the output its rows go to (declared in outputs, render table); left out, `rows` -- and running it then clears "
@@ -585,6 +751,8 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "example": AWS_EXAMPLE,
             },
             "output": _fields(m.ManifestOutput),
+            "output config": CONFIG_DOC,
+            "rows that open (example)": DETAIL_EXAMPLE,
             "card": _fields(m.Card),
             "layout_item": _fields(m.LayoutItem),
             "when": {**_fields(m.When), "what": "a layout item shown only when it holds; an action's `main` may be "
@@ -606,6 +774,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",
+                "Rows that open to show more (a row's detail): the table's config.detail names a row action -- an "
+                "action with args read from the row -- and config.expand a declared view key; see `rows that "
+                "open (example)`. An output's config says only what `output config` lists.",
                 "A pane with modes (a choice input) whose button does a different thing per mode: one action per "
                 "mode, each `main: {input: <mode>, equals: <value>}` (or one `main: true` for the rest), each "
                 "button in the layout shown with `when` for its mode. Actions have no `when`; layout items do.",

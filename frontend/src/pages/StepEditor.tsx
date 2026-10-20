@@ -4,6 +4,7 @@ import { api, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowP
 import { CardRow } from "../components/SessionCard";
 import { ParamFields } from "../components/WorkflowParamFields";
 import { Section, ViewHead } from "../components/settings/settingsLayout";
+import { DraftStatus, useBuildDraft } from "./buildDraft";
 import { parse, read } from "./builderYaml";
 
 /*
@@ -15,9 +16,9 @@ import { parse, read } from "./builderYaml";
  * The agent panel's Building tab works on it as on a pane type's (D123).
  */
 
-export type StepScreen = { id: string | null; said?: string };
+export type StepScreen = { id: string | null; said?: string; draftId: number | null };
 
-export default function StepEditor({ id, said, back, opened }: StepScreen & { back: () => void; opened: (id: string, said: string) => void }) {
+export default function StepEditor({ id, said, draftId, back, opened }: StepScreen & { back: () => void; opened: (id: string, said: string) => void }) {
   const isNew = id === null;
   const [schema, setSchema] = useState<StepSchema | null>(null);
   const [item, setItem] = useState<BuiltStepType | null>(null);
@@ -30,31 +31,64 @@ export default function StepEditor({ id, said, back, opened }: StepScreen & { ba
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [tried, setTried] = useState<{ status: number; response: unknown; rows?: Record<string, unknown>[] } | null>(null);
   const editable = isNew || !!item?.can_edit;
+  // Kept as it's typed, with the Building chat (D125).
+  const base = isNew ? schema?.starter ?? null : item?.can_edit ? item.source : null;
+  const kept = useBuildDraft({
+    kind: "step",
+    targetId: id,
+    draftId,
+    base,
+    source,
+    newId,
+    restore: (text, typedId) => {
+      setSource(text);
+      if (isNew) setNewId(typedId);
+    },
+  });
   useOfferBuild("step", id, item?.label ?? (isNew ? "New step type" : id ?? ""), editable, source, (text, summary) => {
     setSource(text);
     setProblems(null);
     setError(null);
     setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
-  });
+  }, kept.hooks);
+  const dirty = base !== null && (source !== base || (isNew && newId.trim() !== ""));
+
+  async function discard() {
+    if (!confirm(isNew ? "Discard this draft?" : "Discard your changes and go back to what's saved?")) return;
+    await kept.discard();
+    if (isNew) back();
+    else if (base !== null) {
+      setSource(base);
+      setProblems(null);
+      setNotice(null);
+    }
+  }
 
   useEffect(() => {
+    // One load lands, or a late one puts the saved text over a restored draft.
+    let cancelled = false;
     api.stepSchema().then(
       (s) => {
+        if (cancelled) return;
         setSchema(s);
         if (isNew) setSource((current) => current || s.starter);
       },
-      (e) => setError(readableError(e)),
+      (e) => !cancelled && setError(readableError(e)),
     );
     if (!isNew) {
       api.listBuiltSteps().then(
         (list) => {
+          if (cancelled) return;
           const found = list.find((t) => t.id === id) ?? null;
           setItem(found);
           if (found) setSource(found.source);
         },
-        (e) => setError(readableError(e)),
+        (e) => !cancelled && setError(readableError(e)),
       );
     }
+    return () => {
+      cancelled = true;
+    };
   }, [id, isNew]);
 
   // The draft as the Try form reads it: its inputs, and whether it's a
@@ -86,6 +120,7 @@ export default function StepEditor({ id, said, back, opened }: StepScreen & { ba
     try {
       if (!(await check())) return;
       const saved = isNew ? await api.createBuiltStep(newId.trim(), source) : await api.updateBuiltStep(id!, source);
+      await kept.finish(saved.id, saved.source);
       setItem(saved);
       setSource(saved.source);
       if (isNew) opened(saved.id, `Created ${saved.label} (${saved.id}): a workflow uses it as step: ${saved.id}.`);
@@ -192,8 +227,14 @@ export default function StepEditor({ id, said, back, opened }: StepScreen & { ba
               <button className="secondary" onClick={check} disabled={busy}>
                 Check
               </button>
+              {kept.id !== null && dirty && (
+                <button className="secondary" onClick={discard} disabled={busy}>
+                  Discard
+                </button>
+              )}
             </div>
           )}
+          <DraftStatus kept={kept} />
         </Section>
         <Section title="Try">
           {draft?.request ? (

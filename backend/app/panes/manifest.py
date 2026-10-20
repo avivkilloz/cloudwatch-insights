@@ -621,7 +621,8 @@ class Manifest(_Strict):
         request (the API table's Fetch) -- unless it reaches outside the
         platform (Send), is worked out as you type, or is a stream that never
         ends (MQTT), none of which a timer should run again."""
-        action = self.main_action(values) or next((a for a in self.actions if a.request is not None), None)
+        action = self.main_action(values) or next(
+            (a for a in self.actions if a.request is not None and not a.args), None)
         if action is None or action.effects == "external" or action.live is not None:
             return None
         if action.poll is not None and action.poll.append:

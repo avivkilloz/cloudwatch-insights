@@ -42,7 +42,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_client, masking, models
+from . import aws_client, masking, models, row_paths
 from .panes import manifest as pane_manifest
 from .panes import timewindow
 from .resolve import ResolveError, resolve_identity, resolve_target
@@ -117,17 +117,23 @@ def operation_name(service: str, operation: str) -> str:
     raise AwsRequestError(f"{service} has no operation {operation!r}.")
 
 
-def problems(manifest: pane_manifest.Manifest, spec: dict[str, Any]) -> list[tuple[tuple, str]]:
+def problems(manifest: pane_manifest.Manifest, spec: dict[str, Any],
+             args: Optional[dict[str, str]] = None) -> list[tuple[tuple, str]]:
     """What's wrong with an AWS request, each as (path under `request`, message):
     the spec's shape, its connection input, and the operation -- one that
-    exists, reads, hands out nothing secret, and answers with JSON."""
+    exists, reads, hands out nothing secret, and answers with JSON. A row
+    action's `args` are its inputs: its connection may be one of them (the
+    row's Environment), as may what its params read."""
     try:
         parsed = AwsRequestSpec.model_validate(spec)
     except ValidationError as e:
         return [(tuple(err["loc"]), err["msg"]) for err in e.errors()]
+    args = args or {}
     out: list[tuple[tuple, str]] = []
     conn = next((i for i in manifest.inputs if i.key == parsed.connection), None)
-    if conn is None or conn.type not in ("connection", "connections") or (conn.connection_type or "aws") != "aws":
+    if conn is None and parsed.connection in args:
+        pass
+    elif conn is None or conn.type not in ("connection", "connections") or (conn.connection_type or "aws") != "aws":
         out.append((("connection",), f"{parsed.connection!r} must name an input of type connection or connections, "
                                       "connection_type aws."))
     try:
@@ -145,29 +151,45 @@ def problems(manifest: pane_manifest.Manifest, spec: dict[str, Any]) -> list[tup
         if key.split(".")[0] not in members:
             known = ", ".join(sorted(members)) or "none"
             out.append((("params", key), f"{name} has no parameter {key.split('.')[0]} (it takes: {known})."))
+    known = {i.key for i in manifest.inputs} | set(args)
     for key, source in parsed.params.items():
-        if isinstance(source, dict) and "input" in source and source["input"] not in {i.key for i in manifest.inputs}:
-            out.append((("params", key), f"{key} reads an input {source['input']} that isn't declared."))
+        for one in source if isinstance(source, list) else [source]:
+            if isinstance(one, dict) and "input" in one and one["input"] not in known:
+                what = "an input or one of the row action's args" if args else "an input"
+                out.append((("params", key), f"{key} reads {one['input']}, which isn't {what}."))
     if isinstance(parsed.rows, dict) and model.output_shape is not None:
         out += _rows_problems(name, model.output_shape, parsed.rows)
     return out
 
 
 def _walk(shape: Any, path: str) -> tuple[Any, str]:
-    """The shape at a dotted path into a reply, and "" -- or (None, why not)."""
-    for i, part in enumerate(p for p in path.split(".") if p):
-        if shape.type_name == "list" and part.isdigit():
+    """The shape at a path into a reply (row_paths: dotted, with [0] and
+    [Key=Name] on a list), and "" -- or (None, why not)."""
+    try:
+        steps = row_paths.parts(path)
+    except row_paths.PathError as e:
+        return None, str(e)
+    for i, part in enumerate(steps):
+        where = "".join(("." if s[0] == "key" and j else "") + row_paths.describe(s)
+                        for j, s in enumerate(steps[:i])) or "the top"
+        if part[0] == "key" and shape.type_name == "list" and str(part[1]).isdigit():
             shape = shape.member
-        elif shape.type_name == "structure" and part in shape.members:
-            shape = shape.members[part]
-        elif shape.type_name == "map":
+        elif part[0] == "key" and shape.type_name == "structure" and part[1] in shape.members:
+            shape = shape.members[part[1]]
+        elif part[0] == "key" and shape.type_name == "map":
             shape = shape.value
+        elif part[0] in ("index", "match") and shape.type_name == "list":
+            shape = shape.member
+            if part[0] == "match" and (shape.type_name != "structure" or part[1] not in shape.members):
+                has = ", ".join(shape.members) if shape.type_name == "structure" else shape.type_name
+                return None, f"{where}'s items have no {part[1]} to pick one by (they have: {has})"
+        elif part[0] == "key" and shape.type_name == "list":
+            return None, f"{where} is the list itself, so there is no {part[1]} in it"
+        elif part[0] in ("index", "match"):
+            return None, f"{where} isn't a list, so {row_paths.describe(part)} picks nothing in it"
         else:
-            where = ".".join(path.split(".")[:i]) or "the top"
-            if shape.type_name == "list":
-                return None, f"{where} is the list itself, so there is no {part} in it"
             has = ", ".join(shape.members) if shape.type_name == "structure" else shape.type_name
-            return None, f"there is no {part} at {where} (it has: {has})"
+            return None, f"there is no {part[1]} at {where} (it has: {has})"
     return shape, ""
 
 
@@ -212,9 +234,13 @@ def _rows_problems(name: str, output: Any, rows: dict[str, Any]) -> list[tuple[t
             continue
         found, why = _walk(item, path)
         if found is None:
-            fields = ", ".join(item.members)
-            out.append((("rows", "columns", column), f"{name}'s {at} items have no {path} ({why}). Their fields: "
-                                                     f"{fields}."))
+            # A column is one value: a list in the item gives one item, picked by a field.
+            listed, _ = _walk(item, path.rsplit(".", 1)[0]) if "." in path else (None, "")
+            if listed is not None and listed.type_name == "list" and listed.member.type_name == "structure":
+                field = next(iter(listed.member.members), "Key")
+                why += f"; pick one item by a field, as {path.rsplit('.', 1)[0]}[{field}=…].{path.rsplit('.', 1)[1]}"
+            items = f"{rows['explode']} (in each of {at})" if rows.get("explode") else f"{at} items"
+            out.append((("rows", "columns", column), f"{name}'s {items} have no {path}: {why}."))
     return out
 
 
@@ -294,7 +320,18 @@ def _params(spec: AwsRequestSpec, values: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     span: Optional[tuple[int, int]] = None
     for name, source in spec.params.items():
-        if isinstance(source, dict) and "input" in source:
+        if isinstance(source, list) and any(isinstance(s, dict) and "input" in s for s in source):
+            # `InstanceIds: [{input: id}]`: each item read, a list input's spread in.
+            value = []
+            for one in source:
+                got = values.get(one["input"]) if isinstance(one, dict) and "input" in one else one
+                if isinstance(got, (set, list, tuple)):
+                    value += sorted(got) if isinstance(got, set) else list(got)
+                elif got not in (None, ""):
+                    value.append(got)
+            if not value:
+                continue
+        elif isinstance(source, dict) and "input" in source:
             value = values.get(source["input"])
             if value in (None, "", []):
                 continue
@@ -365,7 +402,12 @@ def _first_list(reply: Any) -> str:
 def _rows(spec: AwsRequestSpec, reply: dict[str, Any]) -> list[dict]:
     from .platform_tools.panes import extract_rows
 
-    return extract_rows(reply, spec.rows if spec.rows is not None else {"at": _first_list(reply)})
+    if spec.rows is None:
+        # A reply with no list (a Describe of one thing) has no rows: its
+        # `response` is what there is.
+        at = _first_list(reply)
+        return extract_rows(reply, {"at": at}) if at or isinstance(reply, list) else []
+    return extract_rows(reply, spec.rows)
 
 
 def _readable(e: Exception, where: str) -> str:
@@ -375,6 +417,38 @@ def _readable(e: Exception, where: str) -> str:
     if isinstance(e, ParamValidationError):
         return masking.mask(f"{where}: {e.kwargs.get('report', e)}".strip())
     return masking.mask(f"{where}: {e}")
+
+
+def _listed(params: dict[str, Any], shape: Any) -> dict[str, Any]:
+    """A lone value given where the operation takes a list, as a list of it:
+    `InstanceIds: {input: instance_id}` is one instance."""
+    if shape is None or shape.type_name != "structure":
+        return params
+    out: dict[str, Any] = {}
+    for key, value in params.items():
+        member = shape.members.get(key)
+        if member is not None and member.type_name == "list" and not isinstance(value, list):
+            value = [value]
+        elif member is not None and member.type_name == "structure" and isinstance(value, dict):
+            value = _listed(value, member)
+        out[key] = value
+    return out
+
+
+def connection_id(db: Session, user: models.User, value: Any) -> int:
+    """A connection named by its id, or by the name the user sees it by --
+    a row's Environment, which is what a row action has to go on."""
+    if isinstance(value, int) or (isinstance(value, str) and value.strip().isdigit()):
+        return int(value)
+    from . import connections
+
+    name = str(value or "").strip().lower()
+    targets = connections.targets(db, user, connections.AWS)
+    for key in ("label", "environment"):
+        found = [t["id"] for t in targets if t[key].lower() == name]
+        if len(found) == 1:
+            return found[0]
+    raise ResolveError(f"There is no AWS environment called {value!r} that you can reach.")
 
 
 def run(db: Session, user: models.User, manifest: pane_manifest.Manifest, spec_data: dict[str, Any],
@@ -396,14 +470,17 @@ def run(db: Session, user: models.User, manifest: pane_manifest.Manifest, spec_d
     conn = next((i for i in manifest.inputs if i.key == spec.connection), None)
     chosen = values.get(spec.connection)
     try:
-        params = _params(spec, values)
+        params = _listed(_params(spec, values), _botocore.get_service_model(spec.service).operation_model(operation)
+                         .input_shape)
     except timewindow.TimeRangeError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
 
     def one(account_id: str, region: str, identity: aws_client.Identity) -> dict[str, Any]:
         return call(spec.service, operation, params, account_id, region, identity, spec.paginate, spec.max_items)
 
-    if conn is not None and conn.type == "connections":
+    # Several connections -- unless one was given: a row action's, from the
+    # row's Environment.
+    if conn is not None and conn.type == "connections" and (chosen is None or isinstance(chosen, (list, set, tuple))):
         ids = sorted(chosen) if isinstance(chosen, set) else list(chosen or [])
         if not ids:
             raise HTTPException(status_code=400, detail="Pick an environment first.")
@@ -433,7 +510,7 @@ def run(db: Session, user: models.User, manifest: pane_manifest.Manifest, spec_d
     if chosen in (None, ""):
         raise HTTPException(status_code=400, detail="Pick an environment first.")
     try:
-        target = resolve_target(db, int(chosen), user)
+        target = resolve_target(db, connection_id(db, user, chosen), user)
         identity = resolve_identity(db, target, user)
     except (ResolveError, ValueError) as e:
         raise HTTPException(status_code=400, detail=masking.mask(str(e))) from None

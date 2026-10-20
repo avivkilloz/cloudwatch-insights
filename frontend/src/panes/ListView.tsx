@@ -312,6 +312,43 @@ export function ListView({ output, value, pane }: { output: ManifestOutput; valu
   );
 }
 
+/** A table's rows that open (D124): its `detail` fetched by a row action,
+ * which rows are open a view key (`expand`) like a list's. Keyed by row
+ * index, as the table's selection and `view.expanded` are. */
+export function useTableDetail(output: ManifestOutput, pane: PaneApi, rows: Values[]) {
+  const cfg = config(output);
+  const spec = detailActionOf(output);
+  const action = spec ? pane.m.actions.find((a) => a.id === spec.action) ?? NO_ACTION : NO_ACTION;
+  const viewKey = typeof cfg.expand === "string" ? cfg.expand : undefined;
+  const keyed = useMemo(() => rows.map((row, index) => ({ key: String(index), index, row: row as Row })), [rows]);
+  const cache = useDetailCache<Keyed, Row>({
+    keyOf: (r) => r.key,
+    fetchDetail: (r) => pane.runRow(action, argsOf(action, r)),
+    resetOn: pane.resultsVersion,
+  });
+  const expanded = expandedSet(pane, viewKey);
+  const expandedKey = [...expanded].sort((a, b) => a - b).join(",");
+  useEffect(() => {
+    if (!spec) return;
+    for (const r of keyed) if (expanded.has(r.index)) cache.loadOne(r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedKey, keyed]);
+  const opens = !!spec && !!viewKey;
+  return {
+    opens,
+    isOpen: (index: number) => opens && expanded.has(index),
+    toggle(index: number) {
+      if (!opens || !viewKey) return;
+      const next = new Set(expanded);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      pane.setView(viewKey, [...next].sort((a, b) => a - b));
+    },
+    detail: (index: number) =>
+      keyed[index] ? <FetchedDetail state={cache.stateFor(keyed[index])} sections={spec?.sections ?? []} pane={pane} /> : null,
+  };
+}
+
 function FetchedDetail({
   state,
   sections,
@@ -335,9 +372,14 @@ function FetchedDetail({
       </div>
     );
   }
+  // No sections: the detail as it came, rather than nothing at all.
   return (
     <div className="result-row-detail">
-      <DetailSections sections={sections} d={state.detail} pane={pane} rich />
+      {sections.length > 0 ? (
+        <DetailSections sections={sections} d={state.detail} pane={pane} rich />
+      ) : (
+        <pre className="tool-json-output">{JSON.stringify(state.detail, null, 2)}</pre>
+      )}
     </div>
   );
 }

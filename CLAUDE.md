@@ -68,6 +68,8 @@ backend/app/
   workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner,
                      approvals (§22)
   yaml_edit.py       changes to a definition's YAML by path, spliced and checked by meaning (D117)
+  row_paths.py       paths into a reply for a request's rows: dotted, [0], [Key=Name] (D124)
+  build_drafts.py    what's being built and not saved: text, Id and Building chat, per person (D125)
   step_types.py      step types made in the Builder: an HTTP request or a chain of steps, used by workflows (D122)
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
@@ -926,6 +928,27 @@ the platform, for a group with `builder_enabled` (admins always).
   A field a part can't have is reported with the fields it can
   (`builder._fields_at`). The loop's prompts are `.format()`ed even without
   placeholders: their braces are doubled.
+- **Drafts** (D125, `build_drafts.py`, `/api/build-drafts`,
+  `pages/buildDraft.tsx`'s `useBuildDraft`): each editor (pane, step,
+  workflow) keeps its text, a new one's Id and its Building chat as its
+  builder's own draft -- made by the first change, saved ~1 s after each and
+  on unmount, put back on opening (an existing one's only once its saved
+  text is in, or that load overwrote the draft). One per person per saved
+  thing (`target_id`, a partial unique index); a new one's are rows of their
+  own in the lists. The chat rides on the editor's `BuildFocus.draft`
+  (`saveTurns`, `keep` for a proposal arriving after the editor closed), so
+  a turn that outlives its editor still lands. Create/Save leaves only the
+  chat, moved onto the saved one (`changed: false`); deleting the thing
+  forgets everyone's drafts of it. Never the store's.
+- **Rows that open, and paths** (D124): a row action may be a `request`
+  (`routers/panes.run_row`; its detail is its one row, `{rows}`, or the
+  reply without `rows`), its connection by the row's `Environment` name
+  (`aws_request.connection_id`); a `table` takes `detail`/`expand` like a
+  list (`ListView.useTableDetail`). Reply paths are `row_paths` --
+  `[Key=Name]`, the CLI's `[?Key=='Name']` and its `| [0]`, nothing else of
+  JMESPath -- at run and in the offline check. A built pane's table/list
+  `config` and detail sections are held to `builder.CONFIG`/`SECTION_KEYS`:
+  keep them in step with what the renderer reads.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

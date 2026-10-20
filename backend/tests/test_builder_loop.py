@@ -166,7 +166,8 @@ def test_rows_that_name_what_the_reply_doesnt_have_are_said_with_what_it_does():
                and "Its lists are at: Functions" in m for m in wrong_at), wrong_at
     assert any("Its lists are at: Functions" in m for m in _check(ONE.replace("at: Functions", "at: functions")))
     wrong_column = _check(ONE.replace("Runtime: Runtime", "Runtime: runtime"))
-    assert any("Functions items have no runtime" in m and "Their fields: FunctionName" in m for m in wrong_column)
+    assert any("Functions items have no runtime: there is no runtime at the top (it has: FunctionName" in m
+               for m in wrong_column), wrong_column
     assert _check(ONE.replace("Memory: {from: MemorySize, as: number}", "Memory: {from: MemorySize.Nope, as: number}"))
 
 

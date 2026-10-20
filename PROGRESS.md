@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-20, Phase 5-3 (step types and workflows for builders; PLATFORM_PLAN.md §24, D121–D123)._
+_Last updated: 2026-10-20, Phase 5-3b (drafts of what's built, and rows that open; PLATFORM_PLAN.md §24, D124–D125)._
 
 ## Platform plan
 
@@ -1298,7 +1298,29 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: 5-3, step types and workflows for builders (PLATFORM_PLAN.md
+**This PR: drafts of what's built, and an EC2 pane the agent can build
+(PLATFORM_PLAN.md §24, D124–D125).** Two reports after #136.
+- Drafts (`build_drafts.py`, `build_drafts` table, `/api/build-drafts`,
+  `pages/buildDraft.tsx`): leaving the Builder (or a workflow's editor)
+  lost what was typed and the chat. Now each editor keeps its text, a new
+  one's Id and its Building chat as a draft, a moment after each change and
+  on leaving; a new one's draft is a row of its own in the list (Draft), a
+  saved one with changes is tagged; opened, it's put back as left, chat and
+  all. Create/Save keeps only the chat, as the saved one's; Discard goes
+  back to what's saved. Each person's own; never in the store.
+- EC2 (D124): the agent wrote `Tags[?Key == 'Name'].Value | [0]`, refused
+  four rounds running, and a table `on_select` nothing reads. Paths now
+  take `[Key=Name]` (and that JMESPath filter); the error says what a path
+  can be and isn't printed twice. A row action may be a request (its
+  connection from the row's Environment, a lone id made a list), a table's
+  rows open (`detail` + `expand`, as a list's), and a built pane's
+  table/list config and detail sections are checked against what the
+  renderer reads. The reference has `output config` and a worked example.
+- Tests: backend `test_build_drafts.py` (5), `test_row_detail.py` (9, the
+  user's YAML among them); browser `smoke101` (17) as a builder, failing
+  against the old frontend.
+
+**#136 merged. 5-3, step types and workflows for builders (PLATFORM_PLAN.md
 §24, D121–D123).** The last part of Phase 5.
 - Workflows: a builder makes them; theirs is their group's to edit and run
   (`owner_group_id`, a grant on creation); granting other groups stays an
