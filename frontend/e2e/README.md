@@ -66,6 +66,10 @@ builder group) needs nothing beyond the backend.
 workflow's editor, through the fake model's `build <label>` script) needs the
 agent and the fake model running.
 
+`smoke96` (the Builder's preview, as a builder without DynamoDB: an AWS
+request run in it, a live function, a refused handler) needs the faked
+backend too.
+
 `smoke95` (a Lambda pane type made in the Builder from an AWS request, run
 on two fake accounts) needs the faked backend (`dev.fake_aws`, its
 `/api/dev/fake-aws`).

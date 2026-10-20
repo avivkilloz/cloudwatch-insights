@@ -29,7 +29,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_request, catalogue, models, store
+from . import aws_request, catalogue, models, pane_access, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -171,6 +171,92 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
     return errors
 
 
+# ---------------------------------------------------------------- which handlers a builder may name (D113)
+
+
+def handler_owners() -> dict[str, set[str]]:
+    """Each handler, and the platform's own pane types that run it."""
+    owners: dict[str, set[str]] = {}
+    for m in pane_manifest.bundled().values():
+        for a in m.actions:
+            for name in (a.handler, a.poll.handler if a.poll else None, a.poll.stop if a.poll else None):
+                if name:
+                    owners.setdefault(name, set()).add(m.id)
+    return owners
+
+
+def usable_handlers(user: Any) -> set[str]:
+    """The handlers a built pane of this user's may run: those of the pane
+    types their group may use (admins: all). A built pane is granted to its
+    builder's group at once (D105), so a handler from a pane their group
+    wasn't given -- DynamoDB's scan, say -- reached what an admin hadn't
+    granted them."""
+    group = getattr(user, "group", None)
+    if group is not None and group.is_admin:
+        return set(pane_handlers.ACTIONS)
+    return {h for h, owners in handler_owners().items() if any(pane_access.allowed(group, o) for o in owners)}
+
+
+def access_errors(manifest: pane_manifest.Manifest, user: Any, source: str = "") -> list[dict]:
+    """Handlers in `manifest` its builder's group may not run, with their lines."""
+    usable = usable_handlers(user)
+    owners = handler_owners()
+    out = []
+    for i, a in enumerate(manifest.actions):
+        for path, name in ((("handler",), a.handler), (("poll", "handler"), a.poll.handler if a.poll else None),
+                           (("poll", "stop"), a.poll.stop if a.poll else None)):
+            if name and name in pane_handlers.ACTIONS and name not in usable:
+                labels = sorted(pane_manifest.bundled()[o].label for o in owners.get(name, ()))
+                whose = f" -- it's what {', '.join(labels)} run{'s' if len(labels) == 1 else ''}" if labels else ""
+                out.append({"line": _line(source, ("actions", i, *path)) if source else None,
+                            "message": f"Your group can't use the handler {name}{whose}, and your group isn't granted that."})
+    return out
+
+
+# ---------------------------------------------------------------- the preview (5-2c, D112)
+
+
+def preview(source: str, type_id: Optional[str], user: Any) -> pane_manifest.Manifest:
+    """The draft, checked as Check checks it and held to its builder's
+    handlers, ready to be drawn by the pane renderer: what the editor holds,
+    never saved and never granted to anyone."""
+    manifest = parse(source, type_id)
+    errors = access_errors(manifest, user, source)
+    if errors:
+        raise _fail(errors)
+    return manifest
+
+
+def run_preview(db: Session, user: Any, source: str, type_id: Optional[str], action_id: str,
+                inputs: dict[str, Any], cursor: Any = None) -> dict[str, Any]:
+    """One of the draft's actions, as its builder, through the very functions
+    a saved pane's actions go through (`run_request`/`run_handler`, D49):
+    the same identity, connection checks and masking. Nothing is stored: a
+    preview is in no session."""
+    from fastapi import HTTPException
+
+    from .routers import panes as panes_router
+
+    if not can_build(user):
+        raise HTTPException(status_code=403, detail="Building pane types isn't turned on for your group.")
+    try:
+        manifest = preview(source, type_id, user)
+    except BuilderError as e:
+        first = e.errors[0] if e.errors else {"message": str(e)}
+        where = f"Line {first['line']}: " if first.get("line") else ""
+        raise HTTPException(status_code=400, detail=f"The draft has a problem: {where}{first['message']}") from None
+    action = next((a for a in manifest.actions if a.id == action_id), None)
+    if action is None:
+        raise HTTPException(status_code=404, detail=f"The draft has no action {action_id}.")
+    if action.poll is not None:
+        raise HTTPException(status_code=400, detail="A background run can't be previewed: Create it, then Open in a session.")
+    if action.live is not None:
+        raise HTTPException(status_code=400, detail=f"{action_id} is worked out as you type, in the pane itself.")
+    if action.request is not None:
+        return panes_router.run_request(db, user, manifest, action, inputs, draft=True)
+    return panes_router.run_handler(db, user, manifest, action, inputs, cursor, draft=True)
+
+
 def _bump(db: Session) -> None:
     row = db.get(models.Setting, GENERATION_KEY)
     if row is None:
@@ -192,7 +278,9 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
             raise BuilderError(f"A pane type {type_id} already exists.")
     else:
         type_id = row.id
-    parse(source, type_id)
+    errors = access_errors(parse(source, type_id), user, source)
+    if errors:
+        raise _fail(errors)
     # Its file in the store names it, as a workflow's does (a restore reads the id there).
     from .workflows import ensure_id_line
 
@@ -291,13 +379,13 @@ def store_load(db: Session, data: dict, row: Optional[models.BuiltPaneType],
     return row
 
 
-def schema() -> dict[str, Any]:
+def schema(user: Any = None) -> dict[str, Any]:
     """What a definition may say, for the editor's reference (and the agent's,
     D72): the manifest's own JSON schema and the handlers and live functions
-    there are to name."""
+    there are to name -- the handlers this user's group may use (D113)."""
     return {
         "schema": pane_manifest.Manifest.model_json_schema(),
-        "handlers": sorted(pane_handlers.ACTIONS),
+        "handlers": sorted(usable_handlers(user) if user is not None else pane_handlers.ACTIONS),
         "live": sorted(pane_live.FUNCTIONS),
         "examples": sorted(pane_manifest.bundled()),
         "starter": STARTER,
@@ -411,7 +499,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "layout_item": _fields(m.LayoutItem),
             "input_types": list(m.InputType.__args__),
             "renders": list(m.Render.__args__),
-            "handlers": sorted(pane_handlers.ACTIONS),
+            "handlers": sorted(usable_handlers(user)),
             "live_functions": sorted(pane_live.FUNCTIONS),
             "examples": sorted(m.bundled()),
             "built_here": sorted(set(m.manifests()) - set(m.bundled())),
@@ -421,7 +509,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "An action is a request (a GET to a connection of an HTTP type, or with `service` any AWS read "
                 "API on an AWS connection), a handler from `handlers`, or a live function from `live_functions`. "
                 "A pane for an AWS service no handler covers is an AWS request: never say it can't be built.",
-                "read_definition shows any example's YAML; check_definition says every problem with its line.",
+                "read_definition shows any example's YAML; check_definition says every problem with its line; "
+                "preview_definition runs one of a draft's actions as the user, to see what its reply holds.",
+                "Handlers are only those listed here: the ones of pane types the user's group may use.",
             ],
         }
     usable = [x for x in pane_manifest.manifests().values() if pane_access.allowed(user.group, x.id)]

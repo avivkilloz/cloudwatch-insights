@@ -1145,7 +1145,7 @@ foundation the next one needs.
     the agent starting and reading runs, the approval step shared with the
     agent, and the doors between runs and sessions.
   - **4c, published templates** (D76, §20.8; detailed in §23, D99–D102; built 2026-10-19).
-- [ ] **Phase 5: The builder** (three PRs, §24, D103–D111; 5-1, pane types as YAML, 5-2's agent build tools and 5-2b's AWS requests, built 2026-10-19). A per-group grant (D71); declarative HTTP steps,
+- [ ] **Phase 5: The builder** (three PRs, §24, D103–D113; 5-1, pane types as YAML, 5-2's agent build tools, 5-2b's AWS requests and 5-2c's preview built). A per-group grant (D71); declarative HTTP steps,
   composed steps, and the pane builder with live preview; the form and YAML
   editors (D73); the agent's build tools (D72).
 - [ ] **Phase 6: The isolated runner and code steps.** A separate runner service,
@@ -1281,6 +1281,8 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D108 | 2026-10-19 | **What the agent needs to build is read, not written down**: the turn reads `build_reference` (generated from the strict models and the registries) and the editor's text before the model speaks; examples are the bundled and saved definitions (`read_definition`); its mistakes come back from the same check as Check's. The backend's MCP is enough -- no separate documentation for the agent, no per-service hints. | Documentation drifts from the models; the models, the examples and the check's errors can't. It also holds for a plugin's panes, which bring their own manifests. |
 | D110 | 2026-10-19 | **Any AWS read API is a manifest's data, not a handler** (§24): a `request` with `service`/`operation` on an AWS connection, typed params, pagination, the same rows; reads only, minus a denylist of operations that hand out credentials or secrets, checked when built and on every call; writes wait for approvals on panes. | A builder asked for a Lambda pane and there was no handler; a handler per service is the per-service code plugins exist to end (D67 did it for HTTP). botocore's own models check names and parameters offline. |
 | D111 | 2026-10-19 | **A built pane's YAML may name it by its short name** (`lambda` for `default:lambda`, D78), and **Check checks the whole draft**, its id held to the Id typed above as Create will save it. | The id line was compared with "draft", failed first, and Check dropped that error -- so nothing after it was checked, and a draft with an `id:` line read as clean whatever it said. |
+| D112 | 2026-10-20 | **The preview is the real renderer drawing the draft, its actions run by the server as the builder, nothing stored** (§24): the draft's manifest is served by `/api/builder/preview`, the pane is in no session, and its actions go to a draft endpoint through the same runners with `draft=True` (the pane access a draft can't have yet is the Builder grant, D113 holding its handlers). The form editor moves to 5-2d. | A second renderer for previews would drift from the one panes use; a scratch session would put a draft in the registry, the store and other replicas. The preview is what makes the YAML usable; a form is its own piece of work. |
+| D113 | 2026-10-20 | **A built pane runs only handlers of pane types its builder's group may use** (`builder.usable_handlers`, by the bundled panes that run each; admins all): checked by Check, Preview, Save and the agent, and the handler lists show only those. | A built pane is its builder's group's at once (D105), so naming DynamoDB's scan reached a table the admin never granted that group. HTTP and AWS requests need no such rule: they run as the group's own identity on connections it sees. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4721,9 +4723,21 @@ Three PRs (D104), each with something to try:
   call; a streamed reply is refused. A Lambda pane is a manifest now -- the
   agent's `build_reference` carries one whole. On the way: Check checked
   nothing past a draft's `id:` line (D111).
-- **5-2c, the form and the preview**: a form editor over the same definition
-  (D73), and a preview that draws the draft beside the editor and runs its
-  actions on a real connection as the builder -- a tool the agent gets too.
+- **5-2c, the preview** (built, D112-D113): the Builder's Preview draws the
+  draft beside the editor with the renderer every pane uses (ManifestPane
+  given the draft's manifest, in no session, so its outputs stay in the tab),
+  and its server actions go, with the text it was drawn from, to
+  `/api/builder/preview/actions/{id}` (an `ActionRunnerContext` the renderer
+  reads its runner from) -- through `run_request`/`run_handler` with
+  `draft=True`, as the builder, nothing stored. A live function runs as you
+  type; a background run is tried once saved. Typing after it marks the
+  preview older. The agent's `preview_definition` runs one action of a draft
+  and returns a sample of what came back, so it shapes rows from the reply
+  it really gets. On the way (D113): a builder names only handlers of pane
+  types their group may use -- Check, Preview, Save, the agent's check and
+  the lists of handlers all say so.
+- **5-2d, the form**: a form editor over the same definition (D73), beside
+  the YAML.
 - **5-3, steps and workflows for builders**: workflows editable by a
   group's Builder, not only admins; declarative HTTP steps and composed
   steps (§20.3) reusable across workflows.

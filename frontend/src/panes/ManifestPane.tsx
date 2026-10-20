@@ -26,8 +26,9 @@
  * a table describes it; clicking a folder opens it), with the new values.
  */
 
-import { Dispatch, ReactNode, SetStateAction, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Dispatch, ReactNode, SetStateAction, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, ApiError, CredentialSummary, Environment, PaneOutputs, readableError, Target, WorkflowParam } from "../api";
+import { ActionRunnerContext } from "./actionRunner";
 import ExportMenu from "../components/ExportMenu";
 import { PaneSelectionShare } from "../components/paneSelection";
 import RestoredResultsNote from "../components/RestoredResultsNote";
@@ -121,8 +122,10 @@ function textIn(text: Parameters<typeof textOf>[0], pane: Pane): string {
   return render(shown, { in: pane.inputs, sel });
 }
 
-export default function ManifestPane({ type }: { type: string }) {
-  const m = findManifest(type);
+/** `manifest`: one to draw instead of the loaded one -- the Builder's preview
+ * of a draft no server knows as a pane type yet (D112). */
+export default function ManifestPane({ type, manifest: given }: { type: string; manifest?: PaneManifest }) {
+  const m = given ?? findManifest(type);
   if (!m) {
     return (
       <div className="panel">
@@ -173,6 +176,7 @@ function placedErrors(m: PaneManifest): Set<string> {
 }
 
 function Rendered({ m }: { m: PaneManifest }) {
+  const runAction = useContext(ActionRunnerContext) ?? api.runPaneAction;
   // A manifest never changes while its pane is mounted, so the number of
   // hooks below is fixed for the component's life.
   const stored = m.inputs.filter((i) => !i.sensitive).map((i) => [i, useStoredInput(i)] as const);
@@ -389,7 +393,7 @@ function Rendered({ m }: { m: PaneManifest }) {
   async function runRow(action: ManifestAction, args: Values): Promise<Values> {
     const message = missingInput(action, args);
     if (message) throw new Error(message);
-    return api.runPaneAction(m.id, action.id, plain(args) as Values);
+    return runAction(m.id, action.id, plain(args) as Values);
   }
 
   /** Where the server stores what an action returns: this pane of its
@@ -405,11 +409,11 @@ function Rendered({ m }: { m: PaneManifest }) {
    * action made each one a round trip slower. */
   async function runStored(action: ManifestAction, sent: Values, cursor: unknown, where: ReturnType<typeof storedIn>) {
     try {
-      return await api.runPaneAction(m.id, action.id, sent, cursor, where);
+      return await runAction(m.id, action.id, sent, cursor, where);
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 409 && where)) throw e;
       await flushAll();
-      return api.runPaneAction(m.id, action.id, sent, cursor, where);
+      return runAction(m.id, action.id, sent, cursor, where);
     }
   }
 
@@ -440,7 +444,7 @@ function Rendered({ m }: { m: PaneManifest }) {
         // (one added a moment ago is still in the debounced save).
         await flushAll();
         const timezone = hasTimeRange(m) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-        const result = await api.runPaneAction(m.id, action.id, sent, undefined, {
+        const result = await runAction(m.id, action.id, sent, undefined, {
           session: address.session,
           pane: address.pane,
           ...(timezone ? { timezone } : {}),

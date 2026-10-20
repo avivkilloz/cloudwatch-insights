@@ -76,12 +76,12 @@ def _guard(fn):
 
 
 @router.get("/schema")
-def schema(db: Session = Depends(get_db), _user: models.User = Depends(_builder)) -> dict[str, Any]:
+def schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)) -> dict[str, Any]:
     # The store's namespace, so the editor can say what a new id is saved as
     # (`lambda` -> `default:lambda`, D78) before Create says it in an error.
     from .. import store
 
-    return {**builder.schema(), "namespace": store.namespace(db)}
+    return {**builder.schema(user), "namespace": store.namespace(db)}
 
 
 @router.get("/examples/{type_id}")
@@ -106,7 +106,7 @@ def get_pane(type_id: str, db: Session = Depends(get_db), _user: models.User = D
 
 
 @router.post("/check", response_model=CheckOut)
-def check(payload: SourceIn, db: Session = Depends(get_db), _user: models.User = Depends(_builder)):
+def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import store
 
     type_id = payload.id
@@ -116,10 +116,51 @@ def check(payload: SourceIn, db: Session = Depends(get_db), _user: models.User =
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
     try:
-        builder.parse(payload.source, type_id)
+        builder.preview(payload.source, type_id, user)
     except builder.BuilderError as e:
         return {"ok": False, "errors": e.errors}
     return {"ok": True, "errors": []}
+
+
+class PreviewOut(BaseModel):
+    ok: bool
+    errors: list[dict] = []
+    # The draft as /api/pane-types serves a pane type, for the renderer to draw.
+    manifest: Optional[dict[str, Any]] = None
+
+
+@router.post("/preview", response_model=PreviewOut)
+def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+    """The draft, checked, as a pane type the editor's preview draws (D112)."""
+    from .. import store
+
+    type_id = payload.id
+    if type_id is None and payload.new_id:
+        try:
+            type_id = store.full_id(db, payload.new_id, builder.ID_RE)
+        except store.StoreError as e:
+            return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
+    try:
+        manifest = builder.preview(payload.source, type_id, user)
+    except builder.BuilderError as e:
+        return {"ok": False, "errors": e.errors}
+    return {"ok": True, "manifest": manifest.model_dump(by_alias=True, exclude_none=True)}
+
+
+class PreviewRun(BaseModel):
+    source: str
+    id: Optional[str] = None
+    inputs: dict[str, Any] = {}
+    cursor: Any = None
+    timezone: Optional[str] = None
+
+
+@router.post("/preview/actions/{action_id}")
+def preview_action(action_id: str, payload: PreviewRun, db: Session = Depends(get_db),
+                   user: models.User = Depends(_builder)) -> dict[str, Any]:
+    """One of the draft's actions, run as its builder; nothing stored (D112)."""
+    inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
+    return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor)
 
 
 @router.post("/panes", response_model=PaneTypeOut, status_code=201)

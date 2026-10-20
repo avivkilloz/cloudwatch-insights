@@ -91,14 +91,19 @@ def run_handler(
     action: pane_manifest.ManifestAction,
     inputs: dict[str, Any],
     cursor: Any = None,
+    draft: bool = False,
 ) -> dict[str, Any]:
     """A handler action (§16.3.1), for the browser and the agent alike: the
     group's flag, the manifest's `requires`, then the handler, whose own
-    checks (connection, identity) answer in sentences a user can act on."""
+    checks (connection, identity) answer in sentences a user can act on.
+    `draft`: a pane type being built, not yet granted to anyone -- its
+    builder's preview (D112), whose handlers builder.access_errors held to the
+    ones their group may use instead."""
     # The group's grant of this pane type (D65), whoever is asking: the action endpoint and the agent
     # both check it first, but a handler never runs without it either.
     try:
-        pane_access.require(user, manifest.id, manifest.label)
+        if not draft:
+            pane_access.require(user, manifest.id, manifest.label)
     except ResolveError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     # An input never set is its default, as the pane shows it: a pane the
@@ -165,6 +170,7 @@ def run_request(
     manifest: pane_manifest.Manifest,
     action: pane_manifest.ManifestAction,
     values: dict[str, Any],
+    draft: bool = False,
 ) -> dict[str, Any]:
     """A declarative HTTP request (§15.7, D67): a GET on a connection of any
     HTTP type -- the API table's HTTP API, an admin's or a manifest's own --
@@ -174,7 +180,8 @@ def run_request(
     from ..platform_tools.panes import InputError, extract_rows, request_rows
 
     try:
-        pane_access.require(user, manifest.id, manifest.label)
+        if not draft:  # a builder's preview (D112), as run_handler's
+            pane_access.require(user, manifest.id, manifest.label)
     except ResolveError as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
     spec = action.request or {}

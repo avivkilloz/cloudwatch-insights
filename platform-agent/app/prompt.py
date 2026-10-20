@@ -105,8 +105,11 @@ Everything asked here is about building it. What a {noun}'s definition may say \
 this turn and are attached to the latest message -- the editor's text is the \
 user's, possibly unsaved, and newer than anything said earlier. To learn how \
 something is done, read_definition shows an existing one's YAML. Write the \
-whole definition, check it with check_definition until it has no problems, \
-then put it in the editor with propose_definition -- that replaces the editor's \
+whole definition, check it with check_definition until it has no problems; \
+for a pane type that reaches a connection, run its action once with \
+preview_definition and read what the reply really holds (where the rows are, \
+what the fields are called) before shaping its rows. Then put it in the \
+editor with propose_definition -- that replaces the editor's \
 text, so keep what the user wrote that you weren't asked to change. You can't \
 save it: the user reviews it and saves. Say in a sentence or two what you \
 changed; don't paste the YAML into the chat unless asked. Never invent a \

@@ -1298,6 +1298,18 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
+**#131 merged. 5-2c: the Builder's preview (PLATFORM_PLAN.md §24,
+D112–D113).**
+- Preview draws the draft beside the editor with the renderer every pane uses;
+  its actions run as the builder through the same runners (`draft=True`),
+  nothing stored; live functions as you type; a stale preview says so. The
+  agent's `preview_definition` tries a draft's action and reads a sample.
+- A builder names only handlers of pane types their group may use (D113) --
+  a built pane is its group's at once, so DynamoDB's scan reached past the
+  admin's grants. The form editor is 5-2d.
+- Tests: backend `test_builder_preview.py` (5); browser `smoke96` (10,
+  failing against the old frontend).
+
 **#130 merged. 5-2b: any AWS read API as data (PLATFORM_PLAN.md §24,
 D110–D111).** The user's builder agent couldn't make a Lambda pane -- no
 handler -- and the user wants any pane type buildable without per-service code.
@@ -1538,8 +1550,8 @@ assistant's and are gone.
 
 ## Next steps, in order
 
-1. Phase 5-2c (PLATFORM_PLAN.md §24): the Builder's form editor and a live
-   preview of the draft on a real connection (a tool the agent gets too);
+1. Phase 5-2d (PLATFORM_PLAN.md §24): the Builder's form editor beside the
+   YAML;
    then 5-3, workflows and steps for builders. Scheduled and webhook runs
    (acting as the workflow's owner, D81) are still to come.
 2. Run `platform-agent/evals` against the real model (the user's LiteLLM) and
