@@ -59,6 +59,77 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: agent
 {{- end }}
 
+{{- define "cloudwatch-insights.builder.fullname" -}}
+{{ include "cloudwatch-insights.fullname" . }}-builder
+{{- end }}
+
+{{- define "cloudwatch-insights.builder.selectorLabels" -}}
+{{ include "cloudwatch-insights.selectorLabels" . }}
+app.kubernetes.io/component: builder
+{{- end }}
+
+{{/* The agent container's environment: the agent's Deployment and the
+Builder's own (agent.builder.deployment) are the same image, configured alike. */}}
+{{- define "cloudwatch-insights.agent.env" -}}
+- name: PLATFORM_MCP_URL
+  value: "http://{{ include "cloudwatch-insights.backend.fullname" . }}:{{ .Values.backend.service.port }}/mcp"
+- name: LITELLM_BASE_URL
+  value: {{ .Values.backend.ai.baseUrl | quote }}
+- name: AGENT_MODEL
+  value: {{ default .Values.backend.ai.model .Values.agent.model | quote }}
+- name: LITELLM_API_KEY
+  {{- if .Values.backend.ai.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.backend.ai.existingSecret }}
+      key: {{ .Values.backend.ai.existingSecretKey }}
+  {{- else }}
+  value: {{ .Values.backend.ai.apiKey | quote }}
+  {{- end }}
+- name: AGENT_MAX_STEPS
+  value: {{ .Values.agent.maxSteps | quote }}
+{{- if ne (toString .Values.agent.temperature) "" }}
+- name: AGENT_TEMPERATURE
+  value: {{ .Values.agent.temperature | quote }}
+{{- end }}
+{{- if .Values.agent.maxTokens }}
+- name: AGENT_MAX_TOKENS
+  value: {{ .Values.agent.maxTokens | quote }}
+{{- end }}
+- name: AGENT_CHECK
+  value: {{ ternary "on" "off" .Values.agent.check.enabled | quote }}
+- name: AGENT_BUILDER
+  value: {{ .Values.agent.builder.mode | quote }}
+{{- if .Values.agent.builder.model }}
+- name: AGENT_BUILDER_MODEL
+  value: {{ .Values.agent.builder.model | quote }}
+{{- end }}
+{{- if ne (toString .Values.agent.builder.temperature) "" }}
+- name: AGENT_BUILDER_TEMPERATURE
+  value: {{ .Values.agent.builder.temperature | quote }}
+{{- end }}
+{{- if .Values.agent.builder.maxTokens }}
+- name: AGENT_BUILDER_MAX_TOKENS
+  value: {{ .Values.agent.builder.maxTokens | quote }}
+{{- end }}
+- name: AGENT_BUILDER_ROUNDS
+  value: {{ .Values.agent.builder.rounds | quote }}
+{{- if .Values.agent.check.model }}
+- name: AGENT_CHECK_MODEL
+  value: {{ .Values.agent.check.model | quote }}
+{{- end }}
+{{- if .Values.agent.serviceKey.existingSecret }}
+- name: AGENT_SERVICE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.agent.serviceKey.existingSecret }}
+      key: {{ .Values.agent.serviceKey.existingSecretKey }}
+{{- end }}
+{{- with .Values.agent.extraEnv }}
+{{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}
+
 {{- define "cloudwatch-insights.backend.selectorLabels" -}}
 {{ include "cloudwatch-insights.selectorLabels" . }}
 app.kubernetes.io/component: backend

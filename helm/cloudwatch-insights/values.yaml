@@ -290,6 +290,28 @@ agent:
     enabled: true
     model: ""
 
+  # The Builder's agent (PLATFORM_PLAN.md D116): a turn beside the Builder's
+  # or a workflow's editor. `loop` runs it as a loop the code drives -- plan,
+  # read the AWS operations and examples it names, change the draft by path,
+  # check, send any problem back (up to `rounds` times), put it in the editor
+  # -- with the model asked only for one JSON object at a time; `agent` is the
+  # chat agent with build tools, as before. Building is where a stronger model
+  # pays for itself: `model` empty means agent.model. `maxTokens` caps one
+  # reply (a whole set of changes); empty for the model's own.
+  builder:
+    mode: loop
+    model: ""
+    temperature: ""
+    maxTokens: ""
+    rounds: 4
+    # Run it as a Deployment of its own (the same image): build turns go
+    # there, so a long build never shares a pod with chat turns, and its
+    # replicas and resources are its own (`resources` empty: agent.resources).
+    deployment:
+      enabled: false
+      replicaCount: 1
+      resources: {}
+
   # Optional: a key shared by the backend and the agent, so nothing else in
   # the cluster can call the agent (and spend the model's budget). An existing
   # Secret, so it stays the same across upgrades and ArgoCD syncs:

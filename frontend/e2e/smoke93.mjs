@@ -1,6 +1,7 @@
-// The agent builds beside the editor (PLATFORM_PLAN.md §24, 5-2, D107), as an
-// admin, with the fake model's "build <label>" script (it renames what's in
-// the editor, checks it and proposes it):
+// The agent builds beside the editor (PLATFORM_PLAN.md §24, 5-2, D107; the
+// Builder's loop, D116), as an admin, with the fake model's "build <label>"
+// script (it renames what's in the editor, by path; the loop checks it and
+// proposes it):
 //   - opening the Builder's editor makes the agent panel's second tab
 //     "Building", selected, its intro naming what's open;
 //   - asked there, the agent reads what a definition can say and the editor's
@@ -79,7 +80,7 @@ const run = async () => {
   await page.waitForSelector('.builder-notice:text-is("No problems found.")', { timeout: 5000 });
   check(true, "Started from the IoT pane, the draft checks clean as it comes");
   const edited = await ask(page, `rename IoT plus ${STAMP}`);
-  check(edited.includes("Edited the draft") && edited.includes("Put a draft in the editor"), "The agent changes it with an edit, then proposes the draft", edited);
+  check(edited.includes("Changed the draft") && edited.includes("Put a draft in the editor"), "The agent changes it by path, then proposes the draft", edited);
   const iot = await page.inputValue("#builder-source");
   check(iot.includes(`label: IoT plus ${STAMP}`) && iot.includes("searchMode") && iot.includes("aws.iot.search"),
     "…and the editor holds IoT with only that changed", iot.slice(0, 120));

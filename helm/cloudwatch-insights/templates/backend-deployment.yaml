@@ -75,6 +75,11 @@ spec:
             # Where the backend relays chat turns (/api/agent/chat).
             - name: AGENT_URL
               value: "http://{{ include "cloudwatch-insights.agent.fullname" . }}:{{ .Values.agent.service.port }}"
+            {{- if .Values.agent.builder.deployment.enabled }}
+            # Where turns beside an editor go: the Builder's own agent (D116).
+            - name: AGENT_BUILDER_URL
+              value: "http://{{ include "cloudwatch-insights.builder.fullname" . }}:{{ .Values.agent.service.port }}"
+            {{- end }}
             {{- if .Values.agent.serviceKey.existingSecret }}
             - name: AGENT_SERVICE_KEY
               valueFrom:

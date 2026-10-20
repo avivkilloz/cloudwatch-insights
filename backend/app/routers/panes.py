@@ -188,7 +188,7 @@ def run_request(
     # A request to an AWS connection names its service and operation (D110):
     # any read API, as the caller, through the same pane access as this.
     if aws_request.is_aws(spec):
-        return aws_request.run(db, user, manifest, spec, values)
+        return written(spec, aws_request.run(db, user, manifest, spec, values))
     if (spec.get("method") or "GET").upper() != "GET":
         raise HTTPException(status_code=400, detail="Only GET requests can run from a pane for now.")
     connection_id = values.get(spec.get("connection", ""))
@@ -249,7 +249,29 @@ def run_request(
             rows = request_rows(response, str(values.get(spec.get("rows_at", "")) or ""))
     except InputError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
-    return {"rows": rows, "response": response}
+    return written(spec, {"rows": rows, "response": response})
+
+
+def written(spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """A request's outputs as its manifest names them: `rows` and `response`,
+    or -- with `output: jobs` -- its rows in that output alone (and the
+    connections that failed in `error`). Every request wrote `rows` and
+    cleared the whole pane, so a pane with two (IoT with its jobs and its
+    rules) lost one list whenever the other was fetched."""
+    key = spec.get("output")
+    if not key:
+        return result
+    out: dict[str, Any] = {key: result.get("rows") or []}
+    if "error" in result:
+        out["error"] = result["error"]
+    return out
+
+
+def request_keys(action: pane_manifest.ManifestAction) -> Optional[set[str]]:
+    """The outputs a request action replaces: its own `output` (and `error`),
+    or None -- all of them -- for one that writes `rows`."""
+    key = (action.request or {}).get("output")
+    return {key, "error"} if key else None
 
 
 @router.post("/panes/{type_id}/actions/{action_id}")
@@ -302,7 +324,7 @@ def apply_outputs(
     if not load_more:
         stale += [ref.split(".", 1)[1] for ref in action.resets or [] if ref.startswith("out.")]
     if action.request is not None:
-        stale += list(keys)
+        stale += list(request_keys(action) or keys)
     for key in stale:
         if key != "resultsVersion":
             values.pop(key, None)

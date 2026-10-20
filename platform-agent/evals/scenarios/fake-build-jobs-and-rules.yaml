@@ -1,0 +1,14 @@
+name: fake-build-jobs-and-rules
+tags: [fake]
+about: >-
+  For the scripted model (dev/fake_llm.py), to check the runner's build scenarios: its "add jobs and rules" gets
+  the jobs' rows wrong first, is told by the check, and fixes them.
+build:
+  kind: pane
+  start: iot
+messages:
+  - "add jobs and rules"
+expect:
+  - proposed:
+      checks: true
+      contains: ["operation: ListJobs", "operation: ListTopicRules", "at: jobs\n"]

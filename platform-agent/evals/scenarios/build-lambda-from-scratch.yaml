@@ -1,0 +1,14 @@
+name: build-lambda-from-scratch
+about: >-
+  A pane type for a service no handler covers, from an empty editor: it has to be an AWS request, with its rows
+  where ListFunctions keeps them.
+build:
+  kind: pane
+  source: ""
+  title: New pane type
+messages:
+  - "Make me a pane that lists the Lambda functions in the environments I pick, with their runtime and memory."
+expect:
+  - proposed:
+      checks: true
+      contains: ["service: lambda", "ListFunctions", "Functions"]

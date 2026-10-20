@@ -31,4 +31,15 @@ def test_a_failed_expectation_says_what_was_there():
 def test_tagged_scenarios_run_only_when_asked_for():
     untagged = {s["name"] for s in load([], [])}
     assert "mqtt-connect-and-subscribe" in untagged and "fake-pretend-connect" not in untagged
-    assert {s["name"] for s in load([], ["fake"])} == {"fake-pretend-connect"}
+    assert {s["name"] for s in load([], ["fake"])} == {"fake-pretend-connect", "fake-build-jobs-and-rules"}
+
+
+def test_a_build_scenario_is_judged_on_what_reached_the_editor():
+    scenario = {"expect": [{"proposed": {"checks": True, "contains": ["ListJobs", "ListTopicRules"]}}]}
+    nothing = judge(scenario, [Turn(answer="I need to add the outputs first.")], {}, {})
+    assert nothing == ["Nothing was put in the editor."]
+    half = Turn(proposed="operation: ListJobs\n")
+    failures = judge(scenario, [half], {}, {}, {"ok": False, "errors": [{"message": "no output jobs"}]})
+    assert failures == ["What's in the editor doesn't check clean: no output jobs", "What's in the editor has no 'ListTopicRules'."]
+    whole = Turn(proposed="operation: ListJobs\noperation: ListTopicRules\n")
+    assert judge(scenario, [Turn(), whole], {}, {}, {"ok": True, "errors": []}) == []

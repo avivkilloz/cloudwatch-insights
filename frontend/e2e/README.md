@@ -63,11 +63,18 @@ environment, run the CloudWatch pane it made) need the faked backend too.
 builder group) needs nothing beyond the backend.
 
 `smoke93` (the agent panel's Building tab beside the Builder's and a
-workflow's editor, through the fake model's `build <label>` script) needs the
-agent and the fake model running.
+workflow's editor, through the fake model's `build <label>` script, run by the
+Builder's loop) needs the agent and the fake model running.
 
 `smoke97` (the Builder's form over the starter: edits back in the YAML as
 only the lines changed) needs nothing beyond the backend.
+
+`smoke98` (the Builder's loop: IoT's jobs and rules added beside the editor
+through the fake model's `add jobs and rules`, a problem the check found sent
+back and fixed, then both lists fetched into their own tables) needs the
+agent, the fake model and the faked backend (`/api/dev/fake-aws` answers iot
+`ListJobs`/`ListTopicRules`). Ids are `[a-z][a-z0-9_]*`: a suite's `-` in one
+fails Create.
 
 `smoke96` (the Builder's preview, as a builder without DynamoDB: an AWS
 request run in it, a live function, a refused handler) needs the faked

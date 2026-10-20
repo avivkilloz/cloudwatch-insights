@@ -1,0 +1,17 @@
+name: build-iot-jobs-and-rules
+about: >-
+  The conversation that made the Builder a loop of its own (D116): started from the IoT pane, asked for its jobs
+  and rules beside its things and certificates. The chat agent read the draft again and again, missed its edits,
+  said "I need to add the outputs first" and stopped. What reaches the editor must check clean and hold both
+  lists, each a request of its own into an output of its own.
+build:
+  kind: pane
+  start: iot
+  title: New pane type
+messages:
+  - >-
+    I need to build a new iot pane that in addition to things and certificates we can also see rules and jobs
+expect:
+  - proposed:
+      checks: true
+      contains: ["ListJobs", "ListTopicRules", "output: "]

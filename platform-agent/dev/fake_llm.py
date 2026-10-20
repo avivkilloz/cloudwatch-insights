@@ -52,6 +52,20 @@ Scripts (the user's message decides):
                       session's first pane that takes one.
 - anything else    -- a short reply, no tools.
 
+Beside an editor, the Builder's loop (app/builder.py, D116) asks for one JSON
+object per call; it is answered by the user's request, from the Builder's own
+prompts (`_builder`):
+- "build <label>" / "rename <label>" -- the label set, by path.
+- "add jobs and rules" -- reads iot ListJobs and ListTopicRules, then adds both
+                      lists (action, output, card each) with the jobs' rows
+                      at a path the reply doesn't have; told so by the
+                      check, it sets the right one.
+- "never clean"    -- a change that names an output never declared, every
+                      round: the draft goes in the editor with its problems.
+- "explain …"      -- a question: answered, nothing changed.
+- "impossible …"   -- gives up, saying why.
+- "garbled …"      -- prose instead of JSON first; asked again, the label.
+
 It also stands in for the answer check (app/check.py), which it knows by its
 instructions: an answer saying "connected and/now" is unsupported unless a session
 afterwards shows a run "running", and a request to connect is not done
@@ -80,6 +94,7 @@ app = FastAPI(title="Fake model")
 READS_MARK = "\n\n---\n[Read by the platform for this message"
 NUDGE_MARK = "(From the platform, not the user:"
 CHECK_MARK = "You check an AI agent's answer against what it actually did."
+BUILDER_MARK = "You are the platform's Builder."
 
 STEP_DELAY = float(os.environ.get("FAKE_LLM_STEP_DELAY", "0"))
 SLOW_STEP_SECONDS = 2.5
@@ -403,6 +418,69 @@ def _check(evidence: str) -> dict:
     return {"verdict": "ok", "problems": []}
 
 
+JOBS = {
+    "id": "list_jobs", "run_label": "List jobs",
+    "request": {"connection": "connections", "service": "iot", "operation": "ListJobs", "paginate": True,
+                "output": "jobs",
+                "rows": {"at": "jobs.items", "columns": {"Job": "jobId", "Status": "status",
+                                                         "Created": {"from": "createdAt", "as": "time"}}}},
+}
+RULES = {
+    "id": "list_rules", "run_label": "List rules",
+    "request": {"connection": "connections", "service": "iot", "operation": "ListTopicRules", "paginate": True,
+                "output": "rules",
+                "rows": {"at": "rules", "columns": {"Rule": "ruleName", "Topic": "topicPattern",
+                                                    "Disabled": "ruleDisabled"}}},
+}
+
+
+def _card(title: str, action: str, output: str) -> dict:
+    return {"title": title, "items": [{"toolbar": [{"action": action}]}, {"output": output}]}
+
+
+def _builder(messages: list[dict]) -> str:
+    """The Builder's loop (app/builder.py), one JSON object per call."""
+    asked = next(_content(m) for m in reversed(messages) if m.get("role") == "user" and "The user's request: " in _content(m))
+    request = asked.rsplit("The user's request: ", 1)[1].split("\n\n", 1)[0].strip()
+    lowered = request.lower()
+    retried = _content(messages[-1]).startswith("(From the platform: that reply wasn't")
+    phase = "plan" if "First, decide." in asked else ("repair" if "Reply with the changes that fix this" in asked else "change")
+    label = request.split(" ", 1)[1] if " " in request else request
+    if lowered.startswith("garbled") and phase == "plan" and not retried:
+        return "Sure! I'll rename it for you."
+    if lowered.startswith("explain"):
+        return json.dumps({"change": False, "answer": "rows.at says where the reply keeps its list.", "lookups": []})
+    if phase == "plan":
+        lookups = []
+        if "jobs and rules" in lowered:
+            lookups = [{"service": "iot", "operation": "ListJobs"}, {"service": "iot", "operation": "ListTopicRules"}]
+        return json.dumps({"change": True, "plan": f"Do this: {request}.", "lookups": lookups, "examples": []})
+    if lowered.startswith("impossible"):
+        return json.dumps({"give_up": "That needs a handler the platform doesn't have."})
+    if "jobs and rules" in lowered:
+        if phase == "repair":
+            # Told where ListJobs keeps its list (the check names it).
+            fix = "jobs" if "lists are at: jobs" in asked else "jobs.items"
+            return json.dumps({"summary": "Added the jobs and rules lists.", "changes": [
+                {"op": "set", "path": "actions/list_jobs/request/rows/at", "value": fix}]})
+        return json.dumps({"summary": "Added the jobs and rules lists, each with its own card.", "changes": [
+            {"op": "set", "path": "label", "value": "IoT, jobs and rules"},
+            {"op": "add", "path": "actions", "value": JOBS},
+            {"op": "add", "path": "actions", "value": RULES},
+            {"op": "add", "path": "outputs", "value": {"key": "jobs", "render": "table"}},
+            {"op": "add", "path": "outputs", "value": {"key": "rules", "render": "table"}},
+            {"op": "add", "path": "layout", "value": _card("Jobs", "list_jobs", "jobs")},
+            {"op": "add", "path": "layout", "value": _card("Rules", "list_rules", "rules")},
+        ]})
+    if lowered.startswith("never clean"):
+        return json.dumps({"summary": "Added a card.", "changes": [
+            {"op": "add", "path": "layout", "value": {"title": f"Card {len(messages)}", "items": [{"output": "nothing"}]}}]})
+    return json.dumps({"summary": f"Renamed it {label}.", "changes": [{"op": "set", "path": "label", "value": label}]})
+
+
+BUILDS: list[dict] = []
+
+
 @app.post("/chat/completions")
 @app.post("/v1/chat/completions")
 async def completions(request: Request):
@@ -419,6 +497,19 @@ async def completions(request: Request):
                 "created": int(time.time()),
                 "model": body.get("model", "fake"),
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": verdict}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        )
+    if sent and sent[0].get("role") == "system" and _content(sent[0]).startswith(BUILDER_MARK):
+        BUILDS.append(body)
+        del BUILDS[:-40]
+        return JSONResponse(
+            {
+                "id": "chatcmpl-fake-build",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": body.get("model", "fake"),
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": _builder(sent)}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             }
         )

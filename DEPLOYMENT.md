@@ -306,6 +306,16 @@ Things worth knowing:
   different, cheaper model for it -- it only reads and judges, at
   temperature 0). Turn it off to save that call; answers then go out
   unchecked, as before.
+- Turns beside the Builder's (or a workflow's) editor are the **Builder's
+  loop** (`agent.builder`): the code plans, changes, checks and fixes, asking
+  the model only for one JSON object at a time. Building is where a stronger
+  model pays for itself: `agent.builder.model` (else `agent.model`),
+  `agent.builder.maxTokens` for a whole set of changes, `agent.builder.rounds`
+  (4) for how often a draft with problems goes back. To give it pods of its
+  own, the same image, set `agent.builder.deployment.enabled=true` (with its
+  own `replicaCount` and `resources`): the backend then sends build turns
+  there (`AGENT_BUILDER_URL`) and every other turn to the agent.
+  `agent.builder.mode=agent` goes back to the chat agent with build tools.
 
 To set the initial admin password explicitly (recommended), add:
 ```bash

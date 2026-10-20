@@ -445,6 +445,11 @@ ROWS_DOC = (
     "become columns}; without columns, each item is the row"
 )
 
+OUTPUT_DOC = (
+    "the output its rows go to (declared in outputs, render table); left out, `rows` -- and running it then clears "
+    "every output, so a pane with more than one request gives each its own output"
+)
+
 # What an AWS request looks like whole, for the agent (a working pane type).
 AWS_EXAMPLE = """label: Lambda functions
 description: The Lambda functions in each environment, with their runtime and size.
@@ -522,6 +527,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "window": "{preset, start, end}: the time-range inputs a {window: ...} param reads",
                 "rows_at": "the input naming where the rows are in the reply (a dotted path)",
                 "rows": ROWS_DOC,
+                "output": OUTPUT_DOC,
             },
             "request (AWS)": {
                 "what": "the same `request:` mapping with `service` and `operation` (there is no `aws:` key): an AWS "
@@ -535,7 +541,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "params": "{Name: literal | {input: key} | {window: start|end|step}}; Filter.Name nests",
                 "paginate": "true: every page, up to max_items (default 1000, at most 5000)",
                 "rows": ROWS_DOC + "; left out, the reply's first list",
-                "outputs": "rows (render table), response (one connection), error (render error; several)",
+                "output": OUTPUT_DOC,
+                "outputs": "rows, or the one `output` names (render table); response (one connection, without "
+                           "`output`); error (several connections: the ones that failed)",
                 "example": AWS_EXAMPLE,
             },
             "output": _fields(m.ManifestOutput),
@@ -554,7 +562,10 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "API on an AWS connection), a handler from `handlers`, or a live function from `live_functions`. "
                 "A pane for an AWS service no handler covers is an AWS request: never say it can't be built.",
                 "read_definition shows any example's YAML; check_definition says every problem with its line; "
-                "preview_definition runs one of a draft's actions as the user, to see what its reply holds.",
+                "preview_definition runs one of a draft's actions as the user, to see what its reply holds; "
+                "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
+                "fields), with no call.",
+                "Two requests in one pane each name their own `output`: without it, both write `rows`.",
                 "Handlers are only those listed here: the ones of pane types the user's group may use.",
             ],
         }

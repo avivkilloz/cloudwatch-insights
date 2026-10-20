@@ -495,6 +495,9 @@ class Manifest(_Strict):
             for ref in (a.poll.append if a.poll else {}):
                 if ref not in outputs:
                     raise ValueError(f"action {a.id} appends to an output {ref} that isn't declared")
+            into = (a.request or {}).get("output")
+            if into is not None and into not in outputs:
+                raise ValueError(f"action {a.id}'s request writes its rows to an output {into} that isn't declared")
             if a.page:
                 for ref in [a.page.cursor, *a.page.append, *a.page.sum]:
                     if ref not in outputs:

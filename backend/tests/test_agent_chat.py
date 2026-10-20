@@ -273,3 +273,17 @@ def test_a_build_chat_carries_the_editor_and_is_its_editors_only(monkeypatch):
     workflow = {**build, "kind": "workflow"}
     assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": workflow}).status_code == 403
     assert _tokens_left() == 0
+
+
+def test_a_build_turn_goes_to_the_builder_when_it_runs_apart(monkeypatch):
+    """The Builder as an agent of its own (D116): a build turn goes to
+    AGENT_BUILDER_URL, every other turn to AGENT_URL as before."""
+    received.clear()
+    monkeypatch.setenv("AGENT_URL", f"http://127.0.0.1:{_free_port()}")
+    monkeypatch.setenv("AGENT_BUILDER_URL", f"http://127.0.0.1:{_port}")
+    build = {"kind": "pane", "id": None, "title": "", "source": "label: Draft\n"}
+    built = client.post("/api/agent/chat", json={**ASK, "scope": "build", "build": build})
+    assert built.status_code == 200 and {"type": "done"} in _events(built.text)
+    assert received[0]["body"]["focus"]["kind"] == "build" and received[0]["token_valid"]
+    elsewhere = _events(client.post("/api/agent/chat", json=ASK).text)
+    assert elsewhere[-1]["type"] == "error" and len(received) == 1

@@ -67,6 +67,7 @@ backend/app/
   mqtt_client.py     MQTT connections the server holds for the MQTT tester's runs (D54)
   workflows.py       workflows: the definition (YAML, CEL templates), runs, the in-process runner,
                      approvals (§22)
+  yaml_edit.py       changes to a definition's YAML by path, spliced and checked by meaning (D117)
   workflow_doors.py  between workflows and sessions: investigate a run, draft a workflow from a
                      session, the Workflow pane's handlers, a run's own chat (§22.10)
   templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
@@ -88,8 +89,9 @@ backend/tests/       pytest, one file per area, real Postgres (no mocks of our o
 backend/dev/         fake_aws.py: the app with Logs Insights/OpenSearch/MQTT faked, for e2e
 
 platform-agent/      the agent container: app/ (LangChain create_agent + MCP adapter,
-                     streamed /chat, check.py the answer check), dev/fake_llm.py (scripted
-                     stand-in model and check), tests/, evals/ (scenarios for a real model)
+                     streamed /chat, check.py the answer check, builder.py the Builder's
+                     loop), dev/fake_llm.py (scripted stand-in model and check), tests/,
+                     evals/ (scenarios for a real model)
 
 frontend/src/
   App.tsx            shell: rail column (brand, sessions, page info, account), scrolling body, mounted sessions
@@ -328,6 +330,11 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   `error`. botocore loads models offline (`problems` checks names and
   parameters with no AWS call); tests use a `Stubber` client, the dev
   backend `PUT /api/dev/fake-aws`.
+- **A request may name its `output`** (D118, `routers/panes.written`/
+  `request_keys`): its rows go there and a run replaces only that output and
+  `error`. Without one it writes `rows` and replaces every output, so two
+  requests in one pane (IoT's jobs and rules) each need their own. The
+  browser's unstored path (a preview, a viewer) follows the same rule.
 - **A tab left open across a deploy** sees `version.json` change (vite writes
   it; nginx serves it `no-store`), says so, and reloads at the next page or
   session switch -- after `flushAll()`, or the cut-off debounced save loses
@@ -864,6 +871,28 @@ the platform, for a group with `builder_enabled` (admins always).
   the editor unsaved (`apply`, with a notice). There is no save tool on
   purpose. A new tool for a model to build with belongs in `reference`, not
   the prompt.
+- **A turn beside an editor is the Builder's loop, not the chat agent**
+  (D116, `platform-agent/app/builder.py`; `AGENT_BUILDER=agent` brings the
+  chat agent back). The code takes every step -- reference, plan, the AWS
+  operations and examples the plan named, changes, check, repair (`rounds`),
+  propose -- and asks the model only for one JSON object at a time (a plan;
+  changes by path), its reasoning and a fence allowed around it, asked
+  again when it isn't one. Nothing a model does there can end the turn
+  halfway, so don't give it tools or a choice of steps back. Out of rounds,
+  the draft is proposed with its problems (`even_with_problems`). Its steps
+  are preamble (never replayed); `plan_change`/`write_changes` are the
+  model's calls, labelled in `AgentChat`. Its model and rounds are its own
+  (`AGENT_BUILDER_*`, Helm `agent.builder`), and it can run as its own
+  Deployment (`agent.builder.deployment`, the backend's
+  `AGENT_BUILDER_URL` for `scope: "build"`).
+- **Changes by path** (D117, `yaml_edit.py`, `change_definition`): `set`/
+  `add`/`remove` at `actions/list/request/rows`, a list item named by its
+  key/id/title, `field=value` or index -- applied to the data, spliced over
+  that key or item (a key on a list item's dash line keeps its dash), then
+  read back: the text must mean that data, else the section is written whole,
+  else refused. The Python twin of `pages/builderYaml.ts`. An alias (`*x`)
+  can't be changed through. `describe_aws_operation` is botocore's model
+  (no call), and `aws_request.problems` holds `rows.at`/columns to the reply.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

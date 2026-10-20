@@ -186,6 +186,11 @@ async def agent_chat(
     # The stream can run for minutes; it needs nothing more from this
     # request's database session (revoking opens its own).
     db.close()
+    if payload.scope == "build":
+        # The Builder may run as an agent of its own (D116: Helm's
+        # agent.builder.deployment), with its own model and replicas; the same
+        # image, the same token, the same tools.
+        url = os.environ.get("AGENT_BUILDER_URL") or url
     headers = {"X-Platform-Token": token}
     service_key = os.environ.get("AGENT_SERVICE_KEY")
     if service_key:
