@@ -81,6 +81,13 @@ class Context:
         return self._call({"kind": "aws", "connection": connection, "service": service, "operation": operation,
                            "params": params or {}, "paginate": paginate})["reply"]
 
+    def name(self, connection: Any) -> str:
+        """The name the person running this code sees a connection by (an
+        environment's, or "Prod · iot" beside another of its type): what a row
+        stamps as its Environment, so a row action given it reaches the same
+        connection back."""
+        return self._call({"kind": "name", "connection": connection})["name"]
+
     def _call(self, payload: dict) -> dict:
         url, token = self._callback.get("url"), self._callback.get("token")
         if not url or not token:

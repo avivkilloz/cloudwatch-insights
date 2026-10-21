@@ -45,8 +45,9 @@ class Turn:
     steps: list[dict] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     error: Optional[str] = None
-    # What a build turn put in the editor (D116), its source.
+    # What a build turn put in the editor (D116), its source and files.
     proposed: Optional[str] = None
+    files: Optional[dict] = None
 
 
 def _fill(value: Any, names: dict[str, Any]) -> Any:
@@ -135,10 +136,19 @@ class Platform:
             resp = self.http.get(f"/builder/examples/{build['start']}")
             resp.raise_for_status()
             source = resp.json()["source"]
-        return {"kind": build.get("kind", "pane"), "id": None, "title": build.get("title", ""), "source": source}
+        return {"kind": build.get("kind", "pane"), "id": None, "title": build.get("title", ""), "source": source,
+                "files": dict(build.get("files") or {})}
 
-    def check(self, source: str) -> dict:
-        resp = self.http.post("/builder/check", json={"source": source})
+    def fake_aws(self, replies: list[dict]) -> None:
+        """What the fake environment's AWS answers (dev.fake_aws), for a build
+        scenario whose draft is tried there (D153)."""
+        for r in replies:
+            resp = self.admin.put("/dev/fake-aws", params={"service": r["service"], "operation": r["operation"],
+                                                           "account": FAKE_ENV["account_id"]}, json=r["reply"])
+            resp.raise_for_status()
+
+    def check(self, source: str, files: Optional[dict] = None) -> dict:
+        resp = self.http.post("/builder/check", json={"source": source, "files": files or {}})
         resp.raise_for_status()
         return resp.json()
 
@@ -169,6 +179,7 @@ class Platform:
                             step.update(ok=event["ok"], summary=event.get("summary", ""))
                     if isinstance(event.get("propose"), dict):
                         turn.proposed = event["propose"].get("source")
+                        turn.files = event["propose"].get("files")
                 elif kind == "notice":
                     turn.notices.append(event["message"])
                 elif kind == "error":
@@ -269,6 +280,14 @@ def judge(scenario: dict, turns: list[Turn], state: dict, names: dict[str, Any],
                 failures.append(f"The answer check {got}, expected {expect['answer_check']}. {found}".strip())
         if "proposed" in expect:
             failures += _judge_proposal(expect["proposed"], turns, checked)
+        if expect.get("tried"):
+            # D153: the draft was run where the user chose, and nothing it
+            # shows came back empty.
+            tries = [s for t in turns for s in t.steps if s.get("name") == "try_definition"]
+            if not tries:
+                failures.append("The draft was never tried.")
+            elif not tries[-1].get("ok") or '"ok": true' not in (tries[-1].get("summary") or ""):
+                failures.append(f"Tried, it didn't work: {(tries[-1].get('summary') or '')[:300]}")
         if "answer" in expect and not _matches(last.answer, expect["answer"]):
             failures.append(f"The answer doesn't match {json.dumps(expect['answer'])}: {last.answer[:200]!r}")
     return failures
@@ -279,6 +298,9 @@ def run_build(platform: Platform, scenario: dict, names: dict[str, Any]) -> tupl
     draft, each turn starting from what the last put there (as the editor
     would), judged on what ends up in it."""
     build = platform.draft(scenario)
+    if scenario["build"].get("try_on"):
+        build["try_on"] = _fill(scenario["build"]["try_on"], names)
+    platform.fake_aws(scenario.get("aws") or [])
     history: list[dict] = []
     turns: list[Turn] = []
     for message in scenario["messages"]:
@@ -286,10 +308,10 @@ def run_build(platform: Platform, scenario: dict, names: dict[str, Any]) -> tupl
         turn = platform.ask(None, history, build=build)
         turns.append(turn)
         if turn.proposed:
-            build = {**build, "source": turn.proposed}
+            build = {**build, "source": turn.proposed, "files": turn.files or build.get("files") or {}}
         history.append({"role": "assistant", "content": turn.answer})
     proposed = next((t.proposed for t in reversed(turns) if t.proposed), None)
-    checked = platform.check(proposed) if proposed else None
+    checked = platform.check(proposed, build.get("files")) if proposed else None
     failures = judge(scenario, turns, {}, names, checked)
     record = {
         "turns": [{"answer": t.answer, "steps": [s["name"] if s.get("ok") else f"{s['name']} failed: "

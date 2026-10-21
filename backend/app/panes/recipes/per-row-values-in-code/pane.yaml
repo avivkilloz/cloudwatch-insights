@@ -1,0 +1,73 @@
+# Recipe: columns that need a call per row -- the listing action is code.
+#
+# - ListJobs doesn't say how many of a job's executions are queued, in
+#   progress, succeeded or failed; DescribeJob does, one job at a time. A
+#   request makes one call, so the action that lists is code (jobs.py): it
+#   lists, describes each job, and returns rows with those counts as columns
+#   -- so the table, its CSV and the agent all have them. An extra "export
+#   with details" action couldn't: it can't add columns to rows already listed.
+# - Code over several environments stamps each row's `Environment` with
+#   ctx.name(connection): the row action is given that name (row.Environment)
+#   and ctx.aws takes a name as well as an id.
+# - The row action is code too (job.py), because what an opened job shows
+#   takes three calls; its detail `d` is whatever its run returns.
+# - Code lives in files beside this YAML; the YAML only names them.
+label: IoT jobs
+description: IoT jobs in each environment with their execution counts; open one for its document and executions.
+category: Services
+inputs:
+  - key: connections
+    type: connections
+    connection_type: aws
+    label: Environments
+  - key: status
+    type: choice
+    label: Status
+    choices: [IN_PROGRESS, COMPLETED, CANCELED]
+    choice_labels: {IN_PROGRESS: In progress, COMPLETED: Completed, CANCELED: Canceled}
+    default: IN_PROGRESS
+actions:
+  - id: list
+    main: true
+    run_label: List
+    resets: [view.expanded]
+    code: {file: jobs.py}
+  - id: job
+    args: {connection: row.Environment, job_id: row.Job ID}
+    code: {file: job.py}
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+    config:
+      expand: expanded
+      detail:
+        action: job
+        sections:
+          - fields:
+              - {label: Job, value: "{{ d.job.jobId }}"}
+              - {label: Status, value: "{{ d.job.status }}"}
+              - {label: Targets, value: "{{ d.targets }}"}
+              - {label: Description, value: "{{ d.job.description ?? '' }}"}
+          - title: Executions
+            table: executions
+            columns:
+              - {label: Thing, value: "{{ row.thing }}"}
+              - {label: Status, value: "{{ row.status }}"}
+              - {label: Updated, value: "{{ row.updated | time }}"}
+          - title: Document
+            json: document
+  - key: error
+    render: error
+views:
+  - {key: expanded, default: []}
+layout:
+  - title: Jobs
+    clear: [rows]
+    items:
+      - input: connections
+      - input: status
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows

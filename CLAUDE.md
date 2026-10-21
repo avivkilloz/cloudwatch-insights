@@ -951,6 +951,33 @@ the platform, for a group with `builder_enabled` (admins always).
   error; a reply cut off at the length limit (`repair.cut_off`) is said so
   and asked for in parts, and isn't sent back. A value per row that needs
   another call per row makes the listing action code (D148, the rules).
+  Code the agent writes into the YAML is moved into `<action>.py` by
+  `change_definition` (`_code_to_files`, D149; only code that change wrote);
+  the loop names the files before the draft, says when a problem survived
+  the round meant to fix it (D150, 6 rounds by default), and a turn left
+  with problems offers **Fix what's left** (`AgentChat`'s `onFix`). Its
+  replies may run to 16000 tokens unless `AGENT_BUILDER_MAX_TOKENS` says
+  otherwise (0: send none) -- left to the provider, a reasoning model's
+  thinking plus a set of changes was cut off mid-JSON.
+- **The reference says what each field means** (D151,
+  `panes/manifest_docs.py`, keyed by model class and alias; a test fails for
+  a field without words or words without a field -- add both together).
+  **Recipes** (D152, `panes/recipes/<name>/pane.yaml` + files, first line
+  `# Recipe: …`): whole pane types the reference lists and `read_definition
+  ("recipe:<name>")` reads; `test_recipes.py` saves and runs each, so keep
+  them working. Code names a row's environment with `ctx.name(connection)`
+  (`outbound.name`).
+- **A clean draft is tried** (D153, `builder.try_draft`, MCP
+  `try_definition`): main action with defaults and its connections in the
+  chosen environment, then the first row opened; empty columns, a row action
+  given nothing and detail paths that aren't there are problems for the
+  loop's repair rounds (access errors are notes). With connections and no
+  environment it answers `needs_environment`, and the loop proposes and
+  emits `{type: "choices", action: "try"}`; a pick asks "Try it on X" with
+  `try_on`/`try_now` on the build focus (AgentContext's `tryOnRef`, per
+  editor, this tab). The agent service's `Focus` must name every field the
+  backend sends -- it dropped `files`, so the loop never knew the files were
+  there until its first change.
 - **The editor's tabs and Preview** (`Workspace.tsx`, `BuilderPage.tsx`): a
   file is added from a "+" that's the last tab (`.workspace-add`, named in a
   tab of its own; Esc or empty cancels), and the Preview card is there only

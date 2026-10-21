@@ -245,6 +245,9 @@ SDK_DOC = {
     "ctx.aws(connection, service, operation, params=None, paginate=False)":
         "an AWS API call that reads (botocore names: lambda, ListFunctions) on an AWS connection (its id, or its "
         "name), as whoever runs the code. Returns the reply as data",
+    "ctx.name(connection)": "the name the user sees a connection by (its id given): code over a `connections` input "
+                            "stamps each row's Environment with it, and a row action given row.Environment passes "
+                            "it to ctx.aws / ctx.http, which take a name as well as an id",
     "ctx.log(*parts)": "a line in the job's log (print does the same)",
     "packages": "a requirements.txt file beside the code names what it imports beyond the standard library, a "
                 "package a line as pip reads it (requests>=2.31, pyyaml), no options or URLs; Check and Save lock "

@@ -1298,7 +1298,43 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: what building an IoT OTA jobs pane with the Builder's agent
+**This PR, continued: the Builder knows what fields mean, reads recipes and
+tries its drafts (PLATFORM_PLAN.md §24, D151–D153).** The user's ask after
+the OTA chat: "let the builder test-run its draft… if the pane talks to an
+environment, the builder agent can ask the user which environment".
+- **Field meanings** (D151): every field of a pane, workflow and step type
+  explained beside its type in the reference, held to the models by a test.
+- **Recipes** (D152): four whole pane types (rows that open; per-row values
+  in code -- the OTA case; modes; an HTTP API table), readable by the agent
+  and saved and run by the tests. `ctx.name(connection)` lets code stamp a
+  row's environment so its row action reaches it again.
+- **Tried, not just checked** (D153): after a clean check the Builder runs
+  the draft -- main action, first row opened -- in the environment the user
+  picked (offered under its answer the first time), and fixes what came back
+  empty. Found on the way: the agent service dropped the editor's files from
+  every build turn (its `Focus` model didn't name them).
+- `agent.builder.model` stays the way to give the Builder a stronger model
+  than the chat; `evals/scenarios/build-iot-ota-jobs.yaml` is the OTA chat
+  as a scenario (tried on the fake environment) to measure one against.
+- Tests: backend `test_manifest_docs.py`, `test_recipes.py` (10),
+  `test_try_draft.py` (6); agent +4 (choices offered, tried and repaired,
+  a pick tried at once, the focus kept whole -- each failing on the old
+  code); browser `smoke109` (10), failing against the old frontend.
+
+**This PR: a Builder agent that keeps code in files and finishes what it
+checks (PLATFORM_PLAN.md §24, D149–D150).** The user's report after #142:
+code written into the YAML though files were there, drafts left with
+problems the user copied back into the chat by hand.
+- Code the agent writes into the YAML is moved into a file by the platform
+  (`<action>.py`, the YAML naming it), whatever the model remembers.
+- The loop names the files before the draft, says when a problem survived
+  the round meant to fix it (fix it another way, by line), and has 6 rounds.
+- A draft left with problems offers **Fix what's left** in the chat.
+- Tests: backend +1 (and the inline test now expects a file), agent: the
+  files said first and a surviving problem said so (both failing on the old
+  loop); browser `smoke108` (4), failing against the old frontend.
+
+**#142 merged. What building an IoT OTA jobs pane with the Builder's agent
 showed (PLATFORM_PLAN.md §24, D145–D148).** The user's chat: the jobs listed,
 but opened rows showed every field empty and the CSV had no execution
 counts; each "fix it" round made the draft worse, and the last ended "didn't

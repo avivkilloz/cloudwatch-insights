@@ -733,6 +733,9 @@ export type AgentEvent =
       propose?: { kind: string; source: string; summary?: string; files?: BuildFiles };
     }
   | { type: "notice"; message: string }
+  /** Something to pick, offered under the answer: the environments a draft
+   * could be tried on (D153). */
+  | { type: "choices"; action: "try"; prompt: string; options: string[] }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -773,7 +776,16 @@ async function agentChat(
     timezone: string;
     scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
-    build?: { kind: "pane" | "workflow" | "step"; id: string | null; title: string; source: string; files?: BuildFiles };
+    build?: {
+      kind: "pane" | "workflow" | "step";
+      id: string | null;
+      title: string;
+      source: string;
+      files?: BuildFiles;
+      /** The environment its builder chose to try it on (D153); `try_now` when this turn is that choice. */
+      try_on?: string;
+      try_now?: boolean;
+    };
   },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,

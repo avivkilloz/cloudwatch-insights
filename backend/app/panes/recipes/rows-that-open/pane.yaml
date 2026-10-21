@@ -1,0 +1,75 @@
+# Recipe: an AWS list across environments whose rows open onto a second call's detail.
+#
+# - `connections` (several environments): the list request runs on each and
+#   stamps every row with an `Environment` column, failures going to `error`.
+# - The row action (`function`) is an action with `args`: its inputs are read
+#   from the row by the row's column names (row.Environment, row.Name), never
+#   from the pane's inputs. Being a request with no `rows`, its detail `d` is
+#   the whole GetFunctionConfiguration reply, so the sections read its fields
+#   as describe_aws_operation shows them (d.Timeout, d.Layers).
+# - Rows open only with a declared view key (`expanded`), which the listing
+#   action resets so a new list starts closed.
+label: Lambda functions
+description: The Lambda functions in each environment; open one for its configuration.
+category: Services
+inputs:
+  - key: connections
+    type: connections
+    connection_type: aws
+    label: Environments
+actions:
+  - id: list
+    main: true
+    run_label: List
+    resets: [view.expanded]
+    request:
+      connection: connections
+      service: lambda
+      operation: ListFunctions
+      paginate: true
+      rows:
+        at: Functions
+        columns:
+          Name: FunctionName
+          Runtime: Runtime
+          Memory: {from: MemorySize, as: number}
+          Modified: {from: LastModified, as: time}
+  - id: function
+    args: {connections: row.Environment, name: row.Name}
+    request:
+      connection: connections
+      service: lambda
+      operation: GetFunctionConfiguration
+      params: {FunctionName: {input: name}}
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+    config:
+      expand: expanded
+      detail:
+        action: function
+        sections:
+          - fields:
+              - {label: Handler, value: "{{ d.Handler }}"}
+              - {label: Timeout, value: "{{ d.Timeout }} s"}
+              - {label: Role, value: "{{ d.Role }}"}
+              - {label: State, value: "{{ d.State ?? 'unknown' }}"}
+          - title: Layers
+            table: Layers
+            columns:
+              - {label: Layer, value: "{{ row.Arn }}"}
+              - {label: Size, value: "{{ row.CodeSize | bytes }}"}
+  - key: error
+    render: error
+views:
+  - {key: expanded, default: []}
+layout:
+  - title: Functions
+    clear: [rows]
+    items:
+      - input: connections
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows

@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+# The Builder's output ceiling unless AGENT_BUILDER_MAX_TOKENS says otherwise.
+BUILDER_MAX_TOKENS = 16000
+
 @dataclass(frozen=True)
 class Settings:
     # The model, through the same LiteLLM proxy the backend's assistant uses
@@ -40,8 +43,11 @@ class Settings:
     builder: str = "loop"
     builder_model: Optional[str] = None
     builder_temperature: Optional[float] = None
-    builder_max_tokens: Optional[int] = None
-    builder_rounds: int = 4
+    # A whole set of changes in one reply, after a reasoning model's thinking:
+    # left to the provider's default (a few thousand tokens on some), replies
+    # were cut off mid-JSON. 0 sends none.
+    builder_max_tokens: Optional[int] = BUILDER_MAX_TOKENS
+    builder_rounds: int = 6
 
     @property
     def configured(self) -> bool:
@@ -66,6 +72,7 @@ def load() -> Settings:
         builder_model=os.environ.get("AGENT_BUILDER_MODEL") or None,
         builder_temperature=(float(os.environ["AGENT_BUILDER_TEMPERATURE"])
                              if os.environ.get("AGENT_BUILDER_TEMPERATURE") else None),
-        builder_max_tokens=int(os.environ["AGENT_BUILDER_MAX_TOKENS"]) if os.environ.get("AGENT_BUILDER_MAX_TOKENS") else None,
-        builder_rounds=max(1, int(os.environ.get("AGENT_BUILDER_ROUNDS", "4"))),
+        builder_max_tokens=(int(os.environ["AGENT_BUILDER_MAX_TOKENS"]) or None) if os.environ.get("AGENT_BUILDER_MAX_TOKENS")
+        else BUILDER_MAX_TOKENS,
+        builder_rounds=max(1, int(os.environ.get("AGENT_BUILDER_ROUNDS", "6"))),
     )

@@ -128,7 +128,8 @@ First, decide. Reply with:
 }}
 `lookups`: the AWS operations whose params and reply you need to write requests (at most {lookups}; an \
 operation left out lists the service's read operations). `examples`: existing definitions whose YAML to read \
-first, from the reference's examples (at most {examples}). Both [] when you need none.
+first, from the reference's examples, or recipes (recipe:<name>: whole working panes, their comments saying why \
+they're built so -- read the one closest to what's asked) (at most {examples}). Both [] when you need none.
 """
 
 CHANGES = """\
@@ -265,6 +266,11 @@ class Builder:
         self.read: list[str] = []  # what the lookups and examples returned, for the model
         # The Python files beside the draft (D139), as they are now.
         self.files: dict[str, str] = dict(focus.get("files") or {})
+        # Trying the draft (D153): the environment the user chose to try it
+        # on, and whether this turn is that choice (try it, nothing to plan).
+        self.try_on: Optional[str] = focus.get("try_on") or None
+        self.try_now = bool(focus.get("try_now"))
+        self.can_try = self.kind == "pane" and "try_definition" in tools
 
     # ------------------------------------------------------------ tools
 
@@ -290,6 +296,8 @@ class Builder:
             if name == "change_definition" and ok and _json(output).get("ok") is False:
                 # Made, and not checking clean: shown as a step to fix.
                 event["ok"] = False
+            if name == "try_definition" and ok and _json(output).get("problems"):
+                event["ok"] = False  # ran, and showed nothing where it should
             propose = _propose(output) if name == "propose_definition" else None
             if propose:
                 event["propose"] = propose
@@ -351,6 +359,13 @@ class Builder:
         parts += self.read
         if plan:
             parts.append(f"Your plan: {plan}")
+        if self.files:
+            # Said before the draft, not only shown after it: with files right
+            # there, a model still wrote code into the YAML, or a second file
+            # doing what one already did.
+            parts.append(f"Files beside the YAML already: {', '.join(sorted(self.files))}. Code lives in these "
+                         "files -- change them ({\"op\": \"lines\", \"file\": ...} or {\"op\": \"file\"}); the "
+                         "YAML only names them (`code: {file: x.py}`). Never put Python in the YAML.")
         parts.append(f"The draft now, with line numbers:\n{_numbered(draft)}")
         for name, text in sorted(self.files.items()):
             parts.append(f"The file {name} beside it, with line numbers:\n{_numbered(text)}")
@@ -410,6 +425,14 @@ class Builder:
         # read_draft numbers its lines; the context numbers them again.
         return _unnumbered(value.get("text", ""))
 
+    async def tried(self) -> dict:
+        """The draft run as its user will (try_definition), in the environment
+        they chose; what to tell them when it couldn't be."""
+        ok, out = await self.call("try_definition", {"environment": self.try_on} if self.try_on else {})
+        if not ok:
+            return {"skipped": out[:400]}
+        return _json(out) or {"skipped": out[:400]}
+
     async def run(self) -> AsyncIterator[dict]:
         ok, reference = await self.call("build_reference", {"kind": self.kind})
         if not ok:
@@ -418,24 +441,47 @@ class Builder:
         for event in self.flush():
             yield event
         draft = self.focus.get("source") or ""
-
-        decided = await self.ask("plan_change", PLAN.format(lookups=MAX_LOOKUPS, examples=MAX_EXAMPLES),
-                                 self.context(draft))
-        for event in self.flush():
-            yield event
-        if not decided.get("change"):
-            yield {"type": "text", "delta": str(decided.get("answer") or "There's nothing to change.")}
-            return
-        plan = str(decided.get("plan") or "")
-        await self.lookups(decided)
-        for event in self.flush():
-            yield event
-
         instructions = CHANGES
-        summary = plan
         problems = ""
         applied = False
         fixed = 0
+        seen: set[str] = set()  # the problems the last check found
+        if self.try_now and self.can_try:
+            # The user chose where to try it (the choices a turn offered):
+            # nothing to plan -- check, try, and fix what that shows.
+            ok, out = await self.call("check_definition", {})
+            checked = _json(out)
+            if ok and checked.get("ok"):
+                verdict = await self.tried()
+                for event in self.flush():
+                    yield event
+                if not verdict.get("problems"):
+                    for event in self._tried_events(verdict, alone=True):
+                        yield event
+                    return
+                problems = "; ".join(verdict["problems"])
+                what = _try_repair(verdict)
+            else:
+                for event in self.flush():
+                    yield event
+                problems = "; ".join(f"{_place(e)}{e.get('message')}" for e in checked.get("errors") or []) or out
+                what = f"The draft has these problems, so it can't be tried yet: {problems}"
+            plan = summary = f"Fixed what trying it{_on(self.try_on)} showed."
+            instructions = REPAIR.format(what=what)
+            applied = True  # the editor's draft is the one to propose
+        else:
+            decided = await self.ask("plan_change", PLAN.format(lookups=MAX_LOOKUPS, examples=MAX_EXAMPLES),
+                                     self.context(draft))
+            for event in self.flush():
+                yield event
+            if not decided.get("change"):
+                yield {"type": "text", "delta": str(decided.get("answer") or "There's nothing to change.")}
+                return
+            plan = str(decided.get("plan") or "")
+            await self.lookups(decided)
+            for event in self.flush():
+                yield event
+            summary = plan
         for _ in range(self.rounds):
             try:
                 value = await self.ask("write_changes", instructions, self.context(draft, plan))
@@ -481,7 +527,14 @@ class Builder:
             applied = True
             result = _json(out)
             draft = await self.draft()
-            if result.get("ok"):
+            verdict: dict = {}
+            if result.get("ok") and self.can_try:
+                # Checking clean isn't showing something: run it as its user
+                # will, and what comes back empty is a problem like any other.
+                verdict = await self.tried()
+                for event in self.flush():
+                    yield event
+            if result.get("ok") and not verdict.get("problems"):
                 ok, out = await self.call("propose_definition", {"summary": summary})
                 for event in self.flush():
                     yield event
@@ -489,13 +542,30 @@ class Builder:
                     caught = f" The check caught {fixed} problem{'s' if fixed > 1 else ''} on the way, fixed." if fixed else ""
                     yield {"type": "text", "delta": f"{summary}{caught}\n\nIt's in the editor, not saved yet: look it "
                                                     "over, preview it and save."}
+                    for event in self._tried_events(verdict):
+                        yield event
                     return
                 problems = out
+            elif verdict.get("problems"):
+                problems = "; ".join(verdict["problems"])
             else:
                 problems = "; ".join(f"{_place(e)}{e.get('message')}" for e in result.get("errors") or [])
             fixed += 1
-            instructions = REPAIR.format(what=f"Your changes were made, and the draft now has these problems: "
-                                              f"{problems}")
+            now = set(verdict.get("problems") or []) or {str(e.get("message")) for e in result.get("errors") or []}
+            stuck = sorted(now & seen)
+            seen = now
+            again = ""
+            if stuck:
+                # The same problem after a round meant to fix it: the same kind
+                # of fix won't. Said so, a model tries another way.
+                again = (f"\n\nThese were there before your last changes too, so what you did didn't fix them: "
+                         f"{'; '.join(stuck)[:1200]}. Read the lines they name in the draft below and fix them "
+                         f"another way -- by line ({{\"op\": \"lines\"}}) if a path doesn't reach.")
+            if result.get("moved"):
+                again += f"\n\n{result['moved']}"
+            instructions = REPAIR.format(what=(_try_repair(verdict) if verdict.get("problems") else
+                                               f"Your changes were made, and the draft now has these problems: "
+                                               f"{problems}") + again)
         if not applied:
             yield {"type": "text", "delta": f"I couldn't make the change: {problems[:600]}"}
             return
@@ -511,6 +581,28 @@ class Builder:
         else:
             yield {"type": "text", "delta": f"I couldn't get the change to check clean: {problems[:600]}"}
 
+    def _tried_events(self, verdict: dict, alone: bool = False) -> list[dict]:
+        """What trying it found, for the user -- and, when it needs an
+        environment they haven't chosen, the choice of one."""
+        if not verdict:
+            return []
+        if verdict.get("needs_environment"):
+            lead = "It checks clean." if alone else ""
+            return [{"type": "text", "delta": f"{lead}\n\nTo see it work, I can try it on one of your environments: "
+                                              "pick one and I'll run it there and fix what comes back empty."},
+                    {"type": "choices", "action": "try", "prompt": "Try it on",
+                     "options": [str(e) for e in verdict.get("environments") or []]}]
+        if verdict.get("skipped"):
+            return [{"type": "text", "delta": f"\n\nI didn't try it: {verdict['skipped']}"}]
+        rows = ", ".join(f"{n} row{'' if n == 1 else 's'}" + ("" if k == "rows" else f" in {k}")
+                         for k, n in (verdict.get("rows") or {}).items())
+        said = f"Tried it{_on(verdict.get('environment'))}: {rows or 'it ran'}"
+        if verdict.get("opened"):
+            said += "; the first row opened onto everything it shows"
+        notes = verdict.get("notes") or []
+        text = ("" if alone else "\n\n") + said + "." + (f" ({' '.join(notes)[:600]})" if notes else "")
+        return [{"type": "text", "delta": text}]
+
     def flush(self) -> list[dict]:
         events, self.events = self.events, []
         return events
@@ -518,6 +610,20 @@ class Builder:
 
 class BuildFailed(Exception):
     """A turn the Builder can't carry on with; the message is the user's."""
+
+
+def _on(environment: Any) -> str:
+    return f" on {environment}" if environment else ""
+
+
+def _try_repair(verdict: dict) -> str:
+    """What trying the draft found, for a repair round: the problems, and what
+    the run really got -- the rows and the detail -- to fix them against."""
+    seen = {k: verdict[k] for k in ("first row", "opened", "code's log") if verdict.get(k)}
+    return (f"The draft checks clean, but run as its user will{_on(verdict.get('environment'))}, it shows nothing "
+            f"where it should: {'; '.join(verdict.get('problems') or [])}\n\nWhat the run got: "
+            f"{json.dumps(seen, default=str)[:3000]}\n\nFix the draft so these come back filled: read the names "
+            "and paths from what the run got, not from the reference's examples.")
 
 
 def _reshaped(changes: Any) -> str:

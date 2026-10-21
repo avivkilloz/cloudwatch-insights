@@ -5102,3 +5102,15 @@ textarea.code-editor-text:focus {
 .builder-preview-redraw {
   font-size: inherit;
 }
+
+/* What an answer offers to pick (D153: the environments to try a draft on). */
+.agent-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.agent-choices .muted {
+  margin-right: 2px;
+}

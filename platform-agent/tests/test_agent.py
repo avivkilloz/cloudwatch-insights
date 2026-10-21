@@ -93,9 +93,41 @@ async def build_reference(kind: str, ctx: Context) -> dict:
 
 
 @stub.tool()
-async def check_definition(kind: str, source: str, ctx: Context, definition_id: str | None = None) -> dict:
+async def check_definition(ctx: Context, kind: str | None = None, source: str | None = None,
+                           definition_id: str | None = None) -> dict:
+    import yaml
+
     _auth(ctx)
-    return {"ok": source.startswith("label: "), "errors": []}
+    if source is not None:
+        return {"ok": source.startswith("label: "), "errors": []}
+    errors = _stub_problems(yaml.safe_load(DRAFT["source"]) or {})
+    return {"ok": not errors, "errors": errors}
+
+
+# What try_definition was asked (D153). Like the real one, it says a draft
+# with no main action can't be tried, asks for an environment when the draft
+# has connections and none was chosen, and finds a row action reading a
+# column the rows don't have (row.jobId, the rows' column being Job ID).
+TRIED: list[dict] = []
+
+
+@stub.tool()
+async def try_definition(ctx: Context, environment: str | None = None, source: str | None = None,
+                         definition_id: str | None = None) -> dict:
+    _auth(ctx)
+    text = DRAFT["source"]
+    TRIED.append({"environment": environment, "source": text})
+    if "main: true" not in text and "main:\n" not in text:
+        return {"skipped": "It has no main action to try."}
+    if "connections" in text and not environment:
+        return {"needs_environment": True, "environments": ["IoT Prod", "IoT Test"]}
+    if "row.jobId" in text:
+        return {"environment": environment, "ran": "list", "rows": {"jobs": 2}, "ok": False, "notes": [],
+                "first row": {"jobs": {"Job ID": "ota-1", "Status": "IN_PROGRESS"}},
+                "problems": ["Opening a jobs row, job got nothing for job_id: its args read row.jobId, and the row's "
+                             "columns are Job ID, Status."]}
+    return {"environment": environment, "ran": "list", "rows": {"jobs": 2}, "ok": True, "problems": [], "notes": [],
+            "opened": {"jobs": {"action": "job", "detail holds": ["job"]}} if "row.Job ID" in text else {}}
 
 
 # The turn's working draft, as the backend keeps it on the token (D114); the
@@ -327,6 +359,27 @@ def test_chat_checks_its_caller_and_its_input(monkeypatch):
     monkeypatch.setattr(agent_main, "settings", Settings(**{**configured.__dict__, "model": None}))
     resp = client.post("/chat", json=body, headers={**ok_key, "X-Platform-Token": "t"})
     assert resp.status_code == 503 and "AGENT_MODEL" in resp.json()["detail"]
+
+
+def test_an_editors_focus_reaches_the_turn_whole(monkeypatch):
+    """The service's Focus model dropped what it didn't name: the editor's
+    files never reached the Builder's loop, nor the environment a pick chose
+    to try the draft on (D153)."""
+    seen: list[dict] = []
+
+    async def turn(settings, messages, token, focus=None, **_):
+        seen.append(focus)
+        yield {"type": "done"}
+
+    monkeypatch.setattr(agent_main, "settings", Settings(
+        llm_base_url="http://x", llm_api_key="k", model="m", mcp_url="http://x/mcp", service_key=None, max_steps=5))
+    monkeypatch.setattr(agent_main, "run_turn", turn)
+    focus = {"kind": "build", "what": "pane", "title": "IoT", "source": "label: IoT\n", "files": {"jobs.py": "x = 1\n"},
+             "try_on": "IoT Prod", "try_now": True}
+    resp = TestClient(agent_main.app).post("/chat", json={"messages": [{"role": "user", "content": "Try it on IoT Prod"}],
+                                                         "focus": focus}, headers={"X-Platform-Token": "t"})
+    assert resp.status_code == 200, resp.text
+    assert seen and seen[0]["files"] == {"jobs.py": "x = 1\n"} and seen[0]["try_on"] == "IoT Prod" and seen[0]["try_now"]
 
 
 def test_a_session_chat_tells_the_model_which_session_it_is_about(settings):
@@ -679,7 +732,7 @@ def test_beside_an_editor_the_code_runs_the_steps_and_the_model_only_says_what_t
     fake_llm.BUILDS.clear()
     events = _build(settings, "rename Loud encoder", "label: Old\ndescription: x\n")
     assert _steps(events) == ["build_reference", "plan_change", "write_changes", "change_definition",
-                              "propose_definition"]
+                              "try_definition", "propose_definition"]
     assert all(e.get("preamble") for e in events if e["type"] == "tool_call"), "the platform's steps, never replayed"
     [proposed] = [e for e in events if e.get("propose")]
     assert proposed["propose"]["source"].startswith("label: Loud encoder\n")
@@ -696,7 +749,7 @@ def test_a_problem_goes_back_to_the_model_with_the_draft_as_it_is_and_is_fixed(s
     events = _build(settings, "add jobs and rules", IOT)
     assert _steps(events) == [
         "build_reference", "plan_change", "describe_aws_operation", "describe_aws_operation", "write_changes",
-        "change_definition", "write_changes", "change_definition", "propose_definition",
+        "change_definition", "write_changes", "change_definition", "try_definition", "propose_definition",
     ]
     first, second = [e for e in events if e["type"] == "tool_result" and e["name"] == "change_definition"]
     assert not json.loads(first["summary"])["ok"] and json.loads(second["summary"])["ok"]
@@ -719,6 +772,8 @@ def test_code_is_written_as_a_file_and_fixed_by_its_lines(settings):
     assert _steps(events).count("change_definition") == 2
     first = fake_llm.BUILDS[1]["messages"][-1]["content"]
     assert "The file devices.py beside it, with line numbers:\n1: def run(inputs, ctx):" in first
+    assert "Files beside the YAML already: devices.py. Code lives in these files" in first, "said before the draft"
+    assert first.index("Files beside the YAML already") < first.index("The draft now, with line numbers")
     assert '{"op": "file", "name": "health.py"' in first, "it's told how a file is written"
     repair = fake_llm.BUILDS[-1]["messages"][-1]["content"]
     assert "shaped.py, line 3: It isn't valid Python" in repair
@@ -730,13 +785,17 @@ def test_code_is_written_as_a_file_and_fixed_by_its_lines(settings):
 
 
 def test_out_of_rounds_the_work_so_far_goes_in_the_editor_with_its_problems_named(settings):
-    events = _build(settings, "never clean", IOT, builder_rounds=2)
-    assert _steps(events).count("write_changes") == 2
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "never clean", IOT, builder_rounds=3)
+    assert _steps(events).count("write_changes") == 3
     [proposed] = [e for e in events if e.get("propose")]
     assert "Card" in proposed["propose"]["source"]
     notices = [e["message"] for e in events if e["type"] == "notice"]
     assert notices and "isn't declared" in notices[0]
     assert "Ask me to carry on" in _answer(events)
+    # The second round's problem was there after the first's fix too: said so.
+    told = fake_llm.BUILDS[-1]["messages"][-1]["content"] if len(fake_llm.BUILDS) else ""
+    assert "so what you did didn't fix them" in told and "fix them another way" in told, told[-600:]
 
 
 def test_a_question_is_answered_and_a_change_that_cant_be_made_is_said(settings):
@@ -769,7 +828,7 @@ def test_changes_that_cant_be_made_come_back_with_the_shape_and_their_own_change
     fake_llm.BUILDS.clear()
     events = _build(settings, "bad op Tidy", "label: Old\n")
     assert _steps(events) == ["build_reference", "plan_change", "write_changes", "change_definition", "write_changes",
-                              "change_definition", "propose_definition"]
+                              "change_definition", "try_definition", "propose_definition"]
     told = fake_llm.BUILDS[-1]["messages"][-1]["content"]
     assert 'Each change is exactly {"op": "set" | "add" | "remove"' in told
     assert 'Your first change, written that way: {"op": "set", "path": "label", "value": "Tidy"}' in told
@@ -799,3 +858,67 @@ def test_a_reply_that_cant_be_read_after_changes_were_made_still_leaves_them_in_
     assert "Ask me to carry on" in _answer(events) and events[-1]["type"] == "done"
     notices = [e["message"] for e in events if e["type"] == "notice"]
     assert notices and "didn't answer in the shape" in notices[0]
+
+
+# ---------------------------------------------------------------- trying the draft (D153)
+
+JOBS_PANE = ("label: IoT jobs\ninputs:\n- key: connections\n  type: connections\n  connection_type: aws\n"
+             "actions:\n- id: list\n  main: true\n  code:\n    file: jobs.py\noutputs:\n- key: jobs\n  render: table\n"
+             "layout:\n- title: Jobs\n  items:\n  - output: jobs\n")
+
+
+def _build_on(settings: Settings, text: str, source: str, **focus_extra) -> list[dict]:
+    DRAFT["source"], DRAFT["files"] = source, {}
+    focus = {"kind": "build", "what": "pane", "title": "IoT jobs", "source": source, "files": {}, **focus_extra}
+    return _events(settings, text, focus=focus)
+
+
+def test_a_draft_that_needs_an_environment_is_proposed_with_the_choice_of_one(settings):
+    """It checks clean, so it goes in the editor -- and since only running it
+    would show whether it shows anything, the user is offered the
+    environments it could run in."""
+    TRIED.clear()
+    events = _build_on(settings, "rename IoT OTA jobs", JOBS_PANE)
+    assert _steps(events)[-2:] == ["try_definition", "propose_definition"]
+    assert TRIED == [{"environment": None, "source": DRAFT["source"]}]
+    [choices] = [e for e in events if e["type"] == "choices"]
+    assert choices == {"type": "choices", "action": "try", "prompt": "Try it on", "options": ["IoT Prod", "IoT Test"]}
+    assert "pick one and I'll run it there" in _answer(events)
+    assert events[-1]["type"] == "done"
+
+
+def test_tried_where_the_user_chose_what_came_back_empty_is_fixed_before_its_proposed(settings):
+    """The OTA pane checked clean and opened onto nothing: a row action read
+    row.jobId from rows whose column is Job ID. Tried on the environment the
+    user chose, that's a problem like a check's, and the model fixes it."""
+    TRIED.clear()
+    fake_llm.BUILDS.clear()
+    events = _build_on(settings, "open jobs onto their detail", JOBS_PANE, try_on="IoT Prod")
+    assert _steps(events) == ["build_reference", "plan_change", "write_changes", "change_definition", "try_definition",
+                              "write_changes", "change_definition", "try_definition", "propose_definition"]
+    assert [t["environment"] for t in TRIED] == ["IoT Prod", "IoT Prod"]
+    repair = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert "run as its user will on IoT Prod" in repair and "got nothing for job_id" in repair
+    assert '"Job ID": "ota-1"' in repair, "with what the run really got"
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "job_id: row.Job ID" in proposed["propose"]["source"]
+    answer = _answer(events)
+    assert "Tried it on IoT Prod: 2 rows in jobs; the first row opened onto everything it shows." in answer, answer
+    assert not [e for e in events if e["type"] == "choices"]
+
+
+def test_choosing_an_environment_tries_it_at_once_and_fixes_what_it_finds(settings):
+    """The choice's click: no plan, no change asked for -- check, try, fix."""
+    TRIED.clear()
+    broken = JOBS_PANE.replace("outputs:", "- id: job\n  args:\n    connection: row.Environment\n    job_id: row.jobId\n"
+                                            "  code:\n    file: job.py\noutputs:")
+    events = _build_on(settings, "Try it on IoT Test", broken, try_on="IoT Test", try_now=True)
+    assert _steps(events) == ["build_reference", "check_definition", "try_definition", "write_changes",
+                              "change_definition", "try_definition", "propose_definition"]
+    assert "Fixed what trying it on IoT Test showed." in _answer(events)
+    # Already working, it just says so.
+    TRIED.clear()
+    fine = _build_on(settings, "Try it on IoT Test", broken.replace("row.jobId", "row.Job ID"), try_on="IoT Test",
+                     try_now=True)
+    assert _steps(fine) == ["build_reference", "check_definition", "try_definition"]
+    assert _answer(fine) == "Tried it on IoT Test: 2 rows in jobs; the first row opened onto everything it shows."

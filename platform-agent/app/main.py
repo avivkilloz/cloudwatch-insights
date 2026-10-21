@@ -64,6 +64,14 @@ class Focus(BaseModel):
     what: Optional[Literal["pane", "workflow", "step"]] = None
     id: Optional[str] = Field(default=None, max_length=200)
     source: Optional[str] = Field(default=None, max_length=MAX_MESSAGE_CHARS)
+    # The files beside it (D136). Left out of this model, they never reached
+    # the Builder's loop, which then wrote its first change without knowing
+    # the code files were there (D149's "files said first").
+    files: dict[str, str] = {}
+    # The environment its builder chose to try it on, and whether this turn
+    # is that choice (D153).
+    try_on: Optional[str] = Field(default=None, max_length=200)
+    try_now: Optional[bool] = None
 
 
 class ChatRequest(BaseModel):

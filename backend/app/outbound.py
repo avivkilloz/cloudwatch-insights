@@ -52,6 +52,23 @@ def connection_of(db: Session, user: models.User, value: Any, aws: bool) -> int:
     raise OutboundError(f"There is no {kind} connection called {value!r} that you can reach.", 404)
 
 
+def name(db: Session, user: models.User, call: dict) -> dict:
+    """The name the user sees a connection by -- the label a declarative
+    fan-out stamps as a row's Environment -- so code over a `connections`
+    input can stamp its rows the same way, and a row action given that name
+    reaches the connection back (`connection_of`). Only one they can reach."""
+    value = call.get("connection")
+    for aws in (True, False):
+        try:
+            conn_id = connection_of(db, user, value, aws=aws)
+        except OutboundError:
+            continue
+        found = [t for t in connections.targets(db, user) if t["id"] == conn_id]
+        if found:
+            return {"name": found[0]["label"]}
+    raise OutboundError(f"There is no connection {value!r} that you can reach.", 404)
+
+
 def http(db: Session, user: models.User, call: dict, may_change: bool) -> dict:
     """A request to a connection of an HTTP type, `path` after its base URL:
     `{status, headers, body}` (masked) -- an error status is the code's to

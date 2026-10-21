@@ -90,6 +90,10 @@ class BuildFocus(BaseModel):
     source: str = Field(default="", max_length=MAX_MESSAGE_CHARS)
     # The files beside it (D136): a pane's or a step's Python.
     files: dict[str, str] = {}
+    # The environment its builder chose to try a pane type on (D153), and
+    # whether this turn is that choice: the Builder then tries it at once.
+    try_on: Optional[str] = Field(default=None, max_length=200)
+    try_now: bool = False
 
 
 class AgentChatRequest(BaseModel):
@@ -184,6 +188,8 @@ async def agent_chat(
             "source": build.source,
             "files": build.files,
             **({"id": build.id} if build.id else {}),
+            **({"try_on": build.try_on} if build.try_on else {}),
+            **({"try_now": True} if build.try_now else {}),
         }
 
     token = tokens.mint(

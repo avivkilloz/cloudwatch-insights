@@ -571,6 +571,17 @@ def _builder(messages: list[dict]) -> str:
         return json.dumps({"summary": "The list is code now, in shaped.py: devices sorted by id.", "changes": [
             {"op": "file", "name": "shaped.py", "text": SHAPED},
             {"op": "set", "path": "actions/list/code", "value": {"file": "shaped.py"}}]})
+    if lowered.startswith("open jobs") or "run as its user will" in asked:
+        # D153: rows that open, its row action reading the column by the
+        # field's name; told what trying it found, it reads the column the
+        # rows have.
+        if phase == "repair" and "got nothing for job_id" in asked:
+            return json.dumps({"summary": "The row action reads the Job ID column.", "changes": [
+                {"op": "set", "path": "actions/job/args/job_id", "value": "row.Job ID"}]})
+        return json.dumps({"summary": "Jobs open onto their detail.", "changes": [
+            {"op": "add", "path": "actions", "value": {"id": "job", "args": {"connection": "row.Environment",
+                                                                           "job_id": "row.jobId"},
+                                                       "code": {"file": "job.py"}}}]})
     if lowered.startswith("never clean") or lowered.startswith("lost"):
         return json.dumps({"summary": "Added a card.", "changes": [
             {"op": "add", "path": "layout", "value": {"title": f"Card {len(messages)}", "items": [{"output": "nothing"}]}}]})

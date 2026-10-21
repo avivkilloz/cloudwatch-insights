@@ -27,6 +27,7 @@ import contextlib
 import contextvars
 import datetime
 import json
+import re
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -1592,12 +1593,17 @@ async def build_reference(kind: str) -> dict:
 
 @mcp.tool()
 async def read_definition(kind: str, definition_id: str) -> dict:
-    """The YAML of an existing pane type (bundled or built here), workflow or step type, as written -- to learn
-    from or to start a change from."""
+    """The YAML of an existing pane type (bundled or built here), a recipe (recipe:<name>, with its files),
+    workflow or step type, as written -- to learn from or to start a change from."""
     from .. import builder, workflows
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
+        if kind == "pane" and definition_id.startswith(builder.RECIPE_PREFIX):
+            recipe = builder.recipes().get(definition_id.removeprefix(builder.RECIPE_PREFIX))
+            if recipe is None:
+                raise InputError(f"There is no recipe {definition_id}; build_reference lists the recipes.")
+            return {"kind": kind, "id": definition_id, "source": recipe["source"], "files": recipe["files"]}
         if kind == "pane":
             row = db.get(models.BuiltPaneType, definition_id)
             if row is not None:
@@ -1810,10 +1816,12 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         if on_files and kind == "workflow":
             raise InputError("A workflow has no files of its own; its steps do. Nothing was changed.")
         on_yaml = [c for c in changes if not _is_file_change(c)]
+        before = source
         try:
             files = _change_files(files, on_files)
             if on_yaml or not on_files:
                 source = yaml_edit.apply_all(source, on_yaml)
+            source, files, moved = _code_to_files(kind, before, source, files)
         except yaml_edit.EditError as e:
             raise InputError(f"{e} Nothing was changed.") from None
         row = _token_row(db, caller)
@@ -1824,9 +1832,59 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "changed": len(changes),
                                "lines": len(source.splitlines()),
                                "files": {name: len(text.splitlines()) for name, text in sorted(files.items())}}
+        if moved:
+            out["moved"] = (f"Code written into the YAML was moved into files of its own, which the YAML now names "
+                            f"({', '.join(moved)}): code lives in files -- change them there.")
         if errors:
             out["near"] = _near(source, errors, files=files)
         return out
+
+
+def _code_to_files(kind: str, before: str, source: str, files: dict[str, str]) -> tuple[str, dict[str, str], list[str]]:
+    """Python the agent wrote into the YAML (`code: |`), moved into a file
+    beside it that the YAML then names (D149). Told every turn that code is a
+    file, a model still wrote it inline as often as not -- and then, seeing
+    files beside the draft, didn't know which one ran. Only code this change
+    wrote or changed: inline code a person kept stays theirs."""
+    import yaml as pyyaml
+
+    from .. import yaml_edit
+
+    if kind not in ("pane", "step"):
+        return source, files, []
+    try:
+        old, new = pyyaml.safe_load(before) or {}, pyyaml.safe_load(source) or {}
+    except pyyaml.YAMLError:
+        return source, files, []
+    if not isinstance(new, dict):
+        return source, files, []
+
+    def inline(data: Any) -> dict[str, str]:
+        """Where inline code is (a change's path) -> its text."""
+        if not isinstance(data, dict):
+            return {}
+        if kind == "step":
+            return {"code": data["code"]} if isinstance(data.get("code"), str) else {}
+        return {f"actions/{a['id']}/code": a["code"] for a in data.get("actions") or []
+                if isinstance(a, dict) and isinstance(a.get("code"), str) and a.get("id")}
+
+    was = inline(old)
+    moved: list[str] = []
+    files = dict(files)
+    for path, text in inline(new).items():
+        if was.get(path) == text or not text.strip():
+            continue
+        stem = re.sub(r"[^a-z0-9_]", "_", path.split("/")[1].lower() if "/" in path else "step") or "code"
+        if not re.match(r"[a-z_]", stem):
+            stem = f"code_{stem}"
+        name = f"{stem}.py"
+        n = 2
+        while name in files and files[name] != text:
+            name, n = f"{stem}_{n}.py", n + 1
+        files[name] = text if text.endswith("\n") else text + "\n"
+        source = yaml_edit.apply(source, {"op": "set", "path": path, "value": {"file": name}})
+        moved.append(f"{path} -> {name}")
+    return source, files, moved
 
 
 @mcp.tool()
@@ -1929,6 +1987,33 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
                 text_value = json.dumps(value, default=str)
                 out[key] = value if len(text_value) <= 2000 else text_value[:2000] + "…"
         return {"ok": True, "outputs": out, "note": "A preview only: nothing was saved or shown."}
+
+
+@mcp.tool()
+async def try_definition(environment: Optional[str] = None, source: Optional[str] = None,
+                         definition_id: Optional[str] = None) -> dict:
+    """Tries a pane type's draft the way its user will: its main action with its inputs' defaults and its
+    connections in `environment` (an environment's name), then opens its first row as the pane would -- and says
+    what came back empty (columns, a detail's fields) and why. Without `source`, the working draft. Without an
+    environment when it needs one, answers needs_environment with the environments it could run in: ask the user
+    which to try it on. Nothing is saved or shown anywhere; it runs as the user, reads only."""
+    from fastapi import HTTPException
+
+    from .. import builder
+
+    with _acting() as (db, user, caller):
+        _may_build(user, "pane")
+        text = _source_of(db, caller, source)
+        files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
+        if lock_errors:
+            raise InputError(f"Its requirements can't be locked: {_problems(lock_errors)}")
+        try:
+            return await asyncio.to_thread(builder.try_draft, db, user, text,
+                                           definition_id or getattr(caller, "build_id", None), files, environment)
+        except builder.BuilderError as e:
+            raise InputError(f"It doesn't check yet, so it can't be tried: {_problems(e.errors)}") from None
+        except HTTPException as e:
+            raise InputError(str(e.detail)) from None
 
 
 @mcp.tool()

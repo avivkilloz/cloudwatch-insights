@@ -969,7 +969,8 @@ to try. Check points at the file and line of a mistake, and a run that fails
 names them too. The Building tab's agent writes code the same way, as a file.
 It runs in
 the platform's runner, never in the backend, and reaches out only through
-`ctx.http(connection, path)` and `ctx.aws(connection, service, operation)`,
+`ctx.http(connection, path)` and `ctx.aws(connection, service, operation)`
+(`ctx.name(connection)` says a connection's name, for a row's Environment),
 which the platform makes as whoever runs it -- their identity, the same
 guards -- so code never holds a credential. A pane's code only reads; a
 step's that changes something says `changes: true` and waits for a person in
@@ -995,7 +996,21 @@ list), changes the definition, checks it and fixes whatever the check finds
 -- a few rounds if it must -- and puts it in the editor for you to look over.
 You see each of those steps in the chat. It never saves -- **Check** and
 **Save** are yours. If it can't get the definition to check clean, it still
-puts its work in the editor and says what's left; ask it to carry on.
+puts its work in the editor and says what's left; ask it to carry on, or
+press **Fix what's left** under its answer.
+
+Checking clean isn't the same as working, so a pane that reads from an
+environment is also **tried**: the first time, the answer offers your
+environments ("Try it on …"); pick one and the Builder runs the draft there
+as you -- its list, then its first row opened -- and fixes whatever came back
+empty (a column read by the wrong name, a row's detail looking in the wrong
+place). Every later change in that editor is tried there too. It only reads.
+
+Before writing, it can read **recipes**: whole pane types that work, each
+saying why it's built so -- rows that open onto a second call, columns that
+need a call per row (the listing becomes code), modes, an HTTP API table.
+Code over several environments names each row's environment with
+`ctx.name(connection)`, which a row action passes back to `ctx.aws`.
 
 A pane can hold several requests: give each its own `output` (`output: jobs`)
 and they fill their own tables, each keeping its rows when the other is

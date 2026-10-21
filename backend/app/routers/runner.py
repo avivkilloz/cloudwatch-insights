@@ -50,9 +50,11 @@ def call(payload: dict[str, Any] = Body(...), authorization: Optional[str] = Hea
             return outbound.http(db, user, payload, job.may_change)
         if payload.get("kind") == "aws":
             return outbound.aws(db, user, payload)
+        if payload.get("kind") == "name":
+            return outbound.name(db, user, payload)
     except outbound.OutboundError as e:
         raise HTTPException(status_code=e.status, detail=str(e)) from None
-    raise HTTPException(status_code=400, detail="A call is http (ctx.http) or aws (ctx.aws).")
+    raise HTTPException(status_code=400, detail="A call is http (ctx.http), aws (ctx.aws) or name (ctx.name).")
 
 
 # ---------------------------------------------------------------- the package index (D143)
