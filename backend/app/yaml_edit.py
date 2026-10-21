@@ -152,6 +152,7 @@ def resolve(data: Any, parts: list[str], last_may_be_new: bool = False) -> Path:
     last part may name a key that isn't there yet (`set` adds it)."""
     out: Path = []
     node = data
+    parts = _dotted(data, list(parts))
     for n, part in enumerate(parts):
         where = "/".join(parts[:n]) or "the top"
         last = n == len(parts) - 1
@@ -175,6 +176,30 @@ def resolve(data: Any, parts: list[str], last_may_be_new: bool = False) -> Path:
             node = node[index]
         else:
             raise EditError(f"{where} is {_scalar_text(node)}, not a mapping or a list, so it has no {part!r}.")
+    return out
+
+
+def _dotted(data: Any, parts: list[str]) -> list[str]:
+    """A part written with dots, as the check names a place
+    (`outputs.0.config.detail`), is that path: a model copied the check's
+    `layout.2.items` into a change, and `set` made a top-level key of that
+    name, which the next check refused and the next change copied again.
+    Only where no key is named so and its first piece is one."""
+    out: list[str] = []
+    node: Any = data
+    for n, part in enumerate(parts):
+        pieces = part.split(".")
+        if (isinstance(node, dict) and part not in node and len(pieces) > 1 and all(pieces)
+                and pieces[0] in node):
+            return out + _dotted(node, pieces + parts[n + 1:])
+        out.append(part)
+        if isinstance(node, dict):
+            node = node.get(part)
+        elif isinstance(node, list):
+            index = _bracketed(part) if _bracketed(part) is not None else part
+            node = node[int(index)] if index.lstrip("-").isdigit() and -len(node) <= int(index) < len(node) else None
+        else:
+            node = None
     return out
 
 

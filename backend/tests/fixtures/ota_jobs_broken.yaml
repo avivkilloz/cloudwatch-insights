@@ -1,0 +1,109 @@
+id: default:iot_job_metrics
+label: IoT OTA Jobs
+description: List IoT OTA jobs with execution status counts. Expand a job for details including job document, targets, and thing group queries.
+category: Services
+inputs:
+  - key: connections
+    type: connections
+    connection_type: aws
+    label: Environments
+    default: []
+  - key: statusFilter
+    type: choice
+    label: Status filter
+    choices: ['', IN_PROGRESS, COMPLETED, CANCELED, DELETION_IN_PROGRESS]
+    choice_labels:
+      ? ''
+      : All
+      IN_PROGRESS: In Progress
+      COMPLETED: Completed
+      CANCELED: Canceled
+      DELETION_IN_PROGRESS: Deletion In Progress
+    optional: true
+    default: ""
+actions:
+  - id: list
+    main: true
+    run_label: List Jobs
+    busy_label: Listing jobs...
+    request:
+      connection: connections
+      service: iot
+      operation: ListJobs
+      output: jobs
+      paginate: true
+      params:
+        status:
+          input: statusFilter
+      rows:
+        at: jobs
+        columns:
+          Job ID: jobId
+          Status: status
+          Target Selection: targetSelection
+          Concurrent: isConcurrent
+          Created: createdAt
+          Last Updated: lastUpdatedAt
+          Completed: completedAt
+    resets:
+      - view.expanded
+  - id: detail
+    run_label: Load details
+    request:
+      connection: connections
+      service: iot
+      operation: DescribeJob
+      params:
+        jobId:
+          input: jobId
+    args:
+      connection: row.Environment
+      jobId: row.jobId
+outputs:
+  - key: jobs
+    render: table
+    actions:
+      - select
+      - copy
+      - export
+      - attach
+    config:
+      expand: expanded
+      domain: iot-jobs
+      detail:
+        action: detail
+        sections:
+          - title: Job Details
+            fields:
+              - label: Job ID
+                value: '{{ d.job_id }}'
+              - label: Status
+                value: '{{ d.job.status }}'
+          - title: Execution Summary
+            fields:
+              - label: Queued
+                value: '{{ d.job.jobProcessDetails.numberOfQueuedThings ?? ''0'' }}'
+          - title: Job Document
+            json: job_document
+  - key: error
+    render: error
+layout:
+  - title: 1. Choose environments
+    items:
+      - input: connections
+  - title: 2. Filter and list
+    items:
+      - toolbar:
+          - input: statusFilter
+          - action: list
+  - title: 3. Jobs
+    clear:
+      - jobs
+    items:
+      - output: error
+      - output: jobs
+layout.3:
+  title: 4. Export Details
+views:
+  - key: expanded
+    default: []

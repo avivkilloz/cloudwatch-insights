@@ -37,6 +37,7 @@ from typing import Any, AsyncIterator, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
+from .repair import cut_off
 from .text import CLOSE
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,16 @@ row action (an action with `args` read from the row, its own request) and \
 `config.expand` a view key declared in `views` -- as the reference's `rows \
 that open (example)` does. A config key the reference's `output config` \
 doesn't list does nothing.
+- A row action's `args` read the row by its columns as the rows name them: \
+`row.Job ID` when the columns say `Job ID: jobId` (`row.Environment` for a \
+fan-out's environment). A detail's templates read `d`, what the row action \
+returns: an AWS request's reply as describe_aws_operation shows it \
+(`d.job.status`), code's the mapping its run returns.
+- A value each row needs that only another call returns (a count, a status, \
+something from a Describe per row) makes the action that lists the rows code: \
+it lists them, makes that call for each and returns the rows with those \
+columns -- the table, its export and CSV are the rows as they are. Another \
+action can't add columns to rows already listed.
 - A column's path is not JMESPath: a list item is picked by a field, \
 Tags[Key=Name].Value.
 - A Clear button is the card's `clear: [output keys]` (the results it \
@@ -307,10 +318,20 @@ class Builder:
             try:
                 value = parse_json(text)
             except ValueError as e:
-                problem = str(e)
-                conversation += [reply, HumanMessage(content=(
-                    f"(From the platform: that reply wasn't the JSON object asked for -- {problem}. Reply with the "
-                    "JSON object alone.)"))]
+                if cut_off(reply):
+                    # Asked again the same way, a long reply is cut at the
+                    # same place: a turn that wrote two whole files and the
+                    # YAML into one change ended "didn't answer in the shape".
+                    problem = "it was cut off at the model's length limit"
+                    conversation += [HumanMessage(content=(
+                        "(From the platform: that reply was cut off at your length limit, so it isn't valid JSON. "
+                        "Send less in this reply -- the most important changes; the rest can come next round -- "
+                        "and change a file by its lines rather than writing it whole.)"))]
+                else:
+                    problem = str(e)
+                    conversation += [reply, HumanMessage(content=(
+                        f"(From the platform: that reply wasn't the JSON object asked for -- {problem}. Reply with "
+                        "the JSON object alone.)"))]
                 continue
             summary = value.get("plan") or value.get("summary") or value.get("answer") or value.get("give_up") or ""
             self.events.append({"type": "tool_result", "id": step_id, "name": label, "ok": True,
@@ -318,8 +339,10 @@ class Builder:
             return value
         self.events.append({"type": "tool_result", "id": step_id, "name": label, "ok": False,
                             "summary": f"No JSON in the reply: {problem}"})
-        raise BuildFailed("The model didn't answer in the shape the Builder needs, after being asked again. "
-                          "Try again, or try a different model for building (agent.builder.model).")
+        reason = ("its replies were cut off at its length limit (agent.builder.maxTokens)" if "cut off" in problem
+                  else "it didn't answer in the shape the Builder needs, after being asked again")
+        raise BuildFailed(f"The model couldn't write this: {reason}. Try again, ask for a smaller change, or try a "
+                          "different model for building (agent.builder.model).")
 
     # ------------------------------------------------------------ the turn
 
@@ -414,7 +437,17 @@ class Builder:
         applied = False
         fixed = 0
         for _ in range(self.rounds):
-            value = await self.ask("write_changes", instructions, self.context(draft, plan))
+            try:
+                value = await self.ask("write_changes", instructions, self.context(draft, plan))
+            except BuildFailed as e:
+                if not applied:
+                    raise
+                # Changes already made aren't thrown away for one reply that
+                # couldn't be read: the draft goes in the editor as it is.
+                problems = f"{problems}; then {e}" if problems else str(e)
+                for event in self.flush():
+                    yield event
+                break
             for event in self.flush():
                 yield event
             if value.get("give_up"):
