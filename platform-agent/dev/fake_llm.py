@@ -69,6 +69,9 @@ prompts (`_builder`):
                       wrote; told a Clear is a card's, it deletes that line
                       (a change by line) and sets `layout[0]/clear: [rows]`.
 - "bad op …"       -- an op that isn't one, until it's shown the shape.
+- "use code …"     -- the list action's code written as a file beside the
+                      YAML (shaped.py, D139) with a line that doesn't parse;
+                      told its file and line, it changes that line.
 - "never clean"    -- a change that names an output never declared, every
                       round: the draft goes in the editor with its problems.
 - "explain …"      -- a question: answered, nothing changed.
@@ -480,6 +483,11 @@ def _card(title: str, action: str, output: str) -> dict:
     return {"title": title, "items": [{"toolbar": [{"action": action}]}, {"output": output}]}
 
 
+# "use code": a file whose third line doesn't parse.
+SHAPED = ("def run(inputs, ctx):\n    items = ctx.http(inputs['connection'], '/devices').json()['items']\n"
+          "    rows = sorted(items, key=lambda d: d['id']\n    ctx.log('sorted', len(rows))\n    return {'rows': rows}\n")
+
+
 def _builder(messages: list[dict]) -> str:
     """The Builder's loop (app/builder.py), one JSON object per call."""
     asked = next(_content(m) for m in reversed(messages) if m.get("role") == "user" and "The user's request: " in _content(m))
@@ -542,6 +550,18 @@ def _builder(messages: list[dict]) -> str:
             return json.dumps({"summary": "A Clear on the results' card.", "changes": changes})
         return json.dumps({"summary": "Added a clear action.", "changes": [
             {"op": "add", "path": "actions", "value": {"id": "clear", "run_label": "Clear"}}]})
+    if lowered.startswith("use code"):
+        # Code as a file beside the YAML (D139), with a line that doesn't
+        # parse; told its file and line, it changes that line.
+        if phase == "repair":
+            m = re.search(r"shaped\.py, line (\d+)", asked)
+            at = int(m.group(1)) if m else 3
+            return json.dumps({"summary": "Closed the sort's bracket.", "changes": [
+                {"op": "lines", "file": "shaped.py", "from": at, "to": at,
+                 "text": "    rows = sorted(items, key=lambda d: d['id'])"}]})
+        return json.dumps({"summary": "The list is code now, in shaped.py: devices sorted by id.", "changes": [
+            {"op": "file", "name": "shaped.py", "text": SHAPED},
+            {"op": "set", "path": "actions/list/code", "value": {"file": "shaped.py"}}]})
     if lowered.startswith("never clean"):
         return json.dumps({"summary": "Added a card.", "changes": [
             {"op": "add", "path": "layout", "value": {"title": f"Card {len(messages)}", "items": [{"output": "nothing"}]}}]})

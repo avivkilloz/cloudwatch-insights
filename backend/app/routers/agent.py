@@ -88,6 +88,8 @@ class BuildFocus(BaseModel):
     id: Optional[str] = Field(default=None, max_length=200)
     title: str = Field(default="", max_length=200)
     source: str = Field(default="", max_length=MAX_MESSAGE_CHARS)
+    # The files beside it (D136): a pane's or a step's Python.
+    files: dict[str, str] = {}
 
 
 class AgentChatRequest(BaseModel):
@@ -180,6 +182,7 @@ async def agent_chat(
             "what": build.kind,
             "title": build.title or build.id or f"New {NOUNS[build.kind]}",
             "source": build.source,
+            "files": build.files,
             **({"id": build.id} if build.id else {}),
         }
 
@@ -189,7 +192,8 @@ async def agent_chat(
         timezone=payload.timezone,
         viewing_session_id=payload.viewing_session_id,
         session_scope_id=scope_id,
-        build={"kind": payload.build.kind, "id": payload.build.id, "source": payload.build.source}
+        build={"kind": payload.build.kind, "id": payload.build.id, "source": payload.build.source,
+               "files": payload.build.files}
         if payload.scope == "build" and payload.build is not None
         else None,
     )

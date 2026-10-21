@@ -53,6 +53,22 @@ class _Dumper(yaml.SafeDumper):
         return super().increase_indent(flow, False)
 
 
+def _block(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
+    # Text over several lines as a `|` block (D139): set as a quoted string,
+    # Python came out as one line of \n's no one could read or fix.
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_Dumper.add_representer(str, _block)
+
+
+def _one_line(value: Any) -> bool:
+    """A scalar that can be written in another's place on its line."""
+    return _is_scalar(value) and not (isinstance(value, str) and "\n" in value)
+
+
 def _dump(value: Any) -> str:
     return yaml.dump(value, Dumper=_Dumper, sort_keys=False, default_flow_style=False, width=120, allow_unicode=True)
 
@@ -342,7 +358,7 @@ def _splice(src: str, root: yaml.Node, new: Any, op: str, path: Path, extra: Any
     if len(nodes) != len(path):
         return None  # a parent made by the change: written whole, above
     parent, last = nodes[-1], path[-1]
-    if op == "set" and _is_scalar(_get(new, path)):
+    if op == "set" and _one_line(_get(new, path)):
         # A scalar over a scalar is written in its place, even inline
         # (`choice_labels: { things: Things }`).
         if isinstance(parent, yaml.MappingNode):
@@ -384,7 +400,7 @@ def _splice(src: str, root: yaml.Node, new: Any, op: str, path: Path, extra: Any
             return None if len(parent.value) == 1 else src[:start] + src[end:]
         old = parent.value[index]
         value = _get(new, path)
-        if _is_scalar(value) and isinstance(old, yaml.ScalarNode) and not old.style and not _empty(old):
+        if _one_line(value) and isinstance(old, yaml.ScalarNode) and not old.style and not _empty(old):
             return src[:old.start_mark.index] + _scalar_text(value) + src[old.end_mark.index:]
         text = _indent(_dump([value]), _dash_column(src, parent))
         return src[:start] + text + src[end:]
@@ -401,7 +417,7 @@ def _splice(src: str, root: yaml.Node, new: Any, op: str, path: Path, extra: Any
     value = _get(new, path)
     if pair is not None:
         key, old = pair
-        if _is_scalar(value) and isinstance(old, yaml.ScalarNode) and old.style in (None, "", "'", '"') and not _empty(old):
+        if _one_line(value) and isinstance(old, yaml.ScalarNode) and old.style in (None, "", "'", '"') and not _empty(old):
             return src[:old.start_mark.index] + _scalar_text(value) + src[old.end_mark.index:]
         start, end = _pair_span(src, key, old)
         return src[:start] + _pair_text(src, key, start, str(last), value) + src[end:]

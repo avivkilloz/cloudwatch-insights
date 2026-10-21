@@ -78,7 +78,8 @@ backend/app/
   templates.py       published templates: made portable, kept in the store, opened for an environment (§23)
   builder.py         the Builder: pane types made in the platform, checked and merged into the registry (§24)
   blobs.py           the blob store: filesystem or S3, metadata in `blobs` (§8.2, D91)
-  store.py           the store repo: what's built here, written through to git as a plugin (§21)
+  store.py           the store repo: what's built here, written through to git as a plugin (§21), a folder per
+                     pane, step and workflow (D140)
   gitrepo.py         the store's private clone, driven through the git CLI (no secret in a URL or argument)
   live_store.py      the one server-side write path for live sessions (versioned, announced)
   pane_outputs.py    the one write path for a pane's outputs, apart from the state (D21)
@@ -999,9 +1000,38 @@ it wherever a handler used to be asked for) or a step type.
   row action); a preview also gets `__logs` and a failure's log in its
   error. The Builder shows "The code's log"; the step editor's Try shows the
   outputs and the log. `runner_jobs` older than 30 days are pruned hourly.
+- **Code lives in files** (6-1b, D136-D140): a pane's or a step's `files`
+  (name -> text, a JSON column beside `source`; on the manifest and the step
+  `Definition` as the private `_files`) and `code: {file: x.py, function:
+  run}` naming one (`panes.manifest.CodeFile`); inline `code: |` still works.
+  `runner_client.program` builds the job: every file, read-only in the job's
+  own `src` dir appended to its path (so they import each other and never
+  shadow the standard library -- `file_problems` refuses those names too),
+  the entry imported as a module. Problems and failures carry `file` and that
+  file's `line` (`builder.where`). Every route, draft and agent token carries
+  `files`; the editors are `components/Workspace.tsx` (a tab per file over
+  the one `CodeEditor`, `#<id>-file` for a file's textarea). The agent writes
+  `{"op": "file", "name", "text"}` / `{"op": "lines", "file", …}`
+  (`server._change_files`), sees the files numbered in the loop's context,
+  and its proposals carry `files`; a multi-line string set into YAML is a `|`
+  block (`yaml_edit._block`), never the quoted one-liner a model's Python
+  became.
+- **The store keeps a folder per pane, step and workflow** (D140; `Kind.main`
+  -- `pane.yaml`/`step.yaml`/`workflow.yaml` -- and `Kind.files`): the
+  outbox row's content is the folder's files as JSON, its version the
+  folder's git tree (`gitrepo.tree_hash`, worked out here and equal to git's,
+  `Repo.tree`); `_legacy` items still in a flat `<name>.yaml` restore as
+  before and are moved by their next write -- `_move_to_folders` queues that
+  once for all of them, one commit, at `restore()`.
+- **The runner checks itself at start** (`main.self_check`: one trivial job;
+  `/health` answers 503 with the reason) -- with Helm's four capabilities a
+  chmod after the chown (FOWNER), Popen's `cwd=` entered as root
+  (DAC_READ_SEARCH) and root listing a job's home to remove it all failed,
+  and every job said "Internal Server Error". `test_runner.py` runs a job
+  under `setpriv` with exactly those capabilities.
 - Tests: `runner/tests` (as root the isolation ones run: CI runs them both
   ways), backend `test_code.py` (a real runner subprocess and the backend in
-  a thread for its callbacks), `smoke103`.
+  a thread for its callbacks), `test_store_folders.py`, `smoke103`, `smoke104`.
 
 **Credentials (PLATFORM_PLAN.md Phase 1, §13).** Typed secrets, encrypted at
 rest, never returned by any API -- to admins included: a secret field is

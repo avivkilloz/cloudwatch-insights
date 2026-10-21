@@ -622,9 +622,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           // while that editor is still the one open; it's never saved here.
           if (event.ok && event.propose && scope === "build") {
             const now = currentBuildFocus();
-            if (now && now.key === buildKey) now.apply(event.propose.source, event.propose.summary ?? "");
+            if (now && now.key === buildKey) now.apply(event.propose.source, event.propose.summary ?? "", event.propose.files);
             // Its editor closed meanwhile: into its draft, to find there.
-            else build?.draft?.keep(event.propose.source);
+            else build?.draft?.keep(event.propose.source, event.propose.files);
           }
         } else if (event.type === "error") {
           change((t) => ({ ...t, status: "failed", error: event.message }));
@@ -641,7 +641,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
             timezone: timezone(),
             scope,
             ...(scope === "run" ? { run_id: runId } : {}),
-            ...(build ? { build: { kind: build.kind, id: build.id, title: build.title, source: build.source() } } : {}),
+            ...(build
+              ? { build: { kind: build.kind, id: build.id, title: build.title, source: build.source(), files: build.files() } }
+              : {}),
           },
           onEvent,
           controller.signal,

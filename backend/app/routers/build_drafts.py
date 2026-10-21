@@ -21,6 +21,7 @@ class DraftIn(BaseModel):
     target_id: Optional[str] = None
     new_id: Optional[str] = None
     source: Optional[str] = None
+    files: Optional[dict[str, str]] = None
     chat: Optional[list[Any]] = None
 
 
@@ -29,6 +30,7 @@ class DraftChange(BaseModel):
     target_id: Optional[str] = None
     new_id: Optional[str] = None
     source: Optional[str] = None
+    files: Optional[dict[str, str]] = None
     chat: Optional[list[Any]] = None
 
 
@@ -43,6 +45,7 @@ class DraftOut(BaseModel):
     # False for a saved one's draft holding only its chat.
     changed: bool = True
     source: Optional[str] = None
+    files: Optional[dict[str, str]] = None
     chat: Optional[list[Any]] = Field(default=None)
 
 
@@ -71,7 +74,7 @@ def get_draft(draft_id: int, db: Session = Depends(get_db), user: models.User = 
 @router.post("", response_model=DraftOut, status_code=201)
 def save_draft(payload: DraftIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     row = _guard(lambda: build_drafts.save(db, user, payload.kind, payload.target_id, payload.source, payload.new_id,
-                                           payload.chat))
+                                           payload.chat, payload.files))
     return build_drafts.out(db, row)
 
 
@@ -80,7 +83,7 @@ def change_draft(draft_id: int, payload: DraftChange, db: Session = Depends(get_
                  user: models.User = Depends(auth.get_current_user)):
     row = _guard(lambda: build_drafts.mine(db, user, draft_id))
     return build_drafts.out(db, _guard(lambda: build_drafts.update(db, user, row, payload.source, payload.new_id,
-                                                                  payload.chat, payload.target_id)))
+                                                                  payload.chat, payload.target_id, payload.files)))
 
 
 @router.delete("/{draft_id}", status_code=204)

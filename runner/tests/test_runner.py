@@ -4,6 +4,9 @@ the SDK -- and reaches the world only through its callback."""
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -166,3 +169,77 @@ def test_the_sdk_calls_back_with_the_jobs_token_and_nothing_else():
 def test_only_the_backend_may_start_a_job():
     assert client.post("/jobs", json={"code": "x"}).status_code == 401
     assert client.post("/jobs", json={"code": "x"}, headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+@pytest.mark.skipif(not ROOT or not shutil.which("setpriv"), reason="needs root, and setpriv to drop capabilities")
+def test_a_job_runs_with_only_the_capabilities_the_chart_grants():
+    # Helm drops every capability but these four (runner.securityContext). A
+    # root with all of them ran these tests green while every job in the
+    # cluster failed: chmod on a directory already given to a slot's uid
+    # needs FOWNER, which the chart doesn't grant.
+    code = ("import os\ndef run(inputs, ctx):\n    open('f', 'w').write('x')\n"
+            # Files it then made unreadable to itself: still swept.
+            "    os.makedirs('d/e')\n    open('d/e/g', 'w').write('y')\n    os.chmod('d/e', 0)\n    os.chmod('d', 0)\n"
+            "    return {'uid': os.getuid(), 'home': os.getcwd()}\n")
+    script = (f"import json\nfrom app import jobs\nout = jobs.run({code!r}, {{}}, None, 10)\n"
+              "print(json.dumps(out.as_dict()))\n")
+    done = subprocess.run(["setpriv", "--bounding-set=-all,+setuid,+setgid,+chown,+kill", sys.executable, "-c", script],
+                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[-2000:]
+    out = json.loads(done.stdout.strip().splitlines()[-1])
+    assert out["ok"], out
+    assert out["outputs"]["uid"] >= jobs.UID_BASE
+    assert not os.path.exists(os.path.dirname(out["outputs"]["home"])), "its files outlived it"
+
+
+def test_health_says_when_the_runner_cant_run_a_job(monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main.jobs, "run", lambda *a, **k: (_ for _ in ()).throw(PermissionError("Operation not permitted")))
+    problem = main.self_check()
+    assert problem and "PermissionError" in problem
+    monkeypatch.setitem(main._problem, "problem", problem)
+    resp = client.get("/health")
+    assert resp.status_code == 503 and resp.json()["status"] == "broken" and "PermissionError" in resp.json()["problem"]
+
+
+# ---------------------------------------------------------------- code in files (D138)
+
+HEALTH = "from helpers import double\n\ndef run(inputs, ctx):\n    return {'n': double(inputs['n'])}\n\n" \
+         "def broken(inputs, ctx):\n    return helper_that_fails()\n\n" \
+         "def helper_that_fails():\n    from helpers import fail\n    return fail()\n"
+HELPERS = "def double(n):\n    return n * 2\n\n\ndef fail():\n    raise ValueError('no data')\n"
+
+
+def test_code_in_files_imports_its_neighbours_and_says_which_file_failed():
+    files = {"health.py": HEALTH, "helpers.py": HELPERS}
+    out = job("", {"n": 21}, files=files, entry={"file": "health.py"})
+    assert out["ok"] and out["outputs"] == {"n": 42}, out
+    failed = job("", {}, files=files, entry={"file": "health.py", "function": "broken"})
+    assert not failed["ok"] and failed["error"] == "ValueError: no data"
+    assert (failed["file"], failed["line"]) == ("helpers.py", 6), failed
+    missing = job("", {}, files=files, entry={"file": "health.py", "function": "nope"})
+    assert "health.py defines no nope(inputs, ctx)" in missing["error"]
+    syntax = job("", {}, files={"bad.py": "def run(inputs, ctx):\n    return (\n"}, entry={"file": "bad.py"})
+    assert not syntax["ok"] and syntax["file"] == "bad.py" and syntax["line"], syntax
+
+
+def test_a_jobs_files_are_read_only_to_it_and_never_stand_in_for_the_standard_library():
+    files = {"health.py": "import json, os\ndef run(inputs, ctx):\n"
+                          "    try:\n        open(os.path.join(os.path.dirname(__file__), 'helpers.py'), 'w').write('x')\n"
+                          "        wrote = True\n    except OSError:\n        wrote = False\n"
+                          "    return {'wrote': wrote, 'json': json.dumps([1])}\n",
+             "helpers.py": "x = 1\n", "json.py": "raise SystemExit('shadowed')\n"}
+    out = job("", {}, files=files, entry={"file": "health.py"})
+    assert out["ok"], out
+    assert out["outputs"]["json"] == "[1]"
+    if ROOT:
+        assert out["outputs"]["wrote"] is False
+
+
+def test_a_job_with_files_that_arent_modules_is_refused():
+    resp = client.post("/jobs", json={"files": {"../x.py": "x"}, "entry": {"file": "../x.py"}}, headers=AUTH)
+    assert resp.status_code == 400 and "isn't a module's file name" in resp.text
+    resp = client.post("/jobs", json={"files": {"a.py": "x"}, "entry": {"file": "b.py"}}, headers=AUTH)
+    assert resp.status_code == 400 and "isn't one of its files" in resp.text

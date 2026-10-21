@@ -101,7 +101,7 @@ async def check_definition(kind: str, source: str, ctx: Context, definition_id: 
 # The turn's working draft, as the backend keeps it on the token (D114); the
 # stub's changes go by path over plain data, its check is two rules of the
 # real one -- enough for the Builder's loop to meet a problem and fix it.
-DRAFT = {"source": ""}
+DRAFT: dict = {"source": "", "files": {}}
 
 
 def _stub_problems(data: dict) -> list[dict]:
@@ -125,10 +125,21 @@ def _stub_at(node, part: str):
 
 
 @stub.tool()
-async def read_draft(ctx: Context, start_line: int = 1, end_line: int | None = None) -> dict:
+async def read_draft(ctx: Context, start_line: int = 1, end_line: int | None = None, file: str | None = None) -> dict:
     _auth(ctx)
-    lines = DRAFT["source"].splitlines()
-    return {"lines": len(lines), "text": "\n".join(f"{n}: {line}" for n, line in enumerate(lines, 1))}
+    lines = (DRAFT["files"][file] if file else DRAFT["source"]).splitlines()
+    return {"lines": len(lines), "text": "\n".join(f"{n}: {line}" for n, line in enumerate(lines, 1)),
+            "files": {name: len(text.splitlines()) for name, text in DRAFT["files"].items()}}
+
+
+def _stub_file_problems() -> list[dict]:
+    errors = []
+    for name, text in DRAFT["files"].items():
+        try:
+            compile(text, name, "exec")
+        except SyntaxError as e:
+            errors.append({"file": name, "line": e.lineno, "message": f"It isn't valid Python: {e.msg}."})
+    return errors
 
 
 @stub.tool()
@@ -138,6 +149,14 @@ async def change_definition(changes: list[dict], ctx: Context, kind: str | None 
     _auth(ctx)
     data = yaml.safe_load(DRAFT["source"]) or {}
     for change in changes:
+        if change["op"] == "file":
+            DRAFT["files"][change["name"]] = change["text"]
+            continue
+        if change["op"] == "lines" and change.get("file"):
+            lines = DRAFT["files"][change["file"]].splitlines()
+            lines[change["from"] - 1:change["to"]] = change["text"].splitlines()
+            DRAFT["files"][change["file"]] = "\n".join(lines) + "\n"
+            continue
         parts = change["path"].split("/")
         node = data
         try:
@@ -155,7 +174,7 @@ async def change_definition(changes: list[dict], ctx: Context, kind: str | None 
         else:
             raise ToolError(f"Change 1: A change's op is \"set\", \"add\" or \"remove\", not {change['op']!r}. Nothing was changed.")
     DRAFT["source"] = yaml.safe_dump(data, sort_keys=False)
-    errors = _stub_problems(data)
+    errors = _stub_problems(data) + _stub_file_problems()
     return {"ok": not errors, "errors": errors, "changed": len(changes)}
 
 
@@ -175,7 +194,8 @@ async def propose_definition(summary: str, ctx: Context, kind: str | None = None
     errors = _stub_problems(yaml.safe_load(text) or {})
     if errors and not even_with_problems:
         raise ToolError("Nothing was put in the editor; fix these: " + "; ".join(e["message"] for e in errors))
-    out = {"ok": not errors, "propose": {"kind": kind or "pane", "source": text, "summary": summary}}
+    out = {"ok": not errors, "propose": {"kind": kind or "pane", "source": text, "summary": summary,
+                                         "files": dict(DRAFT["files"])}}
     return {**out, "problems": "; ".join(e["message"] for e in errors)} if errors else out
 
 
@@ -641,9 +661,9 @@ def test_each_stretch_between_tools_may_be_nudged_and_a_stuck_turn_says_so(setti
 IOT = "label: IoT\ndescription: Things.\nactions: []\noutputs: []\nlayout: []\n"
 
 
-def _build(settings: Settings, text: str, source: str, **overrides) -> list[dict]:
-    DRAFT["source"] = source  # what the backend mints the token with
-    focus = {"kind": "build", "what": "pane", "title": "IoT", "source": source}
+def _build(settings: Settings, text: str, source: str, files: dict | None = None, **overrides) -> list[dict]:
+    DRAFT["source"], DRAFT["files"] = source, dict(files or {})  # what the backend mints the token with
+    focus = {"kind": "build", "what": "pane", "title": "IoT", "source": source, "files": dict(files or {})}
     return _events(Settings(**{**settings.__dict__, **overrides}), text, focus=focus)
 
 
@@ -686,6 +706,27 @@ def test_a_problem_goes_back_to_the_model_with_the_draft_as_it_is_and_is_fixed(s
     [proposed] = [e for e in events if e.get("propose")]
     assert "at: jobs\n" in proposed["propose"]["source"] and "key: rules" in proposed["propose"]["source"]
     assert "each with its own card. The check caught 1 problem on the way, fixed." in _answer(events)
+
+
+def test_code_is_written_as_a_file_and_fixed_by_its_lines(settings):
+    """D139: a model asked for code wrote it into the YAML as one quoted line.
+    The loop shows it the files beside the draft, numbered, and it writes
+    one -- here with a line that doesn't parse, which the check names by file
+    and line, and it changes that line."""
+    fake_llm.BUILDS.clear()
+    source = "label: Devices\nactions:\n- id: list\n  main: true\n  code:\n    file: devices.py\n"
+    events = _build(settings, "use code sorted by id", source, files={"devices.py": "def run(inputs, ctx):\n    return {}\n"})
+    assert _steps(events).count("change_definition") == 2
+    first = fake_llm.BUILDS[1]["messages"][-1]["content"]
+    assert "The file devices.py beside it, with line numbers:\n1: def run(inputs, ctx):" in first
+    assert '{"op": "file", "name": "health.py"' in first, "it's told how a file is written"
+    repair = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert "shaped.py, line 3: It isn't valid Python" in repair
+    assert "The file shaped.py beside it, with line numbers:" in repair
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "file: shaped.py" in proposed["propose"]["source"]
+    assert "    rows = sorted(items, key=lambda d: d['id'])\n" in proposed["propose"]["files"]["shaped.py"]
+    assert "devices.py" in proposed["propose"]["files"]
 
 
 def test_out_of_rounds_the_work_so_far_goes_in_the_editor_with_its_problems_named(settings):

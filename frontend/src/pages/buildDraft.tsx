@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, BuildDraft, readableError } from "../api";
+import { api, BuildDraft, BuildFiles, readableError } from "../api";
 import { BuildDraftHooks, BuildKind } from "../agent/buildFocus";
 
 const SAVE_AFTER_MS = 800;
@@ -29,8 +29,12 @@ export interface DraftOptions {
   base: string | null;
   source: string;
   newId: string;
-  /** Puts a draft's text (and a new one's Id) in the editor. */
-  restore: (source: string, newId: string) => void;
+  /** The files beside the text (D136) -- a pane's or a step's -- and as saved;
+   * undefined for a workflow, which has none. */
+  files?: BuildFiles;
+  baseFiles?: BuildFiles | null;
+  /** Puts a draft's text (and a new one's Id, and its files) in the editor. */
+  restore: (source: string, newId: string, files: BuildFiles) => void;
 }
 
 export interface DraftState {
@@ -43,7 +47,12 @@ export interface DraftState {
   hooks: BuildDraftHooks;
   discard: () => Promise<void>;
   /** After Create or Save: the draft keeps only the chat, now the saved one's. */
-  finish: (savedId: string, savedSource: string) => Promise<void>;
+  finish: (savedId: string, savedSource: string, savedFiles?: BuildFiles) => Promise<void>;
+}
+
+/** Files compared by what they hold, whatever order they were added in. */
+export function filesKey(files: BuildFiles | undefined | null): string {
+  return JSON.stringify(Object.entries(files ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 function at(iso: string | number): string {
@@ -65,11 +74,17 @@ export function useBuildDraft(o: DraftOptions): DraftState {
   sourceRef.current = o.source;
   const newIdRef = useRef(o.newId);
   newIdRef.current = o.newId;
+  const withFiles = o.files !== undefined;
+  const filesRef = useRef<BuildFiles | undefined>(o.files);
+  filesRef.current = o.files;
   const baseRef = useRef(o.base);
   baseRef.current = o.base;
+  const baseFilesRef = useRef(o.baseFiles);
+  baseFilesRef.current = o.baseFiles;
   const turnCount = useRef(0);
-  const last = useRef<{ source: string; newId: string } | null>(null);
-  const pending = useRef<{ source: string; newId: string } | null>(null);
+  type Snapshot = { source: string; newId: string; files: string };
+  const last = useRef<Snapshot | null>(null);
+  const pending = useRef<Snapshot | null>(null);
   const timer = useRef<number | null>(null);
   // One save at a time, in order: the first makes the draft the rest change.
   const chain = useRef<Promise<unknown>>(Promise.resolve());
@@ -83,7 +98,7 @@ export function useBuildDraft(o: DraftOptions): DraftState {
 
   /** Saves `change` into the draft, making it if there's none yet. */
   const write = useCallback(
-    (change: { source?: string; new_id?: string; chat?: unknown[] }) =>
+    (change: { source?: string; new_id?: string; files?: BuildFiles; chat?: unknown[] }) =>
       enqueue(async () => {
         let saved: BuildDraft;
         if (idRef.current !== null) saved = await api.updateBuildDraft(idRef.current, change);
@@ -93,6 +108,7 @@ export function useBuildDraft(o: DraftOptions): DraftState {
             target_id: targetId,
             new_id: newIdRef.current,
             source: sourceRef.current,
+            ...(filesRef.current !== undefined ? { files: filesRef.current } : {}),
             ...change,
           });
           idRef.current = saved.id;
@@ -112,7 +128,8 @@ export function useBuildDraft(o: DraftOptions): DraftState {
     if (!change) return;
     last.current = change;
     // An existing one changed back to what's saved, with no chat: nothing to keep.
-    if (targetId !== null && change.source === baseRef.current && turnCount.current === 0) {
+    if (targetId !== null && change.source === baseRef.current && change.files === filesKey(baseFilesRef.current)
+        && turnCount.current === 0) {
       enqueue(async () => {
         if (idRef.current === null) return;
         await api.deleteBuildDraft(idRef.current);
@@ -122,8 +139,8 @@ export function useBuildDraft(o: DraftOptions): DraftState {
       });
       return;
     }
-    write({ source: change.source, new_id: change.newId });
-  }, [enqueue, targetId, write]);
+    write({ source: change.source, new_id: change.newId, ...(withFiles ? { files: filesRef.current } : {}) });
+  }, [enqueue, targetId, write, withFiles]);
 
   // Put back what was left: a new one's draft at once; an existing one's once
   // its saved text is in (or that text would land over the draft's).
@@ -138,12 +155,12 @@ export function useBuildDraft(o: DraftOptions): DraftState {
         if (d) {
           idRef.current = d.id;
           setId(d.id);
-          last.current = { source: d.source ?? "", newId: d.new_id };
+          last.current = { source: d.source ?? "", newId: d.new_id, files: filesKey(d.files) };
           turnCount.current = d.chat?.length ?? 0;
           setTurns(d.chat ?? []);
           // A saved one's draft that holds only its chat changes nothing.
           if (d.changed) {
-            restoreRef.current(d.source ?? "", d.new_id);
+            restoreRef.current(d.source ?? "", d.new_id, d.files ?? {});
             const when = new Date(d.updated_at.endsWith("Z") ? d.updated_at : `${d.updated_at}Z`);
             setStatus(
               targetId !== null
@@ -166,17 +183,22 @@ export function useBuildDraft(o: DraftOptions): DraftState {
   }, [ready, loaded, draftId, targetId, kind]);
 
   // Every change, a moment later.
+  // By what they hold, never the objects: an editor's `{}` is a new one each
+  // render, and an effect run on every render after Create queued the text
+  // from before the save -- which leaving then wrote over the saved one's.
+  const nowFiles = filesKey(o.files);
+  const baseFiles = filesKey(o.baseFiles);
   useEffect(() => {
     if (!loaded || o.base === null) return;
-    const now = { source: o.source, newId: o.newId.trim() };
+    const now = { source: o.source, newId: o.newId.trim(), files: nowFiles };
     const changed = last.current
-      ? now.source !== last.current.source || now.newId !== last.current.newId
-      : now.source !== o.base || now.newId !== "";
+      ? now.source !== last.current.source || now.newId !== last.current.newId || now.files !== last.current.files
+      : now.source !== o.base || now.newId !== "" || now.files !== baseFiles;
     if (!changed) return;
     pending.current = now;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_AFTER_MS);
-  }, [loaded, o.base, o.source, o.newId, flush]);
+  }, [loaded, o.base, baseFiles, o.source, o.newId, nowFiles, flush]);
 
   // Leaving saves what's waiting, at once.
   useEffect(() => () => flush(), [flush]);
@@ -190,9 +212,9 @@ export function useBuildDraft(o: DraftOptions): DraftState {
         if (next.length === 0 && idRef.current === null) return;
         write({ chat: next });
       },
-      keep: (text) => write({ source: text }),
+      keep: (text, files) => write({ source: text, ...(files !== undefined && withFiles ? { files } : {}) }),
     }),
-    [key, turns, write],
+    [key, turns, write, withFiles],
   );
 
   const discard = useCallback(async () => {
@@ -202,26 +224,35 @@ export function useBuildDraft(o: DraftOptions): DraftState {
       if (idRef.current === null) return;
       // An existing one's chat stays; its text goes back to what's saved.
       if (targetId !== null && turnCount.current > 0 && baseRef.current !== null) {
-        await api.updateBuildDraft(idRef.current, { source: baseRef.current });
+        await api.updateBuildDraft(idRef.current, {
+          source: baseRef.current,
+          ...(withFiles ? { files: baseFilesRef.current ?? {} } : {}),
+        });
         return;
       }
       await api.deleteBuildDraft(idRef.current);
       idRef.current = null;
       setId(null);
     });
-    last.current = baseRef.current !== null ? { source: baseRef.current, newId: "" } : null;
+    last.current = baseRef.current !== null ? { source: baseRef.current, newId: "", files: filesKey(baseFilesRef.current) } : null;
     setStatus(null);
-  }, [enqueue, targetId]);
+  }, [enqueue, targetId, withFiles]);
 
   const finish = useCallback(
-    async (savedId: string, savedSource: string) => {
+    async (savedId: string, savedSource: string, savedFiles?: BuildFiles) => {
       if (timer.current !== null) window.clearTimeout(timer.current);
       pending.current = null;
       last.current = null;
       await enqueue(async () => {
         if (idRef.current === null) return;
         // The chat is how it was built: kept, as the saved one's.
-        if (turnCount.current > 0) await api.updateBuildDraft(idRef.current, { target_id: savedId, source: savedSource });
+        if (turnCount.current > 0) {
+          await api.updateBuildDraft(idRef.current, {
+            target_id: savedId,
+            source: savedSource,
+            ...(savedFiles !== undefined ? { files: savedFiles } : {}),
+          });
+        }
         else {
           await api.deleteBuildDraft(idRef.current);
           idRef.current = null;

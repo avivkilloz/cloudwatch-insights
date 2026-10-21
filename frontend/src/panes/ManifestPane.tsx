@@ -803,13 +803,14 @@ function Item({
 
   if (item.toolbar) {
     // Beside a title a toolbar is a tight row; in a card, the app's toolbar
-    // line, set off from a box above it (JWT's Generate under its payload).
+    // line, set off from a box above it (JWT's Generate under its payload)
+    // or a row of them (a built pane's Days over its button sat flush).
     return place === "aside" ? (
       <div className="row" style={{ gap: 8 }}>
         {children(item.toolbar, "toolbar")}
       </div>
     ) : (
-      <div className="toolbar" style={place === "card" && prev?.input ? { marginTop: 10 } : undefined}>
+      <div className="toolbar" style={place === "card" && (prev?.input || prev?.row) ? { marginTop: 10 } : undefined}>
         {children(item.toolbar, "toolbar")}
       </div>
     );

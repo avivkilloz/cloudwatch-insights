@@ -91,8 +91,9 @@ def out(db: Session, row: models.BuildDraft, full: bool = False) -> dict[str, An
         "label": label(row.source),
         "updated_at": row.updated_at,
         "turns": len(row.chat or []),
-        "changed": saved is None or saved.source != row.source,
-        **({"source": row.source, "chat": row.chat or []} if full else {}),
+        "changed": saved is None or saved.source != row.source
+        or (row.kind != "workflow" and (getattr(saved, "files", None) or {}) != (row.files or {})),
+        **({"source": row.source, "files": row.files or {}, "chat": row.chat or []} if full else {}),
     }
 
 
@@ -110,11 +111,18 @@ def mine(db: Session, user: models.User, draft_id: int) -> models.BuildDraft:
     return row
 
 
-def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str], chat: Any) -> None:
+def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str], chat: Any,
+           files: Optional[dict[str, str]] = None) -> None:
     if source is not None:
         if len(source) > MAX_SOURCE:
             raise DraftError("That definition is too long to keep as a draft.")
         row.source = source
+    if files is not None:
+        # Its files (D136) as they were left -- a name being typed is kept
+        # too: Check is what holds them to a module's name.
+        if not isinstance(files, dict) or len(files) > 50 or sum(len(str(t)) for t in files.values()) > MAX_SOURCE * 5:
+            raise DraftError("Those files are too many, or too long, to keep as a draft.")
+        row.files = {str(k)[:80]: str(v) for k, v in files.items()}
     if new_id is not None:
         row.new_id = new_id.strip()[:64]
     if chat is not None:
@@ -123,7 +131,7 @@ def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
 
 
 def save(db: Session, user: models.User, kind: str, target_id: Optional[str], source: Optional[str],
-         new_id: Optional[str] = None, chat: Any = None) -> models.BuildDraft:
+         new_id: Optional[str] = None, chat: Any = None, files: Optional[dict[str, str]] = None) -> models.BuildDraft:
     """A new draft -- or, of an existing one, the draft this person already
     has of it, changed: one each, whichever tab saves first."""
     if kind not in KINDS:
@@ -137,20 +145,20 @@ def save(db: Session, user: models.User, kind: str, target_id: Optional[str], so
     if row is None:
         row = models.BuildDraft(user_id=user.id, kind=kind, target_id=target_id or None, source="", chat=[])
         db.add(row)
-    _apply(row, source if source is not None else (row.source or ""), None if target_id else new_id, chat)
+    _apply(row, source if source is not None else (row.source or ""), None if target_id else new_id, chat, files)
     try:
         db.commit()
     except IntegrityError:
         # Another tab's first save of the same one won: change that one.
         db.rollback()
         row = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind, target_id=target_id).one()
-        _apply(row, source, None, chat)
+        _apply(row, source, None, chat, files)
         db.commit()
     return row
 
 
 def update(db: Session, user: models.User, row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
-           chat: Any, target_id: Optional[str] = None) -> models.BuildDraft:
+           chat: Any, target_id: Optional[str] = None, files: Optional[dict[str, str]] = None) -> models.BuildDraft:
     if not may_make(user, row.kind):
         raise DraftError(f"You can't build a {NOUNS[row.kind]}.", 403)
     if target_id and row.target_id != target_id:
@@ -163,7 +171,7 @@ def update(db: Session, user: models.User, row: models.BuildDraft, source: Optio
                                            models.BuildDraft.target_id == target_id,
                                            models.BuildDraft.id != row.id).delete()
         row.target_id, row.new_id = target_id, ""
-    _apply(row, source, None if row.target_id else new_id, chat)
+    _apply(row, source, None if row.target_id else new_id, chat, files)
     db.commit()
     return row
 

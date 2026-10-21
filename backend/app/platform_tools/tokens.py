@@ -52,6 +52,7 @@ def mint(
             build_kind=(build or {}).get("kind"),
             build_id=(build or {}).get("id"),
             build_draft=(build or {}).get("source") if build else None,
+            build_files=dict((build or {}).get("files") or {}) if build else None,
         )
     )
     db.commit()

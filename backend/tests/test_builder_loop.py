@@ -130,7 +130,7 @@ def test_the_agent_changes_the_draft_by_path_all_or_nothing(mcp):
         {"op": "add", "path": "actions", "value": JOBS},
         {"op": "add", "path": "outputs", "value": {"key": "jobs", "render": "table"}},
     ])
-    assert whole == {"ok": True, "errors": [], "changed": 2, "lines": whole["lines"]}
+    assert whole == {"ok": True, "errors": [], "changed": 2, "lines": whole["lines"], "files": {}}
     proposed = call(mcp, token, "propose_definition", summary="Jobs.")
     assert "operation: ListJobs" in proposed["propose"]["source"]
 
@@ -226,3 +226,30 @@ def test_a_request_into_an_output_that_isnt_declared_is_refused():
     errors = _check(TWO.replace("output: layers", "output: layerz"))
     assert any("writes its rows to an output layerz that isn't declared" in m for m in errors), errors
     assert re.search(r"output", builder.OUTPUT_DOC)
+
+
+def test_the_agent_writes_code_as_files_beside_the_yaml(mcp):
+    """D139: Python set into the YAML came out as one quoted line; code is a
+    file of its own, written whole or by its lines, checked where it is."""
+    token = _build_token(builder.CODE_EXAMPLE.replace("      file: devices.py", "      file: shaped.py"))
+    broken = "def run(inputs, ctx):\n    rows = [\n    return {'rows': rows}\n"
+    out = call(mcp, token, "change_definition", changes=[{"op": "file", "name": "shaped.py", "text": broken}])
+    assert out["ok"] is False and out["files"] == {"shaped.py": 3}
+    [error] = out["errors"]
+    assert error["file"] == "shaped.py" and error["line"] == 2 and "isn't valid Python" in error["message"]
+    assert "shaped.py:\n1: def run(inputs, ctx):\n2:     rows = [" in out["near"]
+    fixed = call(mcp, token, "change_definition", changes=[
+        {"op": "lines", "file": "shaped.py", "from": 2, "to": 2, "text": "    rows = [{'id': 'd1'}]"}])
+    assert fixed["ok"] is True, fixed
+    assert call(mcp, token, "read_draft", file="shaped.py")["text"] == (
+        "1: def run(inputs, ctx):\n2:     rows = [{'id': 'd1'}]\n3:     return {'rows': rows}")
+    proposed = call(mcp, token, "propose_definition", summary="Code.")["propose"]
+    assert proposed["files"] == {"shaped.py": "def run(inputs, ctx):\n    rows = [{'id': 'd1'}]\n    return {'rows': rows}\n"}
+    refused = call_error(mcp, token, "change_definition", changes=[{"op": "file", "name": "os.py", "text": "x = 1"}])
+    assert "would stand in for Python's own os module" in refused and "Nothing was changed" in refused
+    # Code set into the YAML itself is written as a block, never a quoted line.
+    inline = call(mcp, token, "change_definition", changes=[
+        {"op": "set", "path": "actions/list/code", "value": "def run(inputs, ctx):\n    return {'rows': []}\n"}])
+    assert inline["ok"] is True, inline
+    assert "    code: |\n      def run(inputs, ctx):\n          return {'rows': []}\n" in call(mcp, token, "propose_definition",
+                                                                                         summary="x")["propose"]["source"]

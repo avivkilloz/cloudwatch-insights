@@ -38,6 +38,7 @@ import contextlib
 import dataclasses
 import datetime
 import hashlib
+import json
 import logging
 import os
 import re
@@ -93,10 +94,44 @@ class Kind:
     # comments and all) rather than dumped from its row. Its `load` then finds
     # the file's text under `__source__`.
     file: Optional[Callable[[Any], str]] = None
+    # A kind kept as a folder of its own (D140): this is the definition's
+    # file in it (`pane.yaml`), beside the item's other files (its Python,
+    # `__files__` to its `load`).
+    main: Optional[str] = None
+    files: Optional[Callable[[Any], dict]] = None
+
+
+def folder_files(kind: "Kind", row: Any) -> dict[str, str]:
+    """A folder kind's files: the definition and what's beside it."""
+    return {kind.main: kind.file(row), **((kind.files(row) if kind.files else None) or {})}
+
+
+def _folder(kind: "Kind", content: Optional[str]) -> Optional[dict[str, str]]:
+    """An outbox row's content as a folder: its files as JSON -- or, queued
+    before folders (D140), the definition's text alone."""
+    if content is None:
+        return None
+    try:
+        files = json.loads(content)
+    except ValueError:
+        files = None
+    if isinstance(files, dict) and kind.main in files:
+        return {str(k): str(v) for k, v in files.items()}
+    return {kind.main: content}
 
 
 def _content(kind: "Kind", row: Any) -> str:
+    if kind.main:
+        return json.dumps(folder_files(kind, row), sort_keys=True)
     return kind.file(row) if kind.file is not None else render(kind.dump(row))
+
+
+def _shown(kind: "Kind", files: Optional[dict[str, str]]) -> Optional[str]:
+    """A folder's files as one text, for comparing two sides of a conflict."""
+    if files is None:
+        return None
+    rest = sorted(n for n in files if n != kind.main)
+    return "\n".join(f"# ---- {name} ----\n{files[name]}" for name in [kind.main, *rest] if name in files)
 
 
 def _clean(d: dict) -> dict:
@@ -266,17 +301,20 @@ KINDS: dict[str, Kind] = {
             key="pane", directory="panes", contributes="panes", noun="pane type",
             model=models.BuiltPaneType, dump=lambda r: {}, load=_load_pane, remove=_remove_pane,
             builtin=lambda r: False, seeded=lambda r: False, label=_pane_label, file=lambda r: r.source,
+            main="pane.yaml", files=lambda r: r.files,
         ),
         Kind(
             key="step", directory="steps", contributes="steps", noun="step type",
             model=models.BuiltStepType, dump=lambda r: {}, load=_load_step, remove=lambda db, row: db.delete(row),
             builtin=lambda r: False, seeded=lambda r: False, label=_pane_label, file=lambda r: r.source,
+            main="step.yaml", files=lambda r: r.files,
         ),
         # In restore order: a workflow's check needs the step types and pane types it names.
         Kind(
             key="workflow", directory="workflows", contributes="workflows", noun="workflow",
             model=models.Workflow, dump=lambda r: {}, load=_load_workflow, remove=_remove_workflow,
             builtin=lambda r: False, seeded=lambda r: False, label=lambda r: r.label, file=lambda r: r.source,
+            main="workflow.yaml",
         ),
         Kind(
             key="template", directory="templates", contributes="templates", noun="template",
@@ -480,11 +518,34 @@ def _repo(db: Session, cfg: Config) -> gitrepo.Repo:
 def _path_for(db: Session, cfg: Config, kind: Kind, item_id: str) -> str:
     ns, name = split_id(item_id)
     stem = name if ns in (None, cfg.namespace) else f"{ns}--{name}"
-    path = cfg.file(kind.directory, f"{stem}.yaml")
+    # A folder kind's item is its folder (D140); any other's, its file.
+    suffix = "" if kind.main else ".yaml"
+    path = cfg.file(kind.directory, f"{stem}{suffix}")
     taken = {p for (p,) in db.query(models.StoreItem.path).filter(models.StoreItem.kind == kind.key)}
     if path in taken and ns is not None:
-        path = cfg.file(kind.directory, f"{ns}--{name}.yaml")
+        path = cfg.file(kind.directory, f"{ns}--{name}{suffix}")
     return path
+
+
+def _legacy(kind: Kind, path: str) -> bool:
+    """A folder kind's item still in a file of its own, from before folders."""
+    return bool(kind.main) and path.endswith(".yaml")
+
+
+def _version(repo: gitrepo.Repo, kind: Kind, path: str) -> Optional[str]:
+    """What the repo holds at an item's path now: a file's blob, a folder's tree."""
+    if kind.main and not _legacy(kind, path):
+        return repo.tree(path)
+    return repo.blob(path)
+
+
+def _read(repo: gitrepo.Repo, kind: Kind, path: str) -> tuple[Optional[str], dict[str, str]]:
+    """An item's definition text in the repo, and the files beside it."""
+    if kind.main and not _legacy(kind, path):
+        files = repo.read_folder(path)
+        main = files.pop(kind.main, None)
+        return main, files
+    return repo.read(path), {}
 
 
 def record(db: Session, kind_key: str, item_id: str, op: str, actor: Optional[models.User],
@@ -571,6 +632,9 @@ def _plugin_yaml(repo: gitrepo.Repo, cfg: Config) -> None:
     contributes = dict(data.get("contributes") or {})
     for kind in KINDS.values():
         stems = [Path(p).stem for p in repo.files(cfg.file(kind.directory))]
+        if kind.main:
+            stems = sorted({*stems, *(Path(p).name for p in repo.folders(cfg.file(kind.directory))
+                                      if repo.read(f"{p}/{kind.main}") is not None)})
         if stems:
             contributes[kind.contributes] = stems
         else:
@@ -610,10 +674,10 @@ def _flush(db: Session) -> dict[str, Any]:
     for _attempt in range(3):
         try:
             repo.sync()
-            done, blobs, conflicts = _apply(db, cfg, repo, rows)
+            done, blobs, conflicts, paths = _apply(db, cfg, repo, rows)
             if done:
                 repo.push()
-            _settle(db, done, blobs, conflicts)
+            _settle(db, done, blobs, conflicts, paths)
             _status(db, None)
             db.commit()
             return {"pushed": len(done), "conflicts": len(conflicts)}
@@ -642,6 +706,8 @@ def _apply(db: Session, cfg: Config, repo: gitrepo.Repo, rows: list[models.Store
     in the database changes here: a refused push replays this from scratch."""
     items = {(i.kind, i.item_id): i for i in db.query(models.StoreItem)}
     blobs: dict[tuple[str, str], Optional[str]] = {}
+    # Where an item is now, when this flush moved it into a folder (D140).
+    paths: dict[tuple[str, str], str] = {}
     conflicts: dict[tuple[str, str], Optional[str]] = {}
     done: list[models.StoreOutbox] = []
     staged: list[models.StoreOutbox] = []
@@ -663,24 +729,39 @@ def _apply(db: Session, cfg: Config, repo: gitrepo.Repo, rows: list[models.Store
             continue
         if key in conflicts:
             continue
+        kind = KINDS[row.kind]
+        path = paths.get(key, item.path)
         expected = blobs[key] if key in blobs else item.blob
         if item.state == "conflict" and key not in blobs:
             conflicts[key] = item.theirs
             continue
-        if repo.blob(item.path) != expected:
-            conflicts[key] = repo.blob(item.path)
+        current = _version(repo, kind, path)
+        if current != expected:
+            conflicts[key] = current
             continue
-        repo.write(item.path, row.content if row.op == "write" else None)
-        blobs[key] = repo.hash(row.content) if row.op == "write" else None
+        if kind.main:
+            # A folder (D140); an item still in a file of its own from before
+            # folders moves into one with this write.
+            target = path[: -len(".yaml")] if _legacy(kind, path) else path
+            if target != path:
+                repo.write(path, None)
+            files = _folder(kind, row.content) if row.op == "write" else None
+            repo.write_folder(target, files)
+            blobs[key] = gitrepo.tree_hash(files) if files is not None else None
+            paths[key] = target
+        else:
+            repo.write(path, row.content if row.op == "write" else None)
+            blobs[key] = repo.hash(row.content) if row.op == "write" else None
         staged.append(row)
         following = rows[i + 1] if i + 1 < len(rows) else None
         if not (row.batch and following is not None and following.batch == row.batch):
             commit()
     commit()
-    return done, blobs, conflicts
+    return done, blobs, conflicts, paths
 
 
-def _settle(db: Session, done: list[models.StoreOutbox], blobs: dict, conflicts: dict) -> None:
+def _settle(db: Session, done: list[models.StoreOutbox], blobs: dict, conflicts: dict,
+            paths: Optional[dict] = None) -> None:
     done_ids = {r.id for r in done}
     for row in done:
         db.delete(row)
@@ -696,6 +777,8 @@ def _settle(db: Session, done: list[models.StoreOutbox], blobs: dict, conflicts:
             db.delete(item)
             continue
         item.blob = blob
+        if paths and (kind, item_id) in paths:
+            item.path = paths[(kind, item_id)]
         item.state = "pending" if waiting else "synced"
         item.error = None
         item.theirs = None
@@ -735,7 +818,12 @@ def restore(db: Session, actor: Optional[models.User] = None) -> list[str]:
         deleting = {(r.kind, r.item_id) for r in db.query(models.StoreOutbox).filter_by(op="delete")}
         if exists:
             for kind in KINDS.values():
-                for path in repo.files(cfg.file(kind.directory)):
+                paths = repo.files(cfg.file(kind.directory))
+                if kind.main:
+                    # Its folders, and any file from before folders (D140).
+                    paths = [p for p in repo.folders(cfg.file(kind.directory))
+                             if repo.read(f"{p}/{kind.main}") is not None] + paths
+                for path in paths:
                     line = _restore_one(db, repo, kind, path, tracked, deleting, actor)
                     if line:
                         lines.append(line)
@@ -743,26 +831,30 @@ def restore(db: Session, actor: Optional[models.User] = None) -> list[str]:
         if _setting(db, "adopted") != cfg.key:
             lines.extend(_adopt(db, actor))
             _set_setting(db, "adopted", cfg.key)
+        db.flush()
+        lines.extend(_move_to_folders(db, actor))
         db.commit()
     return lines
 
 
 def _restore_one(db: Session, repo: gitrepo.Repo, kind: Kind, path: str, tracked: set, deleting: set,
                  actor: Optional[models.User]) -> Optional[str]:
-    raw = repo.read(path) or ""
+    main, files = _read(repo, kind, path)
+    raw = main or ""
     try:
         data = yaml.safe_load(raw) or {}
     except yaml.YAMLError as e:
         return f"Skipped {path}: not YAML ({e})."
     if isinstance(data, dict):
         data["__source__"] = raw
+        data["__files__"] = files
     item_id = str(data.get("id") or "") if isinstance(data, dict) else ""
     if not item_id:
         return f"Skipped {path}: it has no id."
     key = (kind.key, item_id)
     if key in tracked or key in deleting:
         return None
-    remote = repo.blob(path)
+    remote = _version(repo, kind, path)
     row = db.get(kind.model, item_id)
     try:
         if row is None or kind.seeded(row):
@@ -774,7 +866,13 @@ def _restore_one(db: Session, repo: gitrepo.Repo, kind: Kind, path: str, tracked
         return f"Skipped {path}: {e}"
     if kind.builtin(row):
         return f"Skipped {path}: {item_id} is built in."
-    mine = repo.hash(_content(kind, row))
+    if kind.main and not _legacy(kind, path):
+        mine = gitrepo.tree_hash(folder_files(kind, row))
+    elif kind.main:
+        # A file from before folders holds the definition alone.
+        mine = repo.hash(kind.file(row)) if not ((kind.files(row) if kind.files else None) or {}) else None
+    else:
+        mine = repo.hash(_content(kind, row))
     same = mine == remote
     db.add(models.StoreItem(
         kind=kind.key, item_id=item_id, path=path, blob=remote if same else None,
@@ -798,6 +896,27 @@ def _adopt(db: Session, actor: Optional[models.User]) -> list[str]:
             db.flush()
             count += 1
     return [f"Queued {count} item(s) this deployment already had."] if count else []
+
+
+def _move_to_folders(db: Session, actor: Optional[models.User]) -> list[str]:
+    """Queues, as one commit, every item of a folder kind still in a file of
+    its own from before folders (D140) -- writing it moves it. Once: after
+    it's pushed, none is left in a file. One in conflict stays until it's
+    resolved; one with a write already waiting moves with that write."""
+    waiting = {(r.kind, r.item_id) for r in db.query(models.StoreOutbox)}
+    batch = f"folders-{uuid.uuid4().hex[:8]}"
+    count = 0
+    for item in db.query(models.StoreItem).all():
+        kind = KINDS.get(item.kind)
+        if kind is None or not _legacy(kind, item.path) or item.state == "conflict":
+            continue
+        if (item.kind, item.item_id) in waiting or db.get(kind.model, item.item_id) is None:
+            continue
+        record(db, item.kind, item.item_id, "write", actor,
+               message="Move panes, steps and workflows into folders of their own", batch=batch)
+        db.flush()
+        count += 1
+    return [f"Queued {count} item(s) to move into folders of their own."] if count else []
 
 
 def startup() -> None:
@@ -849,6 +968,11 @@ def sides(db: Session, kind_key: str, item_id: str) -> dict[str, Optional[str]]:
             repo.sync()
         except gitrepo.GitError as e:
             raise StoreError(str(e)) from None
+        if kind.main:
+            main, files = _read(repo, kind, tracked.path)
+            theirs = _shown(kind, {kind.main: main, **files}) if main is not None else None
+            mine = _shown(kind, folder_files(kind, row)) if row is not None else None
+            return {"mine": mine, "theirs": theirs, "path": tracked.path}
         theirs = repo.read(tracked.path)
     return {"mine": _content(kind, row) if row is not None else None, "theirs": theirs, "path": tracked.path}
 
@@ -872,7 +996,7 @@ def resolve(db: Session, kind_key: str, item_id: str, take: str, actor: models.U
             repo.sync()
         except gitrepo.GitError as e:
             raise StoreError(str(e)) from None
-        remote = repo.blob(tracked.path)
+        remote = _version(repo, kind, tracked.path)
         row = db.get(kind.model, item_id)
         if take == "mine":
             # Expecting the repo's current blob is what lets the next push
@@ -889,13 +1013,15 @@ def resolve(db: Session, kind_key: str, item_id: str, take: str, actor: models.U
                     kind.remove(db, row)
                 db.delete(tracked)
             else:
-                raw = repo.read(tracked.path) or ""
+                main, files = _read(repo, kind, tracked.path)
+                raw = main or ""
                 try:
                     data = yaml.safe_load(raw) or {}
                 except yaml.YAMLError as e:
                     raise StoreError(f"The repo's file isn't YAML: {e}") from None
                 if isinstance(data, dict):
                     data["__source__"] = raw
+                    data["__files__"] = files
                 if str(data.get("id") or "") != item_id:
                     raise StoreError(f"The repo's {tracked.path} is now {data.get('id')!r}, not {item_id}.")
                 kind.load(db, data, row, actor)

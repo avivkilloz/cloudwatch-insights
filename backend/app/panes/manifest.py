@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
 
 MANIFEST_DIR = Path(__file__).parent / "manifests"
 
@@ -218,6 +218,14 @@ class ManifestView(_Strict):
     kind: Optional[Literal["chart"]] = None
 
 
+class CodeFile(_Strict):
+    """Code kept in a file of its own beside the definition (D137): which
+    file, and which of its functions to call."""
+
+    file: str
+    function: str = "run"
+
+
 class ManifestAction(_Strict):
     id: str
     run_label: Optional[Text] = None
@@ -227,8 +235,9 @@ class ManifestAction(_Strict):
     live: Optional[str] = None  # a live function (D43): reruns as the inputs change
     request: Optional[dict[str, Any]] = None  # a declarative HTTP request (§15.7)
     # A built pane's own Python (D134): `def run(inputs, ctx)`, run in the
-    # runner as whoever runs the pane, its return the action's outputs.
-    code: Optional[str] = None
+    # runner as whoever runs the pane, its return the action's outputs --
+    # inline, or a file of the pane's (D137: `code: {file: health.py}`).
+    code: Union[str, CodeFile, None] = None
     # A run that reaches outside the platform, which the agent may not start
     # until the approval step exists.
     effects: Optional[Literal["external"]] = None
@@ -415,6 +424,10 @@ class ConnectionTypeDecl(_Strict):
 class Manifest(_Strict):
     id: str
     label: str
+    # A built pane's Python files beside its YAML (D136), name -> text: what
+    # its `code: {file: …}` actions run. Not part of the YAML; the Builder
+    # sets it.
+    _files: dict[str, str] = PrivateAttr(default_factory=dict)
     # Where it comes in the catalogue and in the agent's list of kinds.
     order: int = 100
     group: Literal["Services", "Tools", "Platform"] = "Tools"

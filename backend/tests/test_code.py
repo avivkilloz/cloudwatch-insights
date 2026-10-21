@@ -171,8 +171,10 @@ def test_the_code_examples_check_clean():
     # description, which isn't YAML, and its Check failed at line 2.
     from app import builder, step_types
 
-    assert client.post("/api/builder/check", json={"source": builder.CODE_EXAMPLE}).json()["errors"] == []
-    checked = client.post("/api/builder/steps/check", json={"source": step_types.CODE_EXAMPLE, "new_id": "online"})
+    assert client.post("/api/builder/check", json={"source": builder.CODE_EXAMPLE,
+                                                   "files": builder.CODE_EXAMPLE_FILES}).json()["errors"] == []
+    checked = client.post("/api/builder/steps/check", json={"source": step_types.CODE_EXAMPLE, "new_id": "online",
+                                                            "files": step_types.CODE_EXAMPLE_FILES})
     assert checked.json() == {"ok": True, "errors": []}, checked.text
 
 
@@ -322,3 +324,83 @@ def test_old_jobs_are_forgotten():
         assert [j.token_hash for j in db.query(models.RunnerJob).all()] == [f"{1:064d}"]
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------- code in files (D136-D138)
+
+FILED = PANE.replace('''    code: |
+      def run(inputs, ctx):
+          reply = ctx.http(inputs["connection"], "/devices", query={"site": "north"})
+          items = reply.json()["items"]
+          items.sort(key=lambda d: not d["online"])
+          ctx.log(len(items), "devices")
+          return {"rows": items, "seen": reply.headers.get("X-Seen")}
+''', '''    code: {file: devices.py, function: listed}
+''')
+FILES = {
+    "devices.py": "from shape import online_first\n\n\ndef listed(inputs, ctx):\n"
+                  "    reply = ctx.http(inputs['connection'], '/devices', query={'site': 'north'})\n"
+                  "    ctx.log('fetched')\n"
+                  "    return {'rows': online_first(reply.json()['items']), 'seen': reply.headers.get('X-Seen')}\n",
+    "shape.py": "def online_first(items):\n    if not items:\n        raise ValueError('nothing came back')\n"
+                "    return sorted(items, key=lambda d: not d['online'])\n",
+}
+
+
+def test_a_panes_code_in_files_imports_its_neighbours_and_is_kept_with_them(stack, api):
+    conn, _sent = api
+    assert FILED != PANE
+    made = client.post("/api/builder/panes", json={"id": "devices", "source": FILED, "files": FILES})
+    assert made.status_code == 201, made.text
+    assert made.json()["files"] == FILES
+    out = client.post("/api/panes/devices/actions/list", json={"inputs": {"connection": conn}})
+    assert out.status_code == 200, out.text
+    assert [r["id"] for r in out.json()["rows"]] == ["d2", "d1"]
+    # Changed to fail in the helper: the error says which file and line.
+    broken = {**FILES, "shape.py": FILES["shape.py"].replace("if not items:", "if True:")}
+    failed = client.post("/api/builder/preview/actions/list", json={"source": FILED, "files": broken,
+                                                                    "inputs": {"connection": conn}})
+    assert failed.status_code == 400 and "ValueError: nothing came back (line 3 of shape.py)" in failed.text, failed.text
+    assert "fetched" in failed.text  # its log, for its builder
+
+
+def test_check_names_the_file_and_its_line():
+    def errors(source: str, files: dict) -> list[dict]:
+        return client.post("/api/builder/check", json={"source": source, "files": files}).json()["errors"]
+
+    assert errors(FILED, FILES) == []
+    bad = errors(FILED, {**FILES, "shape.py": "def online_first(items:\n    return items\n"})
+    assert [(e.get("file"), e["line"]) for e in bad] == [("shape.py", 1)] and "isn't valid Python" in bad[0]["message"]
+    missing = errors(FILED, {"shape.py": FILES["shape.py"]})
+    assert any("There is no file devices.py beside it (its files: shape.py)" in e["message"] for e in missing), missing
+    nofunc = errors(FILED.replace("function: listed", "function: listing"), FILES)
+    assert [e.get("file") for e in nofunc] == ["devices.py"] and "defines no listing(inputs, ctx)" in nofunc[0]["message"]
+    named = errors(FILED, {**FILES, "json.py": "x = 1\n", "Bad-Name.py": "x = 1\n"})
+    said = " ".join(e["message"] for e in named)
+    assert "would stand in for Python's own json module" in said and "isn't a Python module's file name" in said
+
+
+def test_a_steps_code_in_a_file_is_tried_and_kept_with_it(stack, api):
+    from app import step_types
+
+    conn, _sent = api
+    tried = client.post("/api/builder/steps/try", json={"source": step_types.CODE_EXAMPLE,
+                                                        "files": step_types.CODE_EXAMPLE_FILES,
+                                                        "inputs": {"connection": conn}})
+    assert tried.status_code == 200, tried.text
+    assert tried.json()["response"]["count"] == 1 and "1 online" in tried.json()["logs"]
+    made = client.post("/api/builder/steps", json={"id": "online", "source": step_types.CODE_EXAMPLE,
+                                                   "files": step_types.CODE_EXAMPLE_FILES})
+    assert made.status_code == 201, made.text
+    assert made.json()["files"] == step_types.CODE_EXAMPLE_FILES and made.json()["kind"] == "code"
+    lost = client.put("/api/builder/steps/online", json={"source": step_types.CODE_EXAMPLE, "files": {}})
+    assert lost.status_code == 400 and "There is no file online.py beside it" in lost.text
+
+
+def test_a_draft_keeps_its_files():
+    made = client.post("/api/build-drafts", json={"kind": "pane", "source": FILED, "files": FILES, "new_id": "x"})
+    assert made.status_code == 201, made.text
+    got = client.get(f"/api/build-drafts/{made.json()['id']}").json()
+    assert got["files"] == FILES and got["source"] == FILED
+    changed = client.put(f"/api/build-drafts/{made.json()['id']}", json={"files": {"devices.py": "x = 1\n"}})
+    assert client.get(f"/api/build-drafts/{changed.json()['id']}").json()["files"] == {"devices.py": "x = 1\n"}

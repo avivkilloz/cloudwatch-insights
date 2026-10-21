@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import hashlib
 import os
 import re
 import shutil
@@ -202,6 +203,16 @@ class Repo:
         parts = out.split()
         return parts[2] if len(parts) >= 3 and parts[1] == "blob" else None
 
+    def tree(self, path: str) -> Optional[str]:
+        """The tree of a folder as committed at HEAD -- what changes when any
+        file in it does (D140) -- None if it isn't there."""
+        try:
+            out = self.git("ls-tree", "HEAD", "--", path, check=False)
+        except GitError:
+            return None
+        parts = out.split()
+        return parts[2] if len(parts) >= 3 and parts[1] == "tree" else None
+
     def hash(self, content: str) -> str:
         """The blob `content` would be, without writing anything."""
         with self._env() as env:
@@ -233,6 +244,38 @@ class Repo:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
 
+    def folders(self, directory: str) -> list[str]:
+        """The folders directly in `directory` (an item each, D140)."""
+        base = self.dir / directory
+        if not base.is_dir() or base.is_symlink():
+            return []
+        return sorted(str(p.relative_to(self.dir)) for p in base.iterdir() if p.is_dir() and not p.is_symlink())
+
+    def read_folder(self, path: str) -> dict[str, str]:
+        """A folder's files, by name (its own, not its subfolders')."""
+        base = self._inside(path)
+        if not base.is_dir():
+            return {}
+        return {p.name: p.read_text() for p in sorted(base.iterdir()) if p.is_file() and not p.is_symlink()}
+
+    def write_folder(self, path: str, files: Optional[dict[str, str]]) -> None:
+        """A folder holding exactly `files` -- what isn't there any more
+        removed -- or, None, no folder."""
+        base = self._inside(path)
+        if base.is_dir():
+            for p in base.iterdir():
+                if p.is_file() or p.is_symlink():
+                    if files is None or p.name not in files:
+                        p.unlink()
+        if files is None:
+            if base.is_dir() and not any(base.iterdir()):
+                base.rmdir()
+            return
+        for name, text in files.items():
+            if "/" in name or "\\" in name or name.startswith("."):
+                raise GitError(f"{name} isn't a file name a folder can hold.")
+            self.write(f"{path}/{name}", text)
+
     def files(self, directory: str) -> list[str]:
         base = self.dir / directory
         if not base.is_dir() or base.is_symlink():
@@ -257,3 +300,20 @@ class Repo:
 
     def push(self) -> None:
         self.git("push", "--quiet", "origin", f"HEAD:refs/heads/{self.branch}")
+
+
+def blob_hash(content: str) -> str:
+    """What `git hash-object` says of `content`, worked out here."""
+    data = content.encode()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def tree_hash(files: dict[str, str]) -> str:
+    """The git tree a folder of exactly `files` is (D140) -- plain files,
+    mode 100644, as `write_folder` leaves them -- worked out here, so a
+    folder's version can be compared without writing it."""
+    entries = b"".join(
+        b"100644 " + name.encode() + b"\0" + bytes.fromhex(blob_hash(files[name]))
+        for name in sorted(files, key=lambda n: n.encode())
+    )
+    return hashlib.sha1(b"tree %d\0" % len(entries) + entries).hexdigest()
