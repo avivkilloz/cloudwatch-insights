@@ -442,6 +442,19 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     }
   }
 
+  // The preview's card is there only while it's on (the Preview button
+  // toggles it), so the editor has the width the rest of the time.
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  function togglePreview() {
+    if (previewOpen) {
+      setPreviewOpen(false);
+      return;
+    }
+    setPreviewOpen(true);
+    void showPreview();
+  }
+
   async function showPreview() {
     setNotice(null);
     setError(null);
@@ -617,7 +630,13 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             <button className="secondary" onClick={check} disabled={busy}>
               Check
             </button>
-            <button className="secondary" onClick={showPreview} disabled={busy}>
+            <button
+              className={`secondary builder-preview-toggle${previewOpen ? " active" : ""}`}
+              aria-pressed={previewOpen}
+              title={previewOpen ? "Hide the preview" : "Draw the definition as the pane it makes"}
+              onClick={togglePreview}
+              disabled={busy}
+            >
               Preview
             </button>
             {kept.id !== null && dirty && (
@@ -628,31 +647,38 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           </div>
           <DraftStatus kept={kept} />
         </Section>
-        <Section title="Preview">
-          {preview === null ? (
-            <p className="muted builder-preview-empty">
-              Preview draws the definition as the pane it makes. Its actions run as you, on real connections; nothing is
-              saved and no session holds it.
-            </p>
-          ) : (
-            <>
-              {(preview.source !== source || filesKey(preview.files) !== filesKey(files)) && (
-                <p className="muted builder-preview-stale">The definition has changed since this was drawn: Preview again.</p>
-              )}
-              <ActionRunnerContext.Provider value={runPreviewAction}>
-                <div className="builder-preview" key={preview.n}>
-                  <ManifestPane type={preview.manifest.id} manifest={preview.manifest} />
-                </div>
-              </ActionRunnerContext.Provider>
-              {codeLog !== null && (
-                <div className="builder-code-log">
-                  <span className="field-label">The code's log</span>
-                  <pre className="tool-json-output">{codeLog || "(nothing logged)"}</pre>
-                </div>
-              )}
-            </>
-          )}
-        </Section>
+        {previewOpen && (
+          <Section title="Preview">
+            {preview === null ? (
+              <p className="muted builder-preview-empty">
+                Preview draws the definition as the pane it makes. Its actions run as you, on real connections; nothing is
+                saved and no session holds it.
+              </p>
+            ) : (
+              <>
+                {(preview.source !== source || filesKey(preview.files) !== filesKey(files)) && (
+                  <p className="muted builder-preview-stale">
+                    The definition has changed since this was drawn.{" "}
+                    <button className="link-button builder-preview-redraw" onClick={() => void showPreview()}>
+                      Draw again
+                    </button>
+                  </p>
+                )}
+                <ActionRunnerContext.Provider value={runPreviewAction}>
+                  <div className="builder-preview" key={preview.n}>
+                    <ManifestPane type={preview.manifest.id} manifest={preview.manifest} />
+                  </div>
+                </ActionRunnerContext.Provider>
+                {codeLog !== null && (
+                  <div className="builder-code-log">
+                    <span className="field-label">The code's log</span>
+                    <pre className="tool-json-output">{codeLog || "(nothing logged)"}</pre>
+                  </div>
+                )}
+              </>
+            )}
+          </Section>
+        )}
       </div>
       {schema && (
         <Section title="What it can name">
@@ -671,10 +697,10 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           </CardRow>
           <CardRow label="Code">
             <div className="builder-names">
-              An action may be Python: a file beside the YAML (+ File) defining <code>run(inputs, ctx)</code>, named by
+              An action may be Python: a file beside the YAML (the + after its tabs) defining <code>run(inputs, ctx)</code>, named by
               the action as <code>{"code: {file: health.py}"}</code>. Files import each other. It runs in the
               platform's runner as whoever uses the pane, reaching connections only through <code>ctx.http</code> and{" "}
-              <code>ctx.aws</code>. Packages it imports go in a requirements.txt (+ File), which Check and Save lock.{" "}
+              <code>ctx.aws</code>. Packages it imports go in a requirements.txt (+ too), which Check and Save lock.{" "}
               {schema.runner ? "" : <strong className="builder-no-runner">No runner is set up here, so code is kept but doesn't run.</strong>}
             </div>
           </CardRow>

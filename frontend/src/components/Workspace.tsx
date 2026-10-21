@@ -107,17 +107,27 @@ export default function Workspace({
             )}
           </div>
         ))}
+        {/* A file is added as a tab is: "+" at the end of the tabs, named in
+            place. A "+ File" button beside them read as a stray control. */}
         {readOnly ? null : naming === null ? (
-          <button className="secondary workspace-add" onClick={() => setNaming("")}>
-            + File
-          </button>
+          <div className="workspace-tab workspace-tab-add">
+            <button
+              className="workspace-tab-name workspace-add"
+              title="Add a file: Python, or requirements.txt"
+              aria-label="Add a file"
+              onClick={() => setNaming("")}
+            >
+              +
+            </button>
+          </div>
         ) : (
-          <span className="workspace-naming">
+          <div className="workspace-tab active workspace-naming">
             <input
               id={`${id}-new-file`}
               type="text"
               autoFocus
               placeholder="helpers.py"
+              aria-label="The new file's name (Enter adds it, Esc cancels)"
               value={naming}
               onChange={(e) => {
                 setNaming(e.target.value);
@@ -125,13 +135,16 @@ export default function Workspace({
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") add();
-                if (e.key === "Escape") setNaming(null);
+                if (e.key === "Escape") {
+                  setNaming(null);
+                  setNameError(null);
+                }
+              }}
+              onBlur={() => {
+                if (!(naming ?? "").trim()) setNaming(null);
               }}
             />
-            <button className="secondary" onClick={add}>
-              Add
-            </button>
-          </span>
+          </div>
         )}
       </div>
       {nameError && <p className="error-text workspace-name-error">{nameError}</p>}

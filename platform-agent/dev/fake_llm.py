@@ -77,6 +77,10 @@ prompts (`_builder`):
 - "explain …"      -- a question: answered, nothing changed.
 - "impossible …"   -- gives up, saying why.
 - "garbled …"      -- prose instead of JSON first; asked again, the label.
+- "long …"         -- its change cut off at the length limit (finish_reason
+                      "length"), until it's told so; then the label.
+- "lost …"         -- a change that doesn't check clean, then prose every
+                      time after: the work so far still goes in the editor.
 
 It also stands in for the answer check (app/check.py), which it knows by its
 instructions: an answer saying "connected and/now" is unsupported unless a session
@@ -498,6 +502,11 @@ def _builder(messages: list[dict]) -> str:
     label = request.split(" ", 1)[1] if " " in request else request
     if lowered.startswith("garbled") and phase == "plan" and not retried:
         return "Sure! I'll rename it for you."
+    if lowered.startswith("long") and phase == "change" and "cut off at your length limit" not in _content(messages[-1]):
+        BUILD_FINISH[0] = "length"
+        return '{"summary": "Renamed it.", "changes": [{"op": "file", "name": "big.py", "text": "def run(inputs, ctx'
+    if lowered.startswith("lost") and phase == "repair":
+        return "I'm not sure what to change now."
     if lowered.startswith("explain"):
         return json.dumps({"change": False, "answer": "rows.at says where the reply keeps its list.", "lookups": []})
     if phase == "plan":
@@ -562,13 +571,15 @@ def _builder(messages: list[dict]) -> str:
         return json.dumps({"summary": "The list is code now, in shaped.py: devices sorted by id.", "changes": [
             {"op": "file", "name": "shaped.py", "text": SHAPED},
             {"op": "set", "path": "actions/list/code", "value": {"file": "shaped.py"}}]})
-    if lowered.startswith("never clean"):
+    if lowered.startswith("never clean") or lowered.startswith("lost"):
         return json.dumps({"summary": "Added a card.", "changes": [
             {"op": "add", "path": "layout", "value": {"title": f"Card {len(messages)}", "items": [{"output": "nothing"}]}}]})
     return json.dumps({"summary": f"Renamed it {label}.", "changes": [{"op": "set", "path": "label", "value": label}]})
 
 
 BUILDS: list[dict] = []
+# How the next build reply ended ("length": cut off), reset after each.
+BUILD_FINISH = ["stop"]
 
 
 @app.post("/chat/completions")
@@ -593,13 +604,16 @@ async def completions(request: Request):
     if sent and sent[0].get("role") == "system" and _content(sent[0]).startswith(BUILDER_MARK):
         BUILDS.append(body)
         del BUILDS[:-40]
+        content = _builder(sent)
+        finish, BUILD_FINISH[0] = BUILD_FINISH[0], "stop"
         return JSONResponse(
             {
                 "id": "chatcmpl-fake-build",
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": body.get("model", "fake"),
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": _builder(sent)}, "finish_reason": "stop"}],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
+                             "finish_reason": finish}],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             }
         )

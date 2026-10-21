@@ -775,3 +775,27 @@ def test_changes_that_cant_be_made_come_back_with_the_shape_and_their_own_change
     assert 'Your first change, written that way: {"op": "set", "path": "label", "value": "Tidy"}' in told
     [proposed] = [e for e in events if e.get("propose")]
     assert proposed["propose"]["source"] == "label: Tidy\n"
+
+
+def test_a_reply_cut_off_at_the_length_limit_is_said_so_and_asked_for_smaller(settings):
+    """Writing whole files and the YAML in one change, a model's reply was cut
+    at its length limit; asked again the same way it was cut again, and the
+    turn ended "didn't answer in the shape the Builder needs"."""
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "long Neat", "label: Old\n")
+    told = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert "cut off at your length limit" in told and "Send less in this reply" in told
+    assert "def run(inputs, ctx" not in json.dumps(fake_llm.BUILDS[-1]["messages"]), "the broken reply isn't sent back"
+    [proposed] = [e for e in events if e.get("propose")]
+    assert proposed["propose"]["source"] == "label: Neat\n"
+
+
+def test_a_reply_that_cant_be_read_after_changes_were_made_still_leaves_them_in_the_editor(settings):
+    """Changes made, then a reply the loop can't read: the turn used to end
+    with an error and the work went nowhere."""
+    events = _build(settings, "lost thing", IOT, builder_rounds=4)
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "Card" in proposed["propose"]["source"]
+    assert "Ask me to carry on" in _answer(events) and events[-1]["type"] == "done"
+    notices = [e["message"] for e in events if e["type"] == "notice"]
+    assert notices and "didn't answer in the shape" in notices[0]

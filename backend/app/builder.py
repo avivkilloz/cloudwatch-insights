@@ -149,8 +149,16 @@ def parse(source: str, type_id: Optional[str], files: Optional[dict[str, str]] =
                 # Said with what may be there: "Extra inputs are not permitted"
                 # left a model guessing, and it guessed `when` on an action.
                 fields = _fields_at(loc[:-1])
-                if fields:
-                    message = f"there is no {loc[-1]} here; it may say: {', '.join(fields)}"
+                key = str(loc[-1])
+                if "." in key and key.split(".")[0] in fields:
+                    # A key named like a path (`layout.3:`): a change written
+                    # with dots, made into a key. Listing every field the top
+                    # may have sent the model round again.
+                    message = (f"{key} is a key named like a path, not a part of the {key.split('.')[0]}: remove it "
+                               f"(a change {{\"op\": \"remove\", \"path\": \"{key}\"}}) and make that change at "
+                               f"{key.replace('.', '/')}")
+                elif fields:
+                    message = f"there is no {key} here; it may say: {', '.join(fields)}"
             errors.append({"line": _line(source, loc) if loc else None, "message": f"{where}: {message}" if where else message})
         raise _fail(errors) from None
     manifest._files = dict(files or {})
@@ -253,6 +261,9 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
                 err(("outputs", i, "config"),
                     f"Rows open only with `expand:` naming a view key that holds which are open -- add "
                     f"`expand: expanded` here and `views: [{{key: expanded, default: []}}]` at the top level.")
+        if isinstance(detail, dict):
+            for path, message in _opening_problems(manifest, o, detail, ("outputs", i, "config", "detail")):
+                err(path, message)
     if manifest.id in pane_manifest.bundled():
         err(("id",), f"{manifest.id} is one of the platform's own pane types.")
     return errors
@@ -285,6 +296,130 @@ def _section_problems(sections: Any, at: tuple) -> list[tuple[tuple, str]]:
                 out.append(((*at, n, key), f"A detail section has no {key}; it may say: {', '.join(SECTION_KEYS)}."))
         out += _section_problems(section.get("detail"), (*at, n, "detail"))
     return out
+
+
+# A template's reads of the detail: `d.job.jobId`, `d.Tags[Key=Name].Value`.
+_D_REF = re.compile(r"(?<![\w.])d((?:\.[A-Za-z_][\w-]*|\[[^\]]*\])+)")
+# What a section names by path, into the detail.
+_SECTION_PATHS = ("entries", "list", "table", "tags", "json", "warnings")
+
+
+def _producer(manifest: pane_manifest.Manifest, key: str) -> Optional[pane_manifest.ManifestAction]:
+    """The request whose rows fill an output, when one does: the one naming
+    it as its `output`, else (for `rows`) one naming none."""
+    for a in manifest.actions:
+        if a.request is None or a.args:
+            continue
+        into = (a.request or {}).get("output")
+        if into == key or (into is None and key == "rows"):
+            return a
+    return None
+
+
+def _columns(manifest: pane_manifest.Manifest, action: pane_manifest.ManifestAction) -> Optional[set[str]]:
+    """The columns a request's rows have, when its `rows` names them; None
+    when only running it would say (no columns, or code)."""
+    columns = ((action.request or {}).get("rows") or {}).get("columns")
+    if not isinstance(columns, dict) or not columns:
+        return None
+    out = set(columns)
+    conn = next((i for i in manifest.inputs if i.key == (action.request or {}).get("connection")), None)
+    if conn is not None and conn.type == "connections" and not action.args:
+        out.add("Environment")  # stamped on each row of a fan-out (a row action runs on one)
+    return out
+
+
+def _opening_problems(manifest: pane_manifest.Manifest, output: Any, detail: dict,
+                      at: tuple) -> list[tuple[tuple, str]]:
+    """What makes rows open onto nothing, offline (both checked clean and
+    showed every field empty): a row action reading a column the rows don't
+    have, and a detail's templates reading what its AWS reply doesn't hold."""
+    action = next((a for a in manifest.actions if a.id == detail.get("action") and a.args), None)
+    if action is None:
+        return []
+    out: list[tuple[tuple, str]] = []
+    producer = _producer(manifest, output.key)
+    columns = _columns(manifest, producer) if producer is not None else None
+    if columns is not None:
+        index = manifest.actions.index(action)
+        for arg, path in action.args.items():
+            head, _, rest = path.partition(".")
+            column = rest.split(".")[0].split("[")[0]
+            if head == "row" and column and column not in columns:
+                like = _same_name(column, columns)
+                out.append((("actions", index, "args", arg),
+                            f"row.{column} isn't a column of the {output.key} rows, so the row action gets nothing "
+                            f"for {arg}. " + (f"The column is row.{like}, as written in its rows' columns." if like
+                                              else f"Their columns: {', '.join(sorted(columns))}.")))
+    shape, what = _detail_shape(action)
+    own = _columns(manifest, action)
+    if shape is None and own is None:
+        return out
+    for n, section in enumerate(detail.get("sections") or []):
+        if not isinstance(section, dict):
+            continue
+        reads: list[tuple[tuple, str]] = []
+        for key in _SECTION_PATHS:
+            if isinstance(section.get(key), str):
+                reads.append(((n, key), section[key]))
+        texts = [((n, "title"), section.get("title"))]
+        texts += [((n, "fields", f, "value"), field.get("value")) for f, field in enumerate(section.get("fields") or [])
+                  if isinstance(field, dict)]
+        for where, text in texts:
+            for expr in re.findall(r"\{\{(.*?)\}\}", text) if isinstance(text, str) else []:
+                for ref in _D_REF.findall(expr):
+                    reads.append((where, ref.lstrip(".")))
+        for where, path in reads:
+            if not path or path.startswith(("in.", "out.")):
+                continue
+            if shape is None:
+                # A request whose rows have columns opens onto its one row.
+                first = path.split(".")[0].split("[")[0]
+                if own and first not in own | {"rows"}:
+                    out.append(((*at, "sections", *where), f"The detail ({action.id}'s one row) has no {first}: "
+                                                           f"its columns are {', '.join(sorted(own))}."))
+                continue
+            found, why = aws_request._walk(shape, path)
+            if found is None:
+                out.append(((*at, "sections", *where), f"The detail ({what}; `d` in a template) has no {path}: "
+                                                       f"{why}."))
+    return out
+
+
+def _same_name(name: str, names: set[str]) -> Optional[str]:
+    """The column a name means when it's written otherwise: jobId for
+    `Job ID` (a model renamed the columns and kept reading the field)."""
+    def plain(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", text.lower())
+    return next((n for n in sorted(names) if plain(n) == plain(name)), None)
+
+
+def _detail_shape(action: pane_manifest.ManifestAction) -> tuple[Any, str]:
+    """The shape of what a row action that's an AWS request opens onto, as
+    the browser reads it: the reply when it has no list, an item of
+    `rows.at` when its rows have no columns. (None, "") when only running it
+    would say: code, a handler, columns (a row's keys are checked as such)."""
+    spec = action.request or {}
+    if not aws_request.is_aws(spec):
+        return None, ""
+    try:
+        name = aws_request.operation_name(spec["service"], spec["operation"])
+        model = aws_request._botocore.get_service_model(spec["service"]).operation_model(name)
+    except Exception:  # noqa: BLE001 -- said by aws_request.problems already
+        return None, ""
+    reply = model.output_shape
+    if reply is None or reply.type_name != "structure":
+        return None, ""
+    rows = spec.get("rows")
+    if rows is None:
+        if any(m.type_name == "list" for m in reply.members.values()):
+            return None, ""  # one of its rows, or {rows}: depends on the reply
+        return reply, f"{name}'s reply"
+    if isinstance(rows, dict) and not rows.get("columns") and rows.get("at") and not rows.get("explode"):
+        listed, _ = aws_request._walk(reply, str(rows["at"]))
+        if listed is not None and listed.type_name == "list" and listed.member.type_name == "structure":
+            return listed.member, f"an item of {name}'s {rows['at']}"
+    return None, ""
 
 
 def _path_problems(rows: Any) -> list[tuple[tuple, str]]:
@@ -609,12 +744,13 @@ CONFIG_DOC = {
         "toolbar": "always | rows",
     },
     "row action": "an action with args: {input: row.<column> | group.<field>} -- its inputs read from the row, "
-                  "not the pane's. A request as one (AWS: connection: <the connections input>, args giving it "
+                  "not the pane's, by the column names its rows have (row.Job ID for a column `Job ID: jobId`). A request as one (AWS: connection: <the connections input>, args giving it "
                   "row.Environment) answers with its one row as the detail, or {rows} when the reply held "
                   "several; without `rows`, the whole reply",
     "sections": "[{title}, {fields: [{label, value: template over d}]}, {entries: an object's path}, "
                 "{table: a list's path, columns: [{label, value: template over row}]}, {list: path, summary}, "
-                "{tags: path}, {json: path}, {grid: [{title, json}]}] -- d is the detail",
+                "{tags: path}, {json: path}, {grid: [{title, json}]}] -- d is the detail: an AWS request's reply as "
+                "describe_aws_operation shows it (d.job.status), its one row's columns, or what code's run returns",
 }
 
 # An action that's code (D134), run in the runner as whoever uses the pane.

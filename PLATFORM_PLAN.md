@@ -1313,6 +1313,10 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D141 | 2026-10-21 | **Dependencies are a file of the workspace**: `requirements.txt` beside the code, locked into `requirements.lock` by Check and Save. | One text in every editor and the store, as the code is (D136); pip's own format, so nothing new to learn or document. |
 | D142 | 2026-10-21 | **The lock is uv's `--universal --generate-hashes`, wheels only**, and names the requirements it came from. | Exact versions and hashes are what makes a run repeatable; universal so a plugin's lock holds on any runner; wheels only so installing runs no package code. |
 | D143 | 2026-10-21 | **Packages reach the runner only through the backend's index**, which serves a job only the wheels its lock's hashes name, fetched from `DEPS_INDEX_URL` once and kept. | Keeps D133: the runner's NetworkPolicy still allows only the backend, and a job can't turn the index into a way out. |
+| D145 | 2026-10-22 | **A change's path written with dots is that path** (`yaml_edit._dotted`) where no key is named so and its first piece is one; a key named like a path is said to be one, with the change that removes it. | The check names places with dots (`layout.2.items`); a model building IoT OTA jobs copied them into its changes, `set` made top-level keys of those names, and every round after made it worse. |
+| D146 | 2026-10-22 | **Rows that open are held offline to what they open onto**: a row action's `row.<column>` to the columns its rows have, and a detail's templates and paths to the AWS reply its row action answers with (or its one row's columns). Only what can be known without running it: code's detail is what its run returns. | Both checked clean and opened onto empty fields: `row.jobId` from rows whose column is `Job ID`, `d.job_id` from a DescribeJob reply that keeps it at `d.job.jobId`. |
+| D147 | 2026-10-22 | **The Builder's loop never throws away changes it made** for a reply it can't read: the draft goes in the editor with what's left named. A reply cut off at the model's length limit is said to be so and asked for in parts, not sent back whole. | A turn whose model wrote two whole files and the YAML in one reply was cut off, asked again the same way, cut off again, and ended "didn't answer in the shape the Builder needs" with nothing in the editor. |
+| D148 | 2026-10-22 | **A value each row needs that only another call returns makes the listing action code** (it lists, calls per row, returns the rows with those columns): the Builder's rules say so in general terms. | Asked for each OTA job's queued/failed/succeeded counts, the model kept ListJobs as a request and added an "export with details" action -- which can't add columns to rows already listed, so the table and its CSV never had them. |
 | D144 | 2026-10-21 | **A venv per lock in the runner**, built at save (and before a run that finds none), shared, read-only to jobs, the least recently used dropped past a size. | Seconds with uv, and never in a job's own time; one lock, one venv, however many definitions name it. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
@@ -4816,6 +4820,12 @@ Three PRs (D104), each with something to try:
   step types; line numbers in every editor, one as tall as the preview; a
   Clear the agent can add (a card's `clear`, changes by line); pictures in a
   shared session.
+- **5-3d, what an OTA jobs build taught** (built, D145-D148): paths written
+  with dots, rows that open held offline to their columns and their AWS
+  reply, a loop that keeps its work through a reply it can't read (and says
+  when a reply was cut off), and rules for values per row; in the editor, a
+  file added from a "+" tab, and a Preview card that's there only while
+  Preview is on.
 
 ## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D144; 6-1, 6-1b and 6-2 built)
 

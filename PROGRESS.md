@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-21, Phase 6-2 (dependencies: requirements locked with uv, a venv per lock in the runner; PLATFORM_PLAN.md §25, D141–D144), and the rail without the Agent page._
+_Last updated: 2026-10-22, the Builder after an IoT OTA jobs build (PLATFORM_PLAN.md §24, D145–D148): paths with dots, rows that open checked, a loop that keeps its work; a "+" tab and a Preview that toggles._
 
 ## Platform plan
 
@@ -1298,7 +1298,35 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the rail's pages, and Phase 6-2 -- dependencies
+**This PR: what building an IoT OTA jobs pane with the Builder's agent
+showed (PLATFORM_PLAN.md §24, D145–D148).** The user's chat: the jobs listed,
+but opened rows showed every field empty and the CSV had no execution
+counts; each "fix it" round made the draft worse, and the last ended "didn't
+answer in the shape the Builder needs".
+- **Paths written with dots** (D145): the check names places as
+  `layout.2.items`, the model copied that into its changes, and `set` made
+  top-level keys of those names (`layout.3:`), which the check then reported
+  with a list of every top-level field. A part with dots is now that path; a
+  key named like one is said to be one, with the change that removes it.
+- **Rows that open, checked** (D146): `row.jobId` read from rows whose column
+  is `Job ID`, and `d.job_id` from a DescribeJob reply that keeps it at
+  `d.job.jobId` -- both checked clean and showed nothing. Check holds a row
+  action's args to the rows' columns and a detail's templates to the AWS
+  reply, naming the column or field that's there.
+- **The loop keeps its work** (D147): a reply cut off at the model's length
+  limit is said so and asked for in parts; a reply it can't read after
+  changes were made puts the draft in the editor instead of ending the turn
+  with nothing. Rules (D148, general): a value per row from another call
+  makes the listing action code; args read columns as named; `d` is what
+  the row action returns.
+- **The editor**: "+" is the last of its tabs (a file named in a tab of its
+  own), and the Preview card is there only while Preview is pressed.
+- Tests: backend `test_builder_ota.py` (7, from the real draft; 5 fail on the
+  old code), agent +2 (a cut-off reply; a reply lost after changes), both
+  failing on the old loop; browser `smoke107` (12), failing against the old
+  frontend; smoke96/103/104/106 follow the "+" tab and "Draw again".
+
+**#141 merged. The rail's pages, and Phase 6-2 -- dependencies
 (PLATFORM_PLAN.md §25, D141–D144).** The user's asks after #140.
 - The **Agent** page and its rail row are gone (the Global chat is the agent
   panel's tab); a browser whose stored view was that page lands home.
