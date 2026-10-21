@@ -216,7 +216,20 @@ interface Asker {
   avatarUrl?: string | null;
 }
 
-function Turn({ turn, mine, live, asker }: { turn: AgentTurn; mine: boolean; live: boolean; asker?: Asker | null }) {
+function Turn({
+  turn,
+  mine,
+  live,
+  asker,
+  onFix,
+}: {
+  turn: AgentTurn;
+  mine: boolean;
+  live: boolean;
+  asker?: Asker | null;
+  /** A build turn that ended with problems left: ask for them to be fixed. */
+  onFix?: () => void;
+}) {
   // Turns stored before reasoning was kept apart still carry it inline.
   const legacy = splitThinking(turn.answer);
   const thoughts = [turn.thoughts ?? "", legacy.thoughts].filter((t) => t.trim()).join("\n\n");
@@ -258,7 +271,21 @@ function Turn({ turn, mine, live, asker }: { turn: AgentTurn; mine: boolean; liv
           {answer && <MarkdownLite text={answer} />}
           {running && <TurnProgress turn={turn} live={live} />}
           {gone && <p className="error-text">This wasn't answered: the browser that asked it closed before the agent finished.</p>}
-          {turn.notice && <p className="agent-notice">⚠ {turn.notice}</p>}
+          {turn.notice && (
+            <p className="agent-notice">
+              ⚠ {turn.notice}
+              {/* The editor's problems, sent back for fixing: people copied
+                  Check's list into the chat by hand to get the same. */}
+              {onFix && (
+                <>
+                  {" "}
+                  <button className="link-button agent-fix" onClick={onFix}>
+                    Fix what's left
+                  </button>
+                </>
+              )}
+            </p>
+          )}
           {turn.status === "stopped" && <p className="muted">Stopped.</p>}
           {turn.error && <p className="error-text">{turn.error}</p>}
         </div>
@@ -479,13 +506,18 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             {shared ? SHARED_INTRO : INTRO[scope]}
           </p>
         )}
-        {turns.map((t) => (
+        {turns.map((t, i) => (
           <Turn
             key={t.id}
             turn={t}
             mine={!t.author || t.author.id === user?.id}
             live={t.id === liveTurnId}
             asker={askerOf(t)}
+            onFix={
+              scope === "build" && t.notice && i === turns.length - 1 && !running
+                ? () => ask(`Carry on: fix what's left. ${t.notice}`, scope)
+                : undefined
+            }
           />
         ))}
         <div ref={endRef} />

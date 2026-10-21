@@ -1298,7 +1298,20 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: what building an IoT OTA jobs pane with the Builder's agent
+**This PR: a Builder agent that keeps code in files and finishes what it
+checks (PLATFORM_PLAN.md §24, D149–D150).** The user's report after #142:
+code written into the YAML though files were there, drafts left with
+problems the user copied back into the chat by hand.
+- Code the agent writes into the YAML is moved into a file by the platform
+  (`<action>.py`, the YAML naming it), whatever the model remembers.
+- The loop names the files before the draft, says when a problem survived
+  the round meant to fix it (fix it another way, by line), and has 6 rounds.
+- A draft left with problems offers **Fix what's left** in the chat.
+- Tests: backend +1 (and the inline test now expects a file), agent: the
+  files said first and a surviving problem said so (both failing on the old
+  loop); browser `smoke108` (4), failing against the old frontend.
+
+**#142 merged. What building an IoT OTA jobs pane with the Builder's agent
 showed (PLATFORM_PLAN.md §24, D145–D148).** The user's chat: the jobs listed,
 but opened rows showed every field empty and the CSV had no execution
 counts; each "fix it" round made the draft worse, and the last ended "didn't

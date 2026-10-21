@@ -78,6 +78,10 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke108` (the Building chat: a draft left with problems offers "Fix what's
+left", which asks for them to be fixed; only on the last turn, not while one
+runs) needs the agent and the fake model ("never clean").
+
 `smoke107` (the Builder's editor: "+" the last of its tabs, a file named in a
 tab of its own, Esc cancelling; the Preview card there only while Preview is
 pressed, the editor otherwise full width, "Draw again" for a stale drawing)

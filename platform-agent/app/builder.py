@@ -351,6 +351,13 @@ class Builder:
         parts += self.read
         if plan:
             parts.append(f"Your plan: {plan}")
+        if self.files:
+            # Said before the draft, not only shown after it: with files right
+            # there, a model still wrote code into the YAML, or a second file
+            # doing what one already did.
+            parts.append(f"Files beside the YAML already: {', '.join(sorted(self.files))}. Code lives in these "
+                         "files -- change them ({\"op\": \"lines\", \"file\": ...} or {\"op\": \"file\"}); the "
+                         "YAML only names them (`code: {file: x.py}`). Never put Python in the YAML.")
         parts.append(f"The draft now, with line numbers:\n{_numbered(draft)}")
         for name, text in sorted(self.files.items()):
             parts.append(f"The file {name} beside it, with line numbers:\n{_numbered(text)}")
@@ -436,6 +443,7 @@ class Builder:
         problems = ""
         applied = False
         fixed = 0
+        seen: set[str] = set()  # the problems the last check found
         for _ in range(self.rounds):
             try:
                 value = await self.ask("write_changes", instructions, self.context(draft, plan))
@@ -494,8 +502,20 @@ class Builder:
             else:
                 problems = "; ".join(f"{_place(e)}{e.get('message')}" for e in result.get("errors") or [])
             fixed += 1
+            now = {str(e.get("message")) for e in result.get("errors") or []}
+            stuck = sorted(now & seen)
+            seen = now
+            again = ""
+            if stuck:
+                # The same problem after a round meant to fix it: the same kind
+                # of fix won't. Said so, a model tries another way.
+                again = (f"\n\nThese were there before your last changes too, so what you did didn't fix them: "
+                         f"{'; '.join(stuck)[:1200]}. Read the lines they name in the draft below and fix them "
+                         f"another way -- by line ({{\"op\": \"lines\"}}) if a path doesn't reach.")
+            if result.get("moved"):
+                again += f"\n\n{result['moved']}"
             instructions = REPAIR.format(what=f"Your changes were made, and the draft now has these problems: "
-                                              f"{problems}")
+                                              f"{problems}{again}")
         if not applied:
             yield {"type": "text", "delta": f"I couldn't make the change: {problems[:600]}"}
             return

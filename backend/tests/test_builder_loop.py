@@ -247,12 +247,12 @@ def test_the_agent_writes_code_as_files_beside_the_yaml(mcp):
     assert proposed["files"] == {"shaped.py": "def run(inputs, ctx):\n    rows = [{'id': 'd1'}]\n    return {'rows': rows}\n"}
     refused = call_error(mcp, token, "change_definition", changes=[{"op": "file", "name": "os.py", "text": "x = 1"}])
     assert "would stand in for Python's own os module" in refused and "Nothing was changed" in refused
-    # Code set into the YAML itself is written as a block, never a quoted line.
+    # Code set into the YAML itself goes into a file of its own (D149), never
+    # a quoted line in the YAML.
     inline = call(mcp, token, "change_definition", changes=[
         {"op": "set", "path": "actions/list/code", "value": "def run(inputs, ctx):\n    return {'rows': []}\n"}])
-    assert inline["ok"] is True, inline
-    assert "    code: |\n      def run(inputs, ctx):\n          return {'rows': []}\n" in call(mcp, token, "propose_definition",
-                                                                                         summary="x")["propose"]["source"]
+    assert inline["ok"] is True and "list.py" in inline["files"], inline
+    assert "file: list.py" in call(mcp, token, "propose_definition", summary="x")["propose"]["source"]
 
 
 def test_the_agent_names_requirements_and_the_platform_locks_them(mcp, monkeypatch, tmp_path):
@@ -284,3 +284,24 @@ def test_the_agent_names_requirements_and_the_platform_locks_them(mcp, monkeypat
     finally:
         upstream.close()
         deps._cache.clear()
+
+
+def test_code_the_agent_writes_into_the_yaml_is_moved_into_a_file(mcp):
+    """D149: told every turn that code is a file, a model still wrote it into
+    the YAML as often as not -- and then, with files beside the draft, didn't
+    know which one ran. The platform moves it; a person's inline code stays."""
+    token = _build_token(builder.CODE_EXAMPLE)
+    code = "def run(inputs, ctx):\n    return {'rows': []}\n"
+    out = call(mcp, token, "change_definition", changes=[
+        *({"op": "file", "name": name, "text": text} for name, text in builder.CODE_EXAMPLE_FILES.items()),
+        {"op": "set", "path": "actions/list/code", "value": code}])
+    assert out["ok"] is True and out["files"] == {"devices.py": 6, "list.py": 2}, out
+    assert "moved into files of its own" in out["moved"] and "actions/list/code -> list.py" in out["moved"]
+    proposed = call(mcp, token, "propose_definition", summary="x")["propose"]
+    assert "code:\n      file: list.py" in proposed["source"] and "def run" not in proposed["source"]
+    assert proposed["files"]["list.py"] == code
+    # Inline code already there, and left alone by a change, stays inline.
+    kept = _build_token(builder.CODE_EXAMPLE.replace("    code:\n      file: devices.py\n",
+                                                     "    code: |\n      def run(inputs, ctx):\n          return {}\n"))
+    other = call(mcp, kept, "change_definition", changes=[{"op": "set", "path": "label", "value": "Renamed"}])
+    assert "moved" not in other and other["files"] == {}

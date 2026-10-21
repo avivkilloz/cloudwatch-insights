@@ -719,6 +719,8 @@ def test_code_is_written_as_a_file_and_fixed_by_its_lines(settings):
     assert _steps(events).count("change_definition") == 2
     first = fake_llm.BUILDS[1]["messages"][-1]["content"]
     assert "The file devices.py beside it, with line numbers:\n1: def run(inputs, ctx):" in first
+    assert "Files beside the YAML already: devices.py. Code lives in these files" in first, "said before the draft"
+    assert first.index("Files beside the YAML already") < first.index("The draft now, with line numbers")
     assert '{"op": "file", "name": "health.py"' in first, "it's told how a file is written"
     repair = fake_llm.BUILDS[-1]["messages"][-1]["content"]
     assert "shaped.py, line 3: It isn't valid Python" in repair
@@ -730,13 +732,17 @@ def test_code_is_written_as_a_file_and_fixed_by_its_lines(settings):
 
 
 def test_out_of_rounds_the_work_so_far_goes_in_the_editor_with_its_problems_named(settings):
-    events = _build(settings, "never clean", IOT, builder_rounds=2)
-    assert _steps(events).count("write_changes") == 2
+    fake_llm.BUILDS.clear()
+    events = _build(settings, "never clean", IOT, builder_rounds=3)
+    assert _steps(events).count("write_changes") == 3
     [proposed] = [e for e in events if e.get("propose")]
     assert "Card" in proposed["propose"]["source"]
     notices = [e["message"] for e in events if e["type"] == "notice"]
     assert notices and "isn't declared" in notices[0]
     assert "Ask me to carry on" in _answer(events)
+    # The second round's problem was there after the first's fix too: said so.
+    told = fake_llm.BUILDS[-1]["messages"][-1]["content"] if len(fake_llm.BUILDS) else ""
+    assert "so what you did didn't fix them" in told and "fix them another way" in told, told[-600:]
 
 
 def test_a_question_is_answered_and_a_change_that_cant_be_made_is_said(settings):

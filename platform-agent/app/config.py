@@ -41,7 +41,7 @@ class Settings:
     builder_model: Optional[str] = None
     builder_temperature: Optional[float] = None
     builder_max_tokens: Optional[int] = None
-    builder_rounds: int = 4
+    builder_rounds: int = 6
 
     @property
     def configured(self) -> bool:
@@ -67,5 +67,5 @@ def load() -> Settings:
         builder_temperature=(float(os.environ["AGENT_BUILDER_TEMPERATURE"])
                              if os.environ.get("AGENT_BUILDER_TEMPERATURE") else None),
         builder_max_tokens=int(os.environ["AGENT_BUILDER_MAX_TOKENS"]) if os.environ.get("AGENT_BUILDER_MAX_TOKENS") else None,
-        builder_rounds=max(1, int(os.environ.get("AGENT_BUILDER_ROUNDS", "4"))),
+        builder_rounds=max(1, int(os.environ.get("AGENT_BUILDER_ROUNDS", "6"))),
     )

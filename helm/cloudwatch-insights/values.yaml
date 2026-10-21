@@ -318,7 +318,7 @@ agent:
     model: ""
     temperature: ""
     maxTokens: ""
-    rounds: 4
+    rounds: 6
     # Run it as a Deployment of its own (the same image): build turns go
     # there, so a long build never shares a pod with chat turns, and its
     # replicas and resources are its own (`resources` empty: agent.resources).
