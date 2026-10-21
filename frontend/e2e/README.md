@@ -74,6 +74,13 @@ in the Builder's Steps, then used in a workflow of their own -- no
 Access section -- approved and sent) needs the faked backend (a `.fake` host;
 `/api/dev/fake-http/last` says what it was sent).
 
+`smoke104` (6-1b, as a builder: a pane started from code is a workspace --
+pane.yaml and devices.py, + File's helpers.py imported by it and previewed;
+Check's problem by file and line, its tab marked and clicked open; the draft's
+files back after a reload; the fake model's `use code …` writing shaped.py and
+fixing it by its line) needs the runner, the agent, the fake model and the
+faked backend with `RUNNER_URL` (as smoke103).
+
 `smoke103` (6-1, as a builder: a pane whose action is code, previewed --
 reaching an API through `ctx.http`, its log under the preview -- code that
 fails naming its line, created and run in a session; a step that's code,

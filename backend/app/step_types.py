@@ -39,14 +39,15 @@ import datetime
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import yaml
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 from sqlalchemy.orm import Session
 
 from . import connections, credential_types, masking, models, runner_client, store, tools_http_client, workflows
+from .panes.manifest import CodeFile
 from .resolve import ResolveError, resolve_identity_values, resolve_target
 
 logger = logging.getLogger(__name__)
@@ -94,14 +95,17 @@ class Definition(_Strict):
     request: Optional[HttpRequest] = None
     steps: Optional[list[workflows.Step]] = None
     # Python defining run(inputs, ctx), run in the runner as the workflow's
-    # starter (D134); its return is the step's outputs.
-    code: Optional[str] = None
+    # starter (D134); its return is the step's outputs. Inline, or a file of
+    # the step's (D137: `code: {file: restart.py}`).
+    code: Union[str, CodeFile, None] = None
     # Code that changes something outside says so: the workflow's step then
     # waits for a person, and its calls may then do more than read.
     changes: bool = False
     # A chain's outputs, each a template over its steps; without them, each
     # step's outputs under its id.
     outputs: dict[str, Any] = {}
+    # Its Python files beside the YAML (D136), name -> text; not in the YAML.
+    _files: dict[str, str] = PrivateAttr(default_factory=dict)
 
 
 REGISTRY: dict[str, Definition] = {}
@@ -117,14 +121,14 @@ def load(db: Session) -> None:
     found: dict[str, Definition] = {}
     rows = db.query(models.BuiltStepType).all()
     # A chain may name another: loaded until nothing more passes.
-    pending = {r.id: r.source for r in rows}
+    pending = {r.id: (r.source, r.files) for r in rows}
     while pending:
         progress = False
-        for type_id, source in list(pending.items()):
+        for type_id, (source, files) in list(pending.items()):
             REGISTRY.clear()
             REGISTRY.update(found)
             try:
-                found[type_id] = parse(source, type_id)
+                found[type_id] = parse(source, type_id, files)
                 del pending[type_id]
                 progress = True
             except StepTypeError:
@@ -144,7 +148,7 @@ def _line(source: str, path: tuple) -> Optional[int]:
     return workflows._line(source, path)
 
 
-def parse(source: str, type_id: Optional[str] = None) -> Definition:
+def parse(source: str, type_id: Optional[str] = None, files: Optional[dict[str, str]] = None) -> Definition:
     """The step type in `source`, checked in full; StepTypeError with every
     problem, each with its line."""
     try:
@@ -171,6 +175,7 @@ def parse(source: str, type_id: Optional[str] = None) -> Definition:
                 message = f"there is no {loc[0]} here; a step type may say: {', '.join(Definition.model_fields)}"
             errors.append({"line": _line(source, loc), "message": f"{where}: {message}" if where else message})
         raise StepTypeError(errors[0]["message"], errors) from None
+    definition._files = dict(files or {})
     errors = check(definition, source, chain=(type_id,) if type_id else ())
     if errors:
         raise StepTypeError(errors[0]["message"], errors)
@@ -190,11 +195,17 @@ def check(definition: Definition, source: str = "", chain: tuple = ()) -> list[d
         err((kinds[1],) if len(kinds) > 1 else (), "A step type is a request, steps or code: one of them.")
     if definition.changes and definition.code is None:
         err(("changes",), "changes is said by code; a request changes something when it isn't a GET.")
+    # The files beside it (D136): each problem says its file and that file's line.
+    for name, line, message in runner_client.file_problems(definition._files):
+        errors.append({"line": line, "file": name or None, "message": message})
     if definition.code is not None:
         base = _line(source, ("code",)) if source else None
-        for at, message in runner_client.problems(definition.code):
-            err_line = base + at if base and at else base
-            errors.append({"line": err_line, "message": f"code: {message}"})
+        for file, at, message in runner_client.entry_problems(definition.code, definition._files):
+            if file:
+                errors.append({"line": at, "file": file, "message": message})
+            else:
+                err_line = base + at if base and at and isinstance(definition.code, str) else base
+                errors.append({"line": err_line, "message": f"code: {message}"})
         if definition.outputs:
             err(("outputs",), "Code's outputs are what its run returns.")
     if definition.request is not None:
@@ -395,7 +406,8 @@ def run_code(db: Session, user: models.User, definition: Definition, inputs: dic
     `may_change` only for a step a person approved (or its builder's Try,
     which asks first)."""
     try:
-        result = runner_client.run(db, user, definition.code or "", inputs, purpose, may_change=may_change)
+        result = runner_client.run(db, user, definition.code or "", inputs, purpose, may_change=may_change,
+                                   files=definition._files)
     except runner_client.CodeError as e:
         detail = str(e) + (f"\n\nIts log:\n{e.logs[-2000:]}" if e.logs else "")
         raise HTTPException(status_code=e.status, detail=detail) from None
@@ -416,7 +428,7 @@ def can_edit(user: models.User, row: Optional[models.BuiltStepType] = None) -> b
 
 
 def save(db: Session, user: models.User, requested_id: Optional[str], source: str,
-         row: Optional[models.BuiltStepType] = None) -> models.BuiltStepType:
+         row: Optional[models.BuiltStepType] = None, files: Optional[dict[str, str]] = None) -> models.BuiltStepType:
     from . import builder
 
     if not can_edit(user, row):
@@ -431,7 +443,7 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
             raise StepTypeError(f"A step type {type_id} already exists.")
     else:
         type_id = row.id
-    definition = parse(source, type_id)
+    definition = parse(source, type_id, files)
     errors = access_errors(db, definition, user, source)
     if errors:
         raise StepTypeError(errors[0]["message"], errors)
@@ -441,7 +453,7 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
         row = models.BuiltStepType(id=type_id, created_by_id=user.id, created_at=now,
                                    owner_group_id=None if user.group.is_admin else user.group.id)
         db.add(row)
-    row.source, row.updated_by_id, row.updated_at = source, user.id, now
+    row.source, row.files, row.updated_by_id, row.updated_at = source, dict(files or {}), user.id, now
     builder._bump(db)
     db.flush()
     store.record(db, "step", row.id, "write", user)
@@ -493,14 +505,15 @@ def store_load(db: Session, data: dict, row: Optional[models.BuiltStepType],
     if not store.valid_id(type_id, ID_RE):
         raise store.StoreError(f"'{type_id}' isn't a step type id.")
     source = str(data.get("__source__") or "")
+    files = dict(data.get("__files__") or {})
     try:
-        definition = parse(source, type_id)
+        definition = parse(source, type_id, files)
     except StepTypeError as e:
         raise store.StoreError(f"Step type {type_id}: {e}") from None
     if row is None:
         row = models.BuiltStepType(id=type_id, created_by_id=actor.id if actor else None)
         db.add(row)
-    row.source, row.updated_at = source, datetime.datetime.utcnow()
+    row.source, row.files, row.updated_at = source, files, datetime.datetime.utcnow()
     REGISTRY[type_id] = definition
     builder._bump(db)
     return row
@@ -565,13 +578,16 @@ inputs:
     connection_type: http_api
   - key: site
     default: north
-code: |
-  def run(inputs, ctx):
-      reply = ctx.http(inputs["connection"], "/devices", query={"site": inputs["site"]})
-      online = [d for d in reply.json()["items"] if d.get("online")]
-      ctx.log(len(online), "online")
-      return {"rows": online, "count": len(online)}
+# Its code is a file beside this one (online.py): run(inputs, ctx) is called.
+code:
+  file: online.py
 """
+CODE_EXAMPLE_FILES = {"online.py": """def run(inputs, ctx):
+    reply = ctx.http(inputs["connection"], "/devices", query={"site": inputs["site"]})
+    online = [d for d in reply.json()["items"] if d.get("online")]
+    ctx.log(len(online), "online")
+    return {"rows": online, "count": len(online)}
+"""}
 
 
 def _fields(model: Any) -> dict[str, str]:
@@ -602,7 +618,8 @@ def reference(db: Session, user: models.User) -> dict[str, Any]:
                    "each step's outputs under its id",
         "panes": workflow.get("panes", []),
         "step_types": [{"id": k, "label": d.label, "inputs": [p.key for p in d.inputs]} for k, d in sorted(REGISTRY.items())],
-        "examples": {"request": STARTER, "steps": CHAIN_EXAMPLE, "code": CODE_EXAMPLE},
+        "examples": {"request": STARTER, "steps": CHAIN_EXAMPLE, "code": CODE_EXAMPLE,
+                     "code's file (online.py)": CODE_EXAMPLE_FILES["online.py"]},
         "rules": [
             "A request's connection is an input of type connection with an HTTP connection_type (http_api, or one "
             "made in Settings -> Environments -> Types); it runs as whoever runs the workflow.",
@@ -625,6 +642,7 @@ def describe(row: models.BuiltStepType) -> dict[str, Any]:
         "inputs": [p.model_dump(exclude_none=True) for p in definition.inputs] if definition else [],
         "loads": definition is not None,
         "source": row.source,
+        "files": row.files or {},
         "owner_group_id": row.owner_group_id,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }

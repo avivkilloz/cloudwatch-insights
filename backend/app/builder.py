@@ -97,12 +97,21 @@ def _line(source: str, path: tuple) -> Optional[int]:
     return line_of(source, path)
 
 
+def where(e: dict) -> str:
+    """"Line 4: " / "health.py, line 12: " -- an error's place, said."""
+    if e.get("file") and e.get("line"):
+        return f"{e['file']}, line {e['line']}: "
+    if e.get("file"):
+        return f"{e['file']}: "
+    return f"Line {e['line']}: " if e.get("line") else ""
+
+
 def _fail(errors: list[dict]) -> BuilderError:
-    text = "\n".join(f"Line {e['line']}: {e['message']}" if e.get("line") else e["message"] for e in errors[:8])
+    text = "\n".join(f"{where(e)}{e['message']}" for e in errors[:8])
     return BuilderError(text, errors)
 
 
-def parse(source: str, type_id: Optional[str]) -> pane_manifest.Manifest:
+def parse(source: str, type_id: Optional[str], files: Optional[dict[str, str]] = None) -> pane_manifest.Manifest:
     """The manifest in `source`, as the pane type `type_id`, checked in full:
     the strict model a bundled manifest passes, then what only a built one
     must -- it draws itself, it runs nothing the platform doesn't have.
@@ -144,6 +153,7 @@ def parse(source: str, type_id: Optional[str]) -> pane_manifest.Manifest:
                     message = f"there is no {loc[-1]} here; it may say: {', '.join(fields)}"
             errors.append({"line": _line(source, loc) if loc else None, "message": f"{where}: {message}" if where else message})
         raise _fail(errors) from None
+    manifest._files = dict(files or {})
     errors = check(manifest, source)
     if errors:
         raise _fail(errors)
@@ -180,6 +190,10 @@ def _fields_at(loc: tuple) -> list[str]:
 
 def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
     errors: list[dict] = []
+    # The files beside it (D136): each problem says its file, and its line
+    # is that file's.
+    for name, line, message in runner_client.file_problems(manifest._files):
+        errors.append({"line": line, "file": name or None, "message": message})
 
     def err(path: tuple, message: str) -> None:
         errors.append({"line": _line(source, path) if source else None, "message": message})
@@ -202,10 +216,15 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
             for path, message in _path_problems((a.request or {}).get("rows")):
                 err(("actions", i, "request", "rows", *path), message)
         if a.code is not None:
-            # Lines of the code, under `code: |`, are counted from the line after it.
+            # Inline code's lines, under `code: |`, are counted from the line after
+            # it; a file's are the file's own.
             base = _line(source, ("actions", i, "code")) if source else None
-            for at, message in runner_client.problems(a.code):
-                errors.append({"line": base + at if base and at else base, "message": f"actions.{i}.code: {message}"})
+            for file, at, message in runner_client.entry_problems(a.code, manifest._files):
+                if file:
+                    errors.append({"line": at, "file": file, "message": message})
+                else:
+                    errors.append({"line": base + at if base and at and isinstance(a.code, str) else base,
+                                   "message": f"actions.{i}.code: {message}"})
         if a.live and a.live not in pane_live.FUNCTIONS:
             err(("actions", i, "live"), f"There is no live function {a.live}. They are: {', '.join(sorted(pane_live.FUNCTIONS))}.")
     views = {v.key for v in manifest.views}
@@ -359,11 +378,12 @@ def access_errors(manifest: pane_manifest.Manifest, user: Any, source: str = "")
 # ---------------------------------------------------------------- the preview (5-2c, D112)
 
 
-def preview(source: str, type_id: Optional[str], user: Any) -> pane_manifest.Manifest:
+def preview(source: str, type_id: Optional[str], user: Any,
+            files: Optional[dict[str, str]] = None) -> pane_manifest.Manifest:
     """The draft, checked as Check checks it and held to its builder's
     handlers, ready to be drawn by the pane renderer: what the editor holds,
     never saved and never granted to anyone."""
-    manifest = parse(source, type_id)
+    manifest = parse(source, type_id, files)
     errors = access_errors(manifest, user, source)
     if errors:
         raise _fail(errors)
@@ -371,7 +391,7 @@ def preview(source: str, type_id: Optional[str], user: Any) -> pane_manifest.Man
 
 
 def run_preview(db: Session, user: Any, source: str, type_id: Optional[str], action_id: str,
-                inputs: dict[str, Any], cursor: Any = None) -> dict[str, Any]:
+                inputs: dict[str, Any], cursor: Any = None, files: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """One of the draft's actions, as its builder, through the very functions
     a saved pane's actions go through (`run_request`/`run_handler`, D49):
     the same identity, connection checks and masking. Nothing is stored: a
@@ -383,11 +403,11 @@ def run_preview(db: Session, user: Any, source: str, type_id: Optional[str], act
     if not can_build(user):
         raise HTTPException(status_code=403, detail="Building pane types isn't turned on for your group.")
     try:
-        manifest = preview(source, type_id, user)
+        manifest = preview(source, type_id, user, files)
     except BuilderError as e:
         first = e.errors[0] if e.errors else {"message": str(e)}
-        where = f"Line {first['line']}: " if first.get("line") else ""
-        raise HTTPException(status_code=400, detail=f"The draft has a problem: {where}{first['message']}") from None
+        raise HTTPException(status_code=400, detail=f"The draft has a problem: {where(first)}{first['message']}") \
+            from None
     action = next((a for a in manifest.actions if a.id == action_id), None)
     if action is None:
         raise HTTPException(status_code=404, detail=f"The draft has no action {action_id}.")
@@ -409,7 +429,7 @@ def _bump(db: Session) -> None:
 
 
 def save(db: Session, user: models.User, requested_id: Optional[str], source: str,
-         row: Optional[models.BuiltPaneType] = None) -> models.BuiltPaneType:
+         row: Optional[models.BuiltPaneType] = None, files: Optional[dict[str, str]] = None) -> models.BuiltPaneType:
     if not can_build(user):
         raise BuilderError("Building pane types isn't turned on for your group.")
     if row is None:
@@ -421,7 +441,7 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
             raise BuilderError(f"A pane type {type_id} already exists.")
     else:
         type_id = row.id
-    errors = access_errors(parse(source, type_id), user, source)
+    errors = access_errors(parse(source, type_id, files), user, source)
     if errors:
         raise _fail(errors)
     # Its file in the store names it, as a workflow's does (a restore reads the id there).
@@ -436,7 +456,7 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
         # grants it (D65, D105).
         if user.group and not user.group.is_admin:
             db.add(models.GroupPaneGrant(group_id=user.group.id, pane_type=type_id))
-    row.source, row.updated_by_id, row.updated_at = source, user.id, now
+    row.source, row.files, row.updated_by_id, row.updated_at = source, dict(files or {}), user.id, now
     _bump(db)
     db.flush()
     store.record(db, "pane", row.id, "write", user)
@@ -473,7 +493,7 @@ def load(db: Session) -> None:
     built: dict[str, pane_manifest.Manifest] = {}
     for row in db.query(models.BuiltPaneType).all():
         try:
-            built[row.id] = parse(row.source, row.id)
+            built[row.id] = parse(row.source, row.id, row.files)
         except BuilderError as e:
             logger.warning("Built pane type %s doesn't load: %s", row.id, e)
     setting = db.get(models.Setting, GENERATION_KEY)
@@ -517,14 +537,15 @@ def store_load(db: Session, data: dict, row: Optional[models.BuiltPaneType],
     if not store.valid_id(type_id, ID_RE):
         raise store.StoreError(f"'{type_id}' isn't a pane type id.")
     source = str(data.get("__source__") or "")
+    files = dict(data.get("__files__") or {})
     try:
-        parse(source, type_id)
+        parse(source, type_id, files)
     except BuilderError as e:
         raise store.StoreError(f"Pane type {type_id}: {e}") from None
     if row is None:
         row = models.BuiltPaneType(id=type_id, created_by_id=actor.id if actor else None)
         db.add(row)
-    row.source, row.updated_at = source, datetime.datetime.utcnow()
+    row.source, row.files, row.updated_at = source, files, datetime.datetime.utcnow()
     _bump(db)
     return row
 
@@ -544,6 +565,7 @@ def schema(user: Any = None) -> dict[str, Any]:
         "starter": STARTER,
         # Code (D134): a working example, and whether it can run here (D135).
         "code_example": CODE_EXAMPLE,
+        "code_example_files": CODE_EXAMPLE_FILES,
         "runner": runner_client.configured(),
     }
 
@@ -607,13 +629,9 @@ actions:
   - id: list
     main: true
     run_label: List
-    code: |
-      def run(inputs, ctx):
-          reply = ctx.http(inputs["connection"], "/devices")
-          items = reply.json()["items"]
-          items.sort(key=lambda d: not d.get("online"))
-          ctx.log(len(items), "devices")
-          return {"rows": items}
+    # Its code is a file beside this one (devices.py): run(inputs, ctx) is called.
+    code:
+      file: devices.py
 outputs:
   - key: rows
     render: table
@@ -630,6 +648,13 @@ layout:
       - output: error
       - output: rows
 """
+CODE_EXAMPLE_FILES = {"devices.py": """def run(inputs, ctx):
+    reply = ctx.http(inputs["connection"], "/devices")
+    items = reply.json()["items"]
+    items.sort(key=lambda d: not d.get("online"))
+    ctx.log(len(items), "devices")
+    return {"rows": items}
+"""}
 
 # Rows that open to show more, from a request of their own (a working pane type).
 DETAIL_EXAMPLE = """label: Stacks
@@ -795,7 +820,8 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                            "`output`); error (several connections: the ones that failed)",
                 "example": AWS_EXAMPLE,
             },
-            "code (an action's)": {**runner_client.SDK_DOC, "example": CODE_EXAMPLE},
+            "code (an action's)": {**runner_client.SDK_DOC, "example": CODE_EXAMPLE,
+                                   "example's file (devices.py)": CODE_EXAMPLE_FILES["devices.py"]},
             "output": _fields(m.ManifestOutput),
             "output config": CONFIG_DOC,
             "rows that open (example)": DETAIL_EXAMPLE,
@@ -820,9 +846,11 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",
-                "An action may be code (`code: |` defining run(inputs, ctx)) where data runs out: reshaping a reply, "
-                "joining two calls. It runs in the runner as whoever uses the pane, reaching connections only "
-                "through ctx.http / ctx.aws, and returns the outputs. Prefer a request when one will do.",
+                "An action may be code where data runs out: reshaping a reply, joining two calls. The code is a "
+                "Python file beside the YAML (`code: {file: health.py}` -- the file written as a file, never Python "
+                "in a YAML string) defining run(inputs, ctx). It runs in the runner as whoever uses the pane, "
+                "reaching connections only through ctx.http / ctx.aws, and returns the outputs. Prefer a request "
+                "when one will do.",
                 "A Clear button is a card's `clear: [output keys]` -- the results it empties (never `run`); it "
                 "shows by itself while one of them holds something. It isn't an action, and an action with nothing "
                 "to run doesn't check.",

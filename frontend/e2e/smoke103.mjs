@@ -62,7 +62,9 @@ const run = async () => {
     // The examples are listed once the editor has the schema (and the code example with it).
     await page.waitForFunction(() => document.querySelectorAll("#builder-start option").length > 3);
     await page.selectOption("#builder-start", "__code");
-    await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("def run(inputs, ctx):"));
+    // The code is a file beside the YAML (D136): its tab, devices.py.
+    await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("file: devices.py"));
+    await page.waitForSelector('.workspace-tab[data-file="devices.py"]');
     await page.fill("#builder-id", PANE);
     await page.click('.builder-view button:text-is("Check")');
     await page.waitForSelector('.builder-notice:text-is("No problems found.")');
@@ -77,8 +79,9 @@ const run = async () => {
     await page.screenshot({ path: `${SHOT}/smoke103-preview.png`, fullPage: true });
 
     // ---- 2. code that fails says where
-    const source = await page.inputValue("#builder-source");
-    await page.fill("#builder-source", source.replace('ctx.log(len(items), "devices")', 'ctx.log("about to fail")\n          raise ValueError("no devices today")'));
+    await page.click('.workspace-tab[data-file="devices.py"] .workspace-tab-name');
+    const source = await page.inputValue("#builder-source-file");
+    await page.fill("#builder-source-file", source.replace('ctx.log(len(items), "devices")', 'ctx.log("about to fail")\n    raise ValueError("no devices today")'));
     await page.waitForSelector(".builder-preview-stale");
     await page.click('.builder-view button:text-is("Preview")');
     // Drawn again from the new text: "changed since this was drawn" goes.
@@ -87,9 +90,9 @@ const run = async () => {
     await page.click('.builder-preview button:text-is("List")');
     await page.waitForSelector('.builder-preview .error-text:has-text("no devices today")', { timeout: 20000 });
     const failed = await page.locator(".builder-preview .error-text").first().innerText();
-    check(failed.includes("ValueError: no devices today (line 6 of the code)") && failed.includes("about to fail"),
-      "Code that fails says what and on which line, with its log", failed.slice(0, 200));
-    await page.fill("#builder-source", source);
+    check(failed.includes("ValueError: no devices today (line 6 of devices.py)") && failed.includes("about to fail"),
+      "Code that fails says what, in which file and on which line, with its log", failed.slice(0, 200));
+    await page.fill("#builder-source-file", source);
 
     // ---- 3. created, it runs in a session
     await page.click('.builder-view button:text-is("Create")');
@@ -110,7 +113,8 @@ const run = async () => {
     await page.click('.builder-list button:text-is("New step")');
     await page.waitForSelector("#step-start");
     await page.selectOption("#step-start", "code");
-    await page.waitForFunction(() => document.querySelector("#step-source")?.value.includes("def run(inputs, ctx):"));
+    await page.waitForFunction(() => document.querySelector("#step-source")?.value.includes("file: online.py"));
+    await page.waitForSelector('.step-view .workspace-tab[data-file="online.py"]');
     await page.fill("#step-id", STEP);
     await page.click('.step-view button:text-is("Check")');
     await page.waitForSelector('.builder-notice:text-is("No problems found.")');

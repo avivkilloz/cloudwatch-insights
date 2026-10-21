@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
-import { api, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowProblem } from "../api";
-import CodeEditor, { problemLines } from "../components/CodeEditor";
+import { api, BuildFiles, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowProblem } from "../api";
+import Workspace from "../components/Workspace";
 import { CardRow } from "../components/SessionCard";
 import { ParamFields } from "../components/WorkflowParamFields";
 import { Section, ViewHead } from "../components/settings/settingsLayout";
-import { DraftStatus, useBuildDraft } from "./buildDraft";
+import { DraftStatus, filesKey, useBuildDraft } from "./buildDraft";
 import { parse, read } from "./builderYaml";
 
 /*
@@ -25,6 +25,8 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   const [item, setItem] = useState<BuiltStepType | null>(null);
   const [newId, setNewId] = useState("");
   const [source, setSource] = useState("");
+  // The Python files beside the YAML (D136).
+  const [files, setFiles] = useState<BuildFiles>({});
   const [problems, setProblems] = useState<WorkflowProblem[] | null>(null);
   const [notice, setNotice] = useState<string | null>(said ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   const editable = isNew || !!item?.can_edit;
   // Kept as it's typed, with the Building chat (D125).
   const base = isNew ? schema?.starter ?? null : item?.can_edit ? item.source : null;
+  const baseFiles = isNew ? {} : item?.can_edit ? item.files ?? {} : null;
   const kept = useBuildDraft({
     kind: "step",
     targetId: id,
@@ -43,18 +46,31 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     base,
     source,
     newId,
-    restore: (text, typedId) => {
+    files,
+    baseFiles,
+    restore: (text, typedId, keptFiles) => {
       setSource(text);
+      setFiles(keptFiles);
       if (isNew) setNewId(typedId);
     },
   });
-  useOfferBuild("step", id, item?.label ?? (isNew ? "New step" : id ?? ""), editable, source, (text, summary) => {
-    setSource(text);
-    setProblems(null);
-    setError(null);
-    setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
-  }, kept.hooks);
-  const dirty = base !== null && (source !== base || (isNew && newId.trim() !== ""));
+  useOfferBuild(
+    "step",
+    id,
+    item?.label ?? (isNew ? "New step" : id ?? ""),
+    editable,
+    source,
+    (text, summary, proposed) => {
+      setSource(text);
+      if (proposed) setFiles(proposed);
+      setProblems(null);
+      setError(null);
+      setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
+    },
+    kept.hooks,
+    files,
+  );
+  const dirty = base !== null && (source !== base || filesKey(files) !== filesKey(baseFiles) || (isNew && newId.trim() !== ""));
 
   async function discard() {
     if (!confirm(isNew ? "Discard this draft?" : "Discard your changes and go back to what's saved?")) return;
@@ -62,6 +78,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     if (isNew) back();
     else if (base !== null) {
       setSource(base);
+      setFiles(baseFiles ?? {});
       setProblems(null);
       setNotice(null);
     }
@@ -84,7 +101,10 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
           if (cancelled) return;
           const found = list.find((t) => t.id === id) ?? null;
           setItem(found);
-          if (found) setSource(found.source);
+          if (found) {
+            setSource(found.source);
+            setFiles(found.files ?? {});
+          }
         },
         (e) => !cancelled && setError(readableError(e)),
       );
@@ -109,7 +129,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     setNotice(null);
     setError(null);
     try {
-      const out = await api.checkBuiltStep(source, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
+      const out = await api.checkBuiltStep(source, files, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
       if (out.ok) setNotice("No problems found.");
       return out.ok;
@@ -123,10 +143,11 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     setBusy(true);
     try {
       if (!(await check())) return;
-      const saved = isNew ? await api.createBuiltStep(newId.trim(), source) : await api.updateBuiltStep(id!, source);
-      await kept.finish(saved.id, saved.source);
+      const saved = isNew ? await api.createBuiltStep(newId.trim(), source, files) : await api.updateBuiltStep(id!, source, files);
+      await kept.finish(saved.id, saved.source, saved.files);
       setItem(saved);
       setSource(saved.source);
+      setFiles(saved.files ?? {});
       if (isNew) opened(saved.id, `Created ${saved.label} (${saved.id}): a workflow uses it as step: ${saved.id}.`);
       else setNotice("Saved.");
     } catch (e) {
@@ -154,7 +175,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     setTried(null);
     setBusy(true);
     try {
-      setTried(await api.tryBuiltStep(source, values, isNew ? undefined : id ?? undefined));
+      setTried(await api.tryBuiltStep(source, files, values, isNew ? undefined : id ?? undefined));
     } catch (e) {
       setError(readableError(e));
     } finally {
@@ -192,6 +213,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
                   if (e.target.value) {
                     const start = { chain: schema.chain_example, code: schema.code_example }[e.target.value as "chain" | "code"];
                     setSource(start ?? schema.starter);
+                    setFiles(e.target.value === "code" ? schema.code_example_files : {});
                   }
                   setProblems(null);
                 }}
@@ -203,28 +225,25 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               </select>
             </CardRow>
           )}
-          <CodeEditor
+          <Workspace
             id="step-source"
+            main="step.yaml"
             readOnly={!editable}
             minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
-            value={source}
-            marked={problemLines(problems)}
-            onChange={(text) => {
+            source={source}
+            onSource={(text) => {
               setSource(text);
               setProblems(null);
               setNotice(null);
             }}
+            files={files}
+            onFiles={(next) => {
+              setFiles(next);
+              setProblems(null);
+              setNotice(null);
+            }}
+            problems={problems}
           />
-          {problems && problems.length > 0 && (
-            <ul className="error-text workflow-problems builder-problems">
-              {problems.map((p, i) => (
-                <li key={i}>
-                  {p.line ? <strong>Line {p.line}: </strong> : null}
-                  {p.message}
-                </li>
-              ))}
-            </ul>
-          )}
           {notice && <p className="muted builder-notice">{notice}</p>}
           {error && <p className="error-text">{error}</p>}
           {editable && (

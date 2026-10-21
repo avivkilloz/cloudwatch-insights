@@ -173,11 +173,15 @@ export interface SavedSession<T = Record<string, unknown>> {
   state: T;
 }
 
+/** The Python files beside a pane's or a step's YAML (D136), name -> text. */
+export type BuildFiles = Record<string, string>;
+
 /** A pane type made in the platform (the Builder, §24): its manifest as written. */
 export interface BuiltPaneType {
   id: string;
   label: string;
   source: string;
+  files: BuildFiles;
   updated_at: string | null;
   updated_by: string | null;
   store_state: StoreState | null;
@@ -202,6 +206,7 @@ export interface BuildDraft {
   changed: boolean;
   /** Only when read whole (one draft, or an existing one's). */
   source?: string;
+  files?: BuildFiles;
   chat?: unknown[];
 }
 
@@ -209,12 +214,13 @@ export interface BuiltStepType {
   id: string;
   label: string;
   description: string | null;
-  /** "request" or "steps"; null when it doesn't load now. */
-  kind: "request" | "steps" | null;
+  /** "request", "steps" or "code"; null when it doesn't load now. */
+  kind: "request" | "steps" | "code" | null;
   /** A workflow's step using it waits for a person: it changes something. */
   external: boolean;
   inputs: WorkflowParam[];
   source: string;
+  files: BuildFiles;
   loads: boolean;
   can_edit: boolean;
   updated_at: string | null;
@@ -225,8 +231,9 @@ export interface BuiltStepType {
 export interface StepSchema {
   starter: string;
   chain_example: string;
-  /** A step that's Python, run in the runner (D134). */
+  /** A step that's Python, run in the runner (D134), and the file its YAML names (D136). */
   code_example: string;
+  code_example_files: BuildFiles;
   /** Whether code can run here (RUNNER_URL, D135). */
   runner: boolean;
   namespace: string | null;
@@ -243,8 +250,10 @@ export interface BuilderSchema {
   /** The bundled pane types, whose manifests are the examples to read. */
   examples: string[];
   starter: string;
-  /** An action that's Python, run in the runner (D134), and whether it can run here (D135). */
+  /** An action that's Python, run in the runner (D134), the file its YAML names (D136), and
+   * whether it can run here (D135). */
   code_example: string;
+  code_example_files: BuildFiles;
   runner: boolean;
   /** The store's namespace a new id is saved under, or null without a store (D78). */
   namespace: string | null;
@@ -595,6 +604,8 @@ export interface Workflow {
 export interface WorkflowProblem {
   line: number | null;
   message: string;
+  /** A file beside the definition it's in (D136); absent: the YAML. */
+  file?: string | null;
 }
 
 export interface StoreDraft {
@@ -719,7 +730,7 @@ export type AgentEvent =
       /** A place in the app a tool asked to show (`open_workflow`, a run it started). */
       show?: { href: string };
       /** A definition the agent put forward for the editor on screen (D107). */
-      propose?: { kind: string; source: string; summary?: string };
+      propose?: { kind: string; source: string; summary?: string; files?: BuildFiles };
     }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
@@ -762,7 +773,7 @@ async function agentChat(
     timezone: string;
     scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
-    build?: { kind: "pane" | "workflow" | "step"; id: string | null; title: string; source: string };
+    build?: { kind: "pane" | "workflow" | "step"; id: string | null; title: string; source: string; files?: BuildFiles };
   },
   onEvent: (event: AgentEvent) => void,
   signal: AbortSignal,
@@ -1042,14 +1053,15 @@ export const api = {
   listBuiltPanes: () => req<BuiltPaneType[]>("/builder/panes"),
   builderExample: (id: string) => req<{ id: string; source: string }>(`/builder/examples/${encodeURIComponent(id)}`),
   /** The draft as a pane type the preview draws, or its problems (D112). */
-  builderPreview: (source: string, id?: string, newId?: string) =>
+  builderPreview: (source: string, files: BuildFiles, id?: string, newId?: string) =>
     req<{ ok: boolean; errors: WorkflowProblem[]; manifest: PaneManifest | null }>("/builder/preview", {
       method: "POST",
-      body: JSON.stringify({ source, id, new_id: newId }),
+      body: JSON.stringify({ source, files, id, new_id: newId }),
     }),
   /** One of a draft's actions, run as its builder; nothing is stored. */
   builderPreviewAction: (
     source: string,
+    files: BuildFiles,
     id: string | undefined,
     action: string,
     inputs: Record<string, unknown>,
@@ -1058,45 +1070,52 @@ export const api = {
   ) =>
     req<Record<string, unknown>>(`/builder/preview/actions/${encodeURIComponent(action)}`, {
       method: "POST",
-      body: JSON.stringify({ source, id, inputs, cursor, timezone }),
+      body: JSON.stringify({ source, files, id, inputs, cursor, timezone }),
     }),
   /** `newId`: the Id typed for a new one, which the YAML's own id is held to. */
-  checkBuiltPane: (source: string, id?: string, newId?: string) =>
+  checkBuiltPane: (source: string, files: BuildFiles, id?: string, newId?: string) =>
     req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", {
       method: "POST",
-      body: JSON.stringify({ source, id, new_id: newId }),
+      body: JSON.stringify({ source, files, id, new_id: newId }),
     }),
-  createBuiltPane: (id: string, source: string) =>
-    req<BuiltPaneType>("/builder/panes", { method: "POST", body: JSON.stringify({ id, source }) }),
-  updateBuiltPane: (id: string, source: string) =>
-    req<BuiltPaneType>(`/builder/panes/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
+  createBuiltPane: (id: string, source: string, files: BuildFiles) =>
+    req<BuiltPaneType>("/builder/panes", { method: "POST", body: JSON.stringify({ id, source, files }) }),
+  updateBuiltPane: (id: string, source: string, files: BuildFiles) =>
+    req<BuiltPaneType>(`/builder/panes/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source, files }) }),
   deleteBuiltPane: (id: string) => req<void>(`/builder/panes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   stepSchema: () => req<StepSchema>("/builder/step-schema"),
   listBuiltSteps: () => req<BuiltStepType[]>("/builder/steps"),
-  checkBuiltStep: (source: string, id?: string, newId?: string) =>
+  checkBuiltStep: (source: string, files: BuildFiles, id?: string, newId?: string) =>
     req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/steps/check", {
       method: "POST",
-      body: JSON.stringify({ source, id, new_id: newId }),
+      body: JSON.stringify({ source, files, id, new_id: newId }),
     }),
   /** A draft request step sent once, as you -- for real (D122). */
-  tryBuiltStep: (source: string, inputs: Record<string, unknown>, id?: string) =>
+  tryBuiltStep: (source: string, files: BuildFiles, inputs: Record<string, unknown>, id?: string) =>
     req<{ status: number; response: unknown; rows?: Record<string, unknown>[]; logs?: string }>("/builder/steps/try", {
       method: "POST",
-      body: JSON.stringify({ source, inputs, id }),
+      body: JSON.stringify({ source, files, inputs, id }),
     }),
-  createBuiltStep: (id: string, source: string) =>
-    req<BuiltStepType>("/builder/steps", { method: "POST", body: JSON.stringify({ id, source }) }),
-  updateBuiltStep: (id: string, source: string) =>
-    req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
+  createBuiltStep: (id: string, source: string, files: BuildFiles) =>
+    req<BuiltStepType>("/builder/steps", { method: "POST", body: JSON.stringify({ id, source, files }) }),
+  updateBuiltStep: (id: string, source: string, files: BuildFiles) =>
+    req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source, files }) }),
   deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listBuildDrafts: (kind: BuildDraft["kind"]) => req<BuildDraft[]>(`/build-drafts?kind=${kind}`),
   /** This person's draft of an existing one, whole -- or none. */
   draftOf: async (kind: BuildDraft["kind"], target: string): Promise<BuildDraft | null> =>
     (await req<BuildDraft[]>(`/build-drafts?kind=${kind}&target=${encodeURIComponent(target)}`))[0] ?? null,
   getBuildDraft: (id: number) => req<BuildDraft>(`/build-drafts/${id}`),
-  createBuildDraft: (payload: { kind: BuildDraft["kind"]; target_id?: string | null; new_id?: string; source?: string; chat?: unknown[] }) =>
+  createBuildDraft: (payload: {
+    kind: BuildDraft["kind"];
+    target_id?: string | null;
+    new_id?: string;
+    source?: string;
+    files?: BuildFiles;
+    chat?: unknown[];
+  }) =>
     req<BuildDraft>("/build-drafts", { method: "POST", body: JSON.stringify(payload) }),
-  updateBuildDraft: (id: number, payload: { target_id?: string; new_id?: string; source?: string; chat?: unknown[] }) =>
+  updateBuildDraft: (id: number, payload: { target_id?: string; new_id?: string; source?: string; files?: BuildFiles; chat?: unknown[] }) =>
     req<BuildDraft>(`/build-drafts/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteBuildDraft: (id: number) => req<void>(`/build-drafts/${id}`, { method: "DELETE" }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),

@@ -17,6 +17,8 @@ router = APIRouter(prefix="/api/builder", tags=["builder"])
 
 class SourceIn(BaseModel):
     source: str
+    # The files beside it (D136), name -> text: what `code: {file}` runs.
+    files: dict[str, str] = {}
     id: Optional[str] = None
     # Check only: the Id typed for a new one, held to the YAML's own id as
     # Create will save it (in the store's namespace, D78).
@@ -27,6 +29,7 @@ class PaneTypeOut(BaseModel):
     id: str
     label: str
     source: str
+    files: dict[str, str] = {}
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     store_state: Optional[str] = None
@@ -54,6 +57,7 @@ def _out(db: Session, row: models.BuiltPaneType) -> dict[str, Any]:
         "id": row.id,
         "label": loaded.label if loaded else row.id,
         "source": row.source,
+        "files": row.files or {},
         "updated_at": row.updated_at,
         "updated_by": by.username if by else None,
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="pane", item_id=row.id)), (None,))[0],
@@ -116,7 +120,7 @@ def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = 
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
     try:
-        builder.preview(payload.source, type_id, user)
+        builder.preview(payload.source, type_id, user, payload.files)
     except builder.BuilderError as e:
         return {"ok": False, "errors": e.errors}
     return {"ok": True, "errors": []}
@@ -141,7 +145,7 @@ def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User 
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
     try:
-        manifest = builder.preview(payload.source, type_id, user)
+        manifest = builder.preview(payload.source, type_id, user, payload.files)
     except builder.BuilderError as e:
         return {"ok": False, "errors": e.errors}
     return {"ok": True, "manifest": manifest.model_dump(by_alias=True, exclude_none=True)}
@@ -149,6 +153,7 @@ def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User 
 
 class PreviewRun(BaseModel):
     source: str
+    files: dict[str, str] = {}
     id: Optional[str] = None
     inputs: dict[str, Any] = {}
     cursor: Any = None
@@ -160,19 +165,19 @@ def preview_action(action_id: str, payload: PreviewRun, db: Session = Depends(ge
                    user: models.User = Depends(_builder)) -> dict[str, Any]:
     """One of the draft's actions, run as its builder; nothing stored (D112)."""
     inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
-    return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor)
+    return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor, payload.files)
 
 
 @router.post("/panes", response_model=PaneTypeOut, status_code=201)
 def create_pane(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
-    row = _guard(lambda: builder.save(db, user, payload.id, payload.source))
+    row = _guard(lambda: builder.save(db, user, payload.id, payload.source, files=payload.files))
     return _out(db, row)
 
 
 @router.put("/panes/{type_id}", response_model=PaneTypeOut)
 def update_pane(type_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     row = _found(db, type_id)
-    _guard(lambda: builder.save(db, user, None, payload.source, row))
+    _guard(lambda: builder.save(db, user, None, payload.source, row, payload.files))
     return _out(db, row)
 
 
@@ -194,6 +199,7 @@ class StepTypeOut(BaseModel):
     external: bool = False
     inputs: list[dict[str, Any]] = []
     source: str
+    files: dict[str, str] = {}
     loads: bool = True
     can_edit: bool = False
     updated_at: Optional[datetime] = None
@@ -203,6 +209,7 @@ class StepTypeOut(BaseModel):
 
 class StepTryIn(BaseModel):
     source: str
+    files: dict[str, str] = {}
     id: Optional[str] = None
     inputs: dict[str, Any] = {}
 
@@ -211,6 +218,8 @@ class StepSchemaOut(BaseModel):
     starter: str
     chain_example: str
     code_example: str
+    # The files the code example's YAML names (D136).
+    code_example_files: dict[str, str] = {}
     # Whether code can run here (RUNNER_URL, D135).
     runner: bool = False
     namespace: Optional[str] = None
@@ -253,7 +262,8 @@ def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_buil
     from .. import runner_client
 
     return {"starter": step_types.STARTER, "chain_example": step_types.CHAIN_EXAMPLE,
-            "code_example": step_types.CODE_EXAMPLE, "runner": runner_client.configured(),
+            "code_example": step_types.CODE_EXAMPLE, "code_example_files": step_types.CODE_EXAMPLE_FILES,
+            "runner": runner_client.configured(),
             "namespace": store.namespace(db), "reference": step_types.reference(db, user)}
 
 
@@ -278,7 +288,7 @@ def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.Us
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
     try:
-        definition = step_types.parse(payload.source, type_id)
+        definition = step_types.parse(payload.source, type_id, payload.files)
     except step_types.StepTypeError as e:
         return {"ok": False, "errors": e.errors}
     errors = step_types.access_errors(db, definition, user, payload.source)
@@ -292,7 +302,7 @@ def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.Use
     workflow, where its steps run as they will."""
     from .. import step_types
 
-    definition = _step_guard(lambda: step_types.parse(payload.source, payload.id))
+    definition = _step_guard(lambda: step_types.parse(payload.source, payload.id, payload.files))
     if definition.steps is not None:
         raise HTTPException(status_code=400, detail="A chain of steps is tried in a workflow: save it, then use it in one.")
     try:
@@ -314,7 +324,7 @@ def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.Use
 def create_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import step_types
 
-    row = _step_guard(lambda: step_types.save(db, user, payload.id, payload.source))
+    row = _step_guard(lambda: step_types.save(db, user, payload.id, payload.source, files=payload.files))
     return _step_out(db, user, row)
 
 
@@ -323,7 +333,7 @@ def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db), 
     from .. import step_types
 
     row = _found_step(db, type_id)
-    _step_guard(lambda: step_types.save(db, user, None, payload.source, row))
+    _step_guard(lambda: step_types.save(db, user, None, payload.source, row, payload.files))
     return _step_out(db, user, row)
 
 

@@ -1558,16 +1558,17 @@ def _may_build(user: models.User, kind: str) -> None:
         raise InputError('kind is "pane", "workflow" or "step".')
 
 
-def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User) -> list[dict]:
+def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User,
+             files: Optional[dict[str, str]] = None) -> list[dict]:
     from .. import builder, step_types, workflows
 
     try:
         if kind == "pane":
             # A new one's id is the editor's Id field, not the draft's: not held to anything.
             # Held to the handlers the user's group may run, as the editor's Check is (D113).
-            builder.preview(source, definition_id, user)
+            builder.preview(source, definition_id, user, files)
         elif kind == "step":
-            return step_types.access_errors(db, step_types.parse(source, definition_id), user, source)
+            return step_types.access_errors(db, step_types.parse(source, definition_id, files), user, source)
         else:
             return workflows.access_errors(db, workflows.parse(source), user, source)
     except (builder.BuilderError, workflows.WorkflowError, step_types.StepTypeError) as e:
@@ -1600,7 +1601,7 @@ async def read_definition(kind: str, definition_id: str) -> dict:
         if kind == "pane":
             row = db.get(models.BuiltPaneType, definition_id)
             if row is not None:
-                return {"kind": kind, "id": definition_id, "source": row.source}
+                return {"kind": kind, "id": definition_id, "source": row.source, "files": row.files or {}}
             if definition_id in pane_manifest.bundled():
                 return {"kind": kind, "id": definition_id, "source": builder.example_source(definition_id)}
             raise InputError(f"There is no pane type {definition_id}; build_reference lists the examples.")
@@ -1608,7 +1609,7 @@ async def read_definition(kind: str, definition_id: str) -> dict:
             found = db.get(models.BuiltStepType, definition_id)
             if found is None:
                 raise InputError(f"There is no step type {definition_id}; build_reference lists them.")
-            return {"kind": kind, "id": definition_id, "source": found.source}
+            return {"kind": kind, "id": definition_id, "source": found.source, "files": found.files or {}}
         workflow = db.get(models.Workflow, definition_id)
         if workflow is None or not workflows.can_run(db, user, workflow):
             raise InputError(f"There is no workflow {definition_id} the user may read; build_reference lists them.")
@@ -1646,29 +1647,91 @@ def _source_of(db: Session, caller: Any, source: Optional[str]) -> str:
     return row.build_draft or ""
 
 
+def _files_of(db: Session, caller: Any) -> dict[str, str]:
+    """The files beside the working draft (D139): a pane's or a step's Python."""
+    row = _token_row(db, caller)
+    return dict(row.build_files or {}) if row is not None and row.build_kind else {}
+
+
 def _problems(errors: list[dict]) -> str:
-    return "; ".join(f"line {e['line']}: {e['message']}" if e.get("line") else e["message"] for e in errors)
+    from .. import builder
+
+    return "; ".join(f"{builder.where(e).lower()}{e['message']}" for e in errors)
 
 
-def _near(source: str, errors: list[dict], around: int = 2) -> str:
-    """The draft's lines near each problem, numbered: what to make the next edit's `find` from."""
-    lines = source.splitlines()
-    shown: set[int] = set()
-    for e in errors:
-        if e.get("line"):
-            shown.update(range(max(1, e["line"] - around), min(len(lines), e["line"] + around) + 1))
-    return "\n".join(f"{n}: {lines[n - 1]}" for n in sorted(shown))
+def _near(source: str, errors: list[dict], around: int = 2, files: Optional[dict[str, str]] = None) -> str:
+    """The draft's lines near each problem, numbered -- a file's under its
+    name: what to make the next change from."""
+    parts = []
+    for name, text in [(None, source), *sorted((files or {}).items())]:
+        lines = text.splitlines()
+        shown: set[int] = set()
+        for e in errors:
+            if e.get("line") and (e.get("file") or None) == name:
+                shown.update(range(max(1, e["line"] - around), min(len(lines), e["line"] + around) + 1))
+        if shown:
+            numbered = "\n".join(f"{n}: {lines[n - 1]}" for n in sorted(shown))
+            parts.append(f"{name}:\n{numbered}" if name else numbered)
+    return "\n\n".join(parts)
+
+
+def _change_files(files: dict[str, str], changes: list[dict]) -> dict[str, str]:
+    """The draft's files with these changes made (D139): {"op": "file", "name",
+    "text"} writes a file whole, `"remove": true` (or no text) removes it, and
+    {"op": "lines", "file", "from", "to", "text"} changes its lines as
+    read_draft numbers them, made bottom-up so each one's numbers hold."""
+    from .. import runner_client
+
+    out = dict(files)
+    by_lines: dict[str, list[dict]] = {}
+    for change in changes:
+        name = str(change.get("name") or change.get("file") or "")
+        problem = runner_client.file_name_problem(name)
+        if problem:
+            raise InputError(f"{problem} Nothing was changed.")
+        if change.get("op") == "file":
+            text = change.get("text")
+            if change.get("remove") or text is None or text == "":
+                if name not in out:
+                    raise InputError(f"There is no file {name} to remove. Nothing was changed.")
+                out.pop(name)
+            else:
+                out[name] = str(text) if str(text).endswith("\n") else f"{text}\n"
+        else:
+            by_lines.setdefault(name, []).append(change)
+    for name, edits in by_lines.items():
+        if name not in out:
+            raise InputError(f"There is no file {name}: write it whole with {{\"op\": \"file\"}}. Nothing was changed.")
+        lines = out[name].splitlines()
+        for edit in sorted(edits, key=lambda c: -int(c.get("from") or 0)):
+            start, end = int(edit.get("from") or 0), int(edit.get("to") or edit.get("from") or 0)
+            if not (1 <= start <= end <= len(lines) + 1):
+                raise InputError(f"{name} has {len(lines)} lines; lines {start}-{end} aren't in it. Nothing was changed.")
+            text = str(edit.get("text") or "")
+            lines[start - 1:end] = text.splitlines() if text else []
+        out[name] = "\n".join(lines) + "\n"
+    return out
+
+
+def _is_file_change(change: Any) -> bool:
+    return isinstance(change, dict) and (change.get("op") == "file" or
+                                         (change.get("op") == "lines" and bool(change.get("file"))))
 
 
 @mcp.tool()
-async def read_draft(start_line: int = 1, end_line: Optional[int] = None) -> dict:
+async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: Optional[str] = None) -> dict:
     """The working draft of the definition in the editor the user has open, with its line numbers -- what
-    edit_definition changes and propose_definition proposes. Only beside an editor."""
+    change_definition changes and propose_definition proposes. `file` reads one of the Python files beside it
+    instead (`files` lists them). Only beside an editor."""
     with _acting() as (db, user, caller):
         _may_build(user, _kind_of(caller, None))
-        lines = _source_of(db, caller, None).splitlines()
+        files = _files_of(db, caller)
+        if file is not None and file not in files:
+            raise InputError(f"There is no file {file} beside the draft; there are: {', '.join(sorted(files)) or 'none'}.")
+        lines = (files[file] if file is not None else _source_of(db, caller, None)).splitlines()
         end = min(len(lines), end_line or len(lines), start_line + 399)
-        return {"lines": len(lines), "text": "\n".join(f"{n}: {lines[n - 1]}" for n in range(max(1, start_line), end + 1))}
+        return {"lines": len(lines), "text": "\n".join(f"{n}: {lines[n - 1]}" for n in range(max(1, start_line), end + 1)),
+                "files": {name: len(text.splitlines()) for name, text in sorted(files.items())}}
 
 
 @mcp.tool()
@@ -1692,10 +1755,11 @@ async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = Non
         row = _token_row(db, caller)
         row.build_draft = source
         db.commit()
-        errors = _checked(db, kind, source, caller.build_id, user)
+        files = _files_of(db, caller)
+        errors = _checked(db, kind, source, caller.build_id, user, files)
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "lines": len(source.splitlines())}
         if errors:
-            out["near"] = _near(source, errors)
+            out["near"] = _near(source, errors, files=files)
         return out
 
 
@@ -1707,28 +1771,40 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
     its index): "outputs/jobs/render", "actions/list/request/rows", "layout/Results/items". `set` replaces or adds
     a key; `add` appends an item to a list (made if missing), before `before` if given; `remove` drops a key or
     item. Or by line: {"op": "lines", "from": 72, "to": 74, "text": "new lines, empty to delete"}, the draft's lines
-    as read_draft numbers them (several are made bottom-up, so each one's numbers hold). All or none are applied,
-    in order, then the draft is checked: problems come back with their lines. Add
-    everything a part needs in one call -- its action, its output and its card -- so nothing names what isn't
-    there yet. Nothing reaches the editor until propose_definition."""
+    as read_draft numbers them (several are made bottom-up, so each one's numbers hold). Code is a Python file
+    beside the YAML, never Python in a YAML string: {"op": "file", "name": "health.py", "text": "the whole file"}
+    writes one (`"remove": true` removes it), {"op": "lines", "file": "health.py", "from", "to", "text"} changes
+    its lines, and the YAML names it: `code: {file: health.py}`. All or none are applied, in order, then the draft
+    is checked: problems come back with their file and line. Add everything a part needs in one call -- its
+    action, its output, its card and its file -- so nothing names what isn't there yet. Nothing reaches the
+    editor until propose_definition."""
     from .. import yaml_edit
 
     with _acting() as (db, user, caller):
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         source = _source_of(db, caller, None)
+        files = _files_of(db, caller)
+        changes = list(changes or [])
+        on_files = [c for c in changes if _is_file_change(c)]
+        if on_files and kind == "workflow":
+            raise InputError("A workflow has no files of its own; its steps do. Nothing was changed.")
+        on_yaml = [c for c in changes if not _is_file_change(c)]
         try:
-            source = yaml_edit.apply_all(source, changes)
+            files = _change_files(files, on_files)
+            if on_yaml or not on_files:
+                source = yaml_edit.apply_all(source, on_yaml)
         except yaml_edit.EditError as e:
             raise InputError(f"{e} Nothing was changed.") from None
         row = _token_row(db, caller)
-        row.build_draft = source
+        row.build_draft, row.build_files = source, files
         db.commit()
-        errors = _checked(db, kind, source, caller.build_id, user)
+        errors = _checked(db, kind, source, caller.build_id, user, files)
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "changed": len(changes),
-                               "lines": len(source.splitlines())}
+                               "lines": len(source.splitlines()),
+                               "files": {name: len(text.splitlines()) for name, text in sorted(files.items())}}
         if errors:
-            out["near"] = _near(source, errors)
+            out["near"] = _near(source, errors, files=files)
         return out
 
 
@@ -1757,10 +1833,11 @@ async def check_definition(kind: Optional[str] = None, source: Optional[str] = N
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
-        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user)
+        files = _files_of(db, caller)
+        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user, files)
         out: dict[str, Any] = {"ok": not errors, "errors": errors}
         if errors:
-            out["near"] = _near(text, errors)
+            out["near"] = _near(text, errors, files=files)
         return out
 
 
@@ -1776,20 +1853,21 @@ async def propose_definition(summary: str, kind: Optional[str] = None, source: O
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
-        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user)
+        files = _files_of(db, caller)
+        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user, files)
         if errors and even_with_problems:
             # The Builder's loop (D116), when its rounds ran out: the user's
             # editor gets the work so far -- its Check shows what's left, and
             # "carry on" next turn starts from it rather than from scratch.
             return {"ok": False, "problems": _problems(errors), "note": "It's in the editor with these problems.",
-                    "propose": {"kind": kind, "source": text, "summary": summary[:300]}}
+                    "propose": {"kind": kind, "source": text, "files": files, "summary": summary[:300]}}
         if errors:
             # A failure, not an ordinary answer: shown as a refused step, and
             # read as one -- "Put a draft in the editor ✓" over a refusal let a
             # model believe its draft had landed.
             raise InputError(f"Nothing was put in the editor; fix these and propose again: {_problems(errors)}")
         return {"ok": True, "note": "It's in the editor, unsaved: the user reviews it and saves.",
-                "propose": {"kind": kind, "source": text, "summary": summary[:300]}}
+                "propose": {"kind": kind, "source": text, "files": files, "summary": summary[:300]}}
 
 
 @mcp.tool()
@@ -1810,10 +1888,12 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
         try:
             result = await asyncio.to_thread(
                 builder.run_preview, db, user, text, definition_id or getattr(caller, "build_id", None), action,
-                dict(inputs or {}))
+                dict(inputs or {}), None, _files_of(db, caller))
         except HTTPException as e:
             raise InputError(str(e.detail)) from None
         out: dict[str, Any] = {}
+        if result.get("__logs"):
+            out["code's log"] = str(result["__logs"])[-2000:]
         for key, value in result.items():
             if key.startswith("__"):
                 continue

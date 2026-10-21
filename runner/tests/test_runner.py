@@ -202,3 +202,44 @@ def test_health_says_when_the_runner_cant_run_a_job(monkeypatch):
     monkeypatch.setitem(main._problem, "problem", problem)
     resp = client.get("/health")
     assert resp.status_code == 503 and resp.json()["status"] == "broken" and "PermissionError" in resp.json()["problem"]
+
+
+# ---------------------------------------------------------------- code in files (D138)
+
+HEALTH = "from helpers import double\n\ndef run(inputs, ctx):\n    return {'n': double(inputs['n'])}\n\n" \
+         "def broken(inputs, ctx):\n    return helper_that_fails()\n\n" \
+         "def helper_that_fails():\n    from helpers import fail\n    return fail()\n"
+HELPERS = "def double(n):\n    return n * 2\n\n\ndef fail():\n    raise ValueError('no data')\n"
+
+
+def test_code_in_files_imports_its_neighbours_and_says_which_file_failed():
+    files = {"health.py": HEALTH, "helpers.py": HELPERS}
+    out = job("", {"n": 21}, files=files, entry={"file": "health.py"})
+    assert out["ok"] and out["outputs"] == {"n": 42}, out
+    failed = job("", {}, files=files, entry={"file": "health.py", "function": "broken"})
+    assert not failed["ok"] and failed["error"] == "ValueError: no data"
+    assert (failed["file"], failed["line"]) == ("helpers.py", 6), failed
+    missing = job("", {}, files=files, entry={"file": "health.py", "function": "nope"})
+    assert "health.py defines no nope(inputs, ctx)" in missing["error"]
+    syntax = job("", {}, files={"bad.py": "def run(inputs, ctx):\n    return (\n"}, entry={"file": "bad.py"})
+    assert not syntax["ok"] and syntax["file"] == "bad.py" and syntax["line"], syntax
+
+
+def test_a_jobs_files_are_read_only_to_it_and_never_stand_in_for_the_standard_library():
+    files = {"health.py": "import json, os\ndef run(inputs, ctx):\n"
+                          "    try:\n        open(os.path.join(os.path.dirname(__file__), 'helpers.py'), 'w').write('x')\n"
+                          "        wrote = True\n    except OSError:\n        wrote = False\n"
+                          "    return {'wrote': wrote, 'json': json.dumps([1])}\n",
+             "helpers.py": "x = 1\n", "json.py": "raise SystemExit('shadowed')\n"}
+    out = job("", {}, files=files, entry={"file": "health.py"})
+    assert out["ok"], out
+    assert out["outputs"]["json"] == "[1]"
+    if ROOT:
+        assert out["outputs"]["wrote"] is False
+
+
+def test_a_job_with_files_that_arent_modules_is_refused():
+    resp = client.post("/jobs", json={"files": {"../x.py": "x"}, "entry": {"file": "../x.py"}}, headers=AUTH)
+    assert resp.status_code == 400 and "isn't a module's file name" in resp.text
+    resp = client.post("/jobs", json={"files": {"a.py": "x"}, "entry": {"file": "b.py"}}, headers=AUTH)
+    assert resp.status_code == 400 and "isn't one of its files" in resp.text

@@ -260,7 +260,8 @@ def test_a_build_chat_carries_the_editor_and_is_its_editors_only(monkeypatch):
     received.clear()
     build = {"kind": "pane", "id": None, "title": "", "source": "label: Draft\n"}
     assert client.post("/api/agent/chat", json={**ASK, "scope": "build", "build": build}).status_code == 200
-    assert received[0]["body"]["focus"] == {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Draft\n"}
+    assert received[0]["body"]["focus"] == {"kind": "build", "what": "pane", "title": "New pane type", "source": "label: Draft\n",
+                                            "files": {}}
     assert received[0]["scope_id"] is None
     assert client.post("/api/agent/chat", json={**ASK, "scope": "build"}).status_code == 400
 

@@ -351,6 +351,9 @@ Things worth knowing:
   enforced only where the cluster's network plugin enforces NetworkPolicy;
   `runner.networkPolicy.dnsLabels` selects your DNS pods if they aren't
   labelled `k8s-app: kube-dns`.
+- **It checks itself at start**: it runs one trivial job, and if that fails
+  -- a capability missing, `/tmp` not writable -- `/health` answers 503 with
+  the reason, so its pod doesn't become ready and `kubectl describe` says why.
 - `runner.concurrency` jobs at once per pod (4), each with `runner.jobMemoryMb`
   (512) and at most 120 s; a job waiting more than 10 s for a slot is turned
   away ("busy"), so add replicas for more. Each job is a row in
@@ -533,6 +536,12 @@ backend:
 - **Edits in the repo** are never overwritten: the next change of that item
   here is reported as a conflict in Settings → Store, where both versions are
   shown and an admin keeps one. (Pulling repo edits in by themselves is later.)
+- **Panes, steps and workflows are folders** (`panes/<name>/pane.yaml` beside
+  its Python files, `steps/<name>/step.yaml`, `workflows/<name>/workflow.yaml`).
+  A repo written before folders still restores; on the first start after the
+  upgrade, everything in a file of its own is moved into its folder in one
+  commit ("Move panes, steps and workflows into folders of their own"). An
+  edit to any file in a folder is a conflict the same way a file's was.
 - **Ids.** New types are named `<namespace>:<name>`; built-ins and types made
   before the store keep their ids. The namespace can't change once something is
   named in it.

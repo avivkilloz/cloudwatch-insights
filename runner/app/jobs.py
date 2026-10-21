@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import resource
 import shutil
 import signal
@@ -51,6 +52,8 @@ class Outcome:
     outputs: Any = None
     error: Optional[str] = None
     line: Optional[int] = None
+    # The file it failed in, for code kept in files (D138); None: inline code.
+    file: Optional[str] = None
     logs: str = ""
     duration_ms: int = 0
     calls: int = 0
@@ -94,8 +97,34 @@ def _tail(path: Path, limit: int) -> str:
     return ("…" + text) if size > limit else text
 
 
-def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int] = None) -> Outcome:
+# A job's files are modules: plain names, so `import helpers` finds helpers.py.
+FILE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.py$")
+MAX_FILES = 50
+
+
+class BadJob(ValueError):
+    """A job the runner won't start, said why."""
+
+
+def _files(files: Optional[dict], entry: Optional[dict]) -> Optional[tuple[dict, str, str]]:
+    if not files:
+        return None
+    if len(files) > MAX_FILES:
+        raise BadJob(f"A job brings at most {MAX_FILES} files.")
+    for name in files:
+        if not FILE_RE.match(name):
+            raise BadJob(f"{name} isn't a module's file name (letters, digits and _, then .py).")
+    entry = entry or {}
+    file = entry.get("file") or ""
+    if file not in files:
+        raise BadJob(f"The job's entry {file or '(none)'} isn't one of its files.")
+    return files, file[:-3], entry.get("function") or "run"
+
+
+def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int] = None,
+        files: Optional[dict[str, str]] = None, entry: Optional[dict] = None) -> Outcome:
     timeout = max(1, min(int(timeout or DEFAULT_TIMEOUT), MAX_TIMEOUT))
+    program = _files(files, entry)
     try:
         slot = _slots.get(timeout=WAIT_FOR_SLOT)
     except queue.Empty:
@@ -117,7 +146,18 @@ def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int]
         os.chmod(home, 0o700)
         if uid is not None:
             os.chown(home, uid, uid)
-        job = json.dumps({"code": code, "inputs": inputs, "callback": callback, "timeout": timeout}, default=str)
+        job: dict[str, Any] = {"code": code, "inputs": inputs, "callback": callback, "timeout": timeout}
+        if program is not None:
+            # The job's files, the runner's and read-only to it: it reads and
+            # imports them, and writes only in its home.
+            src = work / "src"
+            src.mkdir()
+            for name, text in program[0].items():
+                (src / name).write_text(text)
+                os.chmod(src / name, 0o644)
+            os.chmod(src, 0o755)
+            job.update(src=str(src), module=program[1], function=program[2])
+        job_text = json.dumps(job, default=str)
         env = {"HOME": str(home), "TMPDIR": str(home), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
         with open(out_path, "wb") as out, open(log_path, "wb") as log:
             proc = subprocess.Popen(
@@ -126,7 +166,7 @@ def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int]
                 preexec_fn=_limits(timeout, uid, home), start_new_session=True, close_fds=True,
             )
             try:
-                proc.communicate(job.encode(), timeout=timeout + 1)
+                proc.communicate(job_text.encode(), timeout=timeout + 1)
                 timed_out = False
             except subprocess.TimeoutExpired:
                 timed_out = True
@@ -151,7 +191,7 @@ def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int]
                            duration_ms=duration, isolated=root)
         answer = json.loads(text)
         return Outcome(bool(answer.get("ok")), outputs=answer.get("outputs"), error=answer.get("error"),
-                       line=answer.get("line"), logs=logs, duration_ms=duration, calls=int(answer.get("calls") or 0),
+                       line=answer.get("line"), file=answer.get("file"), logs=logs, duration_ms=duration, calls=int(answer.get("calls") or 0),
                        isolated=root)
     finally:
         if uid is not None:

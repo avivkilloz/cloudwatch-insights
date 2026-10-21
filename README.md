@@ -959,8 +959,14 @@ fill in -- for real, so one that changes something asks first. Workflows use
 it as `step: <its id>`.
 
 **Code**: where a request can't say it -- reshape a reply, join two APIs,
-work something out -- an action or a step can be Python (`code: |`, defining
-`run(inputs, ctx)`; Start from "An action that's code" or "Code"). It runs in
+work something out -- an action or a step can be Python. It's a file beside
+the YAML: the editor has a tab per file (`pane.yaml`, then your `.py` files;
+**+ File** adds one), the action names it (`code: {file: health.py}`, with
+`function:` when it isn't `run`), and files import each other (`from helpers
+import window`). Start from "An action that's code" or "Code" for one ready
+to try. Check points at the file and line of a mistake, and a run that fails
+names them too. The Building tab's agent writes code the same way, as a file.
+It runs in
 the platform's runner, never in the backend, and reaches out only through
 `ctx.http(connection, path)` and `ctx.aws(connection, service, operation)`,
 which the platform makes as whoever runs it -- their identity, the same
@@ -1003,7 +1009,7 @@ everyone looking, and shows only while there's something to clear -- ask the
 agent for one and that's what it adds.
 
 **Drafts**: whatever you build is kept as you type -- a pane type, a step
-type or a workflow, its Id and your Building chat about it. Leave the page,
+type or a workflow, its Id, its files and your Building chat about it. Leave the page,
 or close the tab, and it's waiting: a new one is listed as a **Draft** (only
 you see it), a saved one you've changed has a Draft tag, and opening either
 puts back the text and the chat as you left them. **Create** or **Save**

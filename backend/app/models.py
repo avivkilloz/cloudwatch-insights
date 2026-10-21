@@ -491,6 +491,8 @@ class AgentToken(Base):
     build_kind = Column(String(16), nullable=True)
     build_id = Column(String(200), nullable=True)
     build_draft = Column(Text, nullable=True)
+    # The files beside the draft (D139), name -> text, changed with it.
+    build_files = Column(JSON, nullable=True)
 
 
 class CredentialType(Base):
@@ -770,6 +772,8 @@ class BuiltPaneType(Base):
 
     id = Column(String(64), primary_key=True)
     source = Column(Text, nullable=False)
+    # Its Python files beside the YAML (D136), name -> text; None is none.
+    files = Column(JSON, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -787,6 +791,8 @@ class BuiltStepType(Base):
 
     id = Column(String(64), primary_key=True)
     source = Column(Text, nullable=False)
+    # Its Python files beside the YAML (D136), name -> text; None is none.
+    files = Column(JSON, nullable=True)
     owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
@@ -938,6 +944,8 @@ class BuildDraft(Base):
     target_id = Column(String(64), nullable=True)
     new_id = Column(String(64), nullable=False, default="", server_default="")
     source = Column(Text, nullable=False, default="")
+    # The files beside the text (D136), as they were left; None is none.
+    files = Column(JSON, nullable=True)
     chat = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)

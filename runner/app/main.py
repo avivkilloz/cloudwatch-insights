@@ -57,8 +57,18 @@ class Callback(BaseModel):
     token: str
 
 
+class Entry(BaseModel):
+    file: str
+    function: str = "run"
+
+
 class JobIn(BaseModel):
-    code: str = Field(max_length=MAX_CODE)
+    # Inline code, or -- code kept in files (D138) -- the files and which
+    # function of which to call. Both may come: a runner from before files
+    # runs `code` (the entry file's text).
+    code: str = Field(default="", max_length=MAX_CODE)
+    files: Optional[dict[str, str]] = None
+    entry: Optional[Entry] = None
     inputs: Any = None
     callback: Optional[Callback] = None
     timeout: Optional[int] = None
@@ -87,11 +97,16 @@ async def run_job(job: JobIn, authorization: Optional[str] = Header(default=None
     given = (authorization or "").removeprefix("Bearer ").strip()
     if not hmac.compare_digest(given.encode(), TOKEN.encode()):
         raise HTTPException(status_code=401, detail="That isn't the runner's token.")
+    if sum(len(t) for t in (job.files or {}).values()) > MAX_CODE * 5:
+        raise HTTPException(status_code=413, detail="A job's files are at most 1 MB together.")
     try:
         outcome = await run_in_threadpool(
-            jobs.run, job.code, job.inputs, job.callback.model_dump() if job.callback else None, job.timeout)
+            jobs.run, job.code, job.inputs, job.callback.model_dump() if job.callback else None, job.timeout,
+            job.files, job.entry.model_dump() if job.entry else None)
     except jobs.Busy as e:
         raise HTTPException(status_code=503, detail=str(e)) from None
+    except jobs.BadJob as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
     except Exception as e:  # noqa: BLE001 -- said to the backend, which shows it to the builder
         log.exception("A job couldn't be run")
         raise HTTPException(status_code=500, detail=f"The runner couldn't run the job ({type(e).__name__}: {e}).") \

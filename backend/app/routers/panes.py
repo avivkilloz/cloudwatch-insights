@@ -137,7 +137,7 @@ def run_code(
 
     purpose = f"{'preview' if draft else 'pane'}:{manifest.id}/{action.id}"
     try:
-        result = runner_client.run(db, user, action.code or "", inputs, purpose)
+        result = runner_client.run(db, user, action.code or "", inputs, purpose, files=manifest._files)
     except runner_client.CodeError as e:
         detail = str(e)
         if draft and e.logs:

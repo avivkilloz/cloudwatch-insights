@@ -4917,7 +4917,8 @@ textarea.code-editor-text:focus {
   display: flex;
   flex-direction: column;
 }
-.builder-columns > .session-card-section > .code-editor {
+.builder-columns > .session-card-section > .code-editor,
+.builder-columns > .session-card-section > .workspace > .code-editor {
   min-height: 300px;
 }
 
@@ -4965,3 +4966,83 @@ textarea.code-editor-text:focus {
 .builder-no-runner {
   color: var(--error);
 }
+
+/* A pane's or a step's files over the one editor (D136): the YAML, then its
+   Python, a tab each; the workspace takes the card's spare height as the
+   editor did. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px;
+  margin-bottom: -1px;
+}
+.workspace-tab {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+}
+.workspace-tab.active {
+  background: var(--panel-alt);
+}
+.workspace-tab-name {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-tab.active .workspace-tab-name {
+  color: var(--text);
+}
+.workspace-tab-close,
+.workspace-tab-close.secondary {
+  margin-right: 4px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+.workspace-tab-close:hover {
+  color: var(--text);
+}
+.workspace-tab-bad {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--error);
+}
+.workspace-tabs .workspace-add {
+  margin: 0 0 4px 6px;
+}
+.workspace-naming {
+  display: inline-flex;
+  gap: 6px;
+  margin: 0 0 4px 6px;
+}
+.workspace-naming input {
+  width: 160px;
+}
+.workspace .code-editor {
+  border-top-left-radius: 0;
+}
+.workspace-name-error {
+  margin: 4px 0;
+}
+.workspace-problem-file {
+  font-weight: 600;
+  margin-right: 2px;
+}
+

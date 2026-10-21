@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { BuildFiles } from "../api";
 
 export type BuildKind = "pane" | "workflow" | "step";
 
@@ -21,7 +22,7 @@ export interface BuildDraftHooks {
   /** The chat the draft held when it was opened (null: none yet, or not read yet). */
   turns: unknown[] | null;
   saveTurns: (turns: unknown[]) => void;
-  keep: (source: string) => void;
+  keep: (source: string, files?: BuildFiles) => void;
 }
 
 export interface BuildFocus {
@@ -32,7 +33,9 @@ export interface BuildFocus {
   id: string | null;
   title: string;
   source: () => string;
-  apply: (source: string, summary: string) => void;
+  /** The Python files beside it (D136): a pane's or a step's; none for a workflow. */
+  files: () => BuildFiles;
+  apply: (source: string, summary: string, files?: BuildFiles) => void;
   draft?: BuildDraftHooks;
 }
 
@@ -62,11 +65,14 @@ export function useOfferBuild(
   title: string,
   editable: boolean,
   source: string,
-  apply: (source: string, summary: string) => void,
+  apply: (source: string, summary: string, files?: BuildFiles) => void,
   draft?: BuildDraftHooks,
+  files?: BuildFiles,
 ) {
   const sourceRef = useRef(source);
   sourceRef.current = source;
+  const filesRef = useRef<BuildFiles>(files ?? {});
+  filesRef.current = files ?? {};
   const applyRef = useRef(apply);
   applyRef.current = apply;
   useEffect(() => {
@@ -77,7 +83,8 @@ export function useOfferBuild(
       id,
       title,
       source: () => sourceRef.current,
-      apply: (text, summary) => applyRef.current(text, summary),
+      files: () => filesRef.current,
+      apply: (text, summary, proposed) => applyRef.current(text, summary, proposed),
       draft,
     };
     focus = mine;

@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-21, Phase 6-1 (code in the runner; PLATFORM_PLAN.md §25, D130–D135) and the Builder's lists renamed Panes / Workflows / Steps._
+_Last updated: 2026-10-21, Phase 6-1b (code in files, a folder per pane/step/workflow in the store; PLATFORM_PLAN.md §25, D136–D140)._
 
 ## Platform plan
 
@@ -1298,7 +1298,35 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: Panes / Workflows / Steps, and Phase 6-1 -- code in the runner
+**This PR: the runner in a cluster, and Phase 6-1b -- code in files
+(PLATFORM_PLAN.md §25, D136–D140).** Three reports after #139.
+- In a cluster every job failed ("The runner refused the job: Internal Server
+  Error"): with the chart's four capabilities, root couldn't chmod a home it
+  had given to a slot's uid, nor enter it, nor list it to clean it. Fixed in
+  that order; a test runs a job under `setpriv` with exactly those
+  capabilities; the runner checks itself at start (`/health` 503 with why).
+- A built pane's toolbar right under a row of inputs (Days over Analyze) sat
+  flush against it: now set off like one under a single input.
+- "Python in YAML isn't comfortable": a pane or a step is now a folder of
+  files -- its YAML and its Python, a tab each in the editor (+ File), the
+  action naming a file (`code: {file: health.py}`), files importing each
+  other in the runner, Check and failures by file and line, drafts keeping
+  the files, the Building agent writing files (and a multi-line string in
+  YAML as a `|` block, never the quoted line it wrote). The store keeps a
+  folder per pane, step and workflow (`panes/<name>/pane.yaml` + `.py`),
+  versioned by its git tree; an old flat repo restores and is moved once.
+- Tests:
+  - runner 17 (files, imports, read-only, names; the chart's capabilities;
+    the self-check);
+  - backend `test_code.py` (+5: files, Check by file, a step's file, drafts),
+    `test_store_folders.py` (3: a folder and its tree, a conflict in one
+    file, the move from flat files), `test_builder_loop.py` (+1: the agent's
+    file ops);
+  - agent: a loop turn writing a file and fixing it by its line (58 in all);
+  - browser `smoke104` (11), failing against the old frontend; smoke103
+    updated.
+
+**#139 merged. Panes / Workflows / Steps, and Phase 6-1 -- code in the runner
 (PLATFORM_PLAN.md §25, D130–D135).** The user's ask after #138: rename the
 Builder's lists and do the next step.
 - The Builder's lists are **Panes**, **Workflows** and **Steps** ("New

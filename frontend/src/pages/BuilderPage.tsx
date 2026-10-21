@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
-import { api, BuildDraft, BuilderSchema, BuiltPaneType, BuiltStepType, readableError, Workflow, WorkflowProblem } from "../api";
+import {
+  api,
+  BuildDraft,
+  BuilderSchema,
+  BuildFiles,
+  BuiltPaneType,
+  BuiltStepType,
+  readableError,
+  Workflow,
+  WorkflowProblem,
+} from "../api";
 import { useAuth } from "../AuthContext";
-import CodeEditor, { problemLines } from "../components/CodeEditor";
+import Workspace from "../components/Workspace";
 import { CardRow } from "../components/SessionCard";
 import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
@@ -14,7 +24,7 @@ import { useCatalogue } from "../sessions/catalogue";
 import { SessionType, useSessions } from "../sessions/SessionContext";
 import { registerManifestPanes } from "../sessions/paneTypes";
 import { useStartSession } from "../sessions/start";
-import { DraftStatus, draftTime, useBuildDraft, useDraftList } from "./buildDraft";
+import { DraftStatus, draftTime, filesKey, useBuildDraft, useDraftList } from "./buildDraft";
 import StepEditor from "./StepEditor";
 import { WorkflowEditor } from "./WorkflowsPage";
 import { takeBuilderAsk, useBuilderAskWaiting } from "../workflowFocus";
@@ -214,7 +224,7 @@ function StepList({ open }: { open: (s: Screen) => void }) {
                 </td>
                 <td className="muted">{t.id}</td>
                 <td className="muted">
-                  {t.kind === "steps" ? "A chain of steps" : "A request"}
+                  {t.kind === "steps" ? "A chain of steps" : t.kind === "code" ? "Code" : "A request"}
                   {t.external ? " · changes something" : ""}
                 </td>
                 <td className="muted">
@@ -325,6 +335,8 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   const [item, setItem] = useState<BuiltPaneType | null>(null);
   const [newId, setNewId] = useState("");
   const [source, setSource] = useState("");
+  // The Python files beside the YAML (D136).
+  const [files, setFiles] = useState<BuildFiles>({});
   const [problems, setProblems] = useState<WorkflowProblem[] | null>(null);
   const [notice, setNotice] = useState<string | null>(said ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -334,9 +346,10 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   // The draft as the preview draws it: the text it was drawn from (its
   // actions are run with that, not with what's been typed since) and a
   // counter that remounts the pane, whose inputs may have changed.
-  const [preview, setPreview] = useState<{ manifest: PaneManifest; source: string; n: number } | null>(null);
+  const [preview, setPreview] = useState<{ manifest: PaneManifest; source: string; files: BuildFiles; n: number } | null>(null);
   // Kept as it's typed, with the Building chat (D125).
   const base = isNew ? schema?.starter ?? null : item?.source ?? null;
+  const baseFiles = isNew ? {} : item?.files ?? null;
   const kept = useBuildDraft({
     kind: "pane",
     targetId: id,
@@ -344,19 +357,32 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     base,
     source,
     newId,
-    restore: (text, typedId) => {
+    files,
+    baseFiles,
+    restore: (text, typedId, keptFiles) => {
       setSource(text);
+      setFiles(keptFiles);
       if (isNew) setNewId(typedId);
     },
   });
   const title = item?.label ?? (isNew ? "New pane" : id ?? "");
-  useOfferBuild("pane", id, title, true, source, (text, summary) => {
-    setSource(text);
-    setProblems(null);
-    setError(null);
-    setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
-  }, kept.hooks);
-  const dirty = base !== null && (source !== base || (isNew && newId.trim() !== ""));
+  useOfferBuild(
+    "pane",
+    id,
+    title,
+    true,
+    source,
+    (text, summary, proposed) => {
+      setSource(text);
+      if (proposed) setFiles(proposed);
+      setProblems(null);
+      setError(null);
+      setNotice(`The agent's draft is in the editor, not saved yet${summary ? `: ${summary}` : "."} Check it, then ${isNew ? "Create" : "Save"}.`);
+    },
+    kept.hooks,
+    files,
+  );
+  const dirty = base !== null && (source !== base || filesKey(files) !== filesKey(baseFiles) || (isNew && newId.trim() !== ""));
 
   async function discard() {
     if (!confirm(isNew ? "Discard this draft?" : "Discard your changes and go back to what's saved?")) return;
@@ -364,6 +390,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     if (isNew) open({ kind: "list" });
     else if (base !== null) {
       setSource(base);
+      setFiles(baseFiles ?? {});
       setProblems(null);
       setNotice(null);
     }
@@ -387,7 +414,10 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           if (cancelled) return;
           const found = list.find((t) => t.id === id) ?? null;
           setItem(found);
-          if (found) setSource(found.source);
+          if (found) {
+            setSource(found.source);
+            setFiles(found.files ?? {});
+          }
         },
         (e) => !cancelled && setError(readableError(e)),
       );
@@ -401,7 +431,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     setNotice(null);
     setError(null);
     try {
-      const out = await api.checkBuiltPane(source, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
+      const out = await api.checkBuiltPane(source, files, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
       if (out.ok) setNotice("No problems found.");
       return out.ok;
@@ -415,11 +445,11 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     setNotice(null);
     setError(null);
     try {
-      const out = await api.builderPreview(source, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
+      const out = await api.builderPreview(source, files, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
       if (out.ok && out.manifest) {
         const drawn = out.manifest;
-        setPreview((prev) => ({ manifest: drawn, source, n: (prev?.n ?? 0) + 1 }));
+        setPreview((prev) => ({ manifest: drawn, source, files, n: (prev?.n ?? 0) + 1 }));
       }
     } catch (e) {
       setError(readableError(e));
@@ -434,6 +464,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     async (_type, action, inputs, cursor, extra) => {
       const result = await api.builderPreviewAction(
         preview?.source ?? "",
+        preview?.files ?? {},
         isNew ? undefined : id ?? undefined,
         action,
         inputs,
@@ -443,18 +474,19 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
       if (typeof result.__logs === "string") setCodeLog(result.__logs);
       return result;
     },
-    [preview?.source, isNew, id],
+    [preview?.source, preview?.files, isNew, id],
   );
 
   async function save() {
     setBusy(true);
     try {
       if (!(await check())) return;
-      const saved = isNew ? await api.createBuiltPane(newId.trim(), source) : await api.updateBuiltPane(id!, source);
-      await kept.finish(saved.id, saved.source);
+      const saved = isNew ? await api.createBuiltPane(newId.trim(), source, files) : await api.updateBuiltPane(id!, source, files);
+      await kept.finish(saved.id, saved.source, saved.files);
       await reload();
       setItem(saved);
       setSource(saved.source);
+      setFiles(saved.files ?? {});
       if (isNew) open({ kind: "edit", id: saved.id, said: `Created ${saved.label} (${saved.id}): your group can use it now.` });
       else setNotice("Saved.");
     } catch (e) {
@@ -478,7 +510,10 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   async function startFrom(example: string) {
     if (!example) return;
     if (example === "__starter" || example === "__code") {
-      if (schema) setSource(example === "__code" ? schema.code_example : schema.starter);
+      if (schema) {
+        setSource(example === "__code" ? schema.code_example : schema.starter);
+        setFiles(example === "__code" ? schema.code_example_files : {});
+      }
       setProblems(null);
       return;
     }
@@ -486,6 +521,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
       // A bundled manifest, as its file says it: its id line goes (this one's is the Id above).
       const { source: text } = await api.builderExample(example);
       setSource(text.replace(/^id: .*\n/m, ""));
+      setFiles({});
       setProblems(null);
     } catch (e) {
       setError(readableError(e));
@@ -540,39 +576,37 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               onChange={setEditAs}
             />
           </CardRow>
-          {editAs === "yaml" ? (
-            <CodeEditor
-              id="builder-source"
-              minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
-              value={source}
-              marked={problemLines(problems)}
-              onChange={(text) => {
-                setSource(text);
-                setProblems(null);
-                setNotice(null);
-              }}
-            />
-          ) : (
-            <BuilderForm
-              source={source}
-              schema={schema}
-              onChange={(next) => {
-                setSource(next);
-                setProblems(null);
-                setNotice(null);
-              }}
-            />
-          )}
-          {problems && problems.length > 0 && (
-            <ul className="error-text workflow-problems builder-problems">
-              {problems.map((p, i) => (
-                <li key={i}>
-                  {p.line ? <strong>Line {p.line}: </strong> : null}
-                  {p.message}
-                </li>
-              ))}
-            </ul>
-          )}
+          <Workspace
+            id="builder-source"
+            main="pane.yaml"
+            source={source}
+            minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
+            onSource={(text) => {
+              setSource(text);
+              setProblems(null);
+              setNotice(null);
+            }}
+            files={files}
+            onFiles={(next) => {
+              setFiles(next);
+              setProblems(null);
+              setNotice(null);
+            }}
+            problems={problems}
+            mainView={
+              editAs === "form" ? (
+                <BuilderForm
+                  source={source}
+                  schema={schema}
+                  onChange={(next) => {
+                    setSource(next);
+                    setProblems(null);
+                    setNotice(null);
+                  }}
+                />
+              ) : undefined
+            }
+          />
           {notice && <p className="muted builder-notice">{notice}</p>}
           {error && <p className="error-text">{error}</p>}
           <div className="row credential-view-foot">
@@ -601,7 +635,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             </p>
           ) : (
             <>
-              {preview.source !== source && (
+              {(preview.source !== source || filesKey(preview.files) !== filesKey(files)) && (
                 <p className="muted builder-preview-stale">The definition has changed since this was drawn: Preview again.</p>
               )}
               <ActionRunnerContext.Provider value={runPreviewAction}>
@@ -636,7 +670,8 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           </CardRow>
           <CardRow label="Code">
             <div className="builder-names">
-              An action may be Python (<code>code: |</code> defining <code>run(inputs, ctx)</code>), run in the
+              An action may be Python: a file beside the YAML (+ File) defining <code>run(inputs, ctx)</code>, named by
+              the action as <code>{"code: {file: health.py}"}</code>. Files import each other. It runs in the
               platform's runner as whoever uses the pane, reaching connections only through <code>ctx.http</code> and{" "}
               <code>ctx.aws</code>.{" "}
               {schema.runner ? "" : <strong className="builder-no-runner">No runner is set up here, so code is kept but doesn't run.</strong>}

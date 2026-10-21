@@ -88,6 +88,9 @@ doesn't list does nothing.
 Tags[Key=Name].Value.
 - A Clear button is the card's `clear: [output keys]` (the results it \
 empties), shown while one holds something -- never an action.
+- Code (where a request can't do it: joining two calls, working something \
+out) is a Python file beside the YAML, written with {"op": "file"}, and the \
+action names it: `code: {file: health.py}`. Never Python inside a YAML string.
 - Keep what already works. Change or add what's asked; never replace a \
 working action, input or card with another.
 """
@@ -99,6 +102,8 @@ connection_type, its path, query, headers and body templated from \
 inputs.<key>) or steps (a workflow's steps, reading inputs.<key> where a \
 workflow reads params), never both; `outputs` says what steps hand on.
 - Anything but a GET changes something: a workflow asks a person first.
+- Or code: a Python file beside the YAML (written with {"op": "file"}) that \
+`code: {file: x.py}` names; `changes: true` when it changes something.
 """
 
 PLAN = """\
@@ -133,6 +138,9 @@ items named by their key, id or title (or field=value, or their index); `value` 
 be in YAML. Paths name the draft as it is now. Make all of the change in this one reply.
 Or by line, when that's plainer (stray lines, a block to rewrite): {{"op": "lines", "from": 72, "to": 74, \
 "text": "what goes there"}} -- the draft's lines as numbered below, both kept in, `text` empty to delete them.
+Python goes in a file beside the YAML: {{"op": "file", "name": "health.py", "text": "the whole file"}} writes it \
+(`"remove": true` removes it); {{"op": "lines", "file": "health.py", "from": 3, "to": 5, "text": "..."}} changes \
+its lines as numbered below. The YAML names it: `code: {{"file": "health.py"}}`.
 If you must read something first, reply {{"lookups": [...], "examples": [...]}} with no changes. If it can't be \
 done with what the reference lists, reply {{"give_up": "why, for the user"}}.
 """.format()  # Its braces doubled like PLAN's: sent as they were, the model read {{"op": …}} and made up its own.
@@ -152,7 +160,8 @@ SHAPE = """\
 Each change is exactly {"op": "set" | "add" | "remove", "path": "where", "value": the data} -- `value` is the \
 YAML's data as JSON (a list as [..], a mapping as {..}), never text holding YAML; `add` appends to the list at \
 `path`; `remove` has no value -- or by line, {"op": "lines", "from": 72, "to": 74, "text": "new lines, or empty \
-to delete"}. Nothing else goes in a change."""
+to delete"} -- or a Python file, {"op": "file", "name": "health.py", "text": "the whole file"} (`"file"` on a \
+"lines" change edits that file's lines). Nothing else goes in a change."""
 
 
 def _noun(kind: str) -> str:
@@ -198,6 +207,15 @@ def _numbered(source: str) -> str:
     return "\n".join(f"{n}: {line}" for n, line in enumerate(lines, 1)) if lines else "(empty)"
 
 
+def _place(e: dict) -> str:
+    """"health.py, line 4: " / "line 4: " -- where a problem is."""
+    if e.get("file") and e.get("line"):
+        return f"{e['file']}, line {e['line']}: "
+    if e.get("file"):
+        return f"{e['file']}: "
+    return f"line {e['line']}: " if e.get("line") else ""
+
+
 def _history(messages: list[dict]) -> str:
     """The conversation before this request, briefly: what was asked and
     answered, for "now make it…" to mean something."""
@@ -234,6 +252,8 @@ class Builder:
         self.steps = 0
         self.reference = ""
         self.read: list[str] = []  # what the lookups and examples returned, for the model
+        # The Python files beside the draft (D139), as they are now.
+        self.files: dict[str, str] = dict(focus.get("files") or {})
 
     # ------------------------------------------------------------ tools
 
@@ -309,6 +329,8 @@ class Builder:
         if plan:
             parts.append(f"Your plan: {plan}")
         parts.append(f"The draft now, with line numbers:\n{_numbered(draft)}")
+        for name, text in sorted(self.files.items()):
+            parts.append(f"The file {name} beside it, with line numbers:\n{_numbered(text)}")
         parts.append(_history(self.messages) + f"The user's request: {self.messages[-1]['content']}")
         return "\n\n".join(parts)
 
@@ -328,25 +350,42 @@ class Builder:
             if not isinstance(example, str):
                 continue
             ok, out = await self.call("read_definition", {"kind": self.kind, "definition_id": example})
+            files: dict = {}
             if ok:
                 try:
-                    out = json.loads(out).get("source", out)
+                    found = json.loads(out)
+                    out, files = found.get("source", out), found.get("files") or {}
                 except (ValueError, AttributeError):
                     pass
             self.read.append(f"The YAML of {example}:\n{out}" if ok else f"read_definition {example} failed: {out}")
+            for name, text in sorted(files.items()):
+                self.read.append(f"{example}'s file {name}:\n{text}")
             done += 1
         return done
 
-    async def draft(self) -> str:
-        ok, out = await self.call("read_draft", {}, shown=False)
+    async def _read(self, args: dict) -> Optional[dict]:
+        ok, out = await self.call("read_draft", args, shown=False)
         if not ok:
-            return self.focus.get("source") or ""
+            return None
         try:
-            text = json.loads(out).get("text", "")
+            value = json.loads(out)
         except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
+
+    async def draft(self) -> str:
+        """The draft as it is now, and its files with it (self.files)."""
+        value = await self._read({})
+        if value is None:
             return self.focus.get("source") or ""
+        files = {}
+        for name in value.get("files") or {}:
+            read = await self._read({"file": name})
+            if read is not None:
+                files[name] = _unnumbered(read.get("text", "")) + "\n"
+        self.files = files
         # read_draft numbers its lines; the context numbers them again.
-        return "\n".join(re.sub(r"^\d+: ", "", line, count=1) for line in text.splitlines())
+        return _unnumbered(value.get("text", ""))
 
     async def run(self) -> AsyncIterator[dict]:
         ok, reference = await self.call("build_reference", {"kind": self.kind})
@@ -420,10 +459,7 @@ class Builder:
                     return
                 problems = out
             else:
-                problems = "; ".join(
-                    f"line {e.get('line')}: {e.get('message')}" if e.get("line") else str(e.get("message"))
-                    for e in result.get("errors") or []
-                )
+                problems = "; ".join(f"{_place(e)}{e.get('message')}" for e in result.get("errors") or [])
             fixed += 1
             instructions = REPAIR.format(what=f"Your changes were made, and the draft now has these problems: "
                                               f"{problems}")
@@ -474,11 +510,18 @@ def _json(text: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _unnumbered(text: str) -> str:
+    return "\n".join(re.sub(r"^\d+: ", "", line, count=1) for line in text.splitlines())
+
+
 def _propose(output: str) -> Optional[dict]:
     propose = _json(output).get("propose")
     if not (isinstance(propose, dict) and isinstance(propose.get("source"), str)):
         return None
-    return {k: propose[k] for k in ("kind", "source", "summary") if isinstance(propose.get(k), str)}
+    out: dict[str, Any] = {k: propose[k] for k in ("kind", "source", "summary") if isinstance(propose.get(k), str)}
+    if isinstance(propose.get("files"), dict):
+        out["files"] = {str(k): str(v) for k, v in propose["files"].items()}
+    return out
 
 
 async def run_build(tools: list, model: Any, focus: dict, messages: list[dict], rounds: int) -> AsyncIterator[dict]:

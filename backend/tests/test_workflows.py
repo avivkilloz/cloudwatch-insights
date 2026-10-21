@@ -258,7 +258,7 @@ def test_the_store_keeps_the_yaml_as_written(monkeypatch, tmp_path):
     made = _create()
     assert made["id"] == "devops:table_check"
     store.flush()
-    show = subprocess.run(["git", "--git-dir", str(remote), "show", "main:workflows/table_check.yaml"],
+    show = subprocess.run(["git", "--git-dir", str(remote), "show", "main:workflows/table_check/workflow.yaml"],
                           capture_output=True, text=True).stdout
     assert show.startswith("id: devops:table_check\n# Says how many items a table holds")
     assert yaml.safe_load(subprocess.run(["git", "--git-dir", str(remote), "show", "main:plugin.yaml"],

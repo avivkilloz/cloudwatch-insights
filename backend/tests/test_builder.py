@@ -125,7 +125,7 @@ def test_a_built_pane_is_kept_in_the_store_and_comes_back(remote):
     made = client.post("/api/builder/panes", json={"id": "shouty", "source": ENCODER}).json()
     assert made["id"] == "devops:shouty"
     _sync()
-    kept = _show(remote, "panes/shouty.yaml")
+    kept = _show(remote, "panes/shouty/pane.yaml")
     assert kept.startswith("id: devops:shouty\n") and yaml.safe_load(kept)["label"] == "Shouty encoder"
     assert "panes" in yaml.safe_load(_show(remote, "plugin.yaml"))["contributes"]
 
@@ -164,7 +164,7 @@ def test_the_agent_reads_what_a_definition_can_say_and_checks_a_draft(mcp):
     refused = call_error(mcp, token, "propose_definition", kind="pane", source="label: x\n", summary="A start.")
     assert "Nothing was put in the editor" in refused and "layout" in refused
     proposed = call(mcp, token, "propose_definition", kind="pane", source=ENCODER, summary="A shouting encoder.")
-    assert proposed["propose"] == {"kind": "pane", "source": ENCODER, "summary": "A shouting encoder."}
+    assert proposed["propose"] == {"kind": "pane", "source": ENCODER, "files": {}, "summary": "A shouting encoder."}
     # Nothing was saved: the user's Save is what saves.
     assert client.get("/api/builder/panes").json() == []
 

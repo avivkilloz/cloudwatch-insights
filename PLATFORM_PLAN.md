@@ -1305,6 +1305,11 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D133 | 2026-10-21 | **Code reaches the world only through the platform** (the SDK's `ctx.http`/`ctx.aws` are calls back to the backend with the job's token, made as the person running it through a declarative request's own path: connection, identity, SSRF guard, masking); the runner's pods may reach only the backend (a NetworkPolicy). | §20.3's egress proxy, with no proxy to run: code never holds a secret, so a pane built to send its user's token elsewhere has none to send, and reaches nothing its user couldn't. |
 | D134 | 2026-10-21 | **Code is part of the definition**: `code: |` (Python defining `run(inputs, ctx)`) on a built pane's action or a step type, one file in the store. A pane action's code returns its outputs and only reads (GET, AWS reads); a step type's says `changes: true` to change something, and waits for a person like any external step. Standard library only until 6-2. | One text in every editor (form, YAML, agent) and one file in the store, as everything built here is; reads and writes split as declarative requests already are. |
 | D135 | 2026-10-21 | **Without a runner, code is checked and kept but not run**, and running it says why (`RUNNER_URL`). | A deployment without the runner still opens definitions that have code, and nobody is surprised by a silent no-op. |
+| D136 | 2026-10-21 | **A pane, a step and a workflow are each a folder of files**: the definition's YAML and, for a pane or a step, the Python files its code is in (`files`, beside `source`). | Python written inside YAML was unreadable and unfixable (a model wrote it as one quoted line); a file is what every editor, diff and linter expects. |
+| D137 | 2026-10-21 | **Code names its file**: `code: {file: x.py, function: run}` (function optional); inline `code: |` stays for a few lines. | One module can serve several actions; the definition still says plainly what runs, and nothing found by convention is a surprise. |
+| D138 | 2026-10-21 | **A job gets all of its folder's files**, read-only in a directory of its own on its path, the entry imported as a module, so files import each other; module names may not shadow the standard library or the SDK. | Helpers shared across a pane's actions without copying; read-only because a job writes only to its own home. |
+| D139 | 2026-10-21 | **The Builder's agent writes files as files**: `{"op": "file", "name", "text"}` (whole, or empty to remove) and `{"op": "lines", "file", …}`, the files shown to it numbered beside the YAML; a multi-line string it sets in YAML is written as a `|` block. | The quoted one-line program was the change-by-path writer's doing; a model reads and edits numbered lines of a file the way it does the YAML's. |
+| D140 | 2026-10-21 | **The store keeps a folder per item** (`panes/<name>/pane.yaml` + files), its version the folder's git tree; the old flat layout restores, and is moved once, in one commit. | The plugin format follows what's built (a pane with its code is one folder to copy); a tree hash keeps "edited in the repo since" exact across several files. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4180,7 +4185,10 @@ own: what admins define today is written to git and comes back from it.
   plugin.yaml                         id: <namespace>, name, version, contributes: {…}
   credential-types/<name>.yaml
   connection-types/<name>.yaml
-  # 4b on: workflows/, steps/<name>/; 4c: templates/; 5: panes/
+  templates/<name>.yaml
+  panes/<name>/pane.yaml   (+ its .py files, D140)
+  steps/<name>/step.yaml   (+ its .py files)
+  workflows/<name>/workflow.yaml
 ```
 
 - `plugin.yaml` is §7.1's: `id` is the store's namespace, `contributes` lists
@@ -4805,7 +4813,7 @@ Three PRs (D104), each with something to try:
   Clear the agent can add (a card's `clear`, changes by line); pictures in a
   shared session.
 
-## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D135; 6-1 built)
+## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D140; 6-1 and 6-1b built)
 
 Everything built so far is data: requests, CEL, chains of steps. Phase 6 lets a
 builder write **Python** where data runs out -- reshape a reply, call two APIs
@@ -4856,6 +4864,31 @@ runs it. Four PRs (D130), each with something to try:
   - Each job is a row (`runner_jobs`: who, what for, its token's hash, when,
     how long, how it ended, how many calls), so a run is accountable and its
     token dies with it.
+- **6-1b, workspaces** (built, after the first use of 6-1): code written as a
+  string inside the YAML (`code: "def run(inputs, ctx):\n    import time\n…"`,
+  how a model's change by path came out) was no way to write Python. A pane
+  or a step is now a **folder of files** (D136):
+  - its definition, `pane.yaml` / `step.yaml` (a workflow's `workflow.yaml`,
+    which holds no code yet), and any number of Python files beside it;
+  - an action or a step names one: `code: {file: health.py}`, with `function:`
+    when it isn't `run` -- several actions can share a module (D137). Inline
+    `code: |` still works, for a few lines;
+  - the files are importable from each other (`from helpers import window`):
+    the runner puts them, read-only, in a directory of the job's own on its
+    path (D138). A file's name is a module's (`[a-z_][a-z0-9_]*.py`), never
+    one of the standard library's or the SDK's;
+  - Check parses every file and points at the file and line; a failure in a
+    run names them too ("line 12 of health.py");
+  - the editors are a **workspace**: a tab per file over the one editor, "+
+    File" and a file's ✕, and Check's marks on the file they're in. Drafts
+    keep the files with the text and the chat (D125), and the Builder's agent
+    writes a file whole or by its lines, never code in a string (D139);
+  - **the store keeps each in a folder of its own** (D140): `panes/<name>/
+    pane.yaml` and its `.py` files, `steps/<name>/step.yaml`, `workflows/
+    <name>/workflow.yaml`. A folder's version is its git tree, so an edit to
+    any of its files in the repo is a conflict as a file's was. A repo in the
+    old layout still restores, and is moved to folders once, in one commit
+    ("Move panes, steps and workflows into folders of their own").
 - **6-2, dependencies**: a code action's or step's `requirements:` locked
   with uv on save (exact versions, hashes, wheels only, from a mirror if an
   admin sets one), a venv per lock built and cached by the runner, never at
