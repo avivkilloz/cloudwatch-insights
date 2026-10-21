@@ -4,6 +4,9 @@ the SDK -- and reaches the world only through its callback."""
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -166,3 +169,36 @@ def test_the_sdk_calls_back_with_the_jobs_token_and_nothing_else():
 def test_only_the_backend_may_start_a_job():
     assert client.post("/jobs", json={"code": "x"}).status_code == 401
     assert client.post("/jobs", json={"code": "x"}, headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+@pytest.mark.skipif(not ROOT or not shutil.which("setpriv"), reason="needs root, and setpriv to drop capabilities")
+def test_a_job_runs_with_only_the_capabilities_the_chart_grants():
+    # Helm drops every capability but these four (runner.securityContext). A
+    # root with all of them ran these tests green while every job in the
+    # cluster failed: chmod on a directory already given to a slot's uid
+    # needs FOWNER, which the chart doesn't grant.
+    code = ("import os\ndef run(inputs, ctx):\n    open('f', 'w').write('x')\n"
+            # Files it then made unreadable to itself: still swept.
+            "    os.makedirs('d/e')\n    open('d/e/g', 'w').write('y')\n    os.chmod('d/e', 0)\n    os.chmod('d', 0)\n"
+            "    return {'uid': os.getuid(), 'home': os.getcwd()}\n")
+    script = (f"import json\nfrom app import jobs\nout = jobs.run({code!r}, {{}}, None, 10)\n"
+              "print(json.dumps(out.as_dict()))\n")
+    done = subprocess.run(["setpriv", "--bounding-set=-all,+setuid,+setgid,+chown,+kill", sys.executable, "-c", script],
+                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[-2000:]
+    out = json.loads(done.stdout.strip().splitlines()[-1])
+    assert out["ok"], out
+    assert out["outputs"]["uid"] >= jobs.UID_BASE
+    assert not os.path.exists(os.path.dirname(out["outputs"]["home"])), "its files outlived it"
+
+
+def test_health_says_when_the_runner_cant_run_a_job(monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main.jobs, "run", lambda *a, **k: (_ for _ in ()).throw(PermissionError("Operation not permitted")))
+    problem = main.self_check()
+    assert problem and "PermissionError" in problem
+    monkeypatch.setitem(main._problem, "problem", problem)
+    resp = client.get("/health")
+    assert resp.status_code == 503 and resp.json()["status"] == "broken" and "PermissionError" in resp.json()["problem"]

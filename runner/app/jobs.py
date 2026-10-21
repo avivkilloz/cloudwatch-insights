@@ -65,7 +65,7 @@ for _n in range(CONCURRENCY):
     _slots.put(_n)
 
 
-def _limits(timeout: int, uid: Optional[int]):
+def _limits(timeout: int, uid: Optional[int], home: Path):
     def apply() -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (timeout + 1, timeout + 2))
         resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
@@ -78,6 +78,9 @@ def _limits(timeout: int, uid: Optional[int]):
             os.setuid(uid)
             # Counted per uid: the slot's own, so the runner's threads don't count.
             resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+        # Into its home as its own uid: Popen's cwd= is entered as root, and a
+        # root without DAC_READ_SEARCH (Helm) can't enter a 700 home it gave away.
+        os.chdir(home)
 
     return apply
 
@@ -108,16 +111,19 @@ def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int]
     started = time.monotonic()
     try:
         os.chmod(work, 0o711 if root else 0o700)
+        # Its mode before it's given away: the runner keeps no capability to
+        # change a mode on what it doesn't own (no FOWNER, Helm), so a chmod
+        # after the chown was refused and every job failed in a cluster.
+        os.chmod(home, 0o700)
         if uid is not None:
             os.chown(home, uid, uid)
-        os.chmod(home, 0o700)
         job = json.dumps({"code": code, "inputs": inputs, "callback": callback, "timeout": timeout}, default=str)
         env = {"HOME": str(home), "TMPDIR": str(home), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
         with open(out_path, "wb") as out, open(log_path, "wb") as log:
             proc = subprocess.Popen(
                 [PYTHON, "-I", "-S", str(BOOTSTRAP)],
-                stdin=subprocess.PIPE, stdout=out, stderr=log, cwd=home, env=env,
-                preexec_fn=_limits(timeout, uid), start_new_session=True, close_fds=True,
+                stdin=subprocess.PIPE, stdout=out, stderr=log, cwd="/", env=env,
+                preexec_fn=_limits(timeout, uid, home), start_new_session=True, close_fds=True,
             )
             try:
                 proc.communicate(job.encode(), timeout=timeout + 1)
@@ -173,6 +179,30 @@ def _sweep(uid: int, home: Path) -> None:
     try:
         # Every process of that uid (Linux leaves the caller itself out).
         _as(uid, [PYTHON, "-I", "-S", "-c", "import os, signal; os.kill(-1, signal.SIGKILL)"])
-        _as(uid, ["rm", "-rf", "--", str(home)])
+        # What's in its home, as its uid; the home itself is root's to remove
+        # (its parent is root's), which an empty directory lets it do.
+        _as(uid, [PYTHON, "-I", "-S", "-c", _EMPTY, str(home)])
+        os.rmdir(home)
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+# A directory the job made unreadable to itself (chmod 000) is opened up
+# first, then everything goes.
+_EMPTY = """
+import os, shutil, sys
+def unlock(folder):
+    for name in os.listdir(folder):
+        path = os.path.join(folder, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            os.chmod(path, 0o700)
+            unlock(path)
+home = sys.argv[1]
+unlock(home)
+for name in os.listdir(home):
+    path = os.path.join(home, name)
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.unlink(path)
+"""

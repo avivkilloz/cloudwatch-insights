@@ -94,7 +94,9 @@ def run(db: Session, user: models.User, code: str, inputs: Any, purpose: str, ma
         except ValueError:
             detail = reply.text[:200]
         _finish(db, job, False, error=str(detail))
-        raise CodeError(f"The runner refused the job: {detail}", 503 if reply.status_code == 503 else 502)
+        # The runner's own words when it has them ("The runner couldn't run the job (…)").
+        message = str(detail) if str(detail).startswith("The runner") else f"The runner refused the job: {detail}"
+        raise CodeError(message, 503 if reply.status_code == 503 else 502)
     out = reply.json()
     logs = masking.mask(out.get("logs") or "")
     db.refresh(job)
