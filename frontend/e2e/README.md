@@ -78,7 +78,12 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
-`smoke106` (6-2, as a builder: + File's requirements.txt, locked by Check
+`smoke107` (the Builder's editor: "+" the last of its tabs, a file named in a
+tab of its own, Esc cancelling; the Preview card there only while Preview is
+pressed, the editor otherwise full width, "Draw again" for a stale drawing)
+needs nothing beyond the backend.
+
+`smoke106` (6-2, as a builder: the + tab's requirements.txt, locked by Check
 into a read-only requirements.lock with hashes, the preview's code importing
 the package from the runner's venv; an option line refused by its line; the
 lock gone with requirements.txt) needs the runner and the faked backend with
@@ -86,7 +91,7 @@ lock gone with requirements.txt) needs the runner and the faked backend with
 (it locks `six==1.16.0`), or `DEPS_INDEX_URL` for a mirror.
 
 `smoke104` (6-1b, as a builder: a pane started from code is a workspace --
-pane.yaml and devices.py, + File's helpers.py imported by it and previewed;
+pane.yaml and devices.py, the + tab's helpers.py imported by it and previewed;
 Check's problem by file and line, its tab marked and clicked open; the draft's
 files back after a reload; the fake model's `use code …` writing shaped.py and
 fixing it by its line) needs the runner, the agent, the fake model and the

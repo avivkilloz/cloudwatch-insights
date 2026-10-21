@@ -943,11 +943,12 @@ laid out in) and changes the YAML in place: switch back and only what you
 changed is different, comments included. Renaming an input renames it wherever
 the pane uses it. Anything the form doesn't cover stays in the YAML.
 
-**Preview**: beside the editor, Preview draws the definition as the pane it
-makes -- its inputs, its buttons, its tables -- and its actions run as you, on
-your real connections, so you see what a request really answers before
-shaping its rows. Nothing is saved and no session holds it; change the text and
-the preview says it's of an older version until you preview again. A pane can
+**Preview**: pressed, Preview opens a card beside the editor drawing the
+definition as the pane it makes -- its inputs, its buttons, its tables -- and
+its actions run as you, on your real connections, so you see what a request
+really answers before shaping its rows; pressed again, the card closes and the
+editor has the width. Nothing is saved and no session holds it; change the
+text and the preview says it's of an older version, with **Draw again**. A pane can
 use the platform's own handlers only where your group may use the panes that
 run them (DynamoDB's, say, once your group has DynamoDB).
 
@@ -961,7 +962,7 @@ it as `step: <its id>`.
 **Code**: where a request can't say it -- reshape a reply, join two APIs,
 work something out -- an action or a step can be Python. It's a file beside
 the YAML: the editor has a tab per file (`pane.yaml`, then your `.py` files;
-**+ File** adds one), the action names it (`code: {file: health.py}`, with
+the **+** after them adds one), the action names it (`code: {file: health.py}`, with
 `function:` when it isn't `run`), and files import each other (`from helpers
 import window`). Start from "An action that's code" or "Code" for one ready
 to try. Check points at the file and line of a mistake, and a run that fails
@@ -977,7 +978,7 @@ under Try; a failure names its line. 30 seconds and 512 MiB a run. Without a
 runner (DEPLOYMENT.md) code is kept but not run.
 
 **Packages**: code may import any package from the index (PyPI unless your
-admin set a mirror). Add a `requirements.txt` with **+ File** and name what
+admin set a mirror). Add a `requirements.txt` with the **+** tab and name what
 it needs, one a line as pip reads it (`requests>=2.31`). **Check** and
 **Save** lock it into `requirements.lock` -- every package pinned with its
 hashes, a tab you can read but not edit -- and the code always runs with

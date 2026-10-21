@@ -71,7 +71,7 @@ const run = async () => {
     // ---- 2. Check locks it
     await page.click('.builder-view button:text-is("Check")');
     await page.waitForSelector('.builder-notice:text-is("No problems found.")', { timeout: 60000 });
-    const tabs = await page.locator(".workspace-tab").evaluateAll((els) => els.map((e) => e.getAttribute("data-file")));
+    const tabs = await page.locator(".workspace-tab[data-file]").evaluateAll((els) => els.map((e) => e.getAttribute("data-file")));
     check(JSON.stringify(tabs) === '["pane.yaml","devices.py","requirements.txt","requirements.lock"]',
       "Check locked it: a requirements.lock tab, after requirements.txt", JSON.stringify(tabs));
     await openTab(page, "requirements.lock");

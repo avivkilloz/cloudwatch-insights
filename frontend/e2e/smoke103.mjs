@@ -83,7 +83,7 @@ const run = async () => {
     const source = await page.inputValue("#builder-source-file");
     await page.fill("#builder-source-file", source.replace('ctx.log(len(items), "devices")', 'ctx.log("about to fail")\n    raise ValueError("no devices today")'));
     await page.waitForSelector(".builder-preview-stale");
-    await page.click('.builder-view button:text-is("Preview")');
+    await page.click(".builder-preview-redraw");
     // Drawn again from the new text: "changed since this was drawn" goes.
     await page.waitForFunction(() => !document.querySelector(".builder-preview-stale"));
     await pickConnection(page, ".builder-preview");

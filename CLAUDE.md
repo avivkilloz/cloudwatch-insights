@@ -933,7 +933,30 @@ the platform, for a group with `builder_enabled` (admins always).
   `SHAPE`, and the builder loop adds the model's own first change rewritten.
   A field a part can't have is reported with the fields it can
   (`builder._fields_at`). The loop's prompts are `.format()`ed even without
-  placeholders: their braces are doubled.
+  placeholders: their braces are doubled. A part written with dots is that
+  path (`yaml_edit._dotted`, D145) where no key is named so and its first
+  piece is one -- the check names places with dots, and a model copied
+  `layout.2.items` into changes that made top-level keys of that name; such
+  a key is reported as one, with the remove that fixes it.
+- **Rows that open are checked against what they open onto** (D146,
+  `builder._opening_problems`): a row action's `row.<column>` against the
+  columns the rows' request names (`Environment` on a fan-out), and a
+  detail's `d.…` templates and section paths against the AWS reply its row
+  action answers with (`aws_request._walk`), or its one row's columns. Code's
+  detail is only known by running it. Both checked clean before and opened
+  onto empty fields (`row.jobId` for a `Job ID` column; `d.job_id` where
+  DescribeJob keeps `d.job.jobId`).
+- **The loop keeps its work** (D147): a reply it can't read after changes
+  were made puts the draft in the editor with what's left, never just an
+  error; a reply cut off at the length limit (`repair.cut_off`) is said so
+  and asked for in parts, and isn't sent back. A value per row that needs
+  another call per row makes the listing action code (D148, the rules).
+- **The editor's tabs and Preview** (`Workspace.tsx`, `BuilderPage.tsx`): a
+  file is added from a "+" that's the last tab (`.workspace-add`, named in a
+  tab of its own; Esc or empty cancels), and the Preview card is there only
+  while Preview (`.builder-preview-toggle`, pressed) is on -- the editor has
+  the width otherwise; a stale drawing offers "Draw again"
+  (`.builder-preview-redraw`), since Preview pressed again closes it.
 - **Drafts** (D125, `build_drafts.py`, `/api/build-drafts`,
   `pages/buildDraft.tsx`'s `useBuildDraft`): each editor (pane, step,
   workflow) keeps its text, a new one's Id and its Building chat as its

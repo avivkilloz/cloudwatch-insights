@@ -148,7 +148,7 @@ const run = async () => {
 
     // ---- 1b. a live function is worked out as you type, in the preview too
     await page.fill("#builder-source", BASE64);
-    await page.click('.builder-view button:text-is("Preview")');
+    await page.click(".builder-preview-redraw");
     await page.waitForFunction(() => !document.querySelector(".builder-preview-stale"));
     await page.locator(".builder-preview textarea, .builder-preview input[type=text]").first().fill("hi");
     await page.waitForFunction(
@@ -166,7 +166,7 @@ const run = async () => {
     const problem = await page.locator(".builder-problems li").first().innerText({ timeout: 5000 });
     check(problem.startsWith("Line 11:") && problem.includes("can't use the handler aws.dynamodb.scan") && problem.includes("DynamoDB"),
       "A handler of a pane their group wasn't granted is refused, with its line", problem);
-    await page.click('.builder-view button:text-is("Preview")');
+    await page.click(".builder-preview-redraw");
     await page.waitForTimeout(500);
     const after = await page.locator(".builder-problems li").first().innerText();
     check(after.includes("aws.dynamodb.scan") && (await page.locator(".builder-preview-stale").count()) === 1,
