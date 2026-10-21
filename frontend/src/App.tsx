@@ -7,7 +7,6 @@ import AgentDock, { DOCK_WIDTH } from "./components/AgentDock";
 import AgentFloat from "./components/AgentFloat";
 import { BrandInfo } from "./components/Brand";
 import ColumnResizer, { storedWidth, storeWidth } from "./components/ColumnResizer";
-import AgentPage from "./pages/AgentPage";
 import AggregatorPage from "./pages/AggregatorPage";
 import HomePage from "./pages/HomePage";
 import { PAGES } from "./pages/pageTypes";
@@ -239,7 +238,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
   // keeps BODY_MIN_WIDTH. The shell is its 16px left padding, the rail and the
   // gap after it, the body, and the dock (whose own margin takes back the gap
   // before it, and whose 16px right padding is inside its width).
-  const dockShown = agent.layout === "dock" && agent.open && view !== "agent";
+  const dockShown = agent.layout === "dock" && agent.open;
   const railRoom = (dockWidthNow: number) =>
     windowWidth - 16 - 16 - BODY_MIN_WIDTH - (dockShown ? dockWidthNow : 0);
   const railMax = Math.max(RAIL_WIDTH.min, Math.min(RAIL_WIDTH.max, railRoom(DOCK_WIDTH.min)));
@@ -321,12 +320,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
         {view === "settings" && (
           <SettingsPage theme={theme} onThemeChange={onThemeChange} onSettingsChange={onSettingsChange} />
         )}
-        {/* The conversation itself lives in AgentProvider, so this page can
-            come and go; kept mounted anyway so its scroll position does too. */}
-        <div hidden={view !== "agent"}>
-          <AgentPage />
-        </div>
-        {PAGES.filter((p) => p.render && p.id !== "agent").map((p) => (
+        {PAGES.filter((p) => p.render).map((p) => (
           <div key={p.id} hidden={view !== p.id}>
             {p.render!()}
           </div>
@@ -345,7 +339,8 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
         {/* Docked: beside the body rather than over it, so nothing it's
             showing you is hidden behind it -- a dashboard re-measures its
             canvas and fits. Floating: a corner button and a panel over the
-            page. Neither on the Agent page, which is the global chat already. */}
+            page. The Global chat is the panel's: it had a page of its own,
+            which the user asked to go. */}
         {dockShown && (
           <AgentDock
             width={dockShownWidth}
@@ -355,7 +350,7 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
             account={account}
           />
         )}
-        {agent.layout === "float" && view !== "agent" && <AgentFloat />}
+        {agent.layout === "float" && <AgentFloat />}
       </div>
     </div>
   );

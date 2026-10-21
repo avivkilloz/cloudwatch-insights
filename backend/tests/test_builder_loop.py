@@ -253,3 +253,34 @@ def test_the_agent_writes_code_as_files_beside_the_yaml(mcp):
     assert inline["ok"] is True, inline
     assert "    code: |\n      def run(inputs, ctx):\n          return {'rows': []}\n" in call(mcp, token, "propose_definition",
                                                                                          summary="x")["propose"]["source"]
+
+
+def test_the_agent_names_requirements_and_the_platform_locks_them(mcp, monkeypatch, tmp_path):
+    """D141: the agent writes requirements.txt, never the lock; checking locks
+    it, and the proposal carries the lock to the editor."""
+    from app import deps
+    from tests.wheels import Index
+
+    upstream = Index()
+    monkeypatch.setenv("DEPS_INDEX_URL", upstream.url)
+    monkeypatch.setenv("DEPS_CACHE_DIR", str(tmp_path))
+    deps._cache.clear()
+    try:
+        upstream.add("tinyshape", "1.0", {"tinyshape/__init__.py": ""})
+        token = _build_token(builder.CODE_EXAMPLE)
+        out = call(mcp, token, "change_definition", changes=[
+            *({"op": "file", "name": name, "text": text} for name, text in builder.CODE_EXAMPLE_FILES.items()),
+            {"op": "file", "name": "requirements.txt", "text": "tinyshape"}])
+        assert out["ok"] is True and "requirements.lock" in out["files"], out
+        refused = call_error(mcp, token, "change_definition", changes=[
+            {"op": "file", "name": "requirements.lock", "text": "tinyshape==9"}])
+        assert "requirements.lock is written by the platform" in refused
+        proposed = call(mcp, token, "propose_definition", summary="Needs tinyshape.")["propose"]
+        assert "tinyshape==1.0" in proposed["files"]["requirements.lock"]
+        bad = call(mcp, token, "change_definition", changes=[
+            {"op": "file", "name": "requirements.txt", "text": "nosuchpackage"}])
+        assert bad["ok"] is False and bad["errors"][0]["file"] == "requirements.txt", bad
+        assert "couldn't be locked" in bad["errors"][0]["message"]
+    finally:
+        upstream.close()
+        deps._cache.clear()

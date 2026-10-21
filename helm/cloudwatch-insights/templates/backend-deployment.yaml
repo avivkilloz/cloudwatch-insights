@@ -124,6 +124,18 @@ spec:
               value: {{ .Values.backend.masterKey.keyId | quote }}
             {{- end }}
             {{- end }}
+            # Packages for code (D141-D143): the index locks are made
+            # against and wheels fetched from, and where they're kept.
+            {{- with .Values.backend.deps }}
+            {{- if .indexUrl }}
+            - name: DEPS_INDEX_URL
+              value: {{ .indexUrl | quote }}
+            {{- end }}
+            - name: DEPS_PYTHON_VERSION
+              value: {{ .pythonVersion | quote }}
+            {{- end }}
+            - name: DEPS_CACHE_DIR
+              value: /var/cache/platform-deps
             # The store repo's clone lives here (an emptyDir: it's a cache,
             # re-made from the repo on every start).
             - name: STORE_WORKDIR
@@ -192,6 +204,8 @@ spec:
           volumeMounts:
             - name: store-work
               mountPath: /var/lib/platform-store
+            - name: deps-cache
+              mountPath: /var/cache/platform-deps
             {{- if eq .Values.backend.storage.type "filesystem" }}
             - name: files
               mountPath: {{ .Values.backend.storage.filesystem.path }}
@@ -206,6 +220,9 @@ spec:
       volumes:
         - name: store-work
           emptyDir: {}
+        - name: deps-cache
+          emptyDir:
+            sizeLimit: {{ .Values.backend.deps.cacheSize }}
         {{- if eq .Values.backend.storage.type "filesystem" }}
         - name: files
           {{- with .Values.backend.storage.filesystem.persistence }}

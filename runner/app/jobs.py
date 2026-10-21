@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from . import venvs
+
 BOOTSTRAP = Path(__file__).resolve().parent.parent / "sdk" / "bootstrap.py"
 # The interpreter behind the runner's own (a venv's python is a link to it):
 # a job needs only the standard library and the SDK (`-S`), and a slot's uid
@@ -122,9 +124,24 @@ def _files(files: Optional[dict], entry: Optional[dict]) -> Optional[tuple[dict,
 
 
 def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int] = None,
-        files: Optional[dict[str, str]] = None, entry: Optional[dict] = None) -> Outcome:
+        files: Optional[dict[str, str]] = None, entry: Optional[dict] = None,
+        requirements: Optional[dict] = None) -> Outcome:
     timeout = max(1, min(int(timeout or DEFAULT_TIMEOUT), MAX_TIMEOUT))
     program = _files(files, entry)
+    # Its packages' venv first (D144): built now only if no save built it,
+    # and never on the job's own clock.
+    python = None
+    if requirements and requirements.get("lock"):
+        try:
+            python = venvs.python_for(requirements["lock"], requirements.get("index") or "", PYTHON)
+        except venvs.BuildFailed as e:
+            return Outcome(False, error=f"Its requirements couldn't be installed: {e}")
+    with venvs.use(python):
+        return _run(code, inputs, callback, timeout, program, python)
+
+
+def _run(code: str, inputs: Any, callback: Optional[dict], timeout: int, program: Optional[tuple],
+         python: Optional[str]) -> Outcome:
     try:
         slot = _slots.get(timeout=WAIT_FOR_SLOT)
     except queue.Empty:
@@ -160,8 +177,11 @@ def run(code: str, inputs: Any, callback: Optional[dict], timeout: Optional[int]
         job_text = json.dumps(job, default=str)
         env = {"HOME": str(home), "TMPDIR": str(home), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
         with open(out_path, "wb") as out, open(log_path, "wb") as log:
+            # With a venv, its site-packages and nothing else of the runner's
+            # (-I); without, the standard library alone (-S).
+            argv = [python, "-I", str(BOOTSTRAP)] if python else [PYTHON, "-I", "-S", str(BOOTSTRAP)]
             proc = subprocess.Popen(
-                [PYTHON, "-I", "-S", str(BOOTSTRAP)],
+                argv,
                 stdin=subprocess.PIPE, stdout=out, stderr=log, cwd="/", env=env,
                 preexec_fn=_limits(timeout, uid, home), start_new_session=True, close_fds=True,
             )

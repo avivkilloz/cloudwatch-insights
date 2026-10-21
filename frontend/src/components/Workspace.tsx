@@ -3,6 +3,13 @@ import { BuildFiles, WorkflowProblem } from "../api";
 import CodeEditor from "./CodeEditor";
 import Icon from "./Icon";
 
+// Its dependencies (D141): requirements.txt is the builder's, requirements.lock
+// the platform's -- written by Check and Save, never by hand.
+const REQUIREMENTS = "requirements.txt";
+const LOCK = "requirements.lock";
+// Python first, then what it needs and its lock.
+const rank = (name: string) => (name === REQUIREMENTS ? 1 : name === LOCK ? 2 : 0);
+
 /**
  * A pane's or a step's files (D136): its YAML and the Python beside it, a tab
  * each over the one editor. Python written as a string inside the YAML was
@@ -42,7 +49,7 @@ export default function Workspace({
   const [open, setOpen] = useState<string>(main);
   const [naming, setNaming] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
-  const names = Object.keys(files).sort();
+  const names = Object.keys(files).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   // A file that went (removed, or the agent's draft without it): back to the YAML.
   useEffect(() => {
     if (open !== main && !(open in files)) setOpen(main);
@@ -53,16 +60,23 @@ export default function Workspace({
 
   function add() {
     let name = (naming ?? "").trim();
-    if (name && !name.endsWith(".py")) name += ".py";
-    if (!/^[a-z_][a-z0-9_]*\.py$/.test(name)) {
-      setNameError("A module's name: lowercase letters, digits and _, then .py (helpers.py).");
+    if (name === "requirements") name = REQUIREMENTS;
+    if (name && !name.endsWith(".py") && name !== REQUIREMENTS) name += ".py";
+    if (name !== REQUIREMENTS && !/^[a-z_][a-z0-9_]*\.py$/.test(name)) {
+      setNameError("A module's name: lowercase letters, digits and _, then .py (helpers.py) -- or requirements.txt.");
       return;
     }
     if (name in files) {
       setNameError(`There is a ${name} already.`);
       return;
     }
-    onFiles({ ...files, [name]: names.length === 0 ? "def run(inputs, ctx):\n    return {}\n" : "" });
+    const text =
+      name === REQUIREMENTS
+        ? "# A package a line, as pip reads it (requests>=2.31). Check and Save lock it.\n"
+        : names.length === 0
+          ? "def run(inputs, ctx):\n    return {}\n"
+          : "";
+    onFiles({ ...files, [name]: text });
     setNaming(null);
     setNameError(null);
     setOpen(name);
@@ -72,6 +86,8 @@ export default function Workspace({
     if (!confirm(`Remove ${name}? Anything that names it stops checking.`)) return;
     const next = { ...files };
     delete next[name];
+    // Its lock goes with it.
+    if (name === REQUIREMENTS) delete next[LOCK];
     onFiles(next);
   }
 
@@ -84,7 +100,7 @@ export default function Workspace({
               {name}
               {bad.has(name) && <span className="workspace-tab-bad" title="Check found problems here" />}
             </button>
-            {name !== main && !readOnly && (
+            {name !== main && name !== LOCK && !readOnly && (
               <button className="icon-btn secondary workspace-tab-close" title={`Remove ${name}`} onClick={() => remove(name)}>
                 <Icon name="close" />
               </button>
@@ -122,15 +138,22 @@ export default function Workspace({
       {open === main ? (
         mainView ?? <CodeEditor id={id} minRows={minRows} value={source} marked={marked} onChange={onSource} readOnly={readOnly} />
       ) : (
-        <CodeEditor
-          key={open}
-          id={`${id}-file`}
-          minRows={minRows}
-          value={files[open] ?? ""}
-          marked={marked}
-          readOnly={readOnly}
-          onChange={(text) => onFiles({ ...files, [open]: text })}
-        />
+        <>
+          {open === LOCK && (
+            <p className="muted workspace-lock-note">
+              Written by Check and Save from requirements.txt: every package pinned with its hashes, which the code runs with.
+            </p>
+          )}
+          <CodeEditor
+            key={open}
+            id={`${id}-file`}
+            minRows={minRows}
+            value={files[open] ?? ""}
+            marked={marked}
+            readOnly={readOnly || open === LOCK}
+            onChange={(text) => onFiles({ ...files, [open]: text })}
+          />
+        </>
       )}
       {problems && problems.length > 0 && (
         <ul className="error-text workflow-problems builder-problems">

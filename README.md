@@ -973,8 +973,17 @@ which the platform makes as whoever runs it -- their identity, the same
 guards -- so code never holds a credential. A pane's code only reads; a
 step's that changes something says `changes: true` and waits for a person in
 a workflow. What it logs (`ctx.log`, `print`) shows under the preview and
-under Try; a failure names its line. The standard library only, 30 seconds
-and 512 MiB a run. Without a runner (DEPLOYMENT.md) code is kept but not run.
+under Try; a failure names its line. 30 seconds and 512 MiB a run. Without a
+runner (DEPLOYMENT.md) code is kept but not run.
+
+**Packages**: code may import any package from the index (PyPI unless your
+admin set a mirror). Add a `requirements.txt` with **+ File** and name what
+it needs, one a line as pip reads it (`requests>=2.31`). **Check** and
+**Save** lock it into `requirements.lock` -- every package pinned with its
+hashes, a tab you can read but not edit -- and the code always runs with
+exactly those. Saving gets them ready in the runner, so the first run
+doesn't wait. Packages must have a wheel for Linux; options, URLs and paths
+in `requirements.txt` aren't taken.
 
 **Building with the agent**: while a pane type's editor -- or a step type's, or a workflow's, on
 the Workflows page -- is open, the agent panel's second tab is **Building**.

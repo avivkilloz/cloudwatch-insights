@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import catalogue, connections, credential_store, live_store, models, pane_outputs, schemas, templates
+from .. import catalogue, connections, credential_store, deps, live_store, models, pane_outputs, schemas, templates
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
@@ -1653,6 +1653,23 @@ def _files_of(db: Session, caller: Any) -> dict[str, str]:
     return dict(row.build_files or {}) if row is not None and row.build_kind else {}
 
 
+async def _lock_draft(db: Session, caller: Any, files: dict[str, str]) -> tuple[dict[str, str], list[dict]]:
+    """The draft's files with requirements.txt locked (D141), kept as the
+    working draft's, and what kept it from being locked."""
+    from .. import deps
+
+    try:
+        locked = await asyncio.to_thread(deps.locked, files)
+    except deps.DepsError as e:
+        return files, e.errors
+    if locked != files:
+        row = _token_row(db, caller)
+        if row is not None and row.build_kind:
+            row.build_files = locked
+            db.commit()
+    return locked, []
+
+
 def _problems(errors: list[dict]) -> str:
     from .. import builder
 
@@ -1680,7 +1697,7 @@ def _change_files(files: dict[str, str], changes: list[dict]) -> dict[str, str]:
     "text"} writes a file whole, `"remove": true` (or no text) removes it, and
     {"op": "lines", "file", "from", "to", "text"} changes its lines as
     read_draft numbers them, made bottom-up so each one's numbers hold."""
-    from .. import runner_client
+    from .. import deps, runner_client
 
     out = dict(files)
     by_lines: dict[str, list[dict]] = {}
@@ -1689,6 +1706,9 @@ def _change_files(files: dict[str, str], changes: list[dict]) -> dict[str, str]:
         problem = runner_client.file_name_problem(name)
         if problem:
             raise InputError(f"{problem} Nothing was changed.")
+        if name == deps.LOCK:
+            raise InputError("requirements.lock is written by the platform: change requirements.txt, and checking "
+                             "locks it again. Nothing was changed.")
         if change.get("op") == "file":
             text = change.get("text")
             if change.get("remove") or text is None or text == "":
@@ -1799,7 +1819,8 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         row = _token_row(db, caller)
         row.build_draft, row.build_files = source, files
         db.commit()
-        errors = _checked(db, kind, source, caller.build_id, user, files)
+        files, lock_errors = await _lock_draft(db, caller, files)
+        errors = deps.merged(lock_errors, _checked(db, kind, source, caller.build_id, user, files))
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "changed": len(changes),
                                "lines": len(source.splitlines()),
                                "files": {name: len(text.splitlines()) for name, text in sorted(files.items())}}
@@ -1833,8 +1854,9 @@ async def check_definition(kind: Optional[str] = None, source: Optional[str] = N
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
-        files = _files_of(db, caller)
-        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user, files)
+        files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
+        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or getattr(caller, "build_id", None),
+                                                   user, files))
         out: dict[str, Any] = {"ok": not errors, "errors": errors}
         if errors:
             out["near"] = _near(text, errors, files=files)
@@ -1853,8 +1875,9 @@ async def propose_definition(summary: str, kind: Optional[str] = None, source: O
         kind = _kind_of(caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
-        files = _files_of(db, caller)
-        errors = _checked(db, kind, text, definition_id or getattr(caller, "build_id", None), user, files)
+        files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
+        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or getattr(caller, "build_id", None),
+                                                   user, files))
         if errors and even_with_problems:
             # The Builder's loop (D116), when its rounds ran out: the user's
             # editor gets the work so far -- its Check shows what's left, and
@@ -1886,9 +1909,12 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
         _may_build(user, "pane")
         text = _source_of(db, caller, source)
         try:
+            files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
+            if lock_errors:
+                raise InputError(f"Its requirements can't be locked: {_problems(lock_errors)}")
             result = await asyncio.to_thread(
                 builder.run_preview, db, user, text, definition_id or getattr(caller, "build_id", None), action,
-                dict(inputs or {}), None, _files_of(db, caller))
+                dict(inputs or {}), None, files)
         except HTTPException as e:
             raise InputError(str(e.detail)) from None
         out: dict[str, Any] = {}

@@ -1073,8 +1073,9 @@ export const api = {
       body: JSON.stringify({ source, files, id, inputs, cursor, timezone }),
     }),
   /** `newId`: the Id typed for a new one, which the YAML's own id is held to. */
+  /** `files` comes back when Check locked requirements.txt (requirements.lock, D141): the editor takes them. */
   checkBuiltPane: (source: string, files: BuildFiles, id?: string, newId?: string) =>
-    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/check", {
+    req<{ ok: boolean; errors: WorkflowProblem[]; files?: BuildFiles }>("/builder/check", {
       method: "POST",
       body: JSON.stringify({ source, files, id, new_id: newId }),
     }),
@@ -1086,7 +1087,7 @@ export const api = {
   stepSchema: () => req<StepSchema>("/builder/step-schema"),
   listBuiltSteps: () => req<BuiltStepType[]>("/builder/steps"),
   checkBuiltStep: (source: string, files: BuildFiles, id?: string, newId?: string) =>
-    req<{ ok: boolean; errors: WorkflowProblem[] }>("/builder/steps/check", {
+    req<{ ok: boolean; errors: WorkflowProblem[]; files?: BuildFiles }>("/builder/steps/check", {
       method: "POST",
       body: JSON.stringify({ source, files, id, new_id: newId }),
     }),

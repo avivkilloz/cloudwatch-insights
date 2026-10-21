@@ -180,6 +180,21 @@ backend:
       # `known_hosts`, else the host's first key is trusted).
       existingSecret: ""
 
+  # Packages for code (PLATFORM_PLAN.md §25, D141-D143): a definition's
+  # requirements.txt is locked against this index, and the runner installs
+  # the lock's wheels through the backend, which fetches them from here once
+  # (checked against the lock's hashes) and keeps them. Empty: PyPI. The
+  # backend must reach it; the runner never does.
+  #   deps:
+  #     indexUrl: https://nexus.acme.internal/repository/pypi/simple
+  deps:
+    indexUrl: ""
+    # The Python the runner runs code with: locks are made for it.
+    pythonVersion: "3.12"
+    # Room for kept wheels (an emptyDir: refetched after a restart); the
+    # least recently served go past 1500 MiB (DEPS_WHEELS_MB).
+    cacheSize: 2Gi
+
   # The blob store (PLATFORM_PLAN.md §8.2, D91): files too big for a row --
   # a workflow step's whole outputs, a run's artifacts. Postgres keeps only
   # their metadata, and every download goes through the backend's own check.
@@ -381,6 +396,11 @@ runner:
   jobMemoryMb: 512
   # Room for jobs' files (each may write 16 MiB).
   tmpSize: 256Mi
+  # Venvs for code with requirements (D144): one per lock, shared, kept until
+  # the least recently used go past sizeMb (their emptyDir is a little larger,
+  # for the one being built).
+  venvs:
+    sizeMb: 2000
 
   # Its pods may reach the backend and DNS only. `dnsLabels` select the
   # cluster's DNS pods (kube-dns / CoreDNS on most clusters).

@@ -7,7 +7,9 @@ import { useCatalogue } from "../sessions/catalogue";
 import { useStartSession } from "../sessions/start";
 import { useTemplates } from "../sessions/templates";
 import { useOpenPublishedFromMenu } from "../sessions/published";
+import { useWaitingApprovals } from "../workflowApprovals";
 import AgentWorking from "./AgentWorking";
+import Icon from "./Icon";
 import Popover from "./Popover";
 import SessionMenuItems from "./SessionMenuItems";
 
@@ -44,6 +46,7 @@ export default function SessionBar({
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
   const { groups: catalogueGroups } = useCatalogue();
+  const waiting = useWaitingApprovals();
   // Set when the current tab is being renamed in place, from the ⋮ below.
   const [renaming, setRenaming] = useState(false);
 
@@ -76,6 +79,34 @@ export default function SessionBar({
             {railOpen && <rect x="2.5" y="3.5" width="3" height="9" fill="currentColor" opacity="0.5" />}
           </svg>
         </button>
+        {/* The platform's own pages, as the hidden panel would show them: an
+            icon each, after its toggle -- with the panel hidden they were out
+            of reach but for showing it again. */}
+        {!railOpen && (
+          <>
+            <button
+              className={`session-bar-page${view === "workflows" ? " active" : ""}`}
+              data-page="workflows"
+              onClick={() => show("workflows")}
+              aria-label="Workflows"
+              title={waiting.length ? `Workflows: ${waiting.length} waiting for your approval` : "Workflows"}
+            >
+              <Icon name="workflow" />
+              {waiting.length > 0 && <span className="session-bar-page-dot" aria-hidden="true" />}
+            </button>
+            {user?.builder_enabled && (
+              <button
+                className={`session-bar-page${view === "builder" ? " active" : ""}`}
+                data-page="builder"
+                onClick={() => show("builder")}
+                aria-label="Builder"
+                title="Builder"
+              >
+                <Icon name="builder" />
+              </button>
+            )}
+          </>
+        )}
 
         <div className="session-bar-tabs">
           {sessions.length === 0 && <span className="session-bar-empty">Nothing open yet.</span>}

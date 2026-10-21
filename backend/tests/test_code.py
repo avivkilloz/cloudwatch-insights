@@ -9,9 +9,11 @@ tests monkeypatch (the HTTP sender, the AWS client) is what the calls meet."""
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -44,10 +46,13 @@ def stack():
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=backend_port, lifespan="off", log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    # Its venvs (D144) in a directory of this run's own, readable by the job's uid.
+    venvs = tempfile.mkdtemp(prefix="cwi-venvs-")
+    os.chmod(venvs, 0o755)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(runner_port),
          "--log-level", "error"],
-        cwd=RUNNER, env={**os.environ, "RUNNER_TOKEN": "test-runner"},
+        cwd=RUNNER, env={**os.environ, "RUNNER_TOKEN": "test-runner", "RUNNER_VENVS_DIR": venvs},
     )
     for _ in range(100):
         try:
@@ -59,13 +64,14 @@ def stack():
     env = {"RUNNER_URL": f"http://127.0.0.1:{runner_port}", "RUNNER_TOKEN": "test-runner",
            "RUNNER_CALLBACK_URL": f"http://127.0.0.1:{backend_port}"}
     os.environ.update(env)
-    yield env
+    yield {**env, "venvs": venvs}
     for key in env:
         os.environ.pop(key, None)
     proc.terminate()
     proc.wait(10)
     server.should_exit = True
     thread.join(10)
+    shutil.rmtree(venvs, ignore_errors=True)
 
 
 @pytest.fixture
@@ -404,3 +410,49 @@ def test_a_draft_keeps_its_files():
     assert got["files"] == FILES and got["source"] == FILED
     changed = client.put(f"/api/build-drafts/{made.json()['id']}", json={"files": {"devices.py": "x = 1\n"}})
     assert client.get(f"/api/build-drafts/{changed.json()['id']}").json()["files"] == {"devices.py": "x = 1\n"}
+
+
+# ---------------------------------------------------------------- requirements (D141-D144)
+
+
+def test_code_with_requirements_runs_with_them_installed_from_the_platforms_index(stack, monkeypatch, tmp_path):
+    """Saved, its lock's venv is built ahead (POST /venvs), from wheels the
+    backend fetched upstream and served the runner; the run uses it."""
+    from app import deps
+    from app.routers import runner as runner_router
+    from tests.wheels import Index
+
+    upstream = Index()
+    monkeypatch.setenv("DEPS_INDEX_URL", upstream.url)
+    monkeypatch.setenv("DEPS_CACHE_DIR", str(tmp_path))
+    deps._cache.clear()
+    runner_router._pages.clear()
+    try:
+        upstream.add("tinyshape", "1.0", {"tinyshape/__init__.py": "def rows(items):\n"
+                                                                   "    return sorted(items, key=lambda d: d['id'])\n"})
+        files = {"devices.py": "import tinyshape\n\n\ndef listed(inputs, ctx):\n"
+                               "    return {'rows': tinyshape.rows([{'id': 'b'}, {'id': 'a'}])}\n",
+                 "requirements.txt": "tinyshape\n"}
+        made = client.post("/api/builder/panes", json={"id": "devices", "source": FILED, "files": files})
+        assert made.status_code == 201, made.text
+        assert "tinyshape==1.0" in made.json()["files"]["requirements.lock"]
+        for _ in range(200):
+            built = [j for j in _jobs() if j.purpose == "venv:pane:devices" and j.finished_at]
+            if built:
+                break
+            time.sleep(0.1)
+        assert built and built[0].ok, built and built[0].error
+        fetched = list(upstream.fetched)
+        out = client.post("/api/panes/devices/actions/list", json={"inputs": {}})
+        assert out.status_code == 200, out.text
+        assert [r["id"] for r in out.json()["rows"]] == ["a", "b"]
+        # Built once, ahead: the run neither built nor fetched again.
+        assert len([p for p in os.listdir(stack["venvs"]) if not p.startswith(".")]) == 1
+        assert upstream.fetched == fetched
+        # Without its requirements, the same code can't import the package.
+        bare = client.post("/api/builder/preview/actions/list", json={"source": FILED, "files": {
+            "devices.py": files["devices.py"]}, "inputs": {}})
+        assert bare.status_code == 400 and "No module named 'tinyshape'" in bare.text, bare.text
+    finally:
+        upstream.close()
+        deps._cache.clear()

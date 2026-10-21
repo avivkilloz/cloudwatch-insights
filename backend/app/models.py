@@ -973,3 +973,6 @@ class RunnerJob(Base):
     duration_ms = Column(Integer, nullable=True)
     calls = Column(Integer, nullable=False, default=0, server_default="0")
     error = Column(Text, nullable=True)
+    # The requirements.lock it runs with (D143): what the platform's package
+    # index serves its token -- the wheels whose hashes this names, nothing else.
+    deps_lock = Column(Text, nullable=True)

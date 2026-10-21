@@ -557,7 +557,7 @@ cookie and the browser never sees the token; keep it that way.
 - The agent can't know a dashboard's pixel width, so `arrange_dashboard`
   leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
   first time it measures the canvas, then clears it.
-- **Two conversations.** *Global* (the panel's Global tab, the Agent page) is
+- **Two conversations.** *Global* (the panel's Global tab; its Agent page went at the user's ask) is
   about the platform and lives in memory. *Session* is one per session,
   stored in that session's state under `agentChat` (so it syncs and survives
   a reload; it's an output key, so templates leave it out). A session turn
@@ -1023,6 +1023,26 @@ it wherever a handler used to be asked for) or a step type.
   `Repo.tree`); `_legacy` items still in a flat `<name>.yaml` restore as
   before and are moved by their next write -- `_move_to_folders` queues that
   once for all of them, one commit, at `restore()`.
+- **Dependencies** (6-2, D141-D144; `deps.py`, `runner/app/venvs.py`):
+  `requirements.txt` is a file of the workspace, names only (no options,
+  URLs or paths: uv runs in the backend, so `-r /etc/passwd` or an index of
+  the writer's would be this process reading or fetching). Check, Save,
+  Preview, Try and the agent's check/propose lock it (`deps.locked`, uv
+  `pip compile --universal --generate-hashes --only-binary :all:`, cached)
+  into `requirements.lock`, whose first line hashes the requirements it came
+  from (`is_fresh`): a matching lock is never redone, a stale one doesn't
+  check. Only the platform writes the lock (the agent's `_change_files`
+  refuses it; the editor's tab is read-only); Check's reply carries `files`
+  when it locked. A job's lock goes to the runner with an index URL that is
+  this backend with the job's token as its password (`runner_client.
+  index_for`); `/api/runner/simple/` and `/files/` serve a token only the
+  wheels its job's `deps_lock` names, fetched from `DEPS_INDEX_URL` once,
+  checked against the hash, kept in `DEPS_CACHE_DIR`. The runner builds a
+  venv per lock (shared, read-only to jobs, LRU past `RUNNER_VENVS_MB`) --
+  ahead on save (`runner_client.prepare` -> `POST /venvs`, a `venv:` job
+  row), else before a run -- and a job with one runs that venv's python
+  with `-I`. Tests use `tests/wheels.py`, an index made of wheels built on
+  the spot (no PyPI); it answers HEAD, which uv's compile asks first.
 - **The runner checks itself at start** (`main.self_check`: one trivial job;
   `/health` answers 503 with the reason) -- with Helm's four capabilities a
   chmod after the chown (FOWNER), Popen's `cwd=` entered as root
@@ -1734,6 +1754,11 @@ fixed where it happens:
   scrollbar's look depend on `:hover` either: Chrome doesn't repaint it when
   the hover changes. Headless Chromium hides scrollbars in screenshots
   (`--hide-scrollbars`); launch without it to look at one.
+- **The rail's pages** (Workflows, Builder) each have a drawn icon
+  (`Icon` `workflow`/`builder`); with the rail hidden the strip shows the
+  same icons right after its toggle (`.session-bar-page`, the approvals
+  dot on Workflows). A stored view naming a page that's gone (`agent`)
+  loads as home (`SessionContext.knownView`).
 - **There is no header bar.** The brand (`components/Brand.tsx`) is the
   rail's header bar (`.rail-head`, padded like the strip so it's level with
   the tabs), or starts the strip while the rail is hidden. The account's

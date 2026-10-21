@@ -22,7 +22,9 @@ export type IconName =
   | "from-rail"
   | "home"
   | "star"
-  | "hide";
+  | "hide"
+  | "workflow"
+  | "builder";
 
 // Generated: eight teeth between radii 5.2 and 6.9 around (8, 8).
 const GEAR =
@@ -47,6 +49,10 @@ const PATHS: Record<IconName, string> = {
   home: "M2.5 7.5 L8 2.75 L13.5 7.5 M4 6.25 V13.25 H12 V6.25 M6.75 13.25 V9.5 H9.25 V13.25",
   star: "M8 2.25 L9.7 5.8 L13.5 6.3 L10.7 8.9 L11.45 12.75 L8 10.85 L4.55 12.75 L5.3 8.9 L2.5 6.3 L6.3 5.8 Z",
   // An eye, struck through: hide this from my lists.
+  // Two steps and the line from one to the next: a workflow.
+  workflow: "M2.5 2.5 H7 V6.5 H2.5 Z M9 9.5 H13.5 V13.5 H9 Z M4.75 6.5 V11.5 H9",
+  // Blocks, two set down and one on top: what you build with.
+  builder: "M2.5 9 H7 V13.5 H2.5 Z M9 9 H13.5 V13.5 H9 Z M5.75 2.5 H10.25 V7 H5.75 Z",
   hide: "M1.75 8 C3.5 5 5.6 3.75 8 3.75 C10.4 3.75 12.5 5 14.25 8 C12.5 11 10.4 12.25 8 12.25 C5.6 12.25 3.5 11 1.75 8 Z M8 6.25 A1.75 1.75 0 1 0 8 9.75 A1.75 1.75 0 1 0 8 6.25 M2.5 13.5 L13.5 2.5",
 };
 

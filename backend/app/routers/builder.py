@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, builder, models
+from .. import auth, builder, deps, models, runner_client
 from ..db import get_db
 
 router = APIRouter(prefix="/api/builder", tags=["builder"])
@@ -40,6 +40,9 @@ class PaneTypeOut(BaseModel):
 class CheckOut(BaseModel):
     ok: bool
     errors: list[dict[str, Any]]
+    # The files as checked, when locking requirements.txt changed them
+    # (requirements.lock, D141): the editor takes them.
+    files: Optional[dict[str, str]] = None
 
 
 def _builder(user: models.User = Depends(auth.get_current_user)) -> models.User:
@@ -70,6 +73,22 @@ def _found(db: Session, type_id: str) -> models.BuiltPaneType:
     if row is None:
         raise HTTPException(status_code=404, detail="There is no such pane type made here.")
     return row
+
+
+def _locked(files: dict[str, str]) -> tuple[dict[str, str], list[dict]]:
+    """The files with requirements.txt locked (D141), and what kept it from
+    being locked -- each problem with its file and line."""
+    try:
+        return deps.locked(files), []
+    except deps.DepsError as e:
+        return dict(files), e.errors
+
+
+def _locked_or_400(files: dict[str, str]) -> dict[str, str]:
+    files, errors = _locked(files)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": errors[0]["message"], "errors": errors})
+    return files
 
 
 def _guard(fn):
@@ -109,7 +128,7 @@ def get_pane(type_id: str, db: Session = Depends(get_db), _user: models.User = D
     return _out(db, _found(db, type_id))
 
 
-@router.post("/check", response_model=CheckOut)
+@router.post("/check", response_model=CheckOut, response_model_exclude_none=True)
 def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import store
 
@@ -119,11 +138,13 @@ def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = 
             type_id = store.full_id(db, payload.new_id, builder.ID_RE)
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
+    files, lock_errors = _locked(payload.files)
+    changed = files if files != payload.files else None
     try:
-        builder.preview(payload.source, type_id, user, payload.files)
+        builder.preview(payload.source, type_id, user, files)
     except builder.BuilderError as e:
-        return {"ok": False, "errors": e.errors}
-    return {"ok": True, "errors": []}
+        return {"ok": False, "errors": deps.merged(lock_errors, e.errors), "files": changed}
+    return {"ok": not lock_errors, "errors": lock_errors, "files": changed}
 
 
 class PreviewOut(BaseModel):
@@ -144,10 +165,13 @@ def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User 
             type_id = store.full_id(db, payload.new_id, builder.ID_RE)
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
+    files, lock_errors = _locked(payload.files)
     try:
-        manifest = builder.preview(payload.source, type_id, user, payload.files)
+        manifest = builder.preview(payload.source, type_id, user, files)
     except builder.BuilderError as e:
-        return {"ok": False, "errors": e.errors}
+        return {"ok": False, "errors": deps.merged(lock_errors, e.errors)}
+    if lock_errors:
+        return {"ok": False, "errors": lock_errors}
     return {"ok": True, "manifest": manifest.model_dump(by_alias=True, exclude_none=True)}
 
 
@@ -165,19 +189,24 @@ def preview_action(action_id: str, payload: PreviewRun, db: Session = Depends(ge
                    user: models.User = Depends(_builder)) -> dict[str, Any]:
     """One of the draft's actions, run as its builder; nothing stored (D112)."""
     inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
-    return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor, payload.files)
+    return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor,
+                               _locked_or_400(payload.files))
 
 
 @router.post("/panes", response_model=PaneTypeOut, status_code=201)
 def create_pane(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
-    row = _guard(lambda: builder.save(db, user, payload.id, payload.source, files=payload.files))
+    files = _locked_or_400(payload.files)
+    row = _guard(lambda: builder.save(db, user, payload.id, payload.source, files=files))
+    runner_client.prepare(user.id, files, f"pane:{row.id}")
     return _out(db, row)
 
 
 @router.put("/panes/{type_id}", response_model=PaneTypeOut)
 def update_pane(type_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     row = _found(db, type_id)
-    _guard(lambda: builder.save(db, user, None, payload.source, row, payload.files))
+    files = _locked_or_400(payload.files)
+    _guard(lambda: builder.save(db, user, None, payload.source, row, files))
+    runner_client.prepare(user.id, files, f"pane:{row.id}")
     return _out(db, row)
 
 
@@ -259,8 +288,6 @@ def _step_guard(fn):
 def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import step_types, store
 
-    from .. import runner_client
-
     return {"starter": step_types.STARTER, "chain_example": step_types.CHAIN_EXAMPLE,
             "code_example": step_types.CODE_EXAMPLE, "code_example_files": step_types.CODE_EXAMPLE_FILES,
             "runner": runner_client.configured(),
@@ -277,7 +304,7 @@ def get_step(type_id: str, db: Session = Depends(get_db), user: models.User = De
     return _step_out(db, user, _found_step(db, type_id))
 
 
-@router.post("/steps/check", response_model=CheckOut)
+@router.post("/steps/check", response_model=CheckOut, response_model_exclude_none=True)
 def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import step_types, store
 
@@ -287,12 +314,14 @@ def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.Us
             type_id = store.full_id(db, payload.new_id, step_types.ID_RE)
         except store.StoreError as e:
             return {"ok": False, "errors": [{"line": None, "message": str(e)}]}
+    files, lock_errors = _locked(payload.files)
+    changed = files if files != payload.files else None
     try:
-        definition = step_types.parse(payload.source, type_id, payload.files)
+        definition = step_types.parse(payload.source, type_id, files)
     except step_types.StepTypeError as e:
-        return {"ok": False, "errors": e.errors}
-    errors = step_types.access_errors(db, definition, user, payload.source)
-    return {"ok": not errors, "errors": errors}
+        return {"ok": False, "errors": deps.merged(lock_errors, e.errors), "files": changed}
+    errors = lock_errors + step_types.access_errors(db, definition, user, payload.source)
+    return {"ok": not errors, "errors": errors, "files": changed}
 
 
 @router.post("/steps/try")
@@ -302,7 +331,8 @@ def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.Use
     workflow, where its steps run as they will."""
     from .. import step_types
 
-    definition = _step_guard(lambda: step_types.parse(payload.source, payload.id, payload.files))
+    files = _locked_or_400(payload.files)
+    definition = _step_guard(lambda: step_types.parse(payload.source, payload.id, files))
     if definition.steps is not None:
         raise HTTPException(status_code=400, detail="A chain of steps is tried in a workflow: save it, then use it in one.")
     try:
@@ -324,7 +354,9 @@ def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.Use
 def create_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
     from .. import step_types
 
-    row = _step_guard(lambda: step_types.save(db, user, payload.id, payload.source, files=payload.files))
+    files = _locked_or_400(payload.files)
+    row = _step_guard(lambda: step_types.save(db, user, payload.id, payload.source, files=files))
+    runner_client.prepare(user.id, files, f"step:{row.id}")
     return _step_out(db, user, row)
 
 
@@ -333,7 +365,9 @@ def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db), 
     from .. import step_types
 
     row = _found_step(db, type_id)
-    _step_guard(lambda: step_types.save(db, user, None, payload.source, row, payload.files))
+    files = _locked_or_400(payload.files)
+    _step_guard(lambda: step_types.save(db, user, None, payload.source, row, files))
+    runner_client.prepare(user.id, files, f"step:{row.id}")
     return _step_out(db, user, row)
 
 

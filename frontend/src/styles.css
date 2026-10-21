@@ -891,6 +891,7 @@ button,
 }
 
 .session-bar-rail,
+.session-bar-page,
 .session-bar-add,
 .session-bar-more,
 .session-bar-agent {
@@ -912,6 +913,7 @@ button,
 }
 
 .session-bar-rail:hover,
+.session-bar-page:hover,
 .session-bar-add:hover,
 .session-bar-more:hover,
 .session-bar-agent:hover,
@@ -2356,12 +2358,6 @@ th {
 /* The page gives the conversation the viewport's height, less the strip above
    it, so the transcript scrolls inside it and the box to type in stays in
    view. */
-.agent-page-panel {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 117px);
-  min-height: 320px;
-}
 
 /* Over the right of the body rather than beside it: fixed to the window's
    right edge, 16px from it and from the bottom, while the body's scroll box
@@ -5046,3 +5042,38 @@ textarea.code-editor-text:focus {
   margin-right: 2px;
 }
 
+/* The rail's pages (Workflows, Builder) with an icon each; the same icons on
+   the strip, after the panel's toggle, while the panel is hidden. */
+.rail-row-icon .icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.session-bar-page {
+  position: relative;
+}
+.session-bar-page .icon {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.session-bar-page.active {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+.session-bar-page-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+
+/* The lock's tab says whose it is (D141): written by Check and Save. */
+.workspace-lock-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+}

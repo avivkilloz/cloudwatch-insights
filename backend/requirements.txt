@@ -13,3 +13,5 @@ mcp==1.30.0
 cryptography==50.0.2
 cel-expr-python==0.1.3
 pyyaml==6.0.3
+uv==0.11.32
+packaging==26.3

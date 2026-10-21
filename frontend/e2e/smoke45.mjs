@@ -121,15 +121,7 @@ const run = async () => {
   check((await page.locator(`.session-tab.active .session-tab-label:text-is("Base64 2")`).count()) === 1,
     "A step's Open takes you to the session it touched");
 
-  // ---------- 6. The same conversation on the Agent page ----------
-  // The dock's Global tab and the Agent page are one conversation.
-  await page.click('.rail-row-page:has-text("Agent")');
-  await page.waitForSelector(`.agent-session .agent-question:text-is("dashboard")`);
-  check((await page.locator(".agent-session .agent-turn").count()) === 5,
-    "The Agent page shows the same conversation as the dock's Global tab");
-  check((await page.locator(DOCK).count()) === 0, "…and the dock steps aside while it's on screen");
-
-  // ---------- 7. A group without the agent can't use it ----------
+  // ---------- 6. A group without the agent can't use it ----------
   const groupId = await page.evaluate(async () => {
     const g = await (
       await fetch("/api/user-groups", {

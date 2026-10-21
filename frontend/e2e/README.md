@@ -74,6 +74,17 @@ in the Builder's Steps, then used in a workflow of their own -- no
 Access section -- approved and sent) needs the faked backend (a `.fake` host;
 `/api/dev/fake-http/last` says what it was sent).
 
+`smoke105` (the rail's pages: no Agent row or page, Workflows and Builder with
+icons, the same icons on the strip while the rail is hidden, and a stored view
+of the Agent page landing home) needs nothing beyond the backend.
+
+`smoke106` (6-2, as a builder: + File's requirements.txt, locked by Check
+into a read-only requirements.lock with hashes, the preview's code importing
+the package from the runner's venv; an option line refused by its line; the
+lock gone with requirements.txt) needs the runner and the faked backend with
+`RUNNER_URL` (as smoke103), and the backend reaching a package index: PyPI
+(it locks `six==1.16.0`), or `DEPS_INDEX_URL` for a mirror.
+
 `smoke104` (6-1b, as a builder: a pane started from code is a workspace --
 pane.yaml and devices.py, + File's helpers.py imported by it and previewed;
 Check's problem by file and line, its tab marked and clicked open; the draft's

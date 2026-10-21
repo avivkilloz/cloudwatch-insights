@@ -243,3 +243,67 @@ def test_a_job_with_files_that_arent_modules_is_refused():
     assert resp.status_code == 400 and "isn't a module's file name" in resp.text
     resp = client.post("/jobs", json={"files": {"a.py": "x"}, "entry": {"file": "b.py"}}, headers=AUTH)
     assert resp.status_code == 400 and "isn't one of its files" in resp.text
+
+
+# ---------------------------------------------------------------- requirements (D143-D144)
+
+USES = "import tinydep\ndef run(inputs, ctx):\n    return {'value': tinydep.VALUE, 'where': tinydep.__file__}\n"
+
+
+@pytest.fixture
+def index(monkeypatch):
+    import tempfile
+
+    from app import venvs
+    from tests.wheels import Index
+
+    home = tempfile.mkdtemp(prefix="venvs-")
+    os.chmod(home, 0o755)  # every slot's uid reaches the venvs, as /tmp/venvs in the image
+    monkeypatch.setattr(venvs, "VENVS", __import__("pathlib").Path(home) / "venvs")
+    served = Index()
+    yield served
+    served.close()
+    shutil.rmtree(home, ignore_errors=True)
+
+
+def test_a_job_with_a_lock_runs_in_its_venv_built_once(index):
+    from app import venvs
+
+    lock = index.add("tinydep", "1.0", {"tinydep/__init__.py": "VALUE = 42\n"})
+    out = job(USES, requirements={"lock": lock, "index": index.url})
+    assert out["ok"], out
+    assert out["outputs"]["value"] == 42 and out["outputs"]["where"].startswith(str(venvs.VENVS))
+    again = job(USES, requirements={"lock": lock, "index": index.url})
+    assert again["ok"] and index.fetched == ["tinydep-1.0-py3-none-any.whl"], "built once, then kept"
+    # Without its lock, the code sees none of it -- nor the runner's own packages.
+    bare = job("def run(inputs, ctx):\n    import fastapi\n")
+    assert not bare["ok"] and "No module named 'fastapi'" in bare["error"]
+
+
+def test_a_lock_whose_hash_doesnt_match_is_never_installed(index):
+    lock = index.add("tinydep", "1.0", {"tinydep/__init__.py": "VALUE = 42\n"})
+    wrong = lock.replace(lock.split("sha256:")[1][:8], "00000000")
+    out = job(USES, requirements={"lock": wrong, "index": index.url})
+    assert not out["ok"] and out["error"].startswith("Its requirements couldn't be installed:"), out
+    assert "hash" in out["error"].lower()
+
+
+@pytest.mark.skipif(not ROOT, reason="only a root runner gives jobs a uid of their own")
+def test_a_job_cant_change_the_venv_it_runs_in(index):
+    lock = index.add("tinydep", "1.0", {"tinydep/__init__.py": "VALUE = 42\n"})
+    out = job("import tinydep\ndef run(inputs, ctx):\n    try:\n        open(tinydep.__file__, 'a').write('x')\n"
+              "        return {'wrote': True}\n    except OSError:\n        return {'wrote': False}\n",
+              requirements={"lock": lock, "index": index.url})
+    assert out["ok"] and out["outputs"] == {"wrote": False}, out
+
+
+def test_the_least_recently_used_venvs_go_past_the_limit(index, monkeypatch):
+    from app import venvs
+
+    first = index.add("tinydep", "1.0", {"tinydep/__init__.py": "VALUE = 1\n"})
+    assert job(USES, requirements={"lock": first, "index": index.url})["ok"]
+    monkeypatch.setattr(venvs, "LIMIT_BYTES", 1)
+    second = index.add("tinydep", "2.0", {"tinydep/__init__.py": "VALUE = 2\n"})
+    built = client.post("/venvs", json={"lock": second, "index": index.url}, headers=AUTH).json()
+    assert built["ok"], built
+    assert not (venvs.VENVS / venvs.key(first)).exists() and (venvs.VENVS / venvs.key(second)).exists()

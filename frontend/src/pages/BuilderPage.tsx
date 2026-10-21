@@ -433,6 +433,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     try {
       const out = await api.checkBuiltPane(source, files, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
+      if (out.files) setFiles(out.files);
       if (out.ok) setNotice("No problems found.");
       return out.ok;
     } catch (e) {
@@ -673,7 +674,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               An action may be Python: a file beside the YAML (+ File) defining <code>run(inputs, ctx)</code>, named by
               the action as <code>{"code: {file: health.py}"}</code>. Files import each other. It runs in the
               platform's runner as whoever uses the pane, reaching connections only through <code>ctx.http</code> and{" "}
-              <code>ctx.aws</code>.{" "}
+              <code>ctx.aws</code>. Packages it imports go in a requirements.txt (+ File), which Check and Save lock.{" "}
               {schema.runner ? "" : <strong className="builder-no-runner">No runner is set up here, so code is kept but doesn't run.</strong>}
             </div>
           </CardRow>

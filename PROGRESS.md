@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-21, Phase 6-1b (code in files, a folder per pane/step/workflow in the store; PLATFORM_PLAN.md §25, D136–D140)._
+_Last updated: 2026-10-21, Phase 6-2 (dependencies: requirements locked with uv, a venv per lock in the runner; PLATFORM_PLAN.md §25, D141–D144), and the rail without the Agent page._
 
 ## Platform plan
 
@@ -1298,7 +1298,38 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the runner in a cluster, and Phase 6-1b -- code in files
+**This PR: the rail's pages, and Phase 6-2 -- dependencies
+(PLATFORM_PLAN.md §25, D141–D144).** The user's asks after #140.
+- The **Agent** page and its rail row are gone (the Global chat is the agent
+  panel's tab); a browser whose stored view was that page lands home.
+  **Workflows** and **Builder** have an icon each in the rail, and while the
+  rail is hidden the same icons sit on the strip right after its toggle
+  (Workflows with its dot when approvals wait).
+- **Packages for code**: a `requirements.txt` in a pane's or a step's
+  workspace (+ File), names only. Check, Save, Preview, Try and the Building
+  agent lock it with uv into `requirements.lock` (pinned, hashed, universal,
+  wheels only; its first line names the requirements it came from, so a
+  matching lock is never redone), a read-only tab. The runner builds a venv
+  per lock -- on save, or before a run on a new pod -- shared and read-only to
+  jobs, least recently used dropped past `RUNNER_VENVS_MB`. It installs only
+  through the backend's own index (`/api/runner/simple/`), which serves a
+  job's token only the wheels its lock names, fetched from `DEPS_INDEX_URL`
+  (PyPI by default) once, checked by hash, kept: the runner still reaches
+  nothing but the backend. Helm: `backend.deps.*` (index, Python, cache
+  volume), `runner.venvs.sizeMb` (its own volume); uv in both images.
+- Tests:
+  - runner 21 (+4: a venv built once and reused, a wrong hash never
+    installed, a job can't change its venv, LRU eviction);
+  - backend `test_deps.py` (7: names only, locking and keeping a matching
+    lock, what can't be locked, the index serving only a lock's wheels, a
+    wheel whose bytes aren't its hash), `test_code.py` (+1: saved, built
+    ahead, run through the real runner and the backend's index),
+    `test_builder_loop.py` (+1: the agent writes requirements, never the
+    lock); all against an index of wheels made on the spot;
+  - browser `smoke105` (8) and `smoke106` (8, against PyPI), each failing
+    against the old frontend; smoke45 without its Agent page part.
+
+**#140 merged. The runner in a cluster, and Phase 6-1b -- code in files
 (PLATFORM_PLAN.md §25, D136–D140).** Three reports after #139.
 - In a cluster every job failed ("The runner refused the job: Internal Server
   Error"): with the chart's four capabilities, root couldn't chmod a home it
