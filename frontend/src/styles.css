@@ -5071,3 +5071,9 @@ textarea.code-editor-text:focus {
   background: var(--warn);
 }
 
+
+/* The lock's tab says whose it is (D141): written by Check and Save. */
+.workspace-lock-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+}

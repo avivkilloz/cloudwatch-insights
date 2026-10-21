@@ -70,7 +70,9 @@ def _run(args: list[str], index: str) -> None:
         "PATH": "/usr/bin:/bin",
         "HOME": str(VENVS),
         "LANG": "C.UTF-8",
-        "UV_CACHE_DIR": str(VENVS / ".uv-cache"),
+        # No cache of its own: the backend keeps the wheels, and a cache here
+        # would grow in the venvs' volume past what eviction counts.
+        "UV_NO_CACHE": "1",
         # Never a Python of uv's own download: the runner's, and only that.
         "UV_PYTHON_DOWNLOADS": "never",
         "UV_NO_CONFIG": "1",

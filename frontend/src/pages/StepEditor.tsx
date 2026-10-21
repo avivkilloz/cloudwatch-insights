@@ -131,6 +131,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     try {
       const out = await api.checkBuiltStep(source, files, isNew ? undefined : id ?? undefined, isNew ? newId.trim() || undefined : undefined);
       setProblems(out.errors);
+      if (out.files) setFiles(out.files);
       if (out.ok) setNotice("No problems found.");
       return out.ok;
     } catch (e) {

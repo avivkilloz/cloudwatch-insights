@@ -48,17 +48,23 @@ class Index:
                     self._send(200, body, "text/html")
                 elif len(parts) == 2 and parts[0] == "files":
                     found = next((d for f, d in index.wheels.values() if f == parts[1]), None)
-                    index.fetched.append(parts[1])
+                    if not getattr(self, "_head_only", False):
+                        index.fetched.append(parts[1])
                     self._send(200 if found else 404, found or b"", "application/octet-stream")
                 else:
                     self._send(404, b"", "text/plain")
+
+            def do_HEAD(self):  # noqa: N802 -- uv asks before reading a wheel's metadata
+                self._head_only = True
+                self.do_GET()
 
             def _send(self, status, body, kind):
                 self.send_response(status)
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                if not getattr(self, "_head_only", False):
+                    self.wfile.write(body)
 
             def log_message(self, *_):
                 pass

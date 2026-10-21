@@ -53,10 +53,17 @@ spec:
               value: {{ .Values.runner.concurrency | quote }}
             - name: RUNNER_MEMORY_MB
               value: {{ .Values.runner.jobMemoryMb | quote }}
+            - name: RUNNER_VENVS_DIR
+              value: /venvs
+            - name: RUNNER_VENVS_MB
+              value: {{ .Values.runner.venvs.sizeMb | quote }}
           volumeMounts:
             # Jobs' directories; the image itself is read-only.
             - name: tmp
               mountPath: /tmp
+            # A venv per requirements lock, read-only to the jobs (D144).
+            - name: venvs
+              mountPath: /venvs
           {{- with .Values.runner.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -71,4 +78,7 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.runner.tmpSize }}
+        - name: venvs
+          emptyDir:
+            sizeLimit: {{ add .Values.runner.venvs.sizeMb 1000 }}Mi
 {{- end }}

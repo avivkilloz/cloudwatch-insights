@@ -358,6 +358,18 @@ Things worth knowing:
   (512) and at most 120 s; a job waiting more than 10 s for a slot is turned
   away ("busy"), so add replicas for more. Each job is a row in
   `runner_jobs` (who, what for, how long, how it ended -- never its inputs).
+- **Packages** (a definition's `requirements.txt`): the backend locks it with
+  uv against `backend.deps.indexUrl` (PyPI when empty; a mirror such as
+  Nexus or Artifactory's PyPI proxy otherwise), so **the backend** needs to
+  reach that index -- the runner never does. A run installs its lock's wheels
+  through the backend (`/api/runner/simple/`, which serves a job only the
+  wheels its lock names, checked against their hashes and kept in an
+  `emptyDir` of `backend.deps.cacheSize`). The runner keeps a venv per lock
+  in `/venvs` (`runner.venvs.sizeMb`, least recently used dropped past it):
+  built when a definition is saved, or before the first run on a new pod.
+  Wheels only, so installing runs no package code; a package with no Linux
+  wheel can't be used. `backend.deps.pythonVersion` must be the runner
+  image's Python (3.12).
 
 To set the initial admin password explicitly (recommended), add:
 ```bash

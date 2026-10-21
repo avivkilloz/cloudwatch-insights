@@ -53,6 +53,9 @@ services:
       RUNNER_URL: http://runner:8200
       RUNNER_TOKEN: ${RUNNER_TOKEN:-dev-runner-token}
       RUNNER_CALLBACK_URL: http://backend:8000
+      # Packages for code (requirements.txt) are locked against this index
+      # and fetched from it by the backend, never the runner. Unset: PyPI.
+      # DEPS_INDEX_URL: https://your-mirror.example.com/simple
     volumes:
       - backend-files:/data/files
     ports:
