@@ -27,5 +27,13 @@ A scenario (`scenarios/*.yaml`) is a session to start from (`panes`, any
 - `answer_check: ok` -- the platform's own check of the last answer passed;
 - `answer: …` -- the answer's text, matched the same way.
 
+A build scenario (`build:` an editor's `kind`, `source` or `start` -- an
+example's -- and `files`) is judged on what reaches the editor: `proposed`
+(`checks: true`, `contains: [...]`). With `build.try_on: "{env}"` the Builder
+tries its draft there (D153), AWS answering with the scenario's `aws:`
+replies (`service`, `operation`, `reply`); `tried: true` expects the last try
+to have come back with nothing empty. A draft with code needs the runner
+(`RUNNER_URL` on the backend).
+
 `{env}` and `{env_id}` are the fake environment's name and id. Add one for
 every conversation where the agent got it wrong: that is what the set is for.

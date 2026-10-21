@@ -98,6 +98,13 @@ function describe(step: AgentStep): string {
       return step.status === "failed" ? "Checked a draft" : done ? "Checked a draft" : "Checking a draft…";
     case "preview_definition":
       return `${done ? "Tried" : "Trying"} the draft's ${String(a.action ?? "")}`;
+    case "try_definition": {
+      // Trying the draft as its user will (D153); failed: something it
+      // should show came back empty, and the loop's next step fixes it.
+      const where = a.environment ? ` on ${String(a.environment)}` : "";
+      if (step.status === "failed") return `Ran the draft${where}: something came back empty`;
+      return done ? `Ran the draft${where}` : `Running the draft${where}…`;
+    }
     case "propose_definition":
       // Refused when the draft has a problem: nothing reached the editor, and the step says so.
       if (step.status === "failed") return "Couldn't put the draft in the editor";
@@ -216,12 +223,16 @@ interface Asker {
   avatarUrl?: string | null;
 }
 
+// Past this many, a turn's choices are a dropdown.
+const MAX_CHOICE_BUTTONS = 6;
+
 function Turn({
   turn,
   mine,
   live,
   asker,
   onFix,
+  onChoose,
 }: {
   turn: AgentTurn;
   mine: boolean;
@@ -229,6 +240,8 @@ function Turn({
   asker?: Asker | null;
   /** A build turn that ended with problems left: ask for them to be fixed. */
   onFix?: () => void;
+  /** The last turn's choices, while nothing runs: a pick is the next turn. */
+  onChoose?: (option: string) => void;
 }) {
   // Turns stored before reasoning was kept apart still carry it inline.
   const legacy = splitThinking(turn.answer);
@@ -285,6 +298,31 @@ function Turn({
                 </>
               )}
             </p>
+          )}
+          {turn.choices && onChoose && turn.choices.options.length > 0 && (
+            // The environments to try a draft on (D153): the user's call,
+            // since it runs as them, against something real.
+            <div className="agent-choices" role="group" aria-label={turn.choices.prompt}>
+              <span className="muted">{turn.choices.prompt}</span>
+              {turn.choices.options.length <= MAX_CHOICE_BUTTONS ? (
+                turn.choices.options.map((option) => (
+                  <button key={option} className="secondary agent-choice" onClick={() => onChoose(option)}>
+                    {option}
+                  </button>
+                ))
+              ) : (
+                // A deployment with many environments: a wall of buttons
+                // pushed the compose box out of sight.
+                <select className="agent-choice-select" value="" onChange={(e) => e.target.value && onChoose(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {turn.choices.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           )}
           {turn.status === "stopped" && <p className="muted">Stopped.</p>}
           {turn.error && <p className="error-text">{turn.error}</p>}
@@ -516,6 +554,11 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             onFix={
               scope === "build" && t.notice && i === turns.length - 1 && !running
                 ? () => ask(`Carry on: fix what's left. ${t.notice}`, scope)
+                : undefined
+            }
+            onChoose={
+              scope === "build" && t.choices?.action === "try" && i === turns.length - 1 && !running
+                ? (option) => ask(`Try it on ${option}`, scope, undefined, { tryOn: option })
                 : undefined
             }
           />

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import functools
+import json
 import logging
 import re
 from pathlib import Path
@@ -581,6 +582,180 @@ def run_preview(db: Session, user: Any, source: str, type_id: Optional[str], act
     return panes_router.run_handler(db, user, manifest, action, inputs, cursor, draft=True)
 
 
+# ---------------------------------------------------------------- trying a draft (D153)
+#
+# A draft that checks clean can still show nothing: a column read by the
+# wrong name, a detail whose fields aren't where the template looks. Only
+# running it says so. try_draft runs the draft as its builder would in
+# Preview -- its main action with its inputs' defaults and its connections in
+# one environment they chose, then the first row's row action -- and says
+# what came back empty, plainly enough for the Builder's loop to fix.
+
+# An error that's about who's asking, not about the draft.
+_ACCESS = re.compile(r"AccessDenied|not authori[sz]ed|UnrecognizedClient|ExpiredToken|InvalidClientTokenId|"
+                     r"isn't configured|can't reach|not allowed", re.I)
+
+
+def try_environments(db: Session, user: Any, manifest: pane_manifest.Manifest) -> tuple[list[str], list[str]]:
+    """The connection types the draft's inputs need, and the environments the
+    user can reach that have a connection of each."""
+    from . import connections
+
+    needed = sorted({i.connection_type or "" for i in manifest.inputs if i.type in ("connection", "connections")})
+    if not needed:
+        return [], []
+    have: dict[str, set[str]] = {}
+    for t in connections.targets(db, user):
+        have.setdefault(t["environment"], set()).add(t["type_id"])
+    return needed, sorted(name for name, types in have.items() if set(needed) <= types)
+
+
+def _try_inputs(db: Session, user: Any, manifest: pane_manifest.Manifest, environment: str) -> dict[str, Any]:
+    from . import connections
+
+    reachable = [t for t in connections.targets(db, user) if t["environment"].lower() == environment.lower()]
+    inputs: dict[str, Any] = {}
+    for i in manifest.inputs:
+        if i.type in ("connection", "connections"):
+            found = next((t["id"] for t in reachable if t["type_id"] == i.connection_type), None)
+            if found is not None:
+                inputs[i.key] = [found] if i.type == "connections" else found
+        elif i.default not in (None, "", [], {}):
+            inputs[i.key] = i.default
+        elif i.type == "choice" and i.choices:
+            inputs[i.key] = i.choices[0]
+    return inputs
+
+
+def _shown(value: Any) -> Any:
+    text = json.dumps(value, default=str)
+    return value if len(text) <= 600 else text[:600] + "…"
+
+
+def _detail_reads(sections: Any) -> list[tuple[str, str]]:
+    """What a detail's sections read from `d`: (where, path)."""
+    reads: list[tuple[str, str]] = []
+    for n, section in enumerate(sections or []):
+        if not isinstance(section, dict):
+            continue
+        name = section.get("title") or f"section {n + 1}"
+        for key in _SECTION_PATHS:
+            if isinstance(section.get(key), str):
+                reads.append((f"{name}'s {key}", section[key]))
+        for field in section.get("fields") or []:
+            if isinstance(field, dict) and isinstance(field.get("value"), str):
+                for expr in re.findall(r"\{\{(.*?)\}\}", field["value"]):
+                    for ref in _D_REF.findall(expr):
+                        reads.append((f"{name}'s {field.get('label') or 'field'}", ref.lstrip(".")))
+    return reads
+
+
+def _has(value: Any, path: str) -> bool:
+    """Whether a detail holds something at a path: an empty list or text
+    is something (a function with no layers), a key that isn't there or a
+    null isn't."""
+    try:
+        parts = row_paths.parts(path)
+    except row_paths.PathError:
+        return False
+    for part in parts:
+        value = row_paths.step(value, part)
+        if row_paths.missing(value):
+            return False
+    return value is not None
+
+
+def try_draft(db: Session, user: Any, source: str, type_id: Optional[str], files: Optional[dict[str, str]],
+              environment: Optional[str]) -> dict[str, Any]:
+    """Runs the draft once, as `user`, in `environment`: what came back, and
+    what's wrong with it. Without an environment when one is needed, the ones
+    it could run in (`needs_environment`), for the user to choose."""
+    from fastapi import HTTPException
+
+    from .platform_tools import panes as agent_panes
+
+    manifest = preview(source, type_id, user, files)  # BuilderError: it doesn't check
+    needed, choices = try_environments(db, user, manifest)
+    if needed and not environment:
+        if not choices:
+            return {"skipped": f"No environment you can reach has a {' and a '.join(needed)} connection to try it "
+                               f"on."}
+        return {"needs_environment": True, "environments": choices}
+    if needed and environment.lower() not in {c.lower() for c in choices}:
+        return {"skipped": f"{environment} isn't an environment you can reach with a {' and a '.join(needed)} "
+                           f"connection; these are: {', '.join(choices) or 'none'}."}
+    inputs = _try_inputs(db, user, manifest, environment or "")
+    action = manifest.main_action(inputs)
+    if action is None or action.args:
+        return {"skipped": "It has no main action to try."}
+    if action.poll is not None or action.live is not None:
+        return {"skipped": f"{action.id} is a background run or worked out as you type: try it in a session."}
+    unset = pane_handlers.missing(action.requires, inputs)
+    if unset:
+        return {"skipped": f"{action.id} needs something typed in first ({unset}): try it in Preview."}
+    out: dict[str, Any] = {"environment": environment, "ran": action.id, "inputs": inputs}
+    problems: list[str] = []
+    notes: list[str] = []
+    where = f" on {environment}" if environment else ""
+    try:
+        result = run_preview(db, user, source, type_id, action.id, inputs, files=files)
+    except HTTPException as e:
+        said = f"{action.id}{where} failed: {e.detail}"
+        (notes if _ACCESS.search(str(e.detail)) else problems).append(said)
+        return {**out, "problems": problems, "notes": notes, "ok": not problems}
+    if result.get("__logs"):
+        out["code's log"] = str(result["__logs"])[-1500:]
+    if result.get("error"):
+        said = f"{action.id}{where} said: {str(result['error'])[:600]}"
+        (notes if _ACCESS.search(str(result["error"])) else problems).append(said)
+    lists = [o for o in manifest.outputs if o.render in ("table", "list") and o.key in result]
+    out["rows"] = {o.key: len(agent_panes.flatten(result.get(o.key), agent_panes._groups(manifest, o.key)))
+                   for o in lists}
+    for output in lists:
+        pairs = agent_panes.flatten(result.get(output.key), agent_panes._groups(manifest, output.key))
+        if not pairs:
+            notes.append(f"{output.key} came back with no rows{where}, so what a row shows wasn't tried.")
+            continue
+        row, group = pairs[0]
+        out.setdefault("first row", {})[output.key] = _shown(row)
+        empty = sorted(k for k, v in row.items() if v is None)
+        if empty and all(r.get(k) is None for r, _ in pairs for k in empty):
+            problems.append(f"In every {output.key} row, {', '.join(empty)} came back empty: the path its column "
+                            f"reads isn't where the reply keeps it.")
+        detail = output.config.get("detail")
+        opener = next((a for a in manifest.actions if isinstance(detail, dict) and a.id == detail.get("action")),
+                      None)
+        if opener is None:
+            continue
+        args = {name: agent_panes._arg(path, row, group) for name, path in opener.args.items()}
+        missing_args = sorted(name for name, value in args.items() if value in (None, ""))
+        if missing_args:
+            problems.append(f"Opening a {output.key} row, {opener.id} got nothing for {', '.join(missing_args)}: "
+                            f"its args read {', '.join(opener.args[n] for n in missing_args)}, and the row's "
+                            f"columns are {', '.join(row)}.")
+            continue
+        try:
+            opened = run_preview(db, user, source, type_id, opener.id, args, files=files)
+        except HTTPException as e:
+            problems.append(f"Opening the first {output.key} row ({opener.id} with {_shown(args)}) failed: "
+                            f"{e.detail}")
+            continue
+        opened = {k: v for k, v in opened.items() if not k.startswith("__")} if isinstance(opened, dict) else opened
+        out.setdefault("opened", {})[output.key] = {"action": opener.id, "args": args,
+                                                   "detail holds": sorted(opened) if isinstance(opened, dict)
+                                                   else type(opened).__name__}
+        nothing = [(place, path) for place, path in _detail_reads(detail.get("sections"))
+                   if not path.startswith(("in.", "out.")) and not _has(opened, path)]
+        if nothing:
+            keys = ", ".join(sorted(opened)) if isinstance(opened, dict) else "nothing to read"
+            problems.append(f"Opened, the first {output.key} row shows nothing for "
+                            + "; ".join(f"{place} (d.{path})" for place, path in nothing[:8])
+                            + f". The detail ({opener.id}'s answer) holds {keys}: "
+                            + json.dumps(opened, default=str)[:500])
+    out.update(problems=problems, notes=notes, ok=not problems)
+    return out
+
+
 def _bump(db: Session) -> None:
     row = db.get(models.Setting, GENERATION_KEY)
     if row is None:
@@ -1015,6 +1190,8 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "recipe is a whole working pane type whose comments say why it's built so -- read the one closest "
                 "to what's asked before writing; check_definition says every problem with its line; "
                 "preview_definition runs one of a draft's actions as the user, to see what its reply holds; "
+                "try_definition runs the draft as its user will (main action, then its first row opened) in an "
+                "environment they choose, and says what came back empty; "
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",
                 "Two requests in one pane each name their own `output`: without it, both write `rows`.",

@@ -69,6 +69,16 @@ export interface AgentTurn {
    * never sent to the agent at all. Undefined (treated as true) for every
    * turn from before this existed, and always true in the Global tab. */
   agentInvoked?: boolean;
+  /** What the answer offers to pick (D153: the environments to try a draft
+   * on); a pick is asked as the next turn. */
+  choices?: { action: "try"; prompt: string; options: string[] };
+}
+
+/** What a turn asked from a pick carries besides its words. */
+export interface AskExtra {
+  /** The environment chosen to try the draft on: tried at once, and on every
+   * later turn about that editor in this tab. */
+  tryOn?: string;
 }
 
 // The one thing that makes the agent answer in a session's chat once it has
@@ -114,7 +124,7 @@ interface AgentApi {
   /** The turn this browser is streaming, if any: its steps are live here;
    * another browser's running turn has only its question to show. */
   liveTurnId: string | null;
-  ask: (text: string, scope: AgentScope, selection?: SessionSelection) => void;
+  ask: (text: string, scope: AgentScope, selection?: SessionSelection, extra?: AskExtra) => void;
   stop: () => void;
   clear: (scope: AgentScope) => void;
   /** The session the Session tab is about: the one on screen. */
@@ -385,6 +395,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   runChatsRef.current = runChats;
   const viewingBuildRef = useRef(viewingBuild);
   viewingBuildRef.current = viewingBuild;
+  // The environment each editor's drafts are tried on (D153), once chosen:
+  // this tab's only, like the build chats' turns in flight.
+  const tryOnRef = useRef<Record<string, string>>({});
   const buildChatsRef = useRef(buildChats);
   buildChatsRef.current = buildChats;
   const followRef = useRef(follow);
@@ -504,7 +517,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   );
 
   const ask = useCallback(
-    (text: string, scope: AgentScope, selection?: SessionSelection) => {
+    (text: string, scope: AgentScope, selection?: SessionSelection, extra?: AskExtra) => {
       const question = text.trim();
       if (!question || abortRef.current) return;
       const sessionId = scope === "session" ? viewingRef.current : null;
@@ -514,6 +527,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const build = scope === "build" ? viewingBuildRef.current : null;
       if (scope === "build" && !build) return;
       const buildKey = build?.key ?? null;
+      if (buildKey && extra?.tryOn) tryOnRef.current[buildKey] = extra.tryOn;
+      const tryOn = buildKey ? tryOnRef.current[buildKey] : undefined;
 
       // Several people can share one session's conversation (the Global tab
       // never has more than one); once it's actually shared, every turn
@@ -590,6 +605,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           change((t) => ({ ...t, answer: event.chars > 0 ? t.answer.slice(0, -event.chars) : t.answer }));
         } else if (event.type === "notice") {
           change((t) => ({ ...t, notice: event.message }));
+        } else if (event.type === "choices") {
+          change((t) => ({ ...t, choices: { action: event.action, prompt: event.prompt, options: event.options } }));
         } else if (event.type === "tool_call") {
           change((t) => ({
             ...t,
@@ -642,7 +659,17 @@ export function AgentProvider({ children }: { children: ReactNode }) {
             scope,
             ...(scope === "run" ? { run_id: runId } : {}),
             ...(build
-              ? { build: { kind: build.kind, id: build.id, title: build.title, source: build.source(), files: build.files() } }
+              ? {
+                  build: {
+                    kind: build.kind,
+                    id: build.id,
+                    title: build.title,
+                    source: build.source(),
+                    files: build.files(),
+                    ...(tryOn ? { try_on: tryOn } : {}),
+                    ...(extra?.tryOn ? { try_now: true } : {}),
+                  },
+                }
               : {}),
           },
           onEvent,

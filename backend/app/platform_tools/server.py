@@ -1990,6 +1990,33 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
 
 
 @mcp.tool()
+async def try_definition(environment: Optional[str] = None, source: Optional[str] = None,
+                         definition_id: Optional[str] = None) -> dict:
+    """Tries a pane type's draft the way its user will: its main action with its inputs' defaults and its
+    connections in `environment` (an environment's name), then opens its first row as the pane would -- and says
+    what came back empty (columns, a detail's fields) and why. Without `source`, the working draft. Without an
+    environment when it needs one, answers needs_environment with the environments it could run in: ask the user
+    which to try it on. Nothing is saved or shown anywhere; it runs as the user, reads only."""
+    from fastapi import HTTPException
+
+    from .. import builder
+
+    with _acting() as (db, user, caller):
+        _may_build(user, "pane")
+        text = _source_of(db, caller, source)
+        files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
+        if lock_errors:
+            raise InputError(f"Its requirements can't be locked: {_problems(lock_errors)}")
+        try:
+            return await asyncio.to_thread(builder.try_draft, db, user, text,
+                                           definition_id or getattr(caller, "build_id", None), files, environment)
+        except builder.BuilderError as e:
+            raise InputError(f"It doesn't check yet, so it can't be tried: {_problems(e.errors)}") from None
+        except HTTPException as e:
+            raise InputError(str(e.detail)) from None
+
+
+@mcp.tool()
 async def investigate_run(run_id: int) -> dict:
     """Opens a new session holding what a workflow run found: a pane per stage that ran a pane action, with the
     inputs it ran with and its results, to look into, sort, chart or run again. Nothing runs again. Only for a run
