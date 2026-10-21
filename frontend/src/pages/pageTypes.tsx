@@ -1,5 +1,4 @@
 import { JSX } from "react";
-import AgentPage from "./AgentPage";
 import BuilderPage from "./BuilderPage";
 import WorkflowsPage from "./WorkflowsPage";
 
@@ -8,15 +7,15 @@ import WorkflowsPage from "./WorkflowsPage";
  *
  * A session is an Aggregator holding panes over AWS services and tools. These
  * are the rest of the platform: things you go to rather than open a copy of.
- * Settings is the one that already existed; the agent moved here because a
- * conversation about the whole workspace is a place, not one more thing open
- * inside it.
+ * Settings is the one that already existed. The agent's Global chat had a
+ * page here too; it's the agent panel's alone now.
  *
- * They are reached from the rail (Workflows, Builder, Agent), the agent's panel and
- * the account menu (Settings) -- no longer from cards on the default page.
+ * They are reached from the rail (Workflows, Builder) -- or the strip, while
+ * the rail is hidden -- and the account menu (Settings), no longer from cards
+ * on the default page.
  */
 
-export type PageId = "home" | "settings" | "agent" | "workflows" | "builder" | "chat" | "code";
+export type PageId = "home" | "settings" | "workflows" | "builder" | "chat" | "code";
 
 export interface PageDef {
   id: PageId;
@@ -55,17 +54,6 @@ export const PAGES: PageDef[] = [
       "Start a session over the services and tools you need, and reach the rest of the platform. A session holds " +
       "as many of them as you like, and the agent can work across all of them at once.",
     enabledFor: () => true,
-  },
-  {
-    id: "agent",
-    label: "Agent",
-    description: "Ask across the whole workspace, and have it do the work.",
-    help:
-      "Ask about anything in the platform and have it do the work, as you: it opens the sessions it needs, fills " +
-      "in and runs the searches, lays the panes out and answers from what they found. This is its global chat; " +
-      "each session also has its own, in the Session tab of the agent panel.",
-    enabledFor: () => true,
-    render: () => <AgentPage />,
   },
   {
     id: "workflows",

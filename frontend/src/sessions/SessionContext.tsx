@@ -89,6 +89,14 @@ export function migrateSessionList(list: PersistedSession[]): PersistedSession[]
   return out;
 }
 
+// The views there are, for a stored one that names a page since removed --
+// the Agent page, whose chat is the agent panel's alone now: home instead.
+const VIEWS: ReadonlySet<string> = new Set<ViewKind>(["home", "settings", "workflows", "builder", "chat", "code", "session"]);
+
+function knownView(w: Workspace): Workspace {
+  return VIEWS.has(w.view) ? w : { ...w, view: "home" };
+}
+
 function migrateSessions(w: Workspace): Workspace {
   const sessions = migrateSessionList(w.sessions);
   if (sessions.length === w.sessions.length && sessions.every((s, i) => s === w.sessions[i])) return w;
@@ -420,7 +428,7 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
       // The local copy first, so the panel is populated on the first paint
       // rather than after a round trip.
       const stored = await loadWorkspace(userId);
-      const local = migrateSessions(stored.workspace);
+      const local = knownView(migrateSessions(stored.workspace));
       const localBases = new Map(migrateSessionList(Object.values(stored.bases)).map((b) => [b.id, b]));
       if (cancelled) return;
       storedBases.current = stored.bases;

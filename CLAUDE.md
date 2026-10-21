@@ -557,7 +557,7 @@ cookie and the browser never sees the token; keep it that way.
 - The agent can't know a dashboard's pixel width, so `arrange_dashboard`
   leaves a grid `dashboardPlan` and AggregatorPage turns it into rects the
   first time it measures the canvas, then clears it.
-- **Two conversations.** *Global* (the panel's Global tab, the Agent page) is
+- **Two conversations.** *Global* (the panel's Global tab; its Agent page went at the user's ask) is
   about the platform and lives in memory. *Session* is one per session,
   stored in that session's state under `agentChat` (so it syncs and survives
   a reload; it's an output key, so templates leave it out). A session turn
@@ -1734,6 +1734,11 @@ fixed where it happens:
   scrollbar's look depend on `:hover` either: Chrome doesn't repaint it when
   the hover changes. Headless Chromium hides scrollbars in screenshots
   (`--hide-scrollbars`); launch without it to look at one.
+- **The rail's pages** (Workflows, Builder) each have a drawn icon
+  (`Icon` `workflow`/`builder`); with the rail hidden the strip shows the
+  same icons right after its toggle (`.session-bar-page`, the approvals
+  dot on Workflows). A stored view naming a page that's gone (`agent`)
+  loads as home (`SessionContext.knownView`).
 - **There is no header bar.** The brand (`components/Brand.tsx`) is the
   rail's header bar (`.rail-head`, padded like the strip so it's level with
   the tabs), or starts the strip while the rail is hidden. The account's
