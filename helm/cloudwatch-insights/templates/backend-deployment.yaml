@@ -88,6 +88,18 @@ spec:
                   key: {{ .Values.agent.serviceKey.existingSecretKey }}
             {{- end }}
             {{- end }}
+            {{- if .Values.runner.enabled }}
+            # Where code runs (PLATFORM_PLAN.md §25), and how its jobs call back.
+            - name: RUNNER_URL
+              value: "http://{{ include "cloudwatch-insights.runner.fullname" . }}:{{ .Values.runner.service.port }}"
+            - name: RUNNER_CALLBACK_URL
+              value: "http://{{ include "cloudwatch-insights.backend.fullname" . }}:{{ .Values.backend.service.port }}"
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.token.existingSecret }}
+                  key: {{ .Values.runner.token.existingSecretKey }}
+            {{- end }}
             - name: COOKIE_SECURE
               value: {{ .Values.backend.auth.cookieSecure | quote }}
             {{- if or .Values.backend.auth.existingSecret .Values.backend.auth.adminPassword }}

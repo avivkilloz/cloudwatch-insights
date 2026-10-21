@@ -108,16 +108,16 @@ function ListView({ open, initial }: { open: (s: Screen) => void; initial: What 
         <div className="credential-view-actions">
           <ViewSwitch
             views={[
-              ["pane", "Pane types"],
+              ["pane", "Panes"],
               ["workflow", "Workflows"],
-              ["step", "Step types"],
+              ["step", "Steps"],
             ] as const}
             view={what}
             onChange={setWhat}
           />
-          {what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane type</button>}
+          {what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane</button>}
           {what === "workflow" && <button onClick={() => open({ kind: "workflow", id: null })}>New workflow</button>}
-          {what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step type</button>}
+          {what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step</button>}
         </div>
       </div>
       {what === "pane" && <PaneList open={open} />}
@@ -138,7 +138,7 @@ function WorkflowList({ open }: { open: (s: Screen) => void }) {
   return (
     <>
       <p className="muted" style={{ maxWidth: "80ch" }}>
-        Steps run more than once, the same way each time: pane actions, step types, approvals -- written as a
+        Steps run more than once, the same way each time: pane actions, steps made here, approvals -- written as a
         definition. One you make is your group's to edit and run; they're run, and their runs kept, on the Workflows
         page.
       </p>
@@ -196,7 +196,7 @@ function StepList({ open }: { open: (s: Screen) => void }) {
         <table className="credentials-table builder-table">
           <thead>
             <tr>
-              <th>Step type</th>
+              <th>Step</th>
               <th>Id</th>
               <th>Is</th>
               <th>Last changed</th>
@@ -275,7 +275,7 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
   return (
     <>
       <p className="muted" style={{ maxWidth: "80ch" }}>
-        Pane types made here, written as the same definition every pane is: its inputs, the actions that fill its
+        Panes made here, written as the same definition every pane is: its inputs, the actions that fill its
         outputs -- a request to a connection, or an action the platform already has -- and how it's laid out. One you
         make is your group's to use at once; other groups get it when an admin grants it in Users → Groups → Panes.
       </p>
@@ -285,7 +285,7 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
         <table className="credentials-table builder-table">
           <thead>
             <tr>
-              <th>Pane type</th>
+              <th>Pane</th>
               <th>Id</th>
               <th>Last changed</th>
               <th />
@@ -349,7 +349,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
       if (isNew) setNewId(typedId);
     },
   });
-  const title = item?.label ?? (isNew ? "New pane type" : id ?? "");
+  const title = item?.label ?? (isNew ? "New pane" : id ?? "");
   useOfferBuild("pane", id, title, true, source, (text, summary) => {
     setSource(text);
     setProblems(null);
@@ -427,10 +427,22 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   }
 
   // The draft's actions go to the preview's endpoint with the text it was
-  // drawn from, run as the builder; nothing is stored (D112).
+  // drawn from, run as the builder; nothing is stored (D112). Code's log
+  // comes back beside its outputs (`__logs`, D134) and is shown under it.
+  const [codeLog, setCodeLog] = useState<string | null>(null);
   const runPreviewAction = useCallback<ActionRunner>(
-    (_type, action, inputs, cursor, extra) =>
-      api.builderPreviewAction(preview?.source ?? "", isNew ? undefined : id ?? undefined, action, inputs, cursor, extra?.timezone),
+    async (_type, action, inputs, cursor, extra) => {
+      const result = await api.builderPreviewAction(
+        preview?.source ?? "",
+        isNew ? undefined : id ?? undefined,
+        action,
+        inputs,
+        cursor,
+        extra?.timezone,
+      );
+      if (typeof result.__logs === "string") setCodeLog(result.__logs);
+      return result;
+    },
     [preview?.source, isNew, id],
   );
 
@@ -453,7 +465,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   }
 
   async function remove() {
-    if (!item || !confirm(`Delete the pane type "${item.label}"? Sessions holding one will show it as missing.`)) return;
+    if (!item || !confirm(`Delete the pane "${item.label}"? Sessions holding one will show it as missing.`)) return;
     try {
       await api.deleteBuiltPane(item.id);
       await reload();
@@ -465,8 +477,9 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
 
   async function startFrom(example: string) {
     if (!example) return;
-    if (example === "__starter") {
-      if (schema) setSource(schema.starter);
+    if (example === "__starter" || example === "__code") {
+      if (schema) setSource(example === "__code" ? schema.code_example : schema.starter);
+      setProblems(null);
       return;
     }
     try {
@@ -509,6 +522,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             <select id="builder-start" value="" onChange={(e) => startFrom(e.target.value)}>
               <option value="">{isNew ? "The starter below, or an example…" : "Replace with an example…"}</option>
               <option value="__starter">The starter</option>
+              <option value="__code">An action that's code</option>
               {(schema?.examples ?? []).map((x) => (
                 <option key={x} value={x}>
                   {x}
@@ -595,6 +609,12 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
                   <ManifestPane type={preview.manifest.id} manifest={preview.manifest} />
                 </div>
               </ActionRunnerContext.Provider>
+              {codeLog !== null && (
+                <div className="builder-code-log">
+                  <span className="field-label">The code's log</span>
+                  <pre className="tool-json-output">{codeLog || "(nothing logged)"}</pre>
+                </div>
+              )}
             </>
           )}
         </Section>
@@ -613,6 +633,14 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           </CardRow>
           <CardRow label="Live">
             <div className="builder-names">{schema.live.join(", ")}</div>
+          </CardRow>
+          <CardRow label="Code">
+            <div className="builder-names">
+              An action may be Python (<code>code: |</code> defining <code>run(inputs, ctx)</code>), run in the
+              platform's runner as whoever uses the pane, reaching connections only through <code>ctx.http</code> and{" "}
+              <code>ctx.aws</code>.{" "}
+              {schema.runner ? "" : <strong className="builder-no-runner">No runner is set up here, so code is kept but doesn't run.</strong>}
+            </div>
           </CardRow>
         </Section>
       )}

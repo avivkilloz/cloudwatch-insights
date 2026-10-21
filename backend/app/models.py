@@ -941,3 +941,27 @@ class BuildDraft(Base):
     chat = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+
+class RunnerJob(Base):
+    """One run of a builder's code in the runner (D131-D133): who ran it and
+    for what, and how it ended. Its token -- only its hash kept, as an agent
+    token's -- is what the code's calls back to the platform carry; it acts
+    as `user_id`, may change something only when `may_change` (an approved
+    step), and dies when the job finishes or at `expires_at`."""
+
+    __tablename__ = "runner_jobs"
+
+    id = Column(Integer, primary_key=True)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # What it ran for: "pane:<type>/<action>", "step:<id>", "preview:<type>/<action>", "try:<id>".
+    purpose = Column(String(300), nullable=False)
+    may_change = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    ok = Column(Boolean, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    calls = Column(Integer, nullable=False, default=0, server_default="0")
+    error = Column(Text, nullable=True)

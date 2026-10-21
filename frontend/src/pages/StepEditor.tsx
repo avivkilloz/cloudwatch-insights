@@ -30,7 +30,9 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [tried, setTried] = useState<{ status: number; response: unknown; rows?: Record<string, unknown>[] } | null>(null);
+  const [tried, setTried] = useState<{ status: number; response: unknown; rows?: Record<string, unknown>[]; logs?: string } | null>(
+    null,
+  );
   const editable = isNew || !!item?.can_edit;
   // Kept as it's typed, with the Building chat (D125).
   const base = isNew ? schema?.starter ?? null : item?.can_edit ? item.source : null;
@@ -46,7 +48,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
       if (isNew) setNewId(typedId);
     },
   });
-  useOfferBuild("step", id, item?.label ?? (isNew ? "New step type" : id ?? ""), editable, source, (text, summary) => {
+  useOfferBuild("step", id, item?.label ?? (isNew ? "New step" : id ?? ""), editable, source, (text, summary) => {
     setSource(text);
     setProblems(null);
     setError(null);
@@ -93,13 +95,14 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   }, [id, isNew]);
 
   // The draft as the Try form reads it: its inputs, and whether it's a
-  // request (a chain is tried in a workflow) that changes something.
+  // request or code (a chain is tried in a workflow) that changes something.
   const draft = useMemo(() => {
     const { doc, errors } = parse(source);
     if (errors.length) return null;
     const inputs = (read(doc, ["inputs"]) as WorkflowParam[] | undefined) ?? [];
-    const method = String(read(doc, ["request", "method"]) ?? "GET").toUpperCase();
-    return { inputs: Array.isArray(inputs) ? inputs : [], request: read(doc, ["request"]) !== undefined, method };
+    const code = read(doc, ["code"]) !== undefined;
+    const method = code ? (read(doc, ["changes"]) === true ? "CHANGES" : "GET") : String(read(doc, ["request", "method"]) ?? "GET").toUpperCase();
+    return { inputs: Array.isArray(inputs) ? inputs : [], request: read(doc, ["request"]) !== undefined || code, code, method };
   }, [source]);
 
   async function check(): Promise<boolean> {
@@ -134,7 +137,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
   }
 
   async function remove() {
-    if (!item || !confirm(`Delete the step type "${item.label}"?`)) return;
+    if (!item || !confirm(`Delete the step "${item.label}"?`)) return;
     try {
       await api.deleteBuiltStep(item.id);
       back();
@@ -145,7 +148,8 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
 
   async function tryIt() {
     if (!draft) return;
-    if (draft.method !== "GET" && !confirm(`This sends a ${draft.method} for real, as you. Send it?`)) return;
+    const asked = draft.code ? "This code changes something, for real, as you. Run it?" : `This sends a ${draft.method} for real, as you. Send it?`;
+    if (draft.method !== "GET" && !confirm(asked)) return;
     setError(null);
     setTried(null);
     setBusy(true);
@@ -160,7 +164,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
 
   return (
     <div className="panel credential-view builder-view step-view">
-      <ViewHead back={back} title={isNew ? "New step type" : item?.label ?? id ?? ""}>
+      <ViewHead back={back} title={isNew ? "New step" : item?.label ?? id ?? ""}>
         {!isNew && item?.can_edit && (
           <button className="danger" onClick={remove}>
             Delete
@@ -185,13 +189,17 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
                 id="step-start"
                 value=""
                 onChange={(e) => {
-                  if (e.target.value) setSource(e.target.value === "chain" ? schema.chain_example : schema.starter);
+                  if (e.target.value) {
+                    const start = { chain: schema.chain_example, code: schema.code_example }[e.target.value as "chain" | "code"];
+                    setSource(start ?? schema.starter);
+                  }
                   setProblems(null);
                 }}
               >
                 <option value="">{isNew ? "The request below, or…" : "Replace with…"}</option>
                 <option value="request">A request</option>
                 <option value="chain">A chain of steps</option>
+                <option value="code">Code</option>
               </select>
             </CardRow>
           )}
@@ -240,7 +248,9 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
           {draft?.request ? (
             <>
               <p className="muted" style={{ marginTop: 0 }}>
-                Sends the draft once, as you, with these inputs{draft.method !== "GET" ? " -- for real: it changes something" : ""}.
+                {draft.code ? "Runs the draft's code once, in the runner, as you" : "Sends the draft once, as you"}, with these
+                inputs{draft.method !== "GET" ? " -- for real: it changes something" : ""}.
+                {draft.code && schema && !schema.runner ? " No runner is set up here, so code can't run." : ""}
               </p>
               <ParamFields
                 workflowId=""
@@ -251,13 +261,19 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               />
               <div className="row credential-view-foot">
                 <button className="secondary" onClick={tryIt} disabled={busy}>
-                  {draft.method === "GET" ? "Try it" : `Send ${draft.method}`}
+                  {draft.method === "GET" ? "Try it" : draft.code ? "Run it" : `Send ${draft.method}`}
                 </button>
               </div>
               {tried && (
                 <div className="step-tried">
-                  <p className="muted">HTTP {tried.status}{tried.rows ? ` · ${tried.rows.length} row(s)` : ""}</p>
+                  <p className="muted">{draft.code ? "What it returned" : `HTTP ${tried.status}`}{tried.rows ? ` · ${tried.rows.length} row(s)` : ""}</p>
                   <pre className="workflow-json">{JSON.stringify(tried.rows ?? tried.response, null, 2)}</pre>
+                  {tried.logs ? (
+                    <>
+                      <span className="field-label">The code's log</span>
+                      <pre className="workflow-json step-tried-log">{tried.logs}</pre>
+                    </>
+                  ) : null}
                 </div>
               )}
             </>

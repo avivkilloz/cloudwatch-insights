@@ -5,10 +5,14 @@ on:
     branches: ["**"]
     paths:
       - "backend/**"
+      # tests/test_code.py runs the runner's code beside the backend.
+      - "runner/**"
       - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
       - "backend/**"
+      # tests/test_code.py runs the runner's code beside the backend.
+      - "runner/**"
       - ".github/workflows/backend-ci.yml"
   workflow_dispatch: {}
 

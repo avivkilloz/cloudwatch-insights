@@ -4953,3 +4953,15 @@ textarea.code-editor-text:focus {
 .agent-question-row > .avatar {
   flex: none;
 }
+
+/* A builder's code (D134): its log under the preview, and a note when no runner is set up. */
+.builder-code-log {
+  margin-top: 10px;
+}
+.builder-code-log pre {
+  max-height: 200px;
+  overflow: auto;
+}
+.builder-no-runner {
+  color: var(--error);
+}

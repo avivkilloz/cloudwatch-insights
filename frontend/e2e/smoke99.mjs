@@ -54,7 +54,7 @@ const run = async () => {
   try {
     // ---- 1. asked beside the editor
     await page.click('.rail-row-page:has-text("Builder")');
-    await page.click('.builder-list button:text-is("New pane type")');
+    await page.click('.builder-list button:text-is("New pane")');
     await page.waitForSelector("#builder-source");
     await page.selectOption("#builder-start", "iot");
     await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("searchMode"));

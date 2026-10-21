@@ -59,8 +59,8 @@ const run = async () => {
 
     // ---- 1. a step type, checked, tried and created
     await page.click('.rail-row-page:has-text("Builder")');
-    await page.click('.builder-list .segmented button:text-is("Step types")');
-    await page.click('.builder-list button:text-is("New step type")');
+    await page.click('.builder-list .segmented button:text-is("Steps")');
+    await page.click('.builder-list button:text-is("New step")');
     await page.waitForFunction(() => document.querySelector("#step-source")?.value.includes("label: Post a message"));
     check(true, "A new step type starts from a working request");
     await page.fill("#step-id", STEP);

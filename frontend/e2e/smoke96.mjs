@@ -117,7 +117,7 @@ const run = async () => {
     await signIn(page, { username: USER, password: "pw-123456" });
     await clearWorkspace(page);
     await page.click('.rail-row-page:has-text("Builder")');
-    await page.click('.builder-list button:text-is("New pane type")');
+    await page.click('.builder-list button:text-is("New pane")');
     await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label:"));
 
     // ---- 1. the draft, drawn and run

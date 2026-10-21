@@ -35,6 +35,7 @@ from .routers import (
     environments,
     live_sessions,
     panes,
+    runner as runner_router,
     saved_inputs,
     saved_sessions,
     session_categories,
@@ -172,6 +173,7 @@ app.include_router(store_router.router)
 app.include_router(templates_router.router)
 app.include_router(builder_router.router)
 app.include_router(build_drafts_router.router)
+app.include_router(runner_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)

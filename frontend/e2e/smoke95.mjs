@@ -83,7 +83,7 @@ const run = async () => {
   try {
     // ---- 1. written in the Builder, checked
     await page.click('.rail-row-page:has-text("Builder")');
-    await page.click('.builder-list button:text-is("New pane type")');
+    await page.click('.builder-list button:text-is("New pane")');
     await page.waitForSelector("#builder-source");
     await page.fill("#builder-id", NAME);
     const ns = (await api(page, "GET", "/builder/schema")).body.namespace;

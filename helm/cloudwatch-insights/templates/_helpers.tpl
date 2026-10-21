@@ -150,3 +150,12 @@ Name of the ServiceAccount used by the backend pod (IRSA binds to this).
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "cloudwatch-insights.runner.fullname" -}}
+{{ include "cloudwatch-insights.fullname" . }}-runner
+{{- end }}
+
+{{- define "cloudwatch-insights.runner.selectorLabels" -}}
+{{ include "cloudwatch-insights.selectorLabels" . }}
+app.kubernetes.io/component: runner
+{{- end }}

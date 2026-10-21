@@ -373,12 +373,12 @@ def _check_action(step: Step) -> list[tuple[tuple, str]]:
         return [(("pane",), f"Step {step.id}: there is no pane type '{step.pane}'.")]
     action = next((a for a in manifest.actions if a.id == step.action), None)
     if action is None:
-        known = ", ".join(a.id for a in manifest.actions if a.request is not None or a.handler)
+        known = ", ".join(a.id for a in manifest.actions if a.request is not None or a.served)
         return [(("action",), f"Step {step.id}: {manifest.label} has no action '{step.action}' (it has: {known or 'none'}).")]
     out: list[tuple[tuple, str]] = []
     # A background run is waited for (D87); one reaching outside the platform
     # waits for a person first (D88) -- `_gate` -- so neither is refused.
-    if action.request is None and not action.handler:
+    if action.request is None and not action.served:
         out.append((("action",), f"Step {step.id}: {manifest.label}'s {action.id} runs in the browser, not on the server."))
     if step.listen is not None and not _stream(action):
         out.append((("listen",), f"Step {step.id}: {manifest.label}'s {action.id} finishes by itself; listen is for a connection that doesn't."))
@@ -1438,6 +1438,15 @@ def _run_step_type(db: Session, run: models.WorkflowRun, user: models.User, step
             return _call(user.id, lambda d, u: step_types.send(d, u, defined, inputs), step.timeout or CALL_TIMEOUT)
 
         return inputs, _with_retries(db, run, step, record, attempt)
+    if defined.code is not None:
+        # In the runner, as the starter (D134); one that changes something got
+        # here only through `_gate`'s approval, so its calls may.
+        def attempt() -> dict:
+            return _call(user.id, lambda d, u: step_types.run_code(
+                d, u, defined, inputs, f"step:{step.step}", may_change=defined.changes), step.timeout or CALL_TIMEOUT)
+
+        result = _with_retries(db, run, step, record, attempt) or {}
+        return inputs, {k: v for k, v in result.items() if not k.startswith("__")}
     inner: dict[str, Any] = {"inputs": inputs, "steps": {}, "item": None, "index": None, "run": scope.get("run")}
     for each in defined.steps or []:
         if _cancelled(db, run):
@@ -1762,6 +1771,13 @@ def _clean_once() -> None:
         blobs.clean(db)
     except blobs.BlobError:
         log.warning("Workflows: cleaning up the blob store failed", exc_info=True)
+    finally:
+        db.close()
+    db = SessionLocal()
+    try:
+        from . import runner_client
+
+        runner_client.prune(db)
     finally:
         db.close()
 

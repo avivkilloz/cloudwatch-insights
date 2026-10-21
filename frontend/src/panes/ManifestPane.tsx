@@ -53,6 +53,7 @@ import {
   ManifestOutput,
   ManifestView,
   PaneManifest,
+  served,
   textOf,
   When,
 } from "./manifest";
@@ -423,7 +424,7 @@ function Rendered({ m }: { m: PaneManifest }) {
     const current = opts.inputs ?? inputs;
     const sent = plain(current) as Values;
     const loadMore = opts.cursor !== undefined && opts.cursor !== null;
-    if (action.handler) {
+    if (served(action)) {
       const message = missingInput(action, current);
       if (message) {
         setErrors((prev) => ({ ...prev, [action.id]: message }));
@@ -465,7 +466,7 @@ function Rendered({ m }: { m: PaneManifest }) {
           setOutput("ranAt", Date.now());
           setOutput("resultsVersion", (v: unknown) => (Number(v) || 0) + 1);
         }
-      } else if (action.handler) {
+      } else if (served(action)) {
         const loader = isLoader(m, action);
         if (!loadMore) for (const ref of action.resets ?? []) clear(ref);
         if (loader) setOptions((prev) => ({ ...prev, [action.id]: undefined }));

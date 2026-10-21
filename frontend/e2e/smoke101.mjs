@@ -128,7 +128,7 @@ const run = async () => {
 
     // ---- 1. a new pane type, kept as it's typed, chat and all
     await toBuilder(page);
-    await page.click('.builder-list button:text-is("New pane type")');
+    await page.click('.builder-list button:text-is("New pane")');
     await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label:"));
     check((await page.locator(".builder-draft-status").count()) === 0, "Opening the starter keeps nothing yet");
     await page.fill("#builder-id", PANE);

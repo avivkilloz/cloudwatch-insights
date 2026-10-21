@@ -1,0 +1,44 @@
+{{- if and .Values.runner.enabled .Values.runner.networkPolicy.enabled }}
+# Code reaches the world only through the platform (PLATFORM_PLAN.md D133):
+# the runner's pods may talk to the backend (a job's ctx.http and ctx.aws,
+# made there as its user) and DNS, nothing else -- not AWS, not the database,
+# not the agent, not the internet. And only the backend may start a job.
+# Enforced only where the cluster's network plugin enforces NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cloudwatch-insights.runner.fullname" . }}
+  labels:
+    {{- include "cloudwatch-insights.runner.selectorLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cloudwatch-insights.runner.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "cloudwatch-insights.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 8000
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.runner.networkPolicy.dnsLabels | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
