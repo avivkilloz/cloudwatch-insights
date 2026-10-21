@@ -1,0 +1,68 @@
+# Recipe: a pane with modes -- one button whose action depends on a choice input.
+#
+# - One action per mode, each `main: {input: mode, equals: <mode>}`: the pane's
+#   Run, refresh, the agent's run_pane and Enter all pick the action whose
+#   condition holds. Actions have no `when`; the layout's items do.
+# - Each request names its own `output`, so running one replaces only its
+#   rows (and `error`), never the other mode's.
+# - The mode input `resets` both outputs: switching mode starts clean.
+label: Lambda, functions or layers
+description: Lambda functions or layers in each environment, by mode.
+category: Services
+inputs:
+  - key: mode
+    type: choice
+    label: Show
+    choices: [functions, layers]
+    choice_labels: {functions: Functions, layers: Layers}
+    default: functions
+    resets: [out.functions, out.layers]
+  - key: connections
+    type: connections
+    connection_type: aws
+    label: Environments
+actions:
+  - id: list_functions
+    main: {input: mode, equals: functions}
+    run_label: List functions
+    request:
+      connection: connections
+      service: lambda
+      operation: ListFunctions
+      paginate: true
+      output: functions
+      rows:
+        at: Functions
+        columns: {Name: FunctionName, Runtime: Runtime}
+  - id: list_layers
+    main: {input: mode, equals: layers}
+    run_label: List layers
+    request:
+      connection: connections
+      service: lambda
+      operation: ListLayers
+      paginate: true
+      output: layers
+      rows:
+        at: Layers
+        columns: {Layer: LayerName, Version: {from: LatestMatchingVersion.Version, as: number}}
+outputs:
+  - {key: functions, render: table, actions: [select, copy, export]}
+  - {key: layers, render: table, actions: [select, copy, export]}
+  - {key: error, render: error}
+layout:
+  - title: Lambda
+    clear: [functions, layers]
+    items:
+      - input: mode
+      - input: connections
+      - toolbar:
+          - action: list_functions
+            when: {input: mode, equals: functions}
+          - action: list_layers
+            when: {input: mode, equals: layers}
+      - output: error
+      - output: functions
+        when: {input: mode, equals: functions}
+      - output: layers
+        when: {input: mode, equals: layers}

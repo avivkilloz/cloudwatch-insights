@@ -1,0 +1,66 @@
+# Recipe: a table from an HTTP API connection, with parameters from inputs.
+#
+# - The connection input's `connection_type` is an HTTP type made in
+#   Settings → Environments → Types (http_api is built in): the base URL is
+#   the connection's, the request's `fixed_path` goes after it, and the
+#   group's identity on that connection is added for you.
+# - `params` are query parameters: a literal, or `{input: key}` (left out
+#   while the input is empty).
+# - `rows` picks the list (`at`) and names the columns, each a path in an
+#   item, typed with `as` so they sort and export as numbers and times.
+# - `submit` on the search box runs the main action on Enter.
+label: Orders
+description: Orders from an HTTP API, filtered by status and a search.
+category: Services
+inputs:
+  - key: connection
+    type: connection
+    connection_type: http_api
+    label: API
+  - key: status
+    type: choice
+    label: Status
+    choices: [open, shipped, cancelled]
+    default: open
+  - key: search
+    type: text
+    label: Search
+    placeholder: customer or order number
+    default: ""
+    submit: list
+actions:
+  - id: list
+    main: true
+    run_label: List
+    request:
+      connection: connection
+      fixed_path: /orders
+      params:
+        status: {input: status}
+        q: {input: search}
+        limit: 200
+      rows:
+        at: data.items
+        columns:
+          Order: id
+          Customer: customer.name
+          Total: {from: total, as: number}
+          Placed: {from: created_at, as: time}
+outputs:
+  - key: rows
+    render: table
+    actions: [select, copy, export, attach]
+  - key: error
+    render: error
+layout:
+  - title: Orders
+    clear: [rows]
+    items:
+      - input: connection
+      - row:
+          - input: status
+          - input: search
+      - toolbar:
+          - action: list
+      - output: error
+      - output: rows

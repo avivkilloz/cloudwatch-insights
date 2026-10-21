@@ -128,7 +128,8 @@ First, decide. Reply with:
 }}
 `lookups`: the AWS operations whose params and reply you need to write requests (at most {lookups}; an \
 operation left out lists the service's read operations). `examples`: existing definitions whose YAML to read \
-first, from the reference's examples (at most {examples}). Both [] when you need none.
+first, from the reference's examples, or recipes (recipe:<name>: whole working panes, their comments saying why \
+they're built so -- read the one closest to what's asked) (at most {examples}). Both [] when you need none.
 """
 
 CHANGES = """\

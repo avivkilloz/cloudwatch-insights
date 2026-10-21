@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import functools
 import logging
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 import yaml
@@ -466,6 +468,30 @@ def example_source(type_id: str) -> str:
     label = pane_manifest.bundled()[type_id].label
     head = f"# Started from {label}: its id, flag and connection types left out -- a built pane has none of its own.\n"
     return head + "\n".join(out).strip("\n") + "\n"
+
+
+# ---------------------------------------------------------------- recipes (D152)
+#
+# Whole pane types that check clean and run (tests/test_recipes.py), each
+# showing one way of building something a request alone can't say plainly:
+# rows that open, columns that need a call per row, modes, an HTTP API. A
+# folder in panes/recipes: pane.yaml, whose first line is `# Recipe: what it
+# shows` and whose comments say why it's built so, and its files. The
+# reference lists them by name; read_definition("recipe:<name>") reads one.
+
+RECIPES_DIR = Path(__file__).parent / "panes" / "recipes"
+RECIPE_PREFIX = "recipe:"
+
+
+@functools.lru_cache(maxsize=1)
+def recipes() -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for folder in sorted(p for p in RECIPES_DIR.iterdir() if p.is_dir() and (p / "pane.yaml").exists()):
+        source = (folder / "pane.yaml").read_text()
+        first = source.splitlines()[0] if source else ""
+        files = {f.name: f.read_text() for f in sorted(folder.iterdir()) if f.is_file() and f.name != "pane.yaml"}
+        out[folder.name] = {"about": first.removeprefix("# Recipe:").strip(), "source": source, "files": files}
+    return out
 
 
 # ---------------------------------------------------------------- which handlers a builder may name (D113)
@@ -977,6 +1003,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "handlers": sorted(usable_handlers(user)),
             "live_functions": sorted(pane_live.FUNCTIONS),
             "examples": sorted(m.bundled()),
+            "recipes": {RECIPE_PREFIX + name: r["about"] for name, r in recipes().items()},
             "built_here": sorted(set(m.manifests()) - set(m.bundled())),
             "rules": [
                 "Leave out id (the editor's Id field, or the saved type's), state and rendered (set for you); "
@@ -984,7 +1011,9 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "An action is a request (a GET to a connection of an HTTP type, or with `service` any AWS read "
                 "API on an AWS connection), a handler from `handlers`, or a live function from `live_functions`. "
                 "A pane for an AWS service no handler covers is an AWS request: never say it can't be built.",
-                "read_definition shows any example's YAML; check_definition says every problem with its line; "
+                "read_definition shows any example's YAML, and any recipe's with its files (recipe:<name>): a "
+                "recipe is a whole working pane type whose comments say why it's built so -- read the one closest "
+                "to what's asked before writing; check_definition says every problem with its line; "
                 "preview_definition runs one of a draft's actions as the user, to see what its reply holds; "
                 "describe_aws_operation says what an AWS operation takes and answers (where its lists are, their "
                 "fields), with no call.",

@@ -1593,12 +1593,17 @@ async def build_reference(kind: str) -> dict:
 
 @mcp.tool()
 async def read_definition(kind: str, definition_id: str) -> dict:
-    """The YAML of an existing pane type (bundled or built here), workflow or step type, as written -- to learn
-    from or to start a change from."""
+    """The YAML of an existing pane type (bundled or built here), a recipe (recipe:<name>, with its files),
+    workflow or step type, as written -- to learn from or to start a change from."""
     from .. import builder, workflows
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
+        if kind == "pane" and definition_id.startswith(builder.RECIPE_PREFIX):
+            recipe = builder.recipes().get(definition_id.removeprefix(builder.RECIPE_PREFIX))
+            if recipe is None:
+                raise InputError(f"There is no recipe {definition_id}; build_reference lists the recipes.")
+            return {"kind": kind, "id": definition_id, "source": recipe["source"], "files": recipe["files"]}
         if kind == "pane":
             row = db.get(models.BuiltPaneType, definition_id)
             if row is not None:
