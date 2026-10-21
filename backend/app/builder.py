@@ -710,13 +710,19 @@ def schema(user: Any = None) -> dict[str, Any]:
 
 
 def _fields(model: Any) -> dict[str, str]:
-    """A model's fields and their types, as one line each: the reference a
-    model reads, shorter than its JSON schema and from the same source."""
+    """A model's fields, their types and what each means, as one line each:
+    the reference a model reads, shorter than its JSON schema and from the
+    same source -- the meaning from `panes/manifest_docs.py` (D151), where a
+    test holds every field to having one."""
+    from .panes import manifest_docs
+
     out: dict[str, str] = {}
     for name, field in model.model_fields.items():
         annotation = str(field.annotation).replace("typing.", "").replace("app.panes.manifest.", "")
         annotation = annotation.replace("app.workflows.", "").replace("<class '", "").replace("'>", "")
-        out[field.alias or name] = annotation + (" (required)" if field.is_required() else "")
+        key = field.alias or name
+        meaning = manifest_docs.describe(model.__name__, key)
+        out[key] = annotation + (" (required)" if field.is_required() else "") + (f" -- {meaning}" if meaning else "")
     return out
 
 
@@ -908,6 +914,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
     examples (D72: no per-service hints; the schema, examples and the check's
     errors are enough to build anything)."""
     from . import pane_access, step_types, workflows
+    from .panes import manifest_docs
 
     if kind == "pane":
         m = pane_manifest
@@ -965,8 +972,8 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
             "layout_item": _fields(m.LayoutItem),
             "when": {**_fields(m.When), "what": "a layout item shown only when it holds; an action's `main` may be "
                                                "one, on an input"},
-            "input_types": list(m.InputType.__args__),
-            "renders": list(m.Render.__args__),
+            "input_types": {t: manifest_docs.INPUT_TYPES.get(t, "") for t in m.InputType.__args__},
+            "renders": {r: manifest_docs.RENDERS.get(r, "") for r in m.Render.__args__},
             "handlers": sorted(usable_handlers(user)),
             "live_functions": sorted(pane_live.FUNCTIONS),
             "examples": sorted(m.bundled()),
