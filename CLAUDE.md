@@ -955,7 +955,10 @@ the platform, for a group with `builder_enabled` (admins always).
   `change_definition` (`_code_to_files`, D149; only code that change wrote);
   the loop names the files before the draft, says when a problem survived
   the round meant to fix it (D150, 6 rounds by default), and a turn left
-  with problems offers **Fix what's left** (`AgentChat`'s `onFix`).
+  with problems offers **Fix what's left** (`AgentChat`'s `onFix`). Its
+  replies may run to 16000 tokens unless `AGENT_BUILDER_MAX_TOKENS` says
+  otherwise (0: send none) -- left to the provider, a reasoning model's
+  thinking plus a set of changes was cut off mid-JSON.
 - **The editor's tabs and Preview** (`Workspace.tsx`, `BuilderPage.tsx`): a
   file is added from a "+" that's the last tab (`.workspace-add`, named in a
   tab of its own; Esc or empty cancels), and the Preview card is there only

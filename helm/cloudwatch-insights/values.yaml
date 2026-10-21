@@ -312,7 +312,9 @@ agent:
   # -- with the model asked only for one JSON object at a time; `agent` is the
   # chat agent with build tools, as before. Building is where a stronger model
   # pays for itself: `model` empty means agent.model. `maxTokens` caps one
-  # reply (a whole set of changes); empty for the model's own.
+  # reply -- a reasoning model's thinking and then a whole set of changes, so
+  # it's generous: empty means 16000; 0 sends none (the provider's own
+  # default, a few thousand tokens on some, which cut replies off mid-JSON).
   builder:
     mode: loop
     model: ""

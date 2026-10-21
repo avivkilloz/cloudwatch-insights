@@ -108,7 +108,7 @@ Builder's own (agent.builder.deployment) are the same image, configured alike. *
 - name: AGENT_BUILDER_TEMPERATURE
   value: {{ .Values.agent.builder.temperature | quote }}
 {{- end }}
-{{- if .Values.agent.builder.maxTokens }}
+{{- if ne (toString .Values.agent.builder.maxTokens) "" }}
 - name: AGENT_BUILDER_MAX_TOKENS
   value: {{ .Values.agent.builder.maxTokens | quote }}
 {{- end }}
