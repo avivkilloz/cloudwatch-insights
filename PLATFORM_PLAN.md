@@ -1310,6 +1310,10 @@ None open as of 2026-10-08 (§15.11's two became D43 and D44). New ones go here.
 | D138 | 2026-10-21 | **A job gets all of its folder's files**, read-only in a directory of its own on its path, the entry imported as a module, so files import each other; module names may not shadow the standard library or the SDK. | Helpers shared across a pane's actions without copying; read-only because a job writes only to its own home. |
 | D139 | 2026-10-21 | **The Builder's agent writes files as files**: `{"op": "file", "name", "text"}` (whole, or empty to remove) and `{"op": "lines", "file", …}`, the files shown to it numbered beside the YAML; a multi-line string it sets in YAML is written as a `|` block. | The quoted one-line program was the change-by-path writer's doing; a model reads and edits numbered lines of a file the way it does the YAML's. |
 | D140 | 2026-10-21 | **The store keeps a folder per item** (`panes/<name>/pane.yaml` + files), its version the folder's git tree; the old flat layout restores, and is moved once, in one commit. | The plugin format follows what's built (a pane with its code is one folder to copy); a tree hash keeps "edited in the repo since" exact across several files. |
+| D141 | 2026-10-21 | **Dependencies are a file of the workspace**: `requirements.txt` beside the code, locked into `requirements.lock` by Check and Save. | One text in every editor and the store, as the code is (D136); pip's own format, so nothing new to learn or document. |
+| D142 | 2026-10-21 | **The lock is uv's `--universal --generate-hashes`, wheels only**, and names the requirements it came from. | Exact versions and hashes are what makes a run repeatable; universal so a plugin's lock holds on any runner; wheels only so installing runs no package code. |
+| D143 | 2026-10-21 | **Packages reach the runner only through the backend's index**, which serves a job only the wheels its lock's hashes name, fetched from `DEPS_INDEX_URL` once and kept. | Keeps D133: the runner's NetworkPolicy still allows only the backend, and a job can't turn the index into a way out. |
+| D144 | 2026-10-21 | **A venv per lock in the runner**, built at save (and before a run that finds none), shared, read-only to jobs, the least recently used dropped past a size. | Seconds with uv, and never in a job's own time; one lock, one venv, however many definitions name it. |
 | D109 | 2026-10-19 | **A catalogue category carries its own description**, given and edited by an admin with its name; never set, the default for its key applies (the bundled Services/Tools/Platform lines, which the browser used to hard-code); `""` is "none". | A category an admin made (Observability) was the only one without a line, its heading sitting on its panes; descriptions as data reach a plugin's categories too. |
 | D106 | 2026-10-19 | **Replicas follow a save by a generation** (`builder.generation`, a Settings row bumped in the save's transaction), checked every 5 s; the saving replica loads at once. | No new broadcast to build; a few seconds' lag on another replica is fine for a definition. |
 | D93 | 2026-10-17 | **The platform's own pages (Workflows; later Dashboards, Chat) sit at the top of the rail, above Sessions; the Workflows row shows how many approvals wait for you** (§22.8). | The user's call: a page of the platform isn't something found under Add. |
@@ -4813,7 +4817,7 @@ Three PRs (D104), each with something to try:
   Clear the agent can add (a card's `clear`, changes by line); pictures in a
   shared session.
 
-## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D140; 6-1 and 6-1b built)
+## 25. Phase 6 in detail: the runner and code (planned 2026-10-21, D130–D144; 6-1, 6-1b and 6-2 built)
 
 Everything built so far is data: requests, CEL, chains of steps. Phase 6 lets a
 builder write **Python** where data runs out -- reshape a reply, call two APIs
@@ -4889,10 +4893,30 @@ runs it. Four PRs (D130), each with something to try:
     any of its files in the repo is a conflict as a file's was. A repo in the
     old layout still restores, and is moved to folders once, in one commit
     ("Move panes, steps and workflows into folders of their own").
-- **6-2, dependencies**: a code action's or step's `requirements:` locked
-  with uv on save (exact versions, hashes, wheels only, from a mirror if an
-  admin sets one), a venv per lock built and cached by the runner, never at
-  run time (§8.1, D71).
+- **6-2, dependencies** (built, §8.1, D71): code may use any package on the
+  index, as files of the workspace (D141):
+  - `requirements.txt` beside the code says what it needs (pins or ranges,
+    as pip reads it); Check and Save lock it with uv into `requirements.lock`
+    -- every package pinned, with its hashes, for any platform (`--universal`),
+    wheels only -- a file of the folder like the others, so the store and a
+    plugin carry the lock, and what's saved always runs with the same
+    packages (D142). The lock names the requirements it came from (a hash on
+    its first line); one that doesn't match them doesn't check.
+  - **The runner still reaches nothing but the backend** (D143): it builds a
+    venv per lock with uv from the backend's own package index
+    (`/api/runner/simple/`), which serves a job only the wheels whose hashes
+    its lock holds -- fetched once from the index an admin sets
+    (`DEPS_INDEX_URL`, PyPI by default), checked against the hash, kept --
+    so a run never reaches PyPI, and code can't use the index to fetch
+    anything else.
+  - **A venv per lock, built ahead and kept** (D144): saving asks the runner
+    to build it; a run whose venv isn't there (a new pod) builds it first,
+    from the backend's kept wheels, outside the job's own time. Venvs are
+    shared by every definition with the same lock, built as root from
+    wheels only (no package code runs to install one) and read-only to the
+    jobs, and the least recently used go past `RUNNER_VENVS_MB`.
+  - A job with a lock runs that venv's interpreter (`-I`, its own
+    site-packages and nothing else of the runner's); one without, as before.
 - **6-3, code everywhere a definition runs something**: loaders (an input's
   options), `run: live` code (debounced, §4.5 tier 2), background runs
   (`poll`), per-group limits, and a jobs view in Settings.
