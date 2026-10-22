@@ -98,15 +98,18 @@ def parse_path(path: Union[str, list]) -> list[str]:
     parts = [p.strip() for p in str(path).strip().strip("/").split("/")]
     if not parts or not all(parts):
         raise EditError(f"The path {path!r} is empty or has an empty part; write it like outputs/jobs.")
-    # `actions[2]/label`, as JSON paths write an item: the list, then `[2]`.
+    # `actions[2]/label`, as JSON paths write an item: the list, then `[2]`;
+    # and `actions[2].args`, as the check and models write a place (a real
+    # model's `remove actions[2].args` was refused as a key of the top). The
+    # names between keep any dots of their own, for `_dotted` to read with the
+    # data: a column may be called `v1.2`.
     out: list[str] = []
     for part in parts:
-        m = re.fullmatch(r"([^\[\]]+)((?:\[[^\[\]]*\])+)", part)
-        if m:
-            out.append(m.group(1))
-            out += re.findall(r"\[[^\[\]]*\]", m.group(2))
-        else:
+        if "[" not in part:
             out.append(part)
+            continue
+        pieces = [p if p.startswith("[") else p.strip(".") for p in re.findall(r"\[[^\[\]]*\]|[^\[\]]+", part)]
+        out += [p for p in pieces if p]
     return out
 
 
@@ -478,7 +481,7 @@ def _means(text: str, data: Any) -> bool:
 
 
 # What a model writes for an op, as what it means.
-OPS = {"set": "set", "replace": "set", "update": "set", "change": "set", "modify": "set",
+OPS = {"set": "set", "replace": "set", "update": "set", "change": "set", "modify": "set", "edit": "set",
        "add": "add", "append": "add", "insert": "add", "remove": "remove", "delete": "remove"}
 
 SHAPE = ('{"op": "set" | "add" | "remove", "path": "outputs/jobs/render", "value": plain data}, or by line '

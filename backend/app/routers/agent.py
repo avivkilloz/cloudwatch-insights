@@ -94,6 +94,8 @@ class BuildFocus(BaseModel):
     # whether this turn is that choice: the Builder then tries it at once.
     try_on: Optional[str] = Field(default=None, max_length=200)
     try_now: bool = False
+    # "Fix what's left": the Builder reads what's left from the draft itself.
+    fix_now: bool = False
 
 
 class AgentChatRequest(BaseModel):
@@ -190,6 +192,7 @@ async def agent_chat(
             **({"id": build.id} if build.id else {}),
             **({"try_on": build.try_on} if build.try_on else {}),
             **({"try_now": True} if build.try_now else {}),
+            **({"fix_now": True} if build.fix_now else {}),
         }
 
     token = tokens.mint(

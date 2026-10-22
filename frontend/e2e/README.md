@@ -78,6 +78,11 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke110` (D154: a built pane's table exports its checked rows with their
+detail -- the Lambda recipe saved as is, "Include configuration" ticked, the
+JSON export carrying the `merge` fields its row action fetched) needs the
+backend as `dev.fake_aws:app` (Lambda faked for an account 0000…).
+
 `smoke109` (the Builder tries its draft, D153: a clean draft with
 connections offers the environments to try it on -- buttons, a dropdown past
 six; a pick runs it there and says what came back, its first row opened; a

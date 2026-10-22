@@ -11,6 +11,10 @@
 #   and ctx.aws takes a name as well as an id.
 # - The row action is code too (job.py), because what an opened job shows
 #   takes three calls; its detail `d` is whatever its run returns.
+# - Exporting jobs with their detail is built in: `include` labels a checkbox
+#   beside Export, and checked, Export fetches each selected row's detail and
+#   adds the `merge` fields to it. Never an export action of its own: code
+#   can't see which rows are selected.
 # - Code lives in files beside this YAML; the YAML only names them.
 label: IoT jobs
 description: IoT jobs in each environment with their execution counts; open one for its document and executions.
@@ -43,6 +47,9 @@ outputs:
       expand: expanded
       detail:
         action: job
+        include: Include each job's document and executions
+        include_help: Fetches each selected job's detail for the export -- three calls a job.
+        merge: [targets, document, executions]
         sections:
           - fields:
               - {label: Job, value: "{{ d.job.jobId }}"}

@@ -166,25 +166,7 @@ function Toolbar({
         {selection.hiddenCount > 0 && ` (${selection.hiddenCount} hidden)`}
       </span>
       {can("select") && <HideSelectedButtons selection={selection} />}
-      {detail?.spec.include && selection.selectedCount > 0 && (
-        <label className="checkbox-item" title={detail.spec.include_help}>
-          <input
-            type="checkbox"
-            checked={detail.cache.includeDetails}
-            onChange={(e) => detail.cache.setIncludeDetails(e.target.checked)}
-          />
-          {detail.spec.include}
-        </label>
-      )}
-      {detail && detail.cache.loadingCount > 0 && (
-        <span className="muted">Loading details… ({detail.cache.loadingCount} left)</span>
-      )}
-      {detail && detail.cache.includeDetails && detail.cache.errorCount > 0 && (
-        <span className="error-text">
-          {detail.cache.errorCount} {detail.spec.noun ?? "row(s)"} had no detail available — exported from their
-          summary alone.
-        </span>
-      )}
+      {detail && <IncludeDetail spec={detail.spec} cache={detail.cache} selectedCount={selection.selectedCount} />}
       {can("export") && (
         <ExportMenu rows={displayed.map((r) => r.row)} selectedRows={selection.selectedObjects} filename={filename} />
       )}
@@ -315,6 +297,42 @@ export function ListView({ output, value, pane }: { output: ManifestOutput; valu
 /** A table's rows that open (D124): its `detail` fetched by a row action,
  * which rows are open a view key (`expand`) like a list's. Keyed by row
  * index, as the table's selection and `view.expanded` are. */
+/** "Include detail" (`detail.include`): checked, export, copy and the agent
+ * carry each selected row's detail, fetched by the row action. A list's and a
+ * table's alike -- a table's rows opened (D124) but had none, so the only way
+ * a builder's agent saw to export them with their detail was an action of its
+ * own, whose code can't see the selected rows. */
+export function IncludeDetail({
+  spec,
+  cache,
+  selectedCount,
+}: {
+  spec: DetailAction;
+  cache: DetailCache<Keyed, Row>;
+  selectedCount: number;
+}) {
+  return (
+    <>
+      {spec.include && selectedCount > 0 && (
+        <label className="checkbox-item" title={spec.include_help}>
+          <input
+            type="checkbox"
+            checked={cache.includeDetails}
+            onChange={(e) => cache.setIncludeDetails(e.target.checked)}
+          />
+          {spec.include}
+        </label>
+      )}
+      {cache.loadingCount > 0 && <span className="muted">Loading details… ({cache.loadingCount} left)</span>}
+      {cache.includeDetails && cache.errorCount > 0 && (
+        <span className="error-text">
+          {cache.errorCount} {spec.noun ?? "row(s)"} had no detail available — exported from their summary alone.
+        </span>
+      )}
+    </>
+  );
+}
+
 export function useTableDetail(output: ManifestOutput, pane: PaneApi, rows: Values[]) {
   const cfg = config(output);
   const spec = detailActionOf(output);
@@ -346,6 +364,18 @@ export function useTableDetail(output: ManifestOutput, pane: PaneApi, rows: Valu
     },
     detail: (index: number) =>
       keyed[index] ? <FetchedDetail state={cache.stateFor(keyed[index])} sections={spec?.sections ?? []} pane={pane} /> : null,
+    spec,
+    cache,
+    /** A row as export, copy and the agent take it: with its detail's `merge`
+     * fields once "Include detail" is on. */
+    withDetail(index: number, row: Values): Values {
+      const fetched = spec && cache.includeDetails && keyed[index] ? cache.detailFor(keyed[index]) : undefined;
+      return fetched && spec ? (withDetail(row as Row, fetched, spec) as Values) : { ...row };
+    },
+    /** Fetch the detail of these rows (by index), for "Include detail". */
+    load(indexes: number[]) {
+      if (spec && cache.includeDetails) cache.loadMany(indexes.map((i) => keyed[i]).filter(Boolean));
+    },
   };
 }
 

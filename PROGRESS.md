@@ -1298,7 +1298,27 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR, continued: the Builder knows what fields mean, reads recipes and
+**This PR: the second OTA chat (PLATFORM_PLAN.md §24, D154).**
+The user's chat after #143: opened jobs still mostly empty, an
+"Export selected with details" button failing with "Missing connections or
+job_id", and a turn of "Fix what's left" rounds that never converged. Their
+final draft, run in the dev stack, showed why -- each fixed where it happens:
+- Exporting with detail was built in for lists only, and the reference never
+  said so: the model wrote an export action whose code read `ctx.state`. A
+  table now has the same "Include …" box (`detail.include`/`merge`); the
+  reference, the rules and the recipes say to use it, never an action.
+- Check names `ctx.state`-like reads and `ctx.http(None, url)` by file and line.
+- Trying no longer calls empty data a problem (an in-progress job's completion
+  time): five rounds had "fixed" a correct column.
+- Fix what's left, and the end of every turn, read what's left from the draft
+  itself; changes written as the model wrote them (the YAML as a file,
+  `actions[2].args`, `op: edit`) are made.
+- Tests: backend `test_builder_ota_final.py` (5, from the user's final draft
+  in `tests/fixtures/ota_jobs_final`); agent +2 (fix from the draft; out of
+  rounds, read again), both failing on the old loop; browser `smoke110` (5),
+  failing against the old frontend; smoke108 follows Fix what's left.
+
+**#143 merged: the Builder knows what fields mean, reads recipes and
 tries its drafts (PLATFORM_PLAN.md §24, D151–D153).** The user's ask after
 the OTA chat: "let the builder test-run its draft… if the pane talks to an
 environment, the builder agent can ask the user which environment".
@@ -1321,7 +1341,7 @@ environment, the builder agent can ask the user which environment".
   a pick tried at once, the focus kept whole -- each failing on the old
   code); browser `smoke109` (10), failing against the old frontend.
 
-**This PR: a Builder agent that keeps code in files and finishes what it
+**#143 merged: a Builder agent that keeps code in files and finishes what it
 checks (PLATFORM_PLAN.md §24, D149–D150).** The user's report after #142:
 code written into the YAML though files were there, drafts left with
 problems the user copied back into the chat by hand.

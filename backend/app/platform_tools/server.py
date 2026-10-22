@@ -1744,6 +1744,35 @@ def _is_file_change(change: Any) -> bool:
                                          (change.get("op") == "lines" and bool(change.get("file"))))
 
 
+def _the_yaml(name: Any, files: dict[str, str]) -> bool:
+    """A file a change names that is the definition itself: a model that saw
+    Python files beside the draft wrote its YAML changes as one more file --
+    `definition.yaml`, `pane.yaml`, or the pane's id (`default:iot_job_metrics`)
+    -- and every one was refused as a bad Python file name."""
+    name = str(name or "").strip()
+    if not name or name in files or name.endswith(".py") or name == "requirements.txt":
+        return False
+    return name.endswith((".yaml", ".yml")) or ":" in name or "." not in name
+
+
+def _yaml_named_as_file(changes: list, files: dict[str, str], source: str) -> list:
+    """Changes to the YAML written as changes to a file (`_the_yaml`), made the
+    YAML's own: lines of it are lines of the draft, a whole file is the whole
+    draft."""
+    out = []
+    for change in changes:
+        if not (_is_file_change(change) and _the_yaml(change.get("name") or change.get("file"), files)):
+            out.append(change)
+            continue
+        change = {k: v for k, v in change.items() if k not in ("file", "name")}
+        if change.get("op") == "file":
+            if change.get("remove") or not str(change.get("text") or "").strip():
+                raise InputError("The definition itself can't be removed. Nothing was changed.")
+            change = {"op": "lines", "from": 1, "to": max(1, len(source.splitlines())), "text": change["text"]}
+        out.append(change)
+    return out
+
+
 @mcp.tool()
 async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: Optional[str] = None) -> dict:
     """The working draft of the definition in the editor the user has open, with its line numbers -- what
@@ -1811,7 +1840,7 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         _may_build(user, kind)
         source = _source_of(db, caller, None)
         files = _files_of(db, caller)
-        changes = list(changes or [])
+        changes = _yaml_named_as_file(list(changes or []), files, source)
         on_files = [c for c in changes if _is_file_change(c)]
         if on_files and kind == "workflow":
             raise InputError("A workflow has no files of its own; its steps do. Nothing was changed.")

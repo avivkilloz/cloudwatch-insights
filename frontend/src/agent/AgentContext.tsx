@@ -79,6 +79,8 @@ export interface AskExtra {
   /** The environment chosen to try the draft on: tried at once, and on every
    * later turn about that editor in this tab. */
   tryOn?: string;
+  /** "Fix what's left": the Builder works from the draft's problems as they are. */
+  fix?: boolean;
 }
 
 // The one thing that makes the agent answer in a session's chat once it has
@@ -668,6 +670,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
                     files: build.files(),
                     ...(tryOn ? { try_on: tryOn } : {}),
                     ...(extra?.tryOn ? { try_now: true } : {}),
+                    ...(extra?.fix ? { fix_now: true } : {}),
                   },
                 }
               : {}),
