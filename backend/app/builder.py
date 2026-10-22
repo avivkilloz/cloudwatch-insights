@@ -650,19 +650,19 @@ def _detail_reads(sections: Any) -> list[tuple[str, str]]:
     return reads
 
 
-def _has(value: Any, path: str) -> bool:
-    """Whether a detail holds something at a path: an empty list or text
-    is something (a function with no layers), a key that isn't there or a
-    null isn't."""
+def _state(value: Any, path: str) -> str:
+    """What a detail holds at a path: "missing" (a key that isn't there),
+    "empty" (there, but null) or "present" -- an empty list or text is
+    something (a function with no layers)."""
     try:
         parts = row_paths.parts(path)
     except row_paths.PathError:
-        return False
+        return "missing"
     for part in parts:
         value = row_paths.step(value, part)
         if row_paths.missing(value):
-            return False
-    return value is not None
+            return "missing"
+    return "empty" if value is None else "present"
 
 
 def try_draft(db: Session, user: Any, source: str, type_id: Optional[str], files: Optional[dict[str, str]],
@@ -719,9 +719,19 @@ def try_draft(db: Session, user: Any, source: str, type_id: Optional[str], files
         row, group = pairs[0]
         out.setdefault("first row", {})[output.key] = _shown(row)
         empty = sorted(k for k, v in row.items() if v is None)
-        if empty and all(r.get(k) is None for r, _ in pairs for k in empty):
-            problems.append(f"In every {output.key} row, {', '.join(empty)} came back empty: the path its column "
-                            f"reads isn't where the reply keeps it.")
+        empty = [k for k in empty if all(r.get(k) is None for r, _ in pairs)]
+        producer = _producer(manifest, output.key)
+        if empty:
+            # Only an HTTP request's columns are a problem when empty: an AWS
+            # reply's paths were held to its shape by Check, so an empty one is
+            # the data (an in-progress job has no completedAt) -- said as one,
+            # a model spent five rounds "fixing" a column that was right -- and
+            # code makes its rows as it likes.
+            said = f"In every {output.key} row, {', '.join(empty)} came back empty"
+            if producer is not None and producer.request is not None and not aws_request.is_aws(producer.request):
+                problems.append(f"{said}: the path its column reads isn't where the reply keeps it.")
+            else:
+                notes.append(f"{said} -- the data has no value there (not a problem to fix).")
         detail = output.config.get("detail")
         opener = next((a for a in manifest.actions if isinstance(detail, dict) and a.id == detail.get("action")),
                       None)
@@ -744,8 +754,18 @@ def try_draft(db: Session, user: Any, source: str, type_id: Optional[str], files
         out.setdefault("opened", {})[output.key] = {"action": opener.id, "args": args,
                                                    "detail holds": sorted(opened) if isinstance(opened, dict)
                                                    else type(opened).__name__}
-        nothing = [(place, path) for place, path in _detail_reads(detail.get("sections"))
-                   if not path.startswith(("in.", "out.")) and not _has(opened, path)]
+        reads = [(place, path) for place, path in _detail_reads(detail.get("sections"))
+                 if not path.startswith(("in.", "out."))]
+        # What isn't there at all is a problem; a field there but empty is the
+        # data (a job still running has no completion time) -- and an AWS
+        # reply's paths were held to its shape by Check already.
+        aws = opener.request is not None and aws_request.is_aws(opener.request)
+        nothing = [(place, path) for place, path in reads if _state(opened, path) == "missing" and not aws]
+        blank = [f"{place} (d.{path})" for place, path in reads
+                 if _state(opened, path) == "empty" or (aws and _state(opened, path) == "missing")]
+        if blank:
+            notes.append(f"Opened, the first {output.key} row has nothing in {'; '.join(blank[:8])} -- the data's "
+                         f"empty there (not a problem to fix).")
         if nothing:
             keys = ", ".join(sorted(opened)) if isinstance(opened, dict) else "nothing to read"
             problems.append(f"Opened, the first {output.key} row shows nothing for "
@@ -938,7 +958,10 @@ ROWS_DOC = (
 CONFIG_DOC = {
     "table": {
         "detail": "rows that open: {action: a row action (one with args), sections: what the opened row shows "
-                  "(left out: its detail as JSON)}",
+                  "(left out: its detail as JSON), include: the label of a checkbox beside Export -- checked, "
+                  "exporting or attaching the selected rows fetches each one's detail and adds it to the row, "
+                  "include_help: what that costs, merge: [the detail's fields added as columns; left out, all of "
+                  "them], noun: what a row is called}",
         "expand": "the view key holding which rows are open (declare it: views: [{key: expanded, default: []}]; "
                   "the action that lists the rows resets it: resets: [view.expanded])",
         "domain": "what the agent's chat calls attached rows", "chart": "the view key of its chart",
@@ -1209,6 +1232,10 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "A pane with modes (a choice input) whose button does a different thing per mode: one action per "
                 "mode, each `main: {input: <mode>, equals: <value>}` (or one `main: true` for the rest), each "
                 "button in the layout shown with `when` for its mode. Actions have no `when`; layout items do.",
+                "Exporting rows with their detail is built in: give the table's config.detail an `include` label "
+                "(and `merge`, the detail's fields to add) and Export carries each selected row's detail. Never "
+                "write an export action: code can't see which rows are selected or the pane's outputs, only its "
+                "inputs.",
                 "Keep what already works: change or add what's asked, never replace a working action.",
                 "Handlers are only those listed here: the ones of pane types the user's group may use.",
             ],

@@ -1048,6 +1048,11 @@ row action has `args` read from the row (`{connections: row.Environment,
 instance_id: row.Instance ID}`) and is any request, an AWS one included. A
 column can pick an item of a list by a field: `Tags[Key=Name].Value` is the
 Name tag's value.
+To export rows with their detail, give the detail an `include` label
+(`include: Include configuration`, and `merge: [Handler, Timeout]` for the
+fields to add): checking rows shows that box beside Export, and ticked, the
+export (and copy, and what the agent is sent) carries each checked row's
+detail -- no action of your own, whose code couldn't see the checked rows.
 
 ## The store repo
 

@@ -121,6 +121,11 @@ async def try_definition(ctx: Context, environment: str | None = None, source: s
         return {"skipped": "It has no main action to try."}
     if "connections" in text and not environment:
         return {"needs_environment": True, "environments": ["IoT Prod", "IoT Test"]}
+    if "label: flaky" in text and not [t for t in TRIED[:-1] if "label: flaky" in t["source"]]:
+        # Something empty the first time only: whatever the rounds did after,
+        # the draft works by the end.
+        return {"environment": environment, "ran": "list", "rows": {"jobs": 0}, "ok": False, "notes": [],
+                "problems": ["jobs came back with no rows"]}
     if "row.jobId" in text:
         return {"environment": environment, "ran": "list", "rows": {"jobs": 2}, "ok": False, "notes": [],
                 "first row": {"jobs": {"Job ID": "ota-1", "Status": "IN_PROGRESS"}},
@@ -922,3 +927,29 @@ def test_choosing_an_environment_tries_it_at_once_and_fixes_what_it_finds(settin
                      try_now=True)
     assert _steps(fine) == ["build_reference", "check_definition", "try_definition"]
     assert _answer(fine) == "Tried it on IoT Test: 2 rows in jobs; the first row opened onto everything it shows."
+
+
+def test_fix_whats_left_works_from_the_draft_not_from_a_plan(settings):
+    """The button sent the last notice's words, which named a change that
+    couldn't be made; the plan step answered "share what Check reports"."""
+    fake_llm.BUILDS.clear()
+    events = _build_on(settings, "Fix what's left.", IOT + "layout:\n- title: X\n  items:\n  - output: nothing\n",
+                       fix_now=True)
+    steps = _steps(events)
+    assert steps[:3] == ["build_reference", "check_definition", "write_changes"] and "plan_change" not in steps
+    assert "isn't declared" in fake_llm.BUILDS[0]["messages"][-1]["content"], "the draft's own problem, read"
+    clean = _build_on(settings, "Fix what's left.", "label: Fine\n", fix_now=True)
+    assert _steps(clean) == ["build_reference", "check_definition", "try_definition"]
+    assert "nothing left to fix" in _answer(clean) or "didn't try it" in _answer(clean)
+
+
+def test_out_of_rounds_what_is_left_is_read_again_from_the_draft(settings):
+    """The last round's change was refused, which left the draft as the round
+    before made it -- working, by then. It used to end "still has problems:
+    <the refused change>"; read again, the draft is proposed as it is."""
+    TRIED.clear()
+    events = _build_on(Settings(**{**settings.__dict__, "builder_rounds": 2}), "bad op flaky", JOBS_PANE,
+                       try_on="IoT Prod")
+    assert [e for e in events if e.get("propose")] and not [e for e in events if e["type"] == "notice"], \
+        [e.get("message") for e in events if e["type"] == "notice"]
+    assert "not saved yet" in _answer(events) and "Tried it on IoT Prod" in _answer(events)

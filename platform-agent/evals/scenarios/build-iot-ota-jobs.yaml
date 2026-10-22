@@ -3,7 +3,8 @@ about: >-
   The user's OTA conversation (D145-D153): an IoT jobs pane with each job's execution counts as columns and rows
   that open onto the job's detail. A real model kept ListJobs as a request and added an "export with details"
   action (which can't add columns), read `row.jobId` from rows whose column is `Job ID`, read `d.job_id` from a
-  reply that keeps it at `d.job.jobId`, and every round of "fix it" made it worse. What reaches the editor must
+  reply that keeps it at `d.job.jobId`, and every round of "fix it" made it worse. Asked to export with details,
+  it wrote an export action reading `ctx.state` (D154) where `detail.include` was built in. What reaches the editor must
   check clean, list in code (a call per job for its counts), open rows through a row action -- and, tried on the
   fake environment, show its counts and open onto filled fields.
 build:
@@ -44,9 +45,9 @@ messages:
     create an IoT OTA jobs pane: list the jobs in the chosen environments with, for each job, how many executions
     are queued, in progress, succeeded, failed and timed out as columns of the table (so the CSV export has them
     too). Expanding a job should show its description, targets, its job document and the list of its executions
-    with each thing's status.
+    with each thing's status. I also need to export the selected jobs with their details.
 expect:
   - proposed:
       checks: true
-      contains: ["DescribeJob", "expand:", "detail:", "args:"]
+      contains: ["DescribeJob", "expand:", "detail:", "args:", "include:"]
   - tried: true

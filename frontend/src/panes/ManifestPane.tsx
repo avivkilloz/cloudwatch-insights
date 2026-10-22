@@ -39,7 +39,7 @@ import { applyOutputs, setLocal, usePaneOutputs } from "../sessions/outputs";
 import { usePaneAddress, useSessions, useSessionState, useSessionValue } from "../sessions/SessionContext";
 import DiffView, { DiffViewMode } from "./DiffView";
 import { IndicesPicker, LogGroupsPicker, TimeRange } from "./GroupedPicker";
-import { FilesView, ListView, TagsView, useTableDetail } from "./ListView";
+import { FilesView, IncludeDetail, ListView, TagsView, useTableDetail } from "./ListView";
 import { DiffRow, LIVE_FUNCTIONS, Outputs } from "./live";
 import {
   Card,
@@ -1877,13 +1877,24 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
   const can = (a: ManifestOutput["actions"][number]) => output.actions.includes(a);
   const [shared, setShared] = useState<Values[]>([]);
   const keyed = useMemo(() => rows.map((row, index) => ({ key: String(index), row })), [rows]);
+  const detail = useTableDetail(output, pane, rows);
   const selection = useRowSelection({
     rows: keyed,
     keyOf: (r) => r.key,
-    toObject: (r) => r.row,
+    toObject: (r) => detail.withDetail(Number(r.key), r.row),
     onSelectionChange: setShared,
     resetOn: pane.resultsVersion,
   });
+  // "Include detail" on: the checked rows' detail is fetched, and what they
+  // serialize to (export, copy, the agent's chat) is sent again as it lands.
+  useEffect(() => {
+    detail.load(selection.selectedRows.map((r) => Number(r.key)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.cache.includeDetails, selection.selectionKey]);
+  useEffect(() => {
+    if (detail.spec) selection.resend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.cache.includeDetails, detail.cache.details]);
   const displayed = selection.visibleRows;
   const columns = useMemo(() => {
     const seen: string[] = [];
@@ -1893,7 +1904,6 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
     return seen;
   }, [keyed]);
   const chosen = selection.selectedObjects;
-  const detail = useTableDetail(output, pane, rows);
   const span = columns.length + (can("select") ? 1 : 0) + (detail.opens ? 1 : 0);
 
   return (
@@ -1906,6 +1916,9 @@ function TableView({ output, rows, pane }: { output: ManifestOutput; rows: Value
           {selection.selectedCount > 0 && `, ${selection.selectedCount} selected`}
         </span>
         {can("select") && <HideSelectedButtons selection={selection} />}
+        {detail.spec && (
+          <IncludeDetail spec={detail.spec} cache={detail.cache} selectedCount={selection.selectedCount} />
+        )}
         {can("copy") && <CopyButton value={chosen.length > 0 ? chosen : displayed.map((r) => r.row)} />}
         {can("export") && (
           <ExportMenu rows={displayed.map((r) => r.row)} selectedRows={chosen} filename={pane.m.id} />

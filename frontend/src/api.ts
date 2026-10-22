@@ -785,6 +785,8 @@ async function agentChat(
       /** The environment its builder chose to try it on (D153); `try_now` when this turn is that choice. */
       try_on?: string;
       try_now?: boolean;
+      /** "Fix what's left": what's left is read from the draft, not the last notice. */
+      fix_now?: boolean;
     };
   },
   onEvent: (event: AgentEvent) => void,

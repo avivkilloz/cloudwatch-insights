@@ -102,6 +102,12 @@ empties), shown while one holds something -- never an action.
 - Code (where a request can't do it: joining two calls, working something \
 out) is a Python file beside the YAML, written with {"op": "file"}, and the \
 action names it: `code: {file: health.py}`. Never Python inside a YAML string.
+- Code sees only its inputs and ctx (http, aws, name, log): a row action's \
+inputs are its args, read from the row. It never sees the pane's outputs or \
+the selected rows, and reaches only the user's connections, never a URL.
+- Exporting rows with their detail is built in: the table's \
+`config.detail.include` labels a checkbox beside Export, and `merge` lists \
+the detail's fields added to each exported row. Never an export action.
 - Keep what already works. Change or add what's asked; never replace a \
 working action, input or card with another.
 """
@@ -270,6 +276,10 @@ class Builder:
         # on, and whether this turn is that choice (try it, nothing to plan).
         self.try_on: Optional[str] = focus.get("try_on") or None
         self.try_now = bool(focus.get("try_now"))
+        # "Fix what's left": nothing to plan either -- what's left is read
+        # from the draft, not from the words of the last turn's notice, which
+        # may name a change that couldn't be made rather than a problem.
+        self.fix_now = bool(focus.get("fix_now"))
         self.can_try = self.kind == "pane" and "try_definition" in tools
 
     # ------------------------------------------------------------ tools
@@ -425,6 +435,18 @@ class Builder:
         # read_draft numbers its lines; the context numbers them again.
         return _unnumbered(value.get("text", ""))
 
+    async def left(self) -> tuple[list[str], dict, str]:
+        """What's wrong with the draft as it is now: Check's problems, else
+        what trying it found -- with the words to ask for their fix."""
+        ok, out = await self.call("check_definition", {})
+        checked = _json(out)
+        if not (ok and checked.get("ok")):
+            left = [f"{_place(e)}{e.get('message')}" for e in checked.get("errors") or []] or [out[:600]]
+            return left, {}, f"The draft has these problems: {'; '.join(left)}"
+        verdict = await self.tried() if self.can_try else {}
+        left = list(verdict.get("problems") or [])
+        return left, verdict, _try_repair(verdict) if left else ""
+
     async def tried(self) -> dict:
         """The draft run as its user will (try_definition), in the environment
         they chose; what to tell them when it couldn't be."""
@@ -446,27 +468,22 @@ class Builder:
         applied = False
         fixed = 0
         seen: set[str] = set()  # the problems the last check found
-        if self.try_now and self.can_try:
-            # The user chose where to try it (the choices a turn offered):
-            # nothing to plan -- check, try, and fix what that shows.
-            ok, out = await self.call("check_definition", {})
-            checked = _json(out)
-            if ok and checked.get("ok"):
-                verdict = await self.tried()
-                for event in self.flush():
+        stopped = ""  # why the rounds ended early: a reply that couldn't be read
+        if (self.try_now and self.can_try) or self.fix_now:
+            # The user chose where to try it (the choices a turn offered), or
+            # asked for what's left to be fixed: nothing to plan -- check, try,
+            # and fix what that shows.
+            left, verdict, what = await self.left()
+            for event in self.flush():
+                yield event
+            if not left:
+                events = self._tried_events(verdict, alone=True)
+                for event in events or [{"type": "text", "delta": "It checks clean: there's nothing left to fix."}]:
                     yield event
-                if not verdict.get("problems"):
-                    for event in self._tried_events(verdict, alone=True):
-                        yield event
-                    return
-                problems = "; ".join(verdict["problems"])
-                what = _try_repair(verdict)
-            else:
-                for event in self.flush():
-                    yield event
-                problems = "; ".join(f"{_place(e)}{e.get('message')}" for e in checked.get("errors") or []) or out
-                what = f"The draft has these problems, so it can't be tried yet: {problems}"
-            plan = summary = f"Fixed what trying it{_on(self.try_on)} showed."
+                return
+            problems = "; ".join(left)
+            plan = summary = (f"Fixed what trying it{_on(self.try_on)} showed." if self.try_now
+                              else "Fixed what was left.")
             instructions = REPAIR.format(what=what)
             applied = True  # the editor's draft is the one to propose
         else:
@@ -491,6 +508,7 @@ class Builder:
                 # Changes already made aren't thrown away for one reply that
                 # couldn't be read: the draft goes in the editor as it is.
                 problems = f"{problems}; then {e}" if problems else str(e)
+                stopped = str(e)
                 for event in self.flush():
                     yield event
                 break
@@ -569,7 +587,27 @@ class Builder:
         if not applied:
             yield {"type": "text", "delta": f"I couldn't make the change: {problems[:600]}"}
             return
-        # Out of rounds: the work so far goes in the editor, named for what it is.
+        # Out of rounds: what's left, read from the draft again -- the last
+        # thing that went wrong may have been a change that couldn't be made,
+        # which left the draft as it was (a turn ended "still has problems:
+        # change_definition couldn't…", the draft clean, and the next turn's
+        # model was asked to fix that).
+        left, verdict, _what = await self.left()
+        for event in self.flush():
+            yield event
+        if not left:
+            ok, out = await self.call("propose_definition", {"summary": summary})
+            for event in self.flush():
+                yield event
+            if ok:
+                yield {"type": "text", "delta": f"{summary}\n\nIt's in the editor, not saved yet: look it over, "
+                                                "preview it and save."}
+                for event in self._tried_events(verdict):
+                    yield event
+                return
+            left = [out]
+        problems = "; ".join(left)
+        # The work so far goes in the editor, named for what it is.
         ok, out = await self.call("propose_definition", {"summary": summary, "even_with_problems": True})
         for event in self.flush():
             yield event
@@ -577,7 +615,8 @@ class Builder:
             yield {"type": "text", "delta": f"{summary}\n\nIt's in the editor, but it doesn't check clean yet -- "
                                             f"the editor's Check lists what's left. Ask me to carry on and I'll "
                                             f"start from there."}
-            yield {"type": "notice", "message": f"The draft still has problems: {problems[:600]}"}
+            why = f" (I stopped because the model's last reply couldn't be used: {stopped[:200]})" if stopped else ""
+            yield {"type": "notice", "message": f"The draft still has problems: {problems[:600]}{why}"}
         else:
             yield {"type": "text", "delta": f"I couldn't get the change to check clean: {problems[:600]}"}
 

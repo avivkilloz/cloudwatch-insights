@@ -7,6 +7,8 @@
 #   from the pane's inputs. Being a request with no `rows`, its detail `d` is
 #   the whole GetFunctionConfiguration reply, so the sections read its fields
 #   as describe_aws_operation shows them (d.Timeout, d.Layers).
+# - `include` adds "Include configuration" beside Export: checked, the
+#   selected rows are exported with the `merge` fields of their detail.
 # - Rows open only with a declared view key (`expanded`), which the listing
 #   action resets so a new list starts closed.
 label: Lambda functions
@@ -49,6 +51,8 @@ outputs:
       expand: expanded
       detail:
         action: function
+        include: Include configuration
+        merge: [Handler, Timeout, Role, State]
         sections:
           - fields:
               - {label: Handler, value: "{{ d.Handler }}"}

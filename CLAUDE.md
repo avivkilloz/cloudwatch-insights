@@ -978,6 +978,21 @@ the platform, for a group with `builder_enabled` (admins always).
   editor, this tab). The agent service's `Focus` must name every field the
   backend sends -- it dropped `files`, so the loop never knew the files were
   there until its first change.
+- **Empty data isn't a problem** (D154): trying calls an AWS column or detail
+  field that's empty, or there but null, a note (Check already held its path
+  to the reply's shape; an in-progress job has no `completedAt`); only an HTTP
+  request's column empty in every row, or a field a code detail doesn't hold
+  at all, is a problem. **Fix what's left** sends `fix_now` (no plan: check,
+  try, repair), and out of rounds the loop reads what's left again
+  (`Builder.left`) -- the last failure may have been a refused change.
+  Check names `ctx.<anything but http/aws/name/log>` and `ctx.http(None|url)`
+  in every Python file (`runner_client._ctx_problems`). A change naming the
+  YAML as a file (`definition.yaml`, the id) is the YAML's
+  (`server._yaml_named_as_file`); `actions[2].args` is a path; `op: edit` a set.
+- **A table exports rows with their detail** like a list (D154,
+  `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
+  labels the box beside Export, `merge` the fields added. Never an export
+  action -- code can't see which rows are selected.
 - **The editor's tabs and Preview** (`Workspace.tsx`, `BuilderPage.tsx`): a
   file is added from a "+" that's the last tab (`.workspace-add`, named in a
   tab of its own; Esc or empty cancels), and the Preview card is there only

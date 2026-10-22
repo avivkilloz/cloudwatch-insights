@@ -248,6 +248,9 @@ SDK_DOC = {
     "ctx.name(connection)": "the name the user sees a connection by (its id given): code over a `connections` input "
                             "stamps each row's Environment with it, and a row action given row.Environment passes "
                             "it to ctx.aws / ctx.http, which take a name as well as an id",
+    "what code sees": "its inputs and the ctx above, nothing else: a row action's inputs are its args (read from "
+                      "the row), any other action's the pane's inputs -- never the pane's outputs, the selected "
+                      "rows or a URL of its own",
     "ctx.log(*parts)": "a line in the job's log (print does the same)",
     "packages": "a requirements.txt file beside the code names what it imports beyond the standard library, a "
                 "package a line as pip reads it (requests>=2.31, pyyaml), no options or URLs; Check and Save lock "
@@ -300,9 +303,14 @@ def file_problems(files: dict[str, str]) -> list[tuple[str, Optional[int], str]]
             out.append((name, None, f"{name} is over {MAX_FILE_BYTES // 1000} kB."))
             continue
         try:
-            ast.parse(text, filename=name)
+            tree = ast.parse(text, filename=name)
         except SyntaxError as e:
             out.append((name, e.lineno, f"It isn't valid Python: {e.msg}."))
+            continue
+        # The context under whatever name a file's own run gives it.
+        names = {"ctx"} | {f.args.args[1].arg for f in tree.body
+                           if isinstance(f, ast.FunctionDef) and f.name == "run" and len(f.args.args) == 2}
+        out += [(name, line, message) for line, message in _ctx_problems(tree, names)]
     return out + deps.problems(files)
 
 
@@ -345,4 +353,33 @@ def problems(code: str) -> list[tuple[Optional[int], str]]:
         return [(None, "The code defines no run(inputs, ctx): that's what's called, and what it returns is kept.")]
     if len(run.args.args) != 2:
         return [(run.lineno, "run takes two arguments: run(inputs, ctx).")]
-    return []
+    return _ctx_problems(tree, {run.args.args[1].arg, "ctx"})
+
+
+# What the SDK's Context has (runner/sdk/platform_sdk): nothing else is there
+# when the code runs.
+CTX = ("http", "aws", "name", "log", "inputs", "calls")
+
+
+def _ctx_problems(tree: Any, names: set[str]) -> list[tuple[Optional[int], str]]:
+    """Uses of the context it doesn't have, found before anything runs: a
+    model building an export wrote `ctx.state.get("out")` to read the pane's
+    selected rows -- there's no such thing, and it failed only when clicked --
+    and `ctx.http(None, url)` to fetch a URL of its own."""
+    import ast
+
+    out: list[tuple[Optional[int], str]] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in names
+                and node.attr not in CTX and not node.attr.startswith("_")):
+            out.append((node.lineno, f"ctx has no {node.attr}: it has http, aws, name and log. Code sees only its "
+                                     "inputs -- a row action's args, else the pane's inputs -- never the pane's "
+                                     "outputs or which rows are selected."))
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "http"
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in names and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and (node.args[0].value is None or str(node.args[0].value).startswith(("http://", "https://")))):
+            out.append((node.lineno, "ctx.http takes a connection (its id or name) and a path after its base URL: "
+                                     "code reaches only the user's connections, never a URL of its own. Data AWS "
+                                     "keeps elsewhere has an operation that reads it (ctx.aws)."))
+    return sorted(out, key=lambda p: p[0] or 0)

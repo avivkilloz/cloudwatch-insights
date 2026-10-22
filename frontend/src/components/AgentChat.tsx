@@ -553,7 +553,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             asker={askerOf(t)}
             onFix={
               scope === "build" && t.notice && i === turns.length - 1 && !running
-                ? () => ask(`Carry on: fix what's left. ${t.notice}`, scope)
+                ? () => ask("Fix what's left.", scope, undefined, { fix: true })
                 : undefined
             }
             onChoose={
