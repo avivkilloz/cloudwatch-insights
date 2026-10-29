@@ -142,7 +142,9 @@ def test_beside_an_editor_the_agent_edits_a_draft_a_piece_at_a_time(mcp):
 def test_outside_an_editor_there_is_no_draft(mcp):
     from tests.test_platform_tools import call_error
 
-    assert "only beside an editor" in call_error(mcp, _token(), "check_definition", kind="pane")
+    # It says how to get one: a Builder draft (D156), or the source itself.
+    said = call_error(mcp, _token(), "check_definition", kind="pane")
+    assert "There's no draft to work on" in said and "open_draft" in said and "`source`" in said
     # Given its source, a check needs no editor.
     assert call(mcp, _token(), "check_definition", kind="pane", source=ENCODER)["ok"] is True
 

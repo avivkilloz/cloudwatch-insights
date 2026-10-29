@@ -1315,7 +1315,7 @@ now does:
   resources, `build_pane`/`build_workflow` prompts, instructions that name the
   loop.
 - A pane's first Python file brings a comment-only `requirements.txt`.
-- Tests: backend `test_access_tokens.py` (10: lifecycle, the outside door
+- Tests: backend 697 (`test_access_tokens.py`, 10: lifecycle, the outside door
   takes only personal tokens, revoked/expired/agent off, admin, drafts,
   requirements, resources and prompts), `test_builder_loop` file sets;
   browser `smoke112` (16), failing against the old frontend; `smoke104`/
