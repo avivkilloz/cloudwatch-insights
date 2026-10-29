@@ -254,7 +254,7 @@ export function useBuildDraft(o: DraftOptions): DraftState {
             const when = new Date(d.updated_at.endsWith("Z") ? d.updated_at : `${d.updated_at}Z`);
             setStatus(
               targetId !== null
-                ? `Unsaved changes from ${when.toLocaleString()} are here: Save keeps them, Discard goes back to what's saved.`
+                ? `Unsaved changes from ${when.toLocaleString()} are back: Save keeps them, Discard goes back to what's saved.`
                 : `The draft from ${when.toLocaleString()}.`,
             );
           }
