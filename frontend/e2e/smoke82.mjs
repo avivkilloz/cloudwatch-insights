@@ -7,7 +7,8 @@
 //   - the Prometheus pane -- prometheus.yaml and no code -- queries a
 //     Prometheus connection over its time range: the series on a chart and in
 //     a table, time and value first; it's listed under its own Observability;
-//   - a member sees it only once their group is granted it.
+//   - a member is offered it either way (D160): dimmed, saying why, until
+//     their group can see an environment with a Prometheus connection.
 import { check, clearWorkspace, launch, newPage, newSession, openApp, report, SHOWN, signIn } from "./harness.mjs";
 
 const STAMP = Date.now();
@@ -108,18 +109,20 @@ const run = async () => {
   await page.waitForSelector(`${card} canvas`, { timeout: 15000 });
   check((await page.locator(`${card} select[aria-label="Series"], ${card} select`).count()) > 0, "…and a time-series chart over them");
 
-  // ---- 4. a member, once granted
-  const g = (await api(page, "POST", "/user-groups", { name: `g-${USER}`, pane_types: ["tool-base64"], environment_ids: [env.id] })).body;
+  // ---- 4. a member: offered it either way, and told when it can't run (D160)
+  const g = (await api(page, "POST", "/user-groups", { name: `g-${USER}`, environment_ids: [] })).body;
   await api(page, "POST", "/users", { username: USER, password: "pw-123456", group_id: g.id });
   const member = await newPage(browser);
   await signIn(member, { username: USER, password: "pw-123456" });
-  const before = await member.locator(".rail .rail-row-type .rail-row-label").allInnerTexts();
-  check(!before.includes("Prometheus"), "Not granted, a member isn't offered it");
-  await api(page, "PUT", `/user-groups/${g.id}`, { pane_types: ["tool-base64", "prometheus"] });
+  const PROM = '.rail .rail-row-type:has(.rail-row-label:text-is("Prometheus"))';
+  await member.waitForSelector(PROM);
+  check((await member.locator(PROM).getAttribute("class")).includes("no-environment") &&
+    (await member.locator(PROM).getAttribute("title")).includes("Prometheus"),
+    "Without an environment for it, a member is offered it dimmed, saying why");
+  await api(page, "PUT", `/user-groups/${g.id}`, { environment_ids: [env.id] });
   await member.reload();
-  await member.waitForSelector(".rail");
-  const after = await member.locator(".rail .rail-row-type .rail-row-label").allInnerTexts();
-  check(after.includes("Prometheus"), "Granted, it is", JSON.stringify(after));
+  await member.waitForSelector(PROM);
+  check(!(await member.locator(PROM).getAttribute("class")).includes("no-environment"), "Given the environment, it isn't");
   await member.close();
 
   for (const u of (await api(page, "GET", "/users")).body.filter((u) => u.username === USER)) await api(page, "DELETE", `/users/${u.id}`);

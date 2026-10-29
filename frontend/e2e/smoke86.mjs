@@ -1,7 +1,7 @@
 // 4b-2 (PLATFORM_PLAN.md §22.8): approvals, artifacts, rerun from a stage,
 // and the UI fixes that came with it -- driven as a member and an admin:
-//   - the rail's platform pages sit above Sessions (D93); the Access row's
-//     picker is the row's 28px; the run header's status is a pill, centred;
+//   - the rail's platform pages sit above Sessions (D93); the run header's
+//     status is a pill, centred; every workflow is everyone's to run (D160);
 //   - a member runs a release: a sign-off only someone else may give
 //     (`by: others`) -- they see it wait; the admin's rail counts it, live,
 //     and the admin approves it from "Waiting for your approval";
@@ -64,12 +64,9 @@ const run = async () => {
     check(order, "The platform's pages are at the top of the rail, above Sessions");
     await page.click('.rail-row-page:has-text("Workflows")');
     await page.click(`[data-workflow="${wf.id}"]`);
-    await page.waitForSelector(".workflow-view .credential-grant-add");
-    const picker = await page.locator(".workflow-view .credential-grant-add").boundingBox();
-    const label = await page.locator('.workflow-view .session-card-label:text-is("Who may run it")').boundingBox();
-    check(Math.round(picker.height) === 28 && Math.abs(picker.y + picker.height / 2 - (label.y + label.height / 2)) <= 1,
-      "Access: the group picker is the row's 28px, level with its label", JSON.stringify({ picker, label }));
-    await api(page, "PUT", `/workflows/${encodeURIComponent(wf.id)}/grants`, { group_ids: [g.id] });
+    await page.waitForSelector(".workflow-view");
+    check((await page.locator('.workflow-view .session-card-label:text-is("Who may run it")').count()) === 0,
+      "No group picker: every workflow is everyone's to run (D160)");
 
     // ---- 1. the member starts it; the sign-off is someone else's
     const member = await newPage(browser);

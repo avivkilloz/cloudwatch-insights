@@ -7,7 +7,8 @@
 //     environment ticked, its log group kept for that environment, and a run
 //     of it works (the faked backend's account "0000…");
 //   - from the rail's Add, with one environment to choose from, it opens at
-//     once; a member without one of its panes isn't offered it at all.
+//     once; a member whose group can't reach that environment is offered it
+//     too (every template is everyone's, D160) but can't open it there.
 import { check, clearWorkspace, launch, newPage, openApp, report, SHOWN, SHOT, signIn } from "./harness.mjs";
 
 const STAMP = Date.now();
@@ -59,8 +60,8 @@ const run = async () => {
     },
   })).body;
   const groups = [];
-  for (const [user, panes] of [[ABLE, ["logs-cloudwatch", "tool-http"]], [UNABLE, ["logs-cloudwatch"]]]) {
-    const g = (await api(page, "POST", "/user-groups", { name: `g-${user}`, role_name: "R", environment_ids: [env.id], pane_types: panes })).body;
+  for (const [user, envs] of [[ABLE, [env.id]], [UNABLE, []]]) {
+    const g = (await api(page, "POST", "/user-groups", { name: `g-${user}`, role_name: "R", environment_ids: envs })).body;
     groups.push(g);
     await api(page, "POST", "/users", { username: user, password: "pw-123456", group_id: g.id });
   }
@@ -122,12 +123,13 @@ const run = async () => {
     const active = await able.locator(".rail-row.active .rail-row-label").innerText();
     check(active === `${NAME} 2`, "From Add it opens at once, with one environment to choose from", active);
 
-    // ---- 4. a member without one of its panes isn't offered it
+    // ---- 4. a member who can't reach the environment: offered it, can't open it there
     await signIn(unable, { username: UNABLE, password: "pw-123456" });
     await unable.click(".rail-row-home");
-    await unable.waitForSelector(".home-cards");
-    check((await unable.locator(`.home-ready[data-template="${ID}"]`).count()) === 0, "A group without one of its panes isn't offered it");
-    check((await api(unable, "POST", `/templates/${ID}/open`, { environment: env.id })).status === 404, "…nor can it open it");
+    await unable.waitForSelector(`.home-ready[data-template="${ID}"]`);
+    check(true, "Every template is everyone's: a group without that environment is offered it too");
+    check((await api(unable, "POST", `/templates/${ID}/open`, { environment: env.id })).status === 400,
+      "…but can't open it for an environment it can't reach");
   } finally {
     await clearWorkspace(able).catch(() => undefined);
     await able.close();

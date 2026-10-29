@@ -5,9 +5,9 @@
 //     List runs as the builder on a real (faked) connection and fills the
 //     preview's table -- nothing saved, no session made;
 //   - typing after it says the preview is of an older text;
-//   - a draft naming DynamoDB's scan handler, which their group wasn't
-//     granted, is refused by Check and Preview with its line, and the
-//     handlers the editor lists leave it out.
+//   - a draft naming DynamoDB's scan handler checks clean, and the editor
+//     lists it: every pane type is everyone's (D160, undoing D113), so a
+//     handler reaches nothing the caller's environments don't allow.
 import { check, clearWorkspace, launch, newPage, openApp, report, signIn, SHOT } from "./harness.mjs";
 
 const STAMP = Date.now();
@@ -139,7 +139,7 @@ const run = async () => {
     const cells = await page.locator(".builder-preview .manifest-table tbody tr").first().locator("td").allInnerTexts();
     check(cells.includes("orders") && cells.includes("python3.12"), "Its List runs as the builder on the connection, filling its table", JSON.stringify(cells));
     await page.screenshot({ path: `${SHOT}/smoke96-preview.png` });
-    check((await api(page, "GET", "/builder/panes")).body.length === 0, "…with nothing saved");
+    check(!(await api(page, "GET", "/builder/panes")).body.some((t) => t.label.startsWith(LABEL)), "…with nothing saved");
     check((await api(page, "GET", "/live-sessions")).body.length === 0, "…and no session made");
 
     await page.fill("#builder-source", LAMBDA.replace(LABEL, `${LABEL} v2`));
@@ -158,19 +158,13 @@ const run = async () => {
     );
     check(true, "A live function runs in the preview as you type");
 
-    // ---- 2. a handler of a pane their group wasn't given
+    // ---- 2. any handler (D160): every pane type is everyone's
     const listed = await page.locator('.session-card-row:has(.session-card-label:text-is("Handlers")) .builder-names').innerText();
-    check(!listed.includes("aws.dynamodb"), "The handlers listed are theirs to use: no DynamoDB", listed.slice(0, 120));
+    check(listed.includes("aws.dynamodb.scan"), "The handlers listed are every handler, DynamoDB's too", listed.slice(0, 120));
     await page.fill("#builder-source", SCAN);
     await page.click('.builder-view button:text-is("Check")');
-    const problem = await page.locator(".builder-problems li").first().innerText({ timeout: 5000 });
-    check(problem.startsWith("Line 11:") && problem.includes("can't use the handler aws.dynamodb.scan") && problem.includes("DynamoDB"),
-      "A handler of a pane their group wasn't granted is refused, with its line", problem);
-    await page.click(".builder-preview-redraw");
-    await page.waitForTimeout(500);
-    const after = await page.locator(".builder-problems li").first().innerText();
-    check(after.includes("aws.dynamodb.scan") && (await page.locator(".builder-preview-stale").count()) === 1,
-      "…and isn't previewed: the last good preview stays, marked as older");
+    await page.waitForSelector('.builder-notice:text-is("No problems found.")', { timeout: 10000 });
+    check(true, "A draft naming DynamoDB's scan checks clean");
   } finally {
     await clearWorkspace(page).catch(() => undefined);
     await page.close();

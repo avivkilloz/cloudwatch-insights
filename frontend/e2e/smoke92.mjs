@@ -2,10 +2,11 @@
 // group with the Builder turned on:
 //   - the rail's Builder row, a new pane type from the starter, Check finding
 //     a mistake with its line, then none;
-//   - Create: their group may use it at once -- "Open in a session" opens it,
-//     and it works (a Base64 live function, worked out as you type);
-//   - a member of another group isn't offered it; an admin's Users → Groups
-//     has the Builder switch.
+//   - Create: everyone may use it at once (D160) -- "Open in a session" opens
+//     it, and it works (a Base64 live function, worked out as you type);
+//   - a member of another group is offered it too, and has the Builder row
+//     to read it (D161), without New pane; an admin's Users → Groups has the
+//     Builder switch.
 import { check, clearWorkspace, launch, newPage, openApp, report, SHOWN, SHOT, signIn } from "./harness.mjs";
 
 const STAMP = Date.now();
@@ -81,7 +82,7 @@ const run = async () => {
     await builder.screenshot({ path: `${SHOT}/smoke92-builder.png` });
     await builder.click('.builder-view button:text-is("Open in a session")');
     await builder.waitForSelector(`${SHOWN} .aggregator-tab-label:text-is("Shouty ${STAMP}")`, { timeout: 10000 });
-    await builder.fill(`${SHOWN} textarea, ${SHOWN} input[type="text"]`, "hi");
+    await builder.fill(`${SHOWN} .aggregator-pane textarea, ${SHOWN} .aggregator-pane input[type="text"]`, "hi");
     await builder.waitForFunction(
       (sel) => [...document.querySelectorAll(sel)].some((e) => (e.value ?? e.textContent ?? "").includes("aGk=")),
       `${SHOWN} pre, ${SHOWN} textarea`,
@@ -92,11 +93,14 @@ const run = async () => {
     const stored = (await api(builder, "GET", "/builder/panes")).body.find((t) => t.id === ID);
     check(stored && stored.source.startsWith(`id: ${ID}\n`), "…kept as written, its id line added", stored?.source.slice(0, 60));
 
-    // ---- 3. nobody else's until granted
+    // ---- 3. everyone's (D160); changed by its owner and members (D161)
     await signIn(other, { username: OTHER, password: "pw-123456" });
     const theirs = (await api(other, "GET", "/pane-types")).body.map((m) => m.id);
-    check(!theirs.includes(ID), "Another group isn't offered it until an admin grants it", JSON.stringify(theirs));
-    check((await other.locator('.rail-row-page:has-text("Builder")').count()) === 0, "…and without the Builder, no Builder row");
+    check(theirs.includes(ID), "Another group is offered it at once", JSON.stringify(theirs));
+    await other.click('.rail-row-page:has-text("Builder")');
+    await other.waitForSelector(".builder-list");
+    check((await other.locator('.builder-list button:text-is("New pane")').count()) === 0,
+      "…and, without the Builder, reads the Builder but has no New pane");
     await page.click('[aria-label="Account menu"]');
     await page.click('.user-menu-popover .icon-popover-item:has-text("Settings")');
     await page.click('.content .settings-tabs button:text-is("Users")');
