@@ -207,6 +207,31 @@ they may have typed since.
 
   Anything that changes something asks a person before it runs.
 
+### Credential and connection types
+
+- **When you need one.** A pane, step or workflow reaches an API through a
+  connection input whose `connection_type` names a connection type. If the
+  type isn't there, Check says so at that line and the editor's Needs line
+  offers "Make it". The requests are signed with a credential whose type has
+  `inject`.
+- **Building one.** Build them like anything else, with kind `"credential"`
+  (a credential type) or `"connection"` (a connection type):
+  - `build_reference(kind)`, then `read_definition(kind, "<id>")` for the
+    closest existing type, built-ins included.
+  - `open_draft(kind, new_id=…)`, then `change_definition`,
+    `check_definition` and `propose_definition`.
+  - With the type's editor on the user's screen, use
+    `open_draft(on_screen=True)`.
+- **What goes in one.**
+  - A type is a shape, never a value: no secret and no real URL.
+  - Mark every key, token and password `secret: true`. A secret field can
+    never be made public later.
+  - A connection type's fields are plain settings beside the Base URL that
+    every one has.
+- **Who saves and fills it.** The user saves it in the Builder. Once a
+  credential uses a builder's credential type, only an admin changes it.
+  Credentials themselves, the secret values, are made by an admin.
+
 ## Resources and prompts
 
 - `platform://guide` is this guide. The `read_guide` tool returns the same

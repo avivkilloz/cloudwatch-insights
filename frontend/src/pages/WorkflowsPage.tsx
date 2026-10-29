@@ -1,3 +1,4 @@
+import BuilderNeeds from "./BuilderNeeds";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
 import {
@@ -726,6 +727,7 @@ function DefinitionSection({
           )}
         </div>
       )}
+      {editable && <BuilderNeeds kind="workflow" source={source} />}
       {editable && <DraftStatus kept={kept} />}
     </Section>
   );

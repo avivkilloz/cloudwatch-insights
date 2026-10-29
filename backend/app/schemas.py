@@ -91,6 +91,8 @@ class ConnectionTypeOut(BaseModel):
     # Where it stands in the store repo (D70): synced, pending, conflict --
     # null when the store doesn't keep it (no store, or built in).
     store_state: Optional[str] = None
+    owner_group: Optional[str] = None
+    locked: Optional[str] = None
 
 
 class ConnectionTypeFieldIn(BaseModel):
@@ -864,6 +866,10 @@ class CredentialTypeOut(BaseModel):
     in_use: int = 0
     has_test: bool = False
     store_state: Optional[str] = None
+    # The group whose builders made it (D158); null for an admin's or a built-in.
+    owner_group: Optional[str] = None
+    # Why the caller can't change it, in a sentence; null when they can.
+    locked: Optional[str] = None
 
 
 class CredentialTypeInfer(BaseModel):

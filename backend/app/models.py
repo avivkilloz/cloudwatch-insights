@@ -201,6 +201,9 @@ class ConnectionType(Base):
     builtin = Column(Boolean, nullable=False, server_default="false")
     # "manifest:<pane type>" for one a pane shipped; null for an admin's own.
     origin = Column(String, nullable=True)
+    # The group whose builders made it and may change it (D158); null for an
+    # admin's, a built-in, a manifest's or one restored from the store.
+    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
 
 
 class Connection(Base):
@@ -546,6 +549,10 @@ class CredentialType(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    # The group whose builders made it and may change it (D158); null for an
+    # admin's, a built-in or one restored from the store. Deployment state:
+    # never in the store's file.
+    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
 
 
 class Credential(Base):

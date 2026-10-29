@@ -109,6 +109,9 @@ propose_definition leaves it in their Builder, where they review it and Save -- 
 you never save. Read the guide first (read_guide, or the resource \
 platform://guide): it has the loop and what works.
 
+Credential and connection types are built the same way (kind "credential" or \
+"connection"); Check names a connection type a draft needs that isn't there.
+
 get_context's on_screen says what the user's browser shows, the one in front \
 first: "here" is that session, or that Builder editor -- open_draft(on_screen=True) \
 works on its draft, and the user watches each change land in their editor."""
@@ -1620,18 +1623,21 @@ def _may_build(user: models.User, kind: str) -> None:
     the UI (D121); which workflow they may change is the editor's to say."""
     from .. import builder, workflows
 
-    if kind in ("pane", "step") and not builder.can_build(user):
-        raise InputError("Building pane types and steps isn't turned on for the user's group.")
+    if kind in ("pane", "step", "credential", "connection") and not builder.can_build(user):
+        raise InputError("Building isn't turned on for the user's group.")
     if kind == "workflow" and not workflows.can_create(user):
         raise InputError("Making and editing workflows is for admins and builders.")
-    if kind not in ("pane", "workflow", "step"):
-        raise InputError('kind is "pane", "workflow" or "step".')
+    if kind not in ("pane", "workflow", "step", "credential", "connection"):
+        raise InputError('kind is "pane", "workflow", "step", "credential" (a credential type) or "connection" '
+                         "(a connection type).")
 
 
 def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User,
              files: Optional[dict[str, str]] = None) -> list[dict]:
-    from .. import builder, step_types, workflows
+    from .. import builder, step_types, type_defs, workflows
 
+    if kind in type_defs.KINDS:
+        return type_defs.check(kind, source)
     try:
         if kind == "pane":
             # A new one's id is the editor's Id field, not the draft's: not held to anything.
@@ -1648,13 +1654,17 @@ def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], 
 
 @mcp.tool()
 async def build_reference(kind: str) -> dict:
-    """What a pane type's ("pane"), a workflow's ("workflow") or a step type's ("step") definition may say: each
-    part's fields and types, the handlers, live functions, input types and renders there are (panes), the panes,
-    actions and step types a step can run (workflows, steps), and the ids whose YAML read_definition shows."""
-    from .. import builder, step_types
+    """What a pane type's ("pane"), a workflow's ("workflow"), a step type's ("step"), a credential type's
+    ("credential") or a connection type's ("connection") definition may say: each part's fields and types, the
+    handlers, live functions, input types and renders there are (panes), the panes, actions and step types a step
+    can run (workflows, steps), the field kinds and how a request is signed (credential types), and the ids whose
+    YAML read_definition shows."""
+    from .. import builder, step_types, type_defs
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
+        if kind in type_defs.KINDS:
+            return type_defs.reference(db, kind)
         if kind == "step":
             return step_types.reference(db, user)
         return builder.reference(db, kind, user)
@@ -1663,11 +1673,17 @@ async def build_reference(kind: str) -> dict:
 @mcp.tool()
 async def read_definition(kind: str, definition_id: str) -> dict:
     """The YAML of an existing pane type (bundled or built here), a recipe (recipe:<name>, with its files),
-    workflow or step type, as written -- to learn from or to start a change from."""
-    from .. import builder, workflows
+    workflow, step type, credential type or connection type, as written -- to learn from or to start a change
+    from."""
+    from .. import builder, type_defs, workflows
 
     with _acting() as (db, user, _caller):
         _may_build(user, kind)
+        if kind in type_defs.KINDS:
+            found = type_defs.read(db, kind, definition_id)
+            if found is None:
+                raise InputError(f"There is no {type_defs.NOUNS[kind]} {definition_id}; build_reference lists them.")
+            return found
         if kind == "pane" and definition_id.startswith(builder.RECIPE_PREFIX):
             recipe = builder.recipes().get(definition_id.removeprefix(builder.RECIPE_PREFIX))
             if recipe is None:
@@ -1709,8 +1725,10 @@ async def list_drafts(kind: Optional[str] = None) -> dict:
 
 # What a new draft starts as, when it isn't copied from anything.
 def _starter(kind: str) -> tuple[str, dict[str, str]]:
-    from .. import builder, step_types
+    from .. import builder, step_types, type_defs
 
+    if kind in type_defs.KINDS:
+        return type_defs.STARTERS[kind], {}
     if kind == "pane":
         return builder.STARTER, {}
     if kind == "step":
@@ -1764,8 +1782,8 @@ async def open_draft(kind: Optional[str] = None, definition_id: Optional[str] = 
                     return {"draft_id": found.id, "note": "The user's own unsaved draft of it, as they left it.",
                             **_draft_lines(found)}
                 saved = build_drafts._target(db, user, kind, definition_id)
-                row = build_drafts.save(db, user, kind, definition_id, saved.source,
-                                        files=None if kind == "workflow" else dict(saved.files or {}),
+                row = build_drafts.save(db, user, kind, definition_id, build_drafts._saved_source(kind, saved),
+                                        files=dict(saved.files or {}) if kind in ("pane", "step") else None,
                                         origin=ORIGIN, by=by, for_tab=tab)
                 return {"draft_id": row.id, "note": f"A draft of {definition_id}, as saved.", **_draft_lines(row)}
             notes = ""
@@ -1783,7 +1801,8 @@ async def open_draft(kind: Optional[str] = None, definition_id: Optional[str] = 
             else:
                 source, files = _starter(kind)
             row = build_drafts.save(db, user, kind, None, source, new_id=new_id or "",
-                                    files=None if kind == "workflow" else files, origin=ORIGIN, by=by, for_tab=tab)
+                                    files=files if kind in ("pane", "step") else None, origin=ORIGIN, by=by,
+                                    for_tab=tab)
         except build_drafts.DraftError as e:
             raise InputError(str(e)) from None
         return {"draft_id": row.id, "note": f"A new {build_drafts.NOUNS[kind]}'s draft"
@@ -2168,8 +2187,9 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         files = _files_of(db, caller)
         changes = _yaml_named_as_file(list(changes or []), files, source)
         on_files = [c for c in changes if _is_file_change(c)]
-        if on_files and kind == "workflow":
-            raise InputError("A workflow has no files of its own; its steps do. Nothing was changed.")
+        if on_files and kind not in ("pane", "step"):
+            raise InputError(f"A {kind} has no files of its own: only pane types and step types do. Nothing was "
+                             "changed.")
         on_yaml = [c for c in changes if not _is_file_change(c)]
         before, files_before = source, files
         try:
@@ -2177,7 +2197,7 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
             if on_yaml or not on_files:
                 source = yaml_edit.apply_all(source, on_yaml)
             source, files, moved = _code_to_files(kind, before, source, files)
-            if kind != "workflow":
+            if kind in ("pane", "step"):
                 files = deps.with_requirements(files_before, files)
         except yaml_edit.EditError as e:
             raise InputError(f"{e} Nothing was changed.") from None
@@ -2324,7 +2344,7 @@ def _proposed_in_draft(db: Session, caller: Any, holder: "_DraftView", kind: str
 
     row = holder.row
     holder.build_draft = text
-    if kind != "workflow":
+    if kind in ("pane", "step"):
         holder.build_files = files
     who = getattr(caller, "access_token_name", None)
     turn = {
@@ -2339,7 +2359,8 @@ def _proposed_in_draft(db: Session, caller: Any, holder: "_DraftView", kind: str
     build_drafts.announce(db, row, ORIGIN, _by(caller))
     db.commit()
     name = build_drafts.label(text) or row.target_id or row.new_id or f"draft {row.id}"
-    where = {"pane": "Panes", "step": "Steps", "workflow": "Workflows"}[kind]
+    where = {"pane": "Panes", "step": "Steps", "workflow": "Workflows", "credential": "Credentials",
+             "connection": "Connections"}[kind]
     out: dict[str, Any] = {
         "ok": not errors, "draft_id": row.id,
         "note": (f"It's in the user's Builder, unsaved: Builder → {where} → {name} (Draft) -- or the platform's "

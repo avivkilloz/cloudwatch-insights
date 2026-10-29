@@ -536,10 +536,13 @@ def access_errors(db: Session, definition: "Definition", user: models.User, sour
     """A builder names only panes their group may use, as a built pane names
     only their handlers (D113): a workflow of theirs is their group's to run
     at once (D121), and a step of a pane they were never granted would only
-    fail for every one of them. Admins may name any."""
+    fail for every one of them. Admins may name any. And a connection
+    parameter names a connection type that's there (D159), whoever writes it."""
+    from . import type_defs
+
+    errors = type_defs.missing_errors(db, "workflow", source) if source else []
     if user.group is not None and user.group.is_admin:
-        return []
-    errors = []
+        return errors
     for i, step in enumerate(definition.steps):
         if step.pane and not pane_access.allowed(user.group, step.pane):
             manifest = pane_manifest.get(step.pane)

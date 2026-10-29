@@ -43,7 +43,9 @@ def test_without_an_environment_it_asks_which_of_those_it_could_run_in(prod):
     _env("Test", "444455556666")
     assert _try(OPEN, None) == {"needs_environment": True, "environments": ["Prod", "Test"]}
     assert "isn't an environment you can reach" in _try(OPEN, "Shop")["skipped"]
-    # A pane with no connection needs none: it just runs.
+    # A type that's there but has no connection anywhere the builder reaches
+    # (one that isn't there at all is Check's to refuse, D159).
+    client.post("/api/connection-types", json={"id": "nope", "label": "Nope", "fields": []})
     tool = _try(RECIPES["http-api-table"]["source"].replace("connection_type: http_api", "connection_type: nope"),
                 None)
     assert "No environment you can reach has a nope connection" in tool["skipped"]

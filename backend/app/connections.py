@@ -187,7 +187,8 @@ def check_removed_fields(db: Session, row: models.ConnectionType, fields: list[d
         )
 
 
-def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[models.User] = None) -> models.ConnectionType:
+def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[models.User] = None,
+              owner_group_id: Optional[int] = None) -> models.ConnectionType:
     """Creates (`type_id` None, the id in `spec`) or edits an HTTP connection
     type. Built-ins are locked; a type's id never changes -- panes name it.
     A new one is named in the store's namespace when there is a store (D78),
@@ -205,7 +206,8 @@ def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[m
             raise ConnectionConfigError(str(e)) from None
         if db.get(models.ConnectionType, new_id) is not None:
             raise ConnectionConfigError(f"There is already a connection type {new_id}.")
-        row = models.ConnectionType(id=new_id, builtin=False, identity_types=[ANY_INJECT], origin=None)
+        row = models.ConnectionType(id=new_id, builtin=False, identity_types=[ANY_INJECT], origin=None,
+                                    owner_group_id=owner_group_id)
         db.add(row)
     else:
         row = db.get(models.ConnectionType, type_id)
@@ -239,6 +241,9 @@ def delete_type(db: Session, type_id: str, actor: Optional[models.User] = None) 
         raise ConnectionConfigError(f"{', '.join(panes)} reach{'es' if len(panes) == 1 else ''} connections of this type, so it stays.")
     db.delete(row)
     store.record(db, "connection_type", type_id, "delete", actor)
+    from . import build_drafts
+
+    build_drafts.forget(db, "connection", type_id)
     db.commit()
 
 

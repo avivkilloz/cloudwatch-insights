@@ -18,6 +18,9 @@ import { StoreBadge } from "../components/settings/StoreSettings";
 import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
 import { ActionRunner, ActionRunnerContext } from "../panes/actionRunner";
 import BuilderForm from "./BuilderForm";
+import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
+import BuilderNeeds from "./BuilderNeeds";
+import { CredentialTypesView } from "../components/settings/CredentialsSettings";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest, setManifests } from "../panes/manifest";
 import { useCatalogue } from "../sessions/catalogue";
@@ -46,9 +49,9 @@ import { takeBuilderAsk, useBuilderAskWaiting } from "../workflowFocus";
 // `what`: which list (pane types, or step types made for workflows, D122).
 // `draft`: a new one's draft, opened from the list (D125). Workflows are
 // built here too, beside pane and step types (D128).
-type What = "pane" | "workflow" | "step";
+type What = "pane" | "workflow" | "step" | "connection" | "credential";
 type Screen =
-  | { kind: "list"; what?: What }
+  | { kind: "list"; what?: What; make?: string }
   | { kind: "edit"; id: string | null; said?: string; draft?: number }
   | { kind: "workflow"; id: string | null; draft?: number }
   | { kind: "step"; id: string | null; said?: string; draft?: number };
@@ -108,6 +111,7 @@ export default function BuilderPage() {
     if (!asked) return;
     const taken = takeBuilderAsk();
     if (taken?.what === "draft") openDraft(taken.id);
+    else if (taken?.what === "type") setScreen({ kind: "list", what: "connection", make: taken.id });
     else if (taken) setScreen({ kind: "workflow", id: taken.id });
   }, [asked, openDraft]);
   // Opened at `?draft=<id>`.
@@ -149,27 +153,55 @@ export default function BuilderPage() {
   return (
     <>
       {linkError && <p className="error-text">{linkError}</p>}
-      <ListView open={setScreen} initial={screen.what ?? "pane"} />
+      <ListView key={screen.make ?? ""} open={setScreen} initial={screen.what ?? "pane"} make={screen.make} />
     </>
   );
 }
 
-function ListView({ open, initial }: { open: (s: Screen) => void; initial: What }) {
+const WHATS = [
+  ["pane", "Panes"],
+  ["workflow", "Workflows"],
+  ["step", "Steps"],
+  ["connection", "Connections"],
+  ["credential", "Credentials"],
+] as const;
+
+function ListView({ open, initial, make }: { open: (s: Screen) => void; initial: What; make?: string }) {
   const [what, setWhat] = useState<What>(initial);
+  // The kinds of connection and credential a pane, step or workflow needs
+  // (D158): made here by builders, for their group, in the same editors
+  // Settings shows admins. Their list carries the switch in its own head.
+  const switcher = (
+    <div className="builder-types-head">
+      <h2>Builder</h2>
+      <ViewSwitch views={WHATS} view={what} onChange={setWhat} />
+    </div>
+  );
+  if (what === "connection")
+    return (
+      <div className="builder-types">
+        <ConnectionTypesSettings
+          make={make}
+          switcher={switcher}
+          intro="The kinds of connection a pane or step reaches: a base URL and plain settings. Yours are your group's."
+        />
+      </div>
+    );
+  if (what === "credential")
+    return (
+      <div className="builder-types">
+        <CredentialTypesView
+          switcher={switcher}
+          intro="The kinds of credential a connection is signed with: fields, and which are secret. Yours are your group's."
+        />
+      </div>
+    );
   return (
     <div className="panel builder-list">
       <div className="credential-view-head">
         <h2>Builder</h2>
         <div className="credential-view-actions">
-          <ViewSwitch
-            views={[
-              ["pane", "Panes"],
-              ["workflow", "Workflows"],
-              ["step", "Steps"],
-            ] as const}
-            view={what}
-            onChange={setWhat}
-          />
+          <ViewSwitch views={WHATS} view={what} onChange={setWhat} />
           {what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane</button>}
           {what === "workflow" && <button onClick={() => open({ kind: "workflow", id: null })}>New workflow</button>}
           {what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step</button>}
@@ -690,6 +722,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               </button>
             )}
           </div>
+          <BuilderNeeds kind="pane" source={source} />
           <DraftStatus kept={kept} />
         </Section>
         {previewOpen && (

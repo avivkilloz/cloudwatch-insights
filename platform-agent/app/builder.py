@@ -123,6 +123,17 @@ workflow reads params), never both; `outputs` says what steps hand on.
 `code: {file: x.py}` names; `changes: true` when it changes something.
 """
 
+TYPE_RULES = """\
+Credential and connection types (D159):
+- A type is a shape, never a value: no secret, no URL of a real system, goes \
+in it. A credential type's fields are what a credential of it holds, each \
+secret: true when it's a key, a token or a password.
+- A credential type that signs HTTP requests says how in `inject` (header, \
+query or basic), its values CEL over the field keys: '"Bearer " + token'.
+- A connection type's fields are plain settings beside the Base URL every one \
+has; a pane reaches it by its id, as an input's connection_type.
+"""
+
 PLAN = """\
 First, decide. Reply with:
 {{
@@ -189,7 +200,8 @@ to delete"} -- or a Python file, {"op": "file", "name": "health.py", "text": "th
 
 
 def _noun(kind: str) -> str:
-    return {"pane": "pane type", "step": "step type"}.get(kind, "workflow")
+    return {"pane": "pane type", "step": "step type", "credential": "credential type",
+            "connection": "connection type"}.get(kind, "workflow")
 
 
 def _text(content: Any) -> str:
@@ -293,6 +305,8 @@ class Builder:
         self.reference_data: dict = {}
         self.started = ""
         self.can_try = self.kind == "pane" and "try_definition" in tools
+        # What's done before saving: a pane is previewed; a type (D159) is only read.
+        self.review = "preview it" if self.kind == "pane" else "check it"
 
     # ------------------------------------------------------------ tools
 
@@ -334,7 +348,8 @@ class Builder:
         self.steps += 1
         step_id = f"build-{self.steps}"
         self.events.append({"type": "tool_call", "id": step_id, "name": label, "args": {}, "preamble": True})
-        system = SYSTEM.format(noun=_noun(self.kind)) + {"pane": PANE_RULES, "step": STEP_RULES}.get(self.kind, "")
+        system = SYSTEM.format(noun=_noun(self.kind)) + {"pane": PANE_RULES, "step": STEP_RULES,
+                                                         "credential": TYPE_RULES, "connection": TYPE_RULES}.get(self.kind, "")
         conversation = [SystemMessage(content=system), HumanMessage(content=context + "\n\n" + instructions)]
         problem = ""
         for _ in range(JSON_RETRIES + 1):
@@ -624,7 +639,7 @@ class Builder:
                 if ok:
                     caught = f" The check caught {fixed} problem{'s' if fixed > 1 else ''} on the way, fixed." if fixed else ""
                     yield {"type": "text", "delta": f"{self.started}{summary}{caught}\n\nIt's in the editor, not saved yet: look it "
-                                                    "over, preview it and save."}
+                                                    f"over, {self.review} and save."}
                     for event in self._tried_events(verdict):
                         yield event
                     return
@@ -666,7 +681,7 @@ class Builder:
                 yield event
             if ok:
                 yield {"type": "text", "delta": f"{self.started}{summary}\n\nIt's in the editor, not saved yet: look it over, "
-                                                "preview it and save."}
+                                                f"{self.review} and save."}
                 for event in self._tried_events(verdict):
                     yield event
                 return

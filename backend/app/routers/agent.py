@@ -40,7 +40,8 @@ def _allowed(user: models.User) -> bool:
 
 
 # What each kind of editor is called, for a new one's title.
-NOUNS = {"pane": "pane type", "workflow": "workflow", "step": "step type"}
+NOUNS = {"pane": "pane type", "workflow": "workflow", "step": "step type", "credential": "credential type",
+         "connection": "connection type"}
 
 
 class AgentStatus(BaseModel):
@@ -84,7 +85,7 @@ class BuildFocus(BaseModel):
     a workflow), its id once saved, and its text as it is now -- unsaved,
     the user's, and newer than anything the store has."""
 
-    kind: Literal["pane", "workflow", "step"]
+    kind: Literal["pane", "workflow", "step", "credential", "connection"]
     id: Optional[str] = Field(default=None, max_length=200)
     title: str = Field(default="", max_length=200)
     source: str = Field(default="", max_length=MAX_MESSAGE_CHARS)
@@ -175,13 +176,23 @@ async def agent_chat(
 
             existing = db.get(models.Workflow, build.id) if build.id else None
             allowed = workflows.can_edit(current_user, existing)
+        elif build.kind in ("credential", "connection"):
+            # A type (D158): a new one is any builder's; an existing one,
+            # whoever may change it now.
+            from .. import type_access, type_defs
+
+            existing = db.get(type_defs.MODELS[build.kind], build.id) if build.id else None
+            allowed = (type_access.may_make(current_user) if existing is None
+                       else type_access.why_locked(db, current_user, f"{build.kind}_type", existing) is None)
         else:
             allowed = builder.can_build(current_user)
         if not allowed:
             raise HTTPException(
                 status_code=403,
                 detail="Only an admin, or a builder of the group that made it, edits this workflow."
-                if build.kind == "workflow" else "Building pane types and steps isn't turned on for your group.",
+                if build.kind == "workflow"
+                else "That type is locked to you: it says why in its editor." if build.kind in ("credential", "connection")
+                else "Building pane types and steps isn't turned on for your group.",
             )
         focus = {
             "kind": "build",

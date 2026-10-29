@@ -5161,3 +5161,43 @@ textarea.code-editor-text:focus {
   word-break: break-all;
   font-size: 12px;
 }
+
+/* The Builder's Connections and Credentials (D158): the Settings editors,
+   their list head carrying the Builder's title and switch. */
+.builder-types-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.builder-types-head h2 {
+  margin: 0;
+}
+
+.type-yaml {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.type-yaml-note,
+.type-yaml-problem {
+  margin: 0;
+}
+
+/* A draft's Needs line (D159): the connection types it reaches, a missing one
+   with Make it. */
+.builder-needs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.builder-need-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

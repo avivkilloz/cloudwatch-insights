@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/screen", tags=["presence"])
 class ScreenIn(BaseModel):
     view: Literal["home", "session", "builder", "workflows", "settings", "chat", "code", "other"]
     session_id: Optional[str] = Field(default=None, max_length=64)
-    build_kind: Optional[Literal["pane", "workflow", "step"]] = None
+    build_kind: Optional[Literal["pane", "workflow", "step", "credential", "connection"]] = None
     target_id: Optional[str] = Field(default=None, max_length=200)
     draft_id: Optional[int] = None
     timezone: Optional[str] = Field(default=None, max_length=64)

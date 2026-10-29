@@ -79,7 +79,11 @@ export function useWorkflowScreenWaiting(): boolean {
 
 /** A workflow to open in the Builder's Workflows (D128) -- the Workflows
  * page's New workflow and Open in the Builder: one editor, one place. */
-export type BuilderAsk = { what: "workflow"; id: string | null } | { what: "draft"; id: number };
+export type BuilderAsk =
+  | { what: "workflow"; id: string | null }
+  | { what: "draft"; id: number }
+  // "Make it", from a draft's Needs line (D159): a new type of that id.
+  | { what: "type"; kind: "connection"; id: string };
 let builderAsk: BuilderAsk | null = null;
 
 export function openInBuilder(next: BuilderAsk) {

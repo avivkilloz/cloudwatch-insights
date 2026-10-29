@@ -1031,6 +1031,33 @@ the platform, for a group with `builder_enabled` (admins always).
   save chain), a text save sends `base_version` (409 = follow, never
   overwrite), `for_tab` hands a draft to an editor that had none
   (`open_draft(on_screen=True)`), and AgentContext merges a draft's turns by id.
+- **Credential and connection types in the Builder** (D158; `type_access.py`,
+  `owner_group_id` on both type tables): the Builder's Connections and
+  Credentials are the Settings editors (`ConnectionTypesSettings`,
+  `CredentialTypesView`), mounted in both places, each with Form | YAML
+  (`components/settings/TypeYaml.tsx`: the store's file shape, the form's
+  draft the truth). Builders make types for their own group; `why_locked`
+  is the one answer to "may this user change it" (built in; another group's;
+  a credential type a credential uses -- secrets are admins', D24, so a
+  builder's refusal counts them, never names them), sent with each type as
+  `locked` and checked again by every route. The owner is deployment state,
+  never in the store's file.
+- **Types are built as panes are** (D159; `type_defs.py`): their text is the
+  store's YAML (`source_of`, `STARTERS`, `parse`/`check` with lines,
+  `reference` generated from the validation's own constants); build drafts,
+  the MCP build tools, the agent router and the Builder's loop take kinds
+  `credential`/`connection` (no files, no try). A type draft's "changed" is
+  by meaning (`type_defs.same`): the browser's YAML and the store's differ in
+  spelling. The editors stay forms; `components/settings/TypeDraft.tsx` is a
+  headless keeper mounted per open editor (`key` per opening) that runs
+  `useBuildDraft` + `useOfferBuild` on `typeText` and reads text back with
+  `readType`; Save calls its `finish` through a ref. **Needs**
+  (`type_defs.needs`/`missing_errors`, `/api/builder/needs`,
+  `pages/BuilderNeeds.tsx`): a connection input naming a type that isn't
+  there is a Check error at its line (pane, step, workflow), and the editors
+  list what a draft reaches, "Make it" going through `openInBuilder({what:
+  "type"})`. An editor follows only a strictly newer draft version: one
+  change can be announced twice.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

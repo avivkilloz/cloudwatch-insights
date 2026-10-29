@@ -11,7 +11,8 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { BuildFiles } from "../api";
 
-export type BuildKind = "pane" | "workflow" | "step";
+/** "credential" and "connection" are those types (D159): built as their YAML. */
+export type BuildKind = "pane" | "workflow" | "step" | "credential" | "connection";
 
 /** Where an editor keeps what it builds (D125): its draft, which holds the
  * Building chat too. Works after the editor has closed -- a turn still
