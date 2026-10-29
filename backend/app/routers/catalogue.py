@@ -1,7 +1,7 @@
 """The catalogue panes are picked from (PLATFORM_PLAN.md §19.2, D66): its
 categories in order, each person's favourites and hidden, and the admin's
-arranging of it. Access isn't decided here -- each person sees only the pane
-types their group may use (pane_access)."""
+arranging of it. Every pane type is everyone's (D160); what a group is given
+is its environments, so a pane none of them can run is marked, not hidden."""
 
 from typing import Optional
 
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, catalogue, models, pane_access
+from .. import auth, catalogue, connections, models
 from ..db import get_db
 
 router = APIRouter(prefix="/api/catalogue", tags=["catalogue"])
@@ -26,6 +26,10 @@ class CatalogueOut(BaseModel):
     categories: list[CategoryOut]
     favourites: list[str]
     hidden: list[str]
+    # Pane types that need a kind of connection none of the person's
+    # environments has (D160): offered, and said so, rather than left out --
+    # an admin adding the connection makes them work without anything else.
+    no_environment: dict[str, str] = {}
 
 
 class CategoryIn(BaseModel):
@@ -49,19 +53,19 @@ class PreferenceIn(BaseModel):
 
 
 def _out(db: Session, user: models.User) -> CatalogueOut:
-    allowed = pane_access.granted(user.group)
     is_admin = bool(user.group and user.group.is_admin)
     categories = []
     for c, types in catalogue.arrangement(db):
-        mine = [t for t in types if t in allowed]
         # An empty category is noise to anyone but the admin arranging them.
-        if mine or is_admin:
-            categories.append(CategoryOut(id=c.id, name=c.name, description=catalogue.description(c), pane_types=mine))
+        if types or is_admin:
+            categories.append(CategoryOut(id=c.id, name=c.name, description=catalogue.description(c), pane_types=types))
     favourites, hidden = catalogue.preferences(db, user)
+    known = {t for _c, types in catalogue.arrangement(db) for t in types}
     return CatalogueOut(
         categories=categories,
-        favourites=[t for t in favourites if t in allowed],
-        hidden=[t for t in hidden if t in allowed],
+        favourites=[t for t in favourites if t in known],
+        hidden=[t for t in hidden if t in known],
+        no_environment=catalogue.no_environment(db, user, connections.targets(db, user)),
     )
 
 

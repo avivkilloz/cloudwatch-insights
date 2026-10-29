@@ -1,13 +1,15 @@
-"""Drafts of what's being built (D125): a pane type, a step type or a
-workflow as its builder left it, saved as they type, with their Building chat
-about it. Leaving the page used to lose all of it.
+"""Drafts of what's being built (D125): a pane type, a step type, a
+workflow or a type as it was left, saved as it's typed, with the chat about
+it. Leaving the page used to lose all of it.
 
-A draft is its builder's own -- nobody else lists, reads or changes it -- and
-deployment state, never the store's. Making one needs the right to make that
-kind of thing; a draft of an existing one, the right to change it. Create or
-Save leaves only its chat (the browser, which knows the save went through,
-writes the saved text into it -- a new one's draft becoming the created
-one's); deleting the thing removes everyone's drafts of it."""
+One draft per saved thing, shared by everyone who may change it (D161, its
+owner, members and admins): each of them works in it, live, and talks in its
+chat -- people to each other, and the Builder's agent when it's asked. A new
+one's draft is its starter's and the members they add. Deployment state,
+never the store's. Making one needs the Builder; a draft of an existing one,
+the right to change it. Create or Save leaves the chat (the browser, which
+knows the save went through, writes the saved text into it -- a new one's
+draft becoming the created one's); deleting the thing removes its draft."""
 
 import datetime
 import json
@@ -17,7 +19,7 @@ import yaml
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import builder, live_events, models, step_types, workflows
+from . import build_access, live_events, models
 
 # A credential or connection type's draft is its YAML (D159, `type_defs`).
 KINDS = ("pane", "step", "workflow", "credential", "connection")
@@ -36,35 +38,17 @@ class DraftError(ValueError):
 
 
 def may_make(user: models.User, kind: str) -> bool:
-    if kind in ("credential", "connection"):
-        from . import type_access
-
-        return type_access.may_make(user)
-    if kind == "workflow":
-        return workflows.can_create(user)
-    if kind == "step":
-        return step_types.can_edit(user)
-    return builder.can_build(user)
+    return build_access.can_create(user)
 
 
 def _target(db: Session, user: models.User, kind: str, target_id: str) -> Any:
     """The thing a draft changes, if it's there and theirs to change."""
-    if kind in ("credential", "connection"):
-        from . import type_access
-
-        row = db.get(_MODELS[kind], target_id)
-        ok = row is not None and type_access.why_locked(db, user, f"{kind}_type", row) is None
-    elif kind == "workflow":
-        row = db.get(models.Workflow, target_id)
-        ok = row is not None and workflows.can_edit(user, row)
-    elif kind == "step":
-        row = db.get(models.BuiltStepType, target_id)
-        ok = row is not None and step_types.can_edit(user, row)
-    else:
-        row = db.get(models.BuiltPaneType, target_id)
-        ok = row is not None and builder.can_build(user)
-    if not ok:
-        raise DraftError(f"There is no {NOUNS[kind]} {target_id} you can change.", 404)
+    row = db.get(_MODELS[kind], target_id)
+    if row is None:
+        raise DraftError(f"There is no {NOUNS[kind]} {target_id}.", 404)
+    why = build_access.why_locked(db, user, kind, row)
+    if why:
+        raise DraftError(why, 403)
     return row
 
 
@@ -87,8 +71,25 @@ def _chat(turns: Any) -> list:
     return turns
 
 
-_MODELS = {"pane": models.BuiltPaneType, "step": models.BuiltStepType, "workflow": models.Workflow,
-           "credential": models.CredentialType, "connection": models.ConnectionType}
+def merge_chat(kept: list, sent: list) -> list:
+    """A chat several people write to (D161) is an append log, as a shared
+    session's is (mergeChatTurns): each tab sends the chat it has, and a turn
+    it doesn't have yet -- someone else's, a second ago -- must survive. By
+    turn id: the sent copy of a turn wins (its answer came in), the kept
+    turns it lacks stay, in their place."""
+    sent_ids = {t.get("id") for t in sent if isinstance(t, dict)}
+    out = list(sent)
+    for i, turn in enumerate(kept):
+        if isinstance(turn, dict) and turn.get("id") not in sent_ids:
+            # After the turn it followed, where that's still there.
+            before = kept[i - 1].get("id") if i and isinstance(kept[i - 1], dict) else None
+            at = next((j + 1 for j, t in enumerate(out) if isinstance(t, dict) and t.get("id") == before), None)
+            out.insert(at if at is not None else len(out), turn)
+            sent_ids.add(turn.get("id"))
+    return out
+
+
+_MODELS = build_access.MODELS
 
 
 def _same(kind: str, saved: str, source: str) -> bool:
@@ -122,22 +123,48 @@ def out(db: Session, row: models.BuildDraft, full: bool = False) -> dict[str, An
         "version": row.version or 0,
         "changed": saved is None or not _same(row.kind, _saved_source(row.kind, saved), row.source)
         or (row.kind in ("pane", "step") and (getattr(saved, "files", None) or {}) != (row.files or {})),
+        # Whether more than one person works in it: its chat is then people
+        # talking, the agent answering only when asked (D163).
+        "shared": len(build_access.participants(db, row.kind, row.target_id, row)) > 1,
         **({"source": row.source, "files": row.files or {}, "chat": row.chat or []} if full else {}),
     }
 
 
 def listed(db: Session, user: models.User, kind: Optional[str] = None) -> list[models.BuildDraft]:
-    q = db.query(models.BuildDraft).filter_by(user_id=user.id)
+    """The drafts someone works in: those they started, and those of what
+    they own or are a member of -- not every draft an admin could open."""
+    q = db.query(models.BuildDraft)
     if kind:
         q = q.filter_by(kind=kind)
-    return q.order_by(models.BuildDraft.updated_at.desc()).all()
+    member_of = {(m.kind, m.target_id) for m in db.query(models.BuildMember).filter_by(user_id=user.id)}
+    owned: set[tuple[str, str]] = set()
+    for k, model in _MODELS.items():
+        owned |= {(k, r.id) for r in db.query(model.id).filter(model.owner_id == user.id)}
+    out = []
+    for row in q.order_by(models.BuildDraft.updated_at.desc()).all():
+        here = (row.kind, row.target_id) if row.target_id else (row.kind, build_access.draft_target(row.id))
+        if row.user_id == user.id or here in member_of or here in owned:
+            out.append(row)
+    return out
 
 
-def mine(db: Session, user: models.User, draft_id: int) -> models.BuildDraft:
+def reachable(db: Session, user: models.User, draft_id: int) -> models.BuildDraft:
+    """A draft this person may work in: theirs, a member's, or -- of a saved
+    one -- whoever may change that; an admin, any."""
     row = db.get(models.BuildDraft, draft_id)
-    if row is None or row.user_id != user.id:
-        raise DraftError("There is no such draft of yours.", 404)
-    return row
+    if row is not None and (build_access.is_admin(user) or row.user_id == user.id):
+        return row
+    if row is not None and row.target_id:
+        target = db.get(_MODELS[row.kind], row.target_id)
+        if target is not None and build_access.can_edit(db, user, row.kind, target):
+            return row
+    elif row is not None and build_access.is_member(db, user, row.kind, build_access.draft_target(row.id)):
+        return row
+    raise DraftError("There is no such draft of yours.", 404)
+
+
+# What an older caller called it.
+mine = reachable
 
 
 def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str], chat: Any,
@@ -155,21 +182,29 @@ def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
     if new_id is not None:
         row.new_id = new_id.strip()[:64]
     if chat is not None:
-        row.chat = _chat(chat)
+        row.chat = _chat(merge_chat(list(row.chat or []), chat))
     row.updated_at = datetime.datetime.utcnow()
     row.version = (row.version or 0) + 1
 
 
 def announce(db: Session, row: models.BuildDraft, origin: Optional[str], by: Optional[str] = None,
-             for_tab: Optional[str] = None) -> None:
-    """Tells the user's tabs a draft changed (D157), on the caller's commit:
-    the editor holding it fetches it and follows. `by` says who, for its
-    line ("Claude Code (laptop)"); `for_tab`, a tab whose editor has no draft
-    yet and should take this one (open_draft for what's on screen)."""
+             for_tab: Optional[str] = None, also: Optional[int] = None) -> None:
+    """Tells everyone working in a draft that it changed (D157, D161), on the
+    caller's commit: each editor holding it fetches it and follows. Everyone
+    is its participants, whoever made the change (`also`: an admin who isn't
+    one), and anyone with it on screen. `by` says who, for its line ("Claude
+    Code (laptop)"); `for_tab`, a tab whose editor has no draft yet and should
+    take this one (open_draft for what's on screen)."""
     db.flush()
-    live_events.notify(db, row.user_id, "draft", None, row.version, origin, extra={
-        "draft_id": row.id, "build_kind": row.kind, "target_id": row.target_id,
-        **({"by": by} if by else {}), **({"for_tab": for_tab} if for_tab else {})})
+    who = build_access.participants(db, row.kind, row.target_id, row) | ({also} if also else set())
+    on_screen = db.query(models.ScreenView.user_id).filter(models.ScreenView.build_kind == row.kind)
+    on_screen = on_screen.filter(models.ScreenView.draft_id == row.id) if not row.target_id else \
+        on_screen.filter((models.ScreenView.draft_id == row.id) | (models.ScreenView.build_target_id == row.target_id))
+    who |= {r.user_id for r in on_screen}
+    for user_id in sorted(who):
+        live_events.notify(db, user_id, "draft", None, row.version, origin, extra={
+            "draft_id": row.id, "build_kind": row.kind, "target_id": row.target_id,
+            **({"by": by} if by else {}), **({"for_tab": for_tab} if for_tab and user_id == row.user_id else {})})
 
 
 class Stale(DraftError):
@@ -182,29 +217,29 @@ class Stale(DraftError):
 def save(db: Session, user: models.User, kind: str, target_id: Optional[str], source: Optional[str],
          new_id: Optional[str] = None, chat: Any = None, files: Optional[dict[str, str]] = None,
          origin: Optional[str] = None, by: Optional[str] = None, for_tab: Optional[str] = None) -> models.BuildDraft:
-    """A new draft -- or, of an existing one, the draft this person already
-    has of it, changed: one each, whichever tab saves first."""
+    """A new draft -- or, of an existing one, its draft, changed: one for
+    everyone who may change it, whoever saves first making it."""
     if kind not in KINDS:
         raise DraftError(f"A draft is of a {', '.join(KINDS)}.")
-    if not may_make(user, kind):
-        raise DraftError(f"You can't build a {NOUNS[kind]}.", 403)
+    if not target_id and not may_make(user, kind):
+        raise DraftError(f"Making a {NOUNS[kind]} is for admins and groups with the Builder.", 403)
     row = None
     if target_id:
         _target(db, user, kind, target_id)
-        row = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind, target_id=target_id).first()
+        row = db.query(models.BuildDraft).filter_by(kind=kind, target_id=target_id).first()
     if row is None:
         row = models.BuildDraft(user_id=user.id, kind=kind, target_id=target_id or None, source="", chat=[])
         db.add(row)
     _apply(row, source if source is not None else (row.source or ""), None if target_id else new_id, chat, files)
     try:
-        announce(db, row, origin, by, for_tab)
+        announce(db, row, origin, by, for_tab, also=user.id)
         db.commit()
     except IntegrityError:
-        # Another tab's first save of the same one won: change that one.
+        # Another tab's first save of the same one won -- or another person's: change that one.
         db.rollback()
-        row = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind, target_id=target_id).one()
+        row = db.query(models.BuildDraft).filter_by(kind=kind, target_id=target_id).one()
         _apply(row, source, None, chat, files)
-        announce(db, row, origin, by, for_tab)
+        announce(db, row, origin, by, for_tab, also=user.id)
         db.commit()
     return row
 
@@ -212,29 +247,67 @@ def save(db: Session, user: models.User, kind: str, target_id: Optional[str], so
 def update(db: Session, user: models.User, row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
            chat: Any, target_id: Optional[str] = None, files: Optional[dict[str, str]] = None,
            origin: Optional[str] = None, base_version: Optional[int] = None) -> models.BuildDraft:
-    if not may_make(user, row.kind):
-        raise DraftError(f"You can't build a {NOUNS[row.kind]}.", 403)
+    # Who may work in it was asked when it was reached (`reachable`).
     # Text saved on top of an older version would undo what was done since
     # (Claude Code's changes, another tab's): refused, and the editor follows.
     if base_version is not None and base_version != (row.version or 0) and (source is not None or files is not None):
         raise Stale()
     if target_id and row.target_id != target_id:
         # A new one just created: its draft goes on as that one's -- its chat
-        # with it -- in place of any this person had of it.
+        # and its members with it -- in place of any it had.
         if row.target_id is not None:
             raise DraftError("This draft already belongs to another one.")
-        _target(db, user, row.kind, target_id)
-        db.query(models.BuildDraft).filter(models.BuildDraft.user_id == user.id, models.BuildDraft.kind == row.kind,
+        saved = _target(db, user, row.kind, target_id)
+        db.query(models.BuildDraft).filter(models.BuildDraft.kind == row.kind,
                                            models.BuildDraft.target_id == target_id,
                                            models.BuildDraft.id != row.id).delete()
+        build_access.adopt(db, row.kind, row.id, target_id, row.user_id, saved.owner_id)
         row.target_id, row.new_id = target_id, ""
     _apply(row, source, None if row.target_id else new_id, chat, files)
-    announce(db, row, origin)
+    announce(db, row, origin, also=user.id)
     db.commit()
     return row
 
 
+def discard(db: Session, user: models.User, row: models.BuildDraft, origin: Optional[str] = None) -> None:
+    """Discarding a saved one's draft puts its text back as saved -- the
+    chat and the members stay, they're everyone's. A new one's goes, with
+    its members: its starter's or an admin's to discard."""
+    if row.target_id:
+        saved = _target(db, user, row.kind, row.target_id)
+        _apply(row, _saved_source(row.kind, saved), None, None,
+               dict(getattr(saved, "files", None) or {}) if row.kind in ("pane", "step") else None)
+        announce(db, row, origin, also=user.id)
+    else:
+        if not (row.user_id == user.id or build_access.is_admin(user)):
+            raise DraftError("Only whoever started this draft, or an admin, discards it; leave it instead.", 403)
+        build_access.forget(db, row.kind, build_access.draft_target(row.id))
+        db.delete(row)
+    db.commit()
+
+
 def forget(db: Session, kind: str, target_id: str) -> None:
-    """Everyone's drafts of something deleted: nothing left to change. The
-    caller commits, with the delete."""
+    """The draft and members of something deleted: nothing left to change.
+    The caller commits, with the delete."""
     db.query(models.BuildDraft).filter_by(kind=kind, target_id=target_id).delete()
+    build_access.forget(db, kind, target_id)
+
+
+def fold_duplicates(conn: Any) -> None:
+    """Once, on the move to one draft per thing (D161): of several people's
+    drafts of one thing, the newest is kept and the others' turns are added
+    to its chat. Raw SQL on startup's connection, before the new index."""
+    from sqlalchemy import text as sql
+
+    groups = conn.execute(sql("SELECT kind, target_id FROM build_drafts WHERE target_id IS NOT NULL "
+                              "GROUP BY kind, target_id HAVING count(*) > 1")).all()
+    for kind, target_id in groups:
+        rows = conn.execute(sql("SELECT id, chat FROM build_drafts WHERE kind = :k AND target_id = :t "
+                                "ORDER BY updated_at DESC, id DESC"), {"k": kind, "t": target_id}).all()
+        keep_id, chat = rows[0][0], list(rows[0][1] or [])
+        for _id, other in rows[1:]:
+            chat = merge_chat(list(other or []), chat)
+        conn.execute(sql("UPDATE build_drafts SET chat = CAST(:c AS json) WHERE id = :i"),
+                     {"c": json.dumps(_chat(chat)), "i": keep_id})
+        conn.execute(sql("DELETE FROM build_drafts WHERE kind = :k AND target_id = :t AND id <> :i"),
+                     {"k": kind, "t": target_id, "i": keep_id})

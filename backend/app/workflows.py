@@ -55,7 +55,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from . import blobs, connections, live_events, masking, models, pane_access, pane_outputs
+from . import blobs, connections, live_events, masking, models, pane_outputs
 from .db import SessionLocal
 from .panes import manifest as pane_manifest
 from .resolve import ResolveError
@@ -502,84 +502,43 @@ def _condition(text: Any, scope: dict[str, Any]) -> Any:
     return render(text, scope)
 
 
-# ------------------------------------------------------------------- access (D84)
+# ------------------------------------------------------------------- access (D84, D160, D161)
 
 
 def can_create(user: models.User) -> bool:
-    """Admins, and since 5-3 a group's builders (D121)."""
-    group = user.group
-    return bool(group and (group.is_admin or group.builder_enabled))
+    """Admins, and a group's builders (D121)."""
+    from . import build_access
+
+    return build_access.can_create(user)
 
 
-def can_edit(user: models.User, workflow: Optional[models.Workflow] = None) -> bool:
-    """Whether `user` may change `workflow` (D121): an admin any; a builder
-    those their group made. Without a workflow: whether they may make one."""
-    if workflow is None:
-        return can_create(user)
-    group = user.group
-    if group is None:
-        return False
-    if group.is_admin:
-        return True
-    return bool(group.builder_enabled and workflow.owner_group_id is not None and workflow.owner_group_id == group.id)
+def can_edit(db: Session, user: models.User, workflow: models.Workflow) -> bool:
+    """Its owner, its members and admins (D161)."""
+    from . import build_access
 
-
-def sees_all(user: models.User) -> bool:
-    return bool(user.group and user.group.is_admin)
-
-
-def visible(db: Session, user: models.User, workflow: models.Workflow) -> bool:
-    return can_edit(user, workflow) or can_run(db, user, workflow)
+    return build_access.can_edit(db, user, "workflow", workflow)
 
 
 def access_errors(db: Session, definition: "Definition", user: models.User, source: str = "") -> list[dict]:
-    """A builder names only panes their group may use, as a built pane names
-    only their handlers (D113): a workflow of theirs is their group's to run
-    at once (D121), and a step of a pane they were never granted would only
-    fail for every one of them. Admins may name any. And a connection
-    parameter names a connection type that's there (D159), whoever writes it."""
+    """A connection parameter names a connection type that's there (D159).
+    Every pane is everyone's (D160), so a step may name any."""
     from . import type_defs
 
-    errors = type_defs.missing_errors(db, "workflow", source) if source else []
-    if user.group is not None and user.group.is_admin:
-        return errors
-    for i, step in enumerate(definition.steps):
-        if step.pane and not pane_access.allowed(user.group, step.pane):
-            manifest = pane_manifest.get(step.pane)
-            errors.append({"line": _line(source, ("steps", i, "pane")) if source else None,
-                           "message": f"Step {step.id}: your group can't use {manifest.label if manifest else step.pane} "
-                                      "panes, so a workflow of yours can't run one."})
-    return errors
-
-
-def can_run(db: Session, user: models.User, workflow: models.Workflow) -> bool:
-    if user.group is None:
-        return False
-    if user.group.is_admin:
-        return True
-    return (
-        db.query(models.WorkflowGrant).filter_by(workflow_id=workflow.id, group_id=user.group_id).first() is not None
-    )
+    return type_defs.missing_errors(db, "workflow", source) if source else []
 
 
 def can_read(user: models.User, run: models.WorkflowRun) -> bool:
     """A run's inputs and outputs are its starter's, their group's and admins':
-    they came from the starter's environments (D84)."""
+    they came from the starter's environments (D84). Everyone runs every
+    workflow (D160), as themselves, and sees that a run happened."""
     if user.group is not None and user.group.is_admin:
         return True
     return run.started_by_id == user.id or (run.group_id is not None and run.group_id == user.group_id)
 
 
-def runnable(db: Session, user: models.User) -> list[models.Workflow]:
-    rows = db.query(models.Workflow).order_by(models.Workflow.label).all()
-    return [w for w in rows if can_run(db, user, w)]
-
-
-def listed(db: Session, user: models.User) -> list[models.Workflow]:
-    """What the Workflows page lists: every one for an admin; the ones a
-    person may run or edit for anyone else."""
-    rows = db.query(models.Workflow).order_by(models.Workflow.label).all()
-    return rows if sees_all(user) else [w for w in rows if visible(db, user, w)]
+def listed(db: Session) -> list[models.Workflow]:
+    """Every workflow: everyone's to run (D160)."""
+    return db.query(models.Workflow).order_by(models.Workflow.label).all()
 
 
 # ------------------------------------------------------------------- saving
@@ -607,19 +566,19 @@ def save(db: Session, workflow_id: Optional[str], requested_id: Optional[str], s
             raise WorkflowError(str(e)) from None
         if db.get(models.Workflow, new_id) is not None:
             raise WorkflowError(f"There is already a workflow {new_id}.")
-        row = models.Workflow(id=new_id, created_by_id=actor.id)
-        if actor.group is not None and not actor.group.is_admin:
-            # A builder's: their group's to edit, and to run at once (the
-            # grant, below); any other group when an admin grants it (D121, as
-            # D105 for a built pane).
-            row.owner_group_id = actor.group.id
+        # Everyone's to run at once (D160); its maker's to change, with the
+        # members they add (D161).
+        row = models.Workflow(id=new_id, created_by_id=actor.id, owner_id=actor.id)
         db.add(row)
     else:
         row = db.get(models.Workflow, workflow_id)
         if row is None:
             raise WorkflowError("That workflow doesn't exist any more.")
-        if not can_edit(actor, row):
-            raise WorkflowError("Only an admin, or a builder of the group that made it, may change this workflow.")
+        from . import build_access
+
+        why = build_access.why_locked(db, actor, "workflow", row)
+        if why:
+            raise WorkflowError(why)
     source = ensure_id_line(source, row.id)
     definition = parse(source)
     errors = access_errors(db, definition, actor, source)
@@ -631,8 +590,6 @@ def save(db: Session, workflow_id: Optional[str], requested_id: Optional[str], s
     row.definition = definition.model_dump(by_alias=True, exclude_none=True)
     row.updated_by_id, row.updated_at = actor.id, datetime.datetime.utcnow()
     db.flush()
-    if workflow_id is None and row.owner_group_id is not None:
-        db.add(models.WorkflowGrant(workflow_id=row.id, group_id=row.owner_group_id))
     store.record(db, "workflow", row.id, "write", actor)
     db.commit()
     return row
@@ -654,17 +611,6 @@ def delete(db: Session, workflow_id: str, actor: models.User) -> None:
     build_drafts.forget(db, "workflow", workflow_id)
     db.delete(row)
     store.record(db, "workflow", workflow_id, "delete", actor)
-    db.commit()
-
-
-def set_grants(db: Session, workflow: models.Workflow, group_ids: list[int]) -> None:
-    db.query(models.WorkflowGrant).filter_by(workflow_id=workflow.id).delete()
-    for gid in sorted(set(group_ids)):
-        group = db.get(models.UserGroup, gid)
-        if group is None:
-            raise WorkflowError(f"There is no group {gid}.")
-        if not group.is_admin:
-            db.add(models.WorkflowGrant(workflow_id=workflow.id, group_id=gid))
     db.commit()
 
 
@@ -740,7 +686,7 @@ def coerce_params(db: Session, user: models.User, definition: dict, given: dict[
 def parameter_options(db: Session, user: models.User, workflow: models.Workflow, key: str,
                       given: dict[str, Any]) -> dict[str, Any]:
     """A parameter's choices, listed by its pane input's loader as the person
-    filling in the form (D94) -- their group's grant, connections and identity,
+    filling in the form (D94) -- their group's connections and identity,
     as the pane's own picker would. Until the parameters it reads are set it
     says which (`needs`); a loader's failure is said, never raised: the field
     still takes typed text."""
@@ -818,8 +764,6 @@ def _flat_options(out: dict[str, Any]) -> dict[str, Any]:
 
 def start(db: Session, user: models.User, workflow: models.Workflow, given: dict[str, Any], *,
           trigger: str = "manual", timezone: Optional[str] = None, rerun_of: Optional[int] = None) -> models.WorkflowRun:
-    if not can_run(db, user, workflow):
-        raise WorkflowError(f"Your group may not run {workflow.label}.")
     params = coerce_params(db, user, workflow.definition, given)
     params = _as_listed(db, user, workflow, params)
     return _create(db, user, workflow, workflow.definition, params, trigger=trigger, timezone=timezone,
@@ -865,8 +809,8 @@ def rerun_from(db: Session, user: models.User, old: models.WorkflowRun, step_id:
     stages before it copied as they were (D90): they ran against that
     definition, so the new run does too, whatever the workflow says now."""
     workflow = db.get(models.Workflow, old.workflow_id)
-    if workflow is None or not can_run(db, user, workflow):
-        raise WorkflowError("Your group may not run this workflow.")
+    if workflow is None:
+        raise WorkflowError("That workflow doesn't exist any more.")
     if not can_read(user, old):
         raise WorkflowError(f"Run #{old.number}'s stages aren't yours to see, so you can't rerun it from one.")
     if old.status not in FINISHED:
@@ -1401,8 +1345,6 @@ def _run_one(db: Session, run: models.WorkflowRun, user: models.User, step: Step
     action = next((a for a in manifest.actions if a.id == step.action), None) if manifest else None
     if manifest is None or action is None:
         raise StepError(f"{step.pane}'s {step.action} doesn't exist any more.")
-    # As the starter's own click would: the pane granted to their group (D65).
-    pane_access.require(user, manifest.id, manifest.label)
     # Worked out once, outside the retries (D89): an expression fails the same way every time.
     inputs = _inputs(manifest, render(step.with_, scope))
     call_inputs = {**inputs, **({"_tz": run.timezone} if run.timezone else {})}

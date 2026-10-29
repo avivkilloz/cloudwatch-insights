@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import audit, auth, aws_client, connections, credential_types, masking, models, schemas, tools_http_client, type_access
+from .. import audit, auth, aws_client, build_access, connections, credential_types, masking, models, schemas, tools_http_client
 from ..db import get_db
 from ..resolve import ResolveError, Target, group_can_access_environment, resolve_identity, resolve_identity_values
 
@@ -362,15 +362,14 @@ def _type_out(db: Session, t: models.ConnectionType, user: models.User) -> schem
         connections=db.query(models.Connection).filter(models.Connection.type_id == t.id).count(),
         needed_by=connections.needed_by(t.id),
         store_state=next(iter(db.query(models.StoreItem.state).filter_by(kind="connection_type", item_id=t.id)), (None,))[0],
-        owner_group=type_access.owner_name(db, t),
-        locked=type_access.why_locked(db, user, type_access.CONNECTION, t),
+        owner=build_access.owner_name(db, t),
+        locked=build_access.why_locked(db, user, "connection", t),
     )
 
 
 def _maker(user: models.User = Depends(auth.get_current_user)) -> models.User:
-    """An admin, or a builder: who makes connection types (D158). Builders
-    read them all, for the panes and steps they build."""
-    if not type_access.may_make(user):
+    """An admin, or a builder: who makes connection types (D158)."""
+    if not build_access.can_create(user):
         raise HTTPException(status_code=403, detail="Making connection types is for admins and builders.")
     return user
 
@@ -378,13 +377,14 @@ def _maker(user: models.User = Depends(auth.get_current_user)) -> models.User:
 def _changeable(db: Session, user: models.User, type_id: str) -> None:
     row = db.get(models.ConnectionType, type_id)
     # A built-in's refusal is save_type's own, as it always was.
-    why = type_access.why_locked(db, user, type_access.CONNECTION, row) if row is not None and not row.builtin else None
+    why = build_access.why_locked(db, user, "connection", row) if row is not None and not row.builtin else None
     if why:
         raise HTTPException(status_code=403, detail=why)
 
 
 @types_router.get("", response_model=list[schemas.ConnectionTypeOut])
-def list_connection_types(db: Session = Depends(get_db), user: models.User = Depends(_maker)):
+def list_connection_types(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    # Everyone reads them (D160): a pane's or workflow's definition names them.
     return [_type_out(db, t, user) for t in db.query(models.ConnectionType).order_by(models.ConnectionType.id)]
 
 
@@ -399,10 +399,9 @@ def _type_guard(fn):
 def create_connection_type(
     payload: schemas.ConnectionTypeIn, db: Session = Depends(get_db), admin: models.User = Depends(_maker)
 ):
-    """A new HTTP API of a kind (D67): a base URL and the fields given; a
-    builder's is their group's (D158)."""
-    row = _type_guard(lambda: connections.save_type(db, None, payload.model_dump(), admin,
-                                                    owner_group_id=type_access.owner_for(admin)))
+    """A new HTTP API of a kind (D67): a base URL and the fields given; its
+    maker's to change, with the members they add (D161)."""
+    row = _type_guard(lambda: connections.save_type(db, None, payload.model_dump(), admin, owner_id=admin.id))
     return _type_out(db, row, admin)
 
 
@@ -411,7 +410,7 @@ def update_connection_type(
     type_id: str,
     payload: schemas.ConnectionTypeIn,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(_maker),
+    admin: models.User = Depends(auth.get_current_user),
 ):
     _changeable(db, admin, type_id)
     row = _type_guard(lambda: connections.save_type(db, type_id, payload.model_dump(), admin))
@@ -419,7 +418,8 @@ def update_connection_type(
 
 
 @types_router.delete("/{type_id}", status_code=204)
-def delete_connection_type(type_id: str, db: Session = Depends(get_db), admin: models.User = Depends(_maker)):
+def delete_connection_type(type_id: str, db: Session = Depends(get_db),
+                           admin: models.User = Depends(auth.get_current_user)):
     _changeable(db, admin, type_id)
     _type_guard(lambda: connections.delete_type(db, type_id, admin))
     return None

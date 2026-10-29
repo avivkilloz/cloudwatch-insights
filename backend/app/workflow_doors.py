@@ -17,7 +17,7 @@ import yaml
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from . import connections, live_store, models, pane_access, pane_outputs, workflows
+from . import connections, live_store, models, pane_outputs, workflows
 from .panes import manifest as pane_manifest
 from .workflows import WorkflowError
 
@@ -77,8 +77,8 @@ def investigate(db: Session, user: models.User, run: models.WorkflowRun) -> mode
                 said.append(f"{name}: approved by {outputs['approved_by']}")
             continue
         manifest = pane_manifest.get(step.pane)
-        if manifest is None or not pane_access.allowed(user.group, manifest.id):
-            said.append(f"{name}: a {step.pane} pane, which your group doesn't have")
+        if manifest is None:
+            said.append(f"{name}: a {step.pane} pane, which isn't here any more")
             continue
         if step.for_each is not None:
             given = (record.inputs or {}).get("items") or []
@@ -270,7 +270,7 @@ def draft_from_session(db: Session, user: models.User, client_id: str) -> dict[s
 
 
 def pane_list(db: Session, user: models.User, _inputs: dict[str, Any]) -> dict[str, Any]:
-    return {"options": [{"value": w.id, "label": w.label} for w in workflows.runnable(db, user)]}
+    return {"options": [{"value": w.id, "label": w.label} for w in workflows.listed(db)]}
 
 
 def _rows_to_params(value: Any) -> dict[str, Any]:
@@ -283,7 +283,7 @@ def _rows_to_params(value: Any) -> dict[str, Any]:
 
 def pane_start(db: Session, user: models.User, inputs: dict[str, Any]) -> dict[str, Any]:
     workflow = db.get(models.Workflow, str(inputs.get("workflow") or ""))
-    if workflow is None or not workflows.can_run(db, user, workflow):
+    if workflow is None:
         raise HTTPException(status_code=404, detail="There is no such workflow you may run.")
     try:
         run = workflows.start(db, user, workflow, _rows_to_params(inputs.get("params")), trigger="pane",

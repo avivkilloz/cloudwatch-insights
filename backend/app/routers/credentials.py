@@ -1,8 +1,9 @@
 """Credentials, credential types and the audit log over HTTP (PLATFORM_PLAN.md
 §13.5).
 
-Admins manage everything here (D24) -- but types, which builders make too,
-for their own group (D158, `type_access`). Anyone signed in can read the types
+Admins manage everything here (D24) -- but types, which builders make too
+(D158), each changed by its owner, its members and admins (D161,
+`build_access`). Anyone signed in can read the types
 (for a form) and the names of the credentials their group may use (to pick
 one). No route returns a secret value, to admins included (D25): a secret
 field is reported only as set or not, and replacing it is the only way to
@@ -16,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import audit, auth, credential_store, credential_types, models, schemas, store, type_access
+from .. import audit, auth, build_access, credential_store, credential_types, models, schemas, store
 from ..db import get_db
 
 types_router = APIRouter(prefix="/api/credential-types", tags=["credentials"])
@@ -63,8 +64,8 @@ def _type_out(db: Session, row: models.CredentialType, user: models.User) -> sch
         in_use=in_use,
         has_test=has_test,
         store_state=_store_state(db, "credential_type", row.id),
-        owner_group=type_access.owner_name(db, row),
-        locked=type_access.why_locked(db, user, type_access.CREDENTIAL, row),
+        owner=build_access.owner_name(db, row),
+        locked=build_access.why_locked(db, user, "credential", row),
     )
 
 
@@ -81,7 +82,7 @@ def list_types(db: Session = Depends(get_db), user: models.User = Depends(auth.g
 
 def _maker(user: models.User = Depends(auth.get_current_user)) -> models.User:
     """An admin, or a builder: who makes types (D158)."""
-    if not type_access.may_make(user):
+    if not build_access.can_create(user):
         raise HTTPException(status_code=403, detail="Making credential types is for admins and builders.")
     return user
 
@@ -89,14 +90,14 @@ def _maker(user: models.User = Depends(auth.get_current_user)) -> models.User:
 def _changeable(db: Session, user: models.User, row: Optional[models.CredentialType]) -> models.CredentialType:
     if row is None:
         raise HTTPException(status_code=404, detail="That credential type doesn't exist.")
-    why = type_access.why_locked(db, user, type_access.CREDENTIAL, row)
+    why = build_access.why_locked(db, user, "credential", row)
     if why:
         raise HTTPException(status_code=403, detail=why)
     return row
 
 
 @types_router.post("/infer")
-def infer_type(payload: schemas.CredentialTypeInfer, _maker: models.User = Depends(_maker)):
+def infer_type(payload: schemas.CredentialTypeInfer, _user: models.User = Depends(auth.get_current_user)):
     try:
         return credential_types.infer(payload.example)
     except credential_types.CredentialTypeError as e:
@@ -104,7 +105,7 @@ def infer_type(payload: schemas.CredentialTypeInfer, _maker: models.User = Depen
 
 
 @types_router.post("/preview")
-def preview_type(payload: schemas.CredentialTypePreview, _maker: models.User = Depends(_maker)):
+def preview_type(payload: schemas.CredentialTypePreview, _user: models.User = Depends(auth.get_current_user)):
     """The output template's result for sample values -- the editor's live
     preview. Only sample values typed into the editor go in; nothing stored."""
     try:
@@ -145,8 +146,8 @@ def create_type(
         builtin=False,
         created_by_id=admin.id,
         updated_by_id=admin.id,
-        # A builder's is their group's (D158).
-        owner_group_id=type_access.owner_for(admin),
+        # Its maker's to change, with the members they add (D161).
+        owner_id=admin.id,
     )
     db.add(row)
     audit.record(db, actor=admin, action="credential_type.create", object_type="credential_type", object_id=type_id,
@@ -246,7 +247,7 @@ def delete_type(type_id: str, db: Session = Depends(get_db), admin: models.User 
     audit.record(db, actor=admin, action="credential_type.delete", object_type="credential_type", object_id=type_id,
                  detail={"label": row.label})
     store.record(db, "credential_type", type_id, "delete", admin)
-    # Everyone's drafts of it (D159): nothing left to change.
+    # Its draft and members (D159, D161): nothing left to change.
     from .. import build_drafts
 
     build_drafts.forget(db, "credential", type_id)

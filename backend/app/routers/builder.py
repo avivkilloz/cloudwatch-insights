@@ -1,6 +1,8 @@
-"""The Builder over HTTP (PLATFORM_PLAN.md §24, D103-D106): pane types made in
-the platform, for a group with the Builder (or an admin). Check reports every
-problem with its line; Create grants the new type to its builder's group."""
+"""The Builder over HTTP (PLATFORM_PLAN.md §24, D103-D106): pane types and
+step types made in the platform. Anyone reads them -- every one is everyone's
+to use (D160); a group with the Builder (or an admin) makes new ones, and
+each is changed by its owner, its members and admins (D161). Check reports
+every problem with its line."""
 
 from datetime import datetime
 from typing import Any, Literal, Optional
@@ -9,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from .. import auth, builder, deps, models, runner_client
+from .. import auth, build_access, builder, deps, models, runner_client
 from ..db import get_db
 
 router = APIRouter(prefix="/api/builder", tags=["builder"])
@@ -35,6 +37,10 @@ class PaneTypeOut(BaseModel):
     store_state: Optional[str] = None
     # Whether it loads now (a handler it names may have gone since).
     loads: bool = True
+    # Who may change it (D161): its owner, and whether the caller may.
+    owner: Optional[str] = None
+    can_edit: bool = False
+    locked: Optional[str] = None
 
 
 class CheckOut(BaseModel):
@@ -46,12 +52,26 @@ class CheckOut(BaseModel):
 
 
 def _builder(user: models.User = Depends(auth.get_current_user)) -> models.User:
-    if not builder.can_build(user):
-        raise HTTPException(status_code=403, detail="Building pane types isn't turned on for your group.")
+    """Making something new: an admin, or a group with the Builder."""
+    if not build_access.can_create(user):
+        raise HTTPException(status_code=403, detail="Making pane and step types is for admins and groups with the "
+                                                    "Builder.")
     return user
 
 
-def _out(db: Session, row: models.BuiltPaneType) -> dict[str, Any]:
+def _may_work(db: Session, user: models.User, kind: str, target_id: Optional[str]) -> None:
+    """Checking, previewing and trying a draft: for whoever may make one, or
+    may change the one it's a draft of -- a member needn't have the Builder."""
+    if build_access.can_create(user):
+        return
+    row = db.get(build_access.MODELS[kind], target_id) if target_id else None
+    if row is not None and build_access.can_edit(db, user, kind, row):
+        return
+    raise HTTPException(status_code=403, detail="Checking and trying a draft is for whoever may change it: its owner, "
+                                                "its members, admins and groups with the Builder.")
+
+
+def _out(db: Session, row: models.BuiltPaneType, user: Optional[models.User] = None) -> dict[str, Any]:
     from ..panes import manifest as pane_manifest
 
     loaded = pane_manifest.get(row.id)
@@ -65,6 +85,9 @@ def _out(db: Session, row: models.BuiltPaneType) -> dict[str, Any]:
         "updated_by": by.username if by else None,
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="pane", item_id=row.id)), (None,))[0],
         "loads": loaded is not None,
+        "owner": build_access.owner_name(db, row),
+        "can_edit": user is not None and build_access.can_edit(db, user, "pane", row),
+        "locked": build_access.why_locked(db, user, "pane", row) if user is not None else None,
     }
 
 
@@ -99,7 +122,7 @@ def _guard(fn):
 
 
 @router.get("/schema")
-def schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)) -> dict[str, Any]:
+def schema(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)) -> dict[str, Any]:
     # The store's namespace, so the editor can say what a new id is saved as
     # (`lambda` -> `default:lambda`, D78) before Create says it in an error.
     from .. import store
@@ -108,7 +131,7 @@ def schema(db: Session = Depends(get_db), user: models.User = Depends(_builder))
 
 
 @router.get("/examples/{type_id}")
-def example(type_id: str, _user: models.User = Depends(_builder)) -> dict[str, str]:
+def example(type_id: str, _user: models.User = Depends(auth.get_current_user)) -> dict[str, str]:
     """A bundled pane type's manifest as a start for a built one (D72),
     comments and all, without what a built pane may not say."""
     from ..panes import manifest as pane_manifest
@@ -119,19 +142,20 @@ def example(type_id: str, _user: models.User = Depends(_builder)) -> dict[str, s
 
 
 @router.get("/panes", response_model=list[PaneTypeOut])
-def list_panes(db: Session = Depends(get_db), _user: models.User = Depends(_builder)):
-    return [_out(db, r) for r in db.query(models.BuiltPaneType).order_by(models.BuiltPaneType.id).all()]
+def list_panes(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    return [_out(db, r, user) for r in db.query(models.BuiltPaneType).order_by(models.BuiltPaneType.id).all()]
 
 
 @router.get("/panes/{type_id}", response_model=PaneTypeOut)
-def get_pane(type_id: str, db: Session = Depends(get_db), _user: models.User = Depends(_builder)):
-    return _out(db, _found(db, type_id))
+def get_pane(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    return _out(db, _found(db, type_id), user)
 
 
 @router.post("/check", response_model=CheckOut, response_model_exclude_none=True)
-def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     from .. import store
 
+    _may_work(db, user, "pane", payload.id)
     type_id = payload.id
     if type_id is None and payload.new_id:
         try:
@@ -153,7 +177,8 @@ class NeedsIn(BaseModel):
 
 
 @router.post("/needs")
-def needs(payload: NeedsIn, db: Session = Depends(get_db), _user: models.User = Depends(_builder)) -> list[dict]:
+def needs(payload: NeedsIn, db: Session = Depends(get_db),
+          _user: models.User = Depends(auth.get_current_user)) -> list[dict]:
     """The connection types a draft reaches, each said there or not (D159):
     the editor's "Needs" line, a missing one with "Make it"."""
     from .. import type_defs
@@ -169,10 +194,11 @@ class PreviewOut(BaseModel):
 
 
 @router.post("/preview", response_model=PreviewOut)
-def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def preview(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     """The draft, checked, as a pane type the editor's preview draws (D112)."""
     from .. import store
 
+    _may_work(db, user, "pane", payload.id)
     type_id = payload.id
     if type_id is None and payload.new_id:
         try:
@@ -200,8 +226,9 @@ class PreviewRun(BaseModel):
 
 @router.post("/preview/actions/{action_id}")
 def preview_action(action_id: str, payload: PreviewRun, db: Session = Depends(get_db),
-                   user: models.User = Depends(_builder)) -> dict[str, Any]:
+                   user: models.User = Depends(auth.get_current_user)) -> dict[str, Any]:
     """One of the draft's actions, run as its builder; nothing stored (D112)."""
+    _may_work(db, user, "pane", payload.id)
     inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
     return builder.run_preview(db, user, payload.source, payload.id, action_id, inputs, payload.cursor,
                                _locked_or_400(payload.files))
@@ -212,20 +239,21 @@ def create_pane(payload: SourceIn, db: Session = Depends(get_db), user: models.U
     files = _locked_or_400(payload.files)
     row = _guard(lambda: builder.save(db, user, payload.id, payload.source, files=files))
     runner_client.prepare(user.id, files, f"pane:{row.id}")
-    return _out(db, row)
+    return _out(db, row, user)
 
 
 @router.put("/panes/{type_id}", response_model=PaneTypeOut)
-def update_pane(type_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def update_pane(type_id: str, payload: SourceIn, db: Session = Depends(get_db),
+                user: models.User = Depends(auth.get_current_user)):
     row = _found(db, type_id)
     files = _locked_or_400(payload.files)
     _guard(lambda: builder.save(db, user, None, payload.source, row, files))
     runner_client.prepare(user.id, files, f"pane:{row.id}")
-    return _out(db, row)
+    return _out(db, row, user)
 
 
 @router.delete("/panes/{type_id}", status_code=204)
-def delete_pane(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def delete_pane(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     _guard(lambda: builder.delete(db, user, _found(db, type_id)))
 
 
@@ -245,6 +273,8 @@ class StepTypeOut(BaseModel):
     files: dict[str, str] = {}
     loads: bool = True
     can_edit: bool = False
+    owner: Optional[str] = None
+    locked: Optional[str] = None
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     store_state: Optional[str] = None
@@ -277,7 +307,9 @@ def _step_out(db: Session, user: models.User, row: models.BuiltStepType) -> dict
         **step_types.describe(row),
         "updated_at": row.updated_at,
         "updated_by": by.username if by else None,
-        "can_edit": step_types.can_edit(user, row),
+        "can_edit": build_access.can_edit(db, user, "step", row),
+        "owner": build_access.owner_name(db, row),
+        "locked": build_access.why_locked(db, user, "step", row),
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="step", item_id=row.id)), (None,))[0],
     }
 
@@ -299,7 +331,7 @@ def _step_guard(fn):
 
 
 @router.get("/step-schema", response_model=StepSchemaOut)
-def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def step_schema(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     from .. import step_types, store
 
     return {"starter": step_types.STARTER, "chain_example": step_types.CHAIN_EXAMPLE,
@@ -309,19 +341,20 @@ def step_schema(db: Session = Depends(get_db), user: models.User = Depends(_buil
 
 
 @router.get("/steps", response_model=list[StepTypeOut])
-def list_steps(db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def list_steps(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     return [_step_out(db, user, r) for r in db.query(models.BuiltStepType).order_by(models.BuiltStepType.id).all()]
 
 
 @router.get("/steps/{type_id}", response_model=StepTypeOut)
-def get_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def get_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     return _step_out(db, user, _found_step(db, type_id))
 
 
 @router.post("/steps/check", response_model=CheckOut, response_model_exclude_none=True)
-def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     from .. import step_types, store
 
+    _may_work(db, user, "step", payload.id)
     type_id = payload.id
     if type_id is None and payload.new_id:
         try:
@@ -339,12 +372,13 @@ def check_step(payload: SourceIn, db: Session = Depends(get_db), user: models.Us
 
 
 @router.post("/steps/try")
-def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def try_step(payload: StepTryIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     """A draft request step sent once, as the builder -- for real: one that
     changes something does (the editor asks first). A chain is tried in a
     workflow, where its steps run as they will."""
     from .. import step_types
 
+    _may_work(db, user, "step", payload.id)
     files = _locked_or_400(payload.files)
     definition = _step_guard(lambda: step_types.parse(payload.source, payload.id, files))
     if definition.steps is not None:
@@ -375,7 +409,8 @@ def create_step(payload: SourceIn, db: Session = Depends(get_db), user: models.U
 
 
 @router.put("/steps/{type_id}", response_model=StepTypeOut)
-def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db),
+                user: models.User = Depends(auth.get_current_user)):
     from .. import step_types
 
     row = _found_step(db, type_id)
@@ -386,7 +421,7 @@ def update_step(type_id: str, payload: SourceIn, db: Session = Depends(get_db), 
 
 
 @router.delete("/steps/{type_id}", status_code=204)
-def delete_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(_builder)):
+def delete_step(type_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     from .. import step_types
 
     _step_guard(lambda: step_types.delete(db, user, _found_step(db, type_id)))

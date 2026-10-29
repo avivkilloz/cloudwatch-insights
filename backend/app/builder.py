@@ -7,11 +7,11 @@ a bundled one -- kept in Postgres (`built_pane_types`) and the store repo
 (`panes/<name>.yaml`), and merged into the manifest registry beside the files
 (`pane_manifest.set_built`). Nothing about it is the builder's own code: its
 actions are declarative requests (D67) and handlers the platform already has,
-run as whoever uses the pane, through their group's grants and connections.
+run as whoever uses the pane, through their group's connections and identity.
 
-Who builds is a group's Builder (`builder_enabled`) or an admin. A new type is
-granted to its builder's group at once (they use what they made); every other
-group gets it when an admin ticks it in Users -> Groups -> Panes (D65).
+Who makes a new one is a group's Builder (`builder_enabled`) or an admin. It
+is everyone's to use at once (D160); it's changed by its owner (who made it),
+the members they add, and admins (D161, build_access).
 
 Replicas: the one that saves loads at once; the others notice the generation
 (a Settings row bumped in the save's transaction) within `REFRESH_SECONDS`.
@@ -32,7 +32,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_request, catalogue, deps, models, pane_access, row_paths, runner_client, store
+from . import aws_request, catalogue, deps, models, row_paths, runner_client, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -45,7 +45,7 @@ GENERATION_KEY = "builder.generation"
 REFRESH_SECONDS = 5.0
 
 STARTER = """# A pane type: its inputs, the actions that fill its outputs, and how it's laid out.
-# Check finds any mistake with its line; Create makes it, for your group at once.
+# Check finds any mistake with its line; Create makes it, for everyone at once.
 label: Service status
 description: The status of a service, from an HTTP API connection.
 category: Tools
@@ -90,8 +90,10 @@ class BuilderError(ValueError):
 
 
 def can_build(user: models.User) -> bool:
-    group = user.group
-    return bool(group and (group.is_admin or group.builder_enabled))
+    """Making a new one (D161: changing one is its owner's, members' and admins')."""
+    from . import build_access
+
+    return build_access.can_create(user)
 
 
 def _line(source: str, path: tuple) -> Optional[int]:
@@ -212,7 +214,7 @@ def check(manifest: pane_manifest.Manifest, source: str = "") -> list[dict]:
     if manifest.state != "v2" or not manifest.rendered:
         err(("state",), "A built pane is drawn from its layout: state v2, rendered true.")
     if manifest.flag:
-        err(("flag",), "A built pane has no flag: groups are granted it in Users -> Groups -> Panes.")
+        err(("flag",), "A built pane has no flag: every pane type is everyone's.")
     if manifest.connection_types:
         err(("connection_types",), "Make a connection type in Settings -> Environments -> Types, and name it here.")
     for i, a in enumerate(manifest.actions):
@@ -509,34 +511,6 @@ def handler_owners() -> dict[str, set[str]]:
     return owners
 
 
-def usable_handlers(user: Any) -> set[str]:
-    """The handlers a built pane of this user's may run: those of the pane
-    types their group may use (admins: all). A built pane is granted to its
-    builder's group at once (D105), so a handler from a pane their group
-    wasn't given -- DynamoDB's scan, say -- reached what an admin hadn't
-    granted them."""
-    group = getattr(user, "group", None)
-    if group is not None and group.is_admin:
-        return set(pane_handlers.ACTIONS)
-    return {h for h, owners in handler_owners().items() if any(pane_access.allowed(group, o) for o in owners)}
-
-
-def access_errors(manifest: pane_manifest.Manifest, user: Any, source: str = "") -> list[dict]:
-    """Handlers in `manifest` its builder's group may not run, with their lines."""
-    usable = usable_handlers(user)
-    owners = handler_owners()
-    out = []
-    for i, a in enumerate(manifest.actions):
-        for path, name in ((("handler",), a.handler), (("poll", "handler"), a.poll.handler if a.poll else None),
-                           (("poll", "stop"), a.poll.stop if a.poll else None)):
-            if name and name in pane_handlers.ACTIONS and name not in usable:
-                labels = sorted(pane_manifest.bundled()[o].label for o in owners.get(name, ()))
-                whose = f" -- it's what {', '.join(labels)} run{'s' if len(labels) == 1 else ''}" if labels else ""
-                out.append({"line": _line(source, ("actions", i, *path)) if source else None,
-                            "message": f"Your group can't use the handler {name}{whose}, and your group isn't granted that."})
-    return out
-
-
 # ---------------------------------------------------------------- the preview (5-2c, D112)
 
 
@@ -548,9 +522,8 @@ def preview(source: str, type_id: Optional[str], user: Any,
     from . import type_defs
 
     manifest = parse(source, type_id, files)
-    errors = access_errors(manifest, user, source)
     with SessionLocal() as db:
-        errors += type_defs.missing_errors(db, "pane", source)
+        errors = type_defs.missing_errors(db, "pane", source)
     if errors:
         raise _fail(errors)
     return manifest
@@ -566,8 +539,6 @@ def run_preview(db: Session, user: Any, source: str, type_id: Optional[str], act
 
     from .routers import panes as panes_router
 
-    if not can_build(user):
-        raise HTTPException(status_code=403, detail="Building pane types isn't turned on for your group.")
     try:
         manifest = preview(source, type_id, user, files)
     except BuilderError as e:
@@ -790,8 +761,13 @@ def _bump(db: Session) -> None:
 
 def save(db: Session, user: models.User, requested_id: Optional[str], source: str,
          row: Optional[models.BuiltPaneType] = None, files: Optional[dict[str, str]] = None) -> models.BuiltPaneType:
-    if not can_build(user):
-        raise BuilderError("Building pane types isn't turned on for your group.")
+    from . import build_access, type_defs
+
+    if row is None and not can_build(user):
+        raise BuilderError("Making pane types is for admins and groups with the Builder.")
+    why = build_access.why_locked(db, user, "pane", row) if row is not None else None
+    if why:
+        raise BuilderError(why)
     if row is None:
         try:
             type_id = store.full_id(db, requested_id or "", ID_RE)
@@ -801,7 +777,8 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
             raise BuilderError(f"A pane type {type_id} already exists.")
     else:
         type_id = row.id
-    errors = access_errors(parse(source, type_id, files), user, source)
+    parse(source, type_id, files)
+    errors = type_defs.missing_errors(db, "pane", source)
     if errors:
         raise _fail(errors)
     # Its file in the store names it, as a workflow's does (a restore reads the id there).
@@ -810,12 +787,10 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
     source = ensure_id_line(source, type_id)
     now = datetime.datetime.utcnow()
     if row is None:
-        row = models.BuiltPaneType(id=type_id, created_by_id=user.id, created_at=now)
+        # Everyone's to use at once (D160); its maker's to change, with the
+        # members they add (D161).
+        row = models.BuiltPaneType(id=type_id, created_by_id=user.id, created_at=now, owner_id=user.id)
         db.add(row)
-        # Its builder's group uses it at once; any other group when an admin
-        # grants it (D65, D105).
-        if user.group and not user.group.is_admin:
-            db.add(models.GroupPaneGrant(group_id=user.group.id, pane_type=type_id))
     row.source, row.files, row.updated_by_id, row.updated_at = source, dict(files or {}), user.id, now
     _bump(db)
     db.flush()
@@ -826,9 +801,11 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
 
 
 def delete(db: Session, user: models.User, row: models.BuiltPaneType) -> None:
-    if not can_build(user):
-        raise BuilderError("Building pane types isn't turned on for your group.")
-    db.query(models.GroupPaneGrant).filter_by(pane_type=row.id).delete()
+    from . import build_access
+
+    why = build_access.why_locked(db, user, "pane", row)
+    if why:
+        raise BuilderError(why)
     db.query(models.CataloguePlacement).filter_by(pane_type=row.id).delete()
     store.record(db, "pane", row.id, "delete", user)
     from . import build_drafts
@@ -916,7 +893,7 @@ def schema(user: Any = None) -> dict[str, Any]:
     there are to name -- the handlers this user's group may use (D113)."""
     return {
         "schema": pane_manifest.Manifest.model_json_schema(),
-        "handlers": sorted(usable_handlers(user) if user is not None else pane_handlers.ACTIONS),
+        "handlers": sorted(pane_handlers.ACTIONS),
         "live": sorted(pane_live.FUNCTIONS),
         # What the form editor offers in its pickers (5-2d).
         "input_types": list(pane_manifest.InputType.__args__),
@@ -1141,7 +1118,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
     the models' own fields, the names there are to use, and where to read
     examples (D72: no per-service hints; the schema, examples and the check's
     errors are enough to build anything)."""
-    from . import pane_access, step_types, workflows
+    from . import step_types, workflows
     from .panes import manifest_docs
 
     if kind == "pane":
@@ -1202,7 +1179,7 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                                                "one, on an input"},
             "input_types": {t: manifest_docs.INPUT_TYPES.get(t, "") for t in m.InputType.__args__},
             "renders": {r: manifest_docs.RENDERS.get(r, "") for r in m.Render.__args__},
-            "handlers": sorted(usable_handlers(user)),
+            "handlers": sorted(pane_handlers.ACTIONS),
             "live_functions": sorted(pane_live.FUNCTIONS),
             "examples": sorted(m.bundled()),
             "recipes": {RECIPE_PREFIX + name: r["about"] for name, r in recipes().items()},
@@ -1241,11 +1218,11 @@ def reference(db: Session, kind: str, user: Any) -> dict[str, Any]:
                 "write an export action: code can't see which rows are selected or the pane's outputs, only its "
                 "inputs.",
                 "Keep what already works: change or add what's asked, never replace a working action.",
-                "Handlers are only those listed here: the ones of pane types the user's group may use.",
+                "Handlers are only those listed here.",
             ],
         }
-    usable = [x for x in pane_manifest.manifests().values() if pane_access.allowed(user.group, x.id)]
-    examples = [w.id for w in workflows.runnable(db, user)]
+    usable = list(pane_manifest.manifests().values())
+    examples = [w.id for w in workflows.listed(db)]
     return {
         "kind": "workflow",
         "what": "A workflow, as YAML: label, description, parameters, steps. Templates are CEL in {{ }}.",

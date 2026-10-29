@@ -5,8 +5,9 @@ else its `group`), matched by the category's fixed `key`; a suggestion no
 category has is created. An admin's placement pins a pane type to a category
 and a place in it, so a manifest changing its suggestion later -- a plugin
 upgrade -- never undoes it. Each person can favourite pane types and hide
-them. Access is not here: which pane types someone may use is pane_access's,
-and moving a pane between categories never changes it.
+them. Every pane type is everyone's (D160): what a group reaches is its
+environments, so a pane none of them can run is marked (`no_environment`),
+never left out.
 """
 
 from typing import Optional
@@ -213,3 +214,19 @@ def set_preference(db: Session, user: models.User, pane_type: str, favourite: Op
             db.expunge(row)
     db.commit()
 
+
+def no_environment(db: Session, user: models.User, reachable: list[dict]) -> dict[str, str]:
+    """The pane types a person can't run anywhere, each with why: one whose
+    required connection input is of a type none of their environments has a
+    connection of. A connection that may be left unset (the HTTP client's
+    Target) doesn't count -- the pane works without one."""
+    have = {t["type_id"] for t in reachable}
+    names = {r.id: r.label for r in db.query(models.ConnectionType).all()}
+    out: dict[str, str] = {}
+    for m in pane_manifest.manifests().values():
+        missing = sorted({i.connection_type for i in m.inputs if i.type in ("connection", "connections")
+                          and i.connection_type and not i.optional and i.connection_type not in have})
+        if missing:
+            out[m.id] = (f"None of your environments has a connection to "
+                         f"{' or '.join(names.get(t, t) for t in missing)} yet.")
+    return out

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, aws_request, connections, credential_types, live_store, masking, models, pane_access, pane_outputs, tools_http_client
+from .. import auth, aws_request, connections, credential_types, live_store, masking, models, pane_outputs, tools_http_client
 from ..db import get_db
 from ..panes import handlers as pane_handlers
 from ..panes import manifest as pane_manifest
@@ -29,20 +29,14 @@ from ..resolve import ResolveError, resolve_identity_values, resolve_target
 router = APIRouter(prefix="/api", tags=["panes"])
 
 
-def _allowed(user: models.User, manifest: pane_manifest.Manifest) -> bool:
-    return pane_access.allowed(user.group, manifest.id)
-
-
 @router.get("/pane-types")
 def list_pane_types(current_user: models.User = Depends(auth.get_current_user)) -> list[dict[str, Any]]:
-    """Every pane type the caller's group may use, as its manifest says --
+    """Every pane type, as its manifest says -- everyone's (D160) --
     with `refresh` (its shortest interval) when it can refresh by itself."""
     from ..panes import refresh as pane_refresh
 
     out = []
     for m in pane_manifest.manifests().values():
-        if not _allowed(current_user, m):
-            continue
         body = m.model_dump(by_alias=True, exclude_none=True)
         if m.refresh_action() is not None:
             body["refresh"] = {"floor": pane_refresh.floor_seconds(m)}
@@ -94,18 +88,10 @@ def run_handler(
     draft: bool = False,
 ) -> dict[str, Any]:
     """A handler action (§16.3.1), for the browser and the agent alike: the
-    group's flag, the manifest's `requires`, then the handler, whose own
-    checks (connection, identity) answer in sentences a user can act on.
-    `draft`: a pane type being built, not yet granted to anyone -- its
-    builder's preview (D112), whose handlers builder.access_errors held to the
-    ones their group may use instead."""
-    # The group's grant of this pane type (D65), whoever is asking: the action endpoint and the agent
-    # both check it first, but a handler never runs without it either.
-    try:
-        if not draft:
-            pane_access.require(user, manifest.id, manifest.label)
-    except ResolveError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
+    manifest's `requires`, then the handler, whose own checks (connection,
+    identity) answer in sentences a user can act on -- every pane type is
+    everyone's (D160), and what it reaches is the caller's. `draft`: a pane
+    type being built, not saved -- its builder's preview (D112)."""
     # An input never set is its default, as the pane shows it: a pane the
     # agent made holds only what it was given.
     if not action.args:
@@ -256,11 +242,6 @@ def _request(
     action's outputs: `rows` and `response`."""
     from ..platform_tools.panes import InputError, extract_rows, request_rows
 
-    try:
-        if not draft:  # a builder's preview (D112), as run_handler's
-            pane_access.require(user, manifest.id, manifest.label)
-    except ResolveError as e:
-        raise HTTPException(status_code=403, detail=str(e)) from None
     spec = action.request or {}
     # A request to an AWS connection names its service and operation (D110):
     # any read API, as the caller, through the same pane access as this.
@@ -365,8 +346,8 @@ def run_action(
     §18.2) -- the one place a pane's results are written, for every tab and
     member at once -- and returns what the pane now holds as `__outputs`."""
     manifest = pane_manifest.get(type_id)
-    if manifest is None or not _allowed(current_user, manifest):
-        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}'.")
     action = next((a for a in manifest.actions if a.id == action_id), None)
     inputs = {**payload.inputs, **({"_tz": payload.timezone} if payload.timezone else {})}
     if action is not None and action.poll is not None and manifest.state == "v2":
@@ -523,8 +504,8 @@ def stop_run(
     """Stops a pane's running background action -- anyone who can edit the
     session may, as the pane's own Stop button and the agent's stop_pane do."""
     manifest = pane_manifest.get(type_id)
-    if manifest is None or not _allowed(current_user, manifest):
-        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}'.")
     row, member = _pane_of(db, current_user, manifest, payload.session, payload.pane)
     try:
         stopped = runs.stop(db, current_user, row, member, payload.pane)
@@ -545,8 +526,8 @@ def refresh_pane(
     from ..panes import refresh as pane_refresh
 
     manifest = pane_manifest.get(type_id)
-    if manifest is None or not _allowed(current_user, manifest):
-        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}' for you.")
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"There is no pane type '{type_id}'.")
     row, member = _pane_of(db, current_user, manifest, payload.session, payload.pane)
     return pane_refresh.refresh(
         db, current_user, row, member, manifest, payload.pane, payload.every, payload.timezone, origin, fresh=payload.fresh

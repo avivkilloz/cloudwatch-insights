@@ -74,6 +74,9 @@ class Focus(BaseModel):
     try_now: Optional[bool] = None
     fix_now: Optional[bool] = None
     blank: Optional[bool] = None
+    # "platform": the chat agent answers beside the editor, not the Builder's
+    # loop -- the turn mentioned @platform-agent (D163).
+    agent: Optional[Literal["platform"]] = None
 
 
 class ChatRequest(BaseModel):

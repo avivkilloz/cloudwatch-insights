@@ -152,7 +152,7 @@ def _acting(draft_id: Optional[int] = None):
             raise ToolError("Not authorised.")
         if draft_id is not None:
             try:
-                build_drafts.mine(db, user, draft_id)
+                build_drafts.reachable(db, user, draft_id)
             except build_drafts.DraftError:
                 raise InputError(f"There is no draft {draft_id} of the user's; list_drafts lists them, "
                                  "open_draft makes one.") from None
@@ -1575,7 +1575,7 @@ async def list_workflows() -> dict:
         return {
             "workflows": [
                 {"id": w.id, "label": w.label, "description": w.description, "parameters": w.definition.get("parameters") or []}
-                for w in workflows.runnable(db, user)
+                for w in workflows.listed(db)
             ]
         }
 
@@ -1590,7 +1590,7 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
 
     with _acting() as (db, user, _caller):
         workflow = db.get(models.Workflow, workflow_id)
-        if workflow is None or not workflows.can_run(db, user, workflow):
+        if workflow is None:
             raise InputError(f"There is no workflow '{workflow_id}' the user may run; list_workflows says which they may.")
         try:
             run = workflows.start(db, user, workflow, params or {}, trigger="agent")
@@ -1618,18 +1618,29 @@ async def run_workflow(workflow_id: str, params: Optional[dict[str, Any]] = None
 # ---------------------------------------------------------------- building (5-2, D72)
 
 
-def _may_build(user: models.User, kind: str) -> None:
-    """Pane types, steps and workflows are a Builder's (or an admin's), as in
-    the UI (D121); which workflow they may change is the editor's to say."""
-    from .. import builder, workflows
-
-    if kind in ("pane", "step", "credential", "connection") and not builder.can_build(user):
-        raise InputError("Building isn't turned on for the user's group.")
-    if kind == "workflow" and not workflows.can_create(user):
-        raise InputError("Making and editing workflows is for admins and builders.")
+def _known_kind(kind: str) -> None:
     if kind not in ("pane", "workflow", "step", "credential", "connection"):
         raise InputError('kind is "pane", "workflow", "step", "credential" (a credential type) or "connection" '
                          "(a connection type).")
+
+
+def _may_build(user: models.User, kind: str, db: Optional[Session] = None, caller: Any = None) -> None:
+    """Working on a draft: one already reached -- the editor's, whose turn the
+    router allowed, or `draft_id`, which _acting checked -- is the user's to
+    work on, as its owner, a member or an admin (D161); anything else is
+    making something new, a Builder's or an admin's. Reading (references,
+    definitions) is everyone's: every one is everyone's to use (D160)."""
+    from .. import build_access
+
+    _known_kind(kind)
+    if db is not None and caller is not None:
+        holder = _token_row(db, caller)
+        if holder is not None and getattr(holder, "build_kind", None):
+            return
+    if not build_access.can_create(user):
+        raise InputError("Making pane types, step types, workflows and types is for admins and groups with the "
+                         "Builder. Something the user was added to as a member is worked on through its draft: "
+                         "open_draft(kind, definition_id=…).")
 
 
 def _checked(db: Session, kind: str, source: str, definition_id: Optional[str], user: models.User,
@@ -1662,7 +1673,7 @@ async def build_reference(kind: str) -> dict:
     from .. import builder, step_types, type_defs
 
     with _acting() as (db, user, _caller):
-        _may_build(user, kind)
+        _known_kind(kind)
         if kind in type_defs.KINDS:
             return type_defs.reference(db, kind)
         if kind == "step":
@@ -1678,7 +1689,7 @@ async def read_definition(kind: str, definition_id: str) -> dict:
     from .. import builder, type_defs, workflows
 
     with _acting() as (db, user, _caller):
-        _may_build(user, kind)
+        _known_kind(kind)
         if kind in type_defs.KINDS:
             found = type_defs.read(db, kind, definition_id)
             if found is None:
@@ -1702,7 +1713,7 @@ async def read_definition(kind: str, definition_id: str) -> dict:
                 raise InputError(f"There is no step type {definition_id}; build_reference lists them.")
             return {"kind": kind, "id": definition_id, "source": found.source, "files": found.files or {}}
         workflow = db.get(models.Workflow, definition_id)
-        if workflow is None or not workflows.can_run(db, user, workflow):
+        if workflow is None:
             raise InputError(f"There is no workflow {definition_id} the user may read; build_reference lists them.")
         return {"kind": kind, "id": definition_id, "source": workflow.source}
 
@@ -1761,25 +1772,29 @@ async def open_draft(kind: Optional[str] = None, definition_id: Optional[str] = 
             kind = screen.build_kind
             if screen.draft_id is not None:
                 found = db.get(models.BuildDraft, screen.draft_id)
-                if found is not None and found.user_id == user.id:
+                if found is not None:
                     return {"draft_id": found.id, "note": "The draft in the editor on the user's screen: they see "
                             "every change you make to it.", **_draft_lines(found)}
             tab = screen.origin
             definition_id = definition_id or screen.build_target_id
         if not kind:
             raise InputError('Say kind: "pane", "workflow" or "step".')
-        _may_build(user, kind)
+        _known_kind(kind)
+        if not definition_id:
+            _may_build(user, kind)
         by = _by(caller)
         try:
             if definition_id:
-                found = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind,
-                                                                target_id=definition_id).first()
+                # Its one draft, everyone's who may change it (D161): _target says whether this user may.
+                build_drafts._target(db, user, kind, definition_id)
+                found = db.query(models.BuildDraft).filter_by(kind=kind, target_id=definition_id).first()
                 if found is not None and (build_drafts.out(db, found)["changed"] or tab):
                     if tab:
                         # The editor on screen takes it, as it is.
                         build_drafts.announce(db, found, ORIGIN, by, for_tab=tab)
                         db.commit()
-                    return {"draft_id": found.id, "note": "The user's own unsaved draft of it, as they left it.",
+                    return {"draft_id": found.id, "note": "Its draft, as it was left -- shared with whoever else may "
+                            "change it, who see your changes as you make them.",
                             **_draft_lines(found)}
                 saved = build_drafts._target(db, user, kind, definition_id)
                 row = build_drafts.save(db, user, kind, definition_id, build_drafts._saved_source(kind, saved),
@@ -1847,7 +1862,7 @@ async def reference_resource(kind: str) -> str:
     from .. import builder, step_types
 
     with _acting() as (db, user, _caller):
-        _may_build(user, kind)
+        _known_kind(kind)
         found = step_types.reference(db, user) if kind == "step" else builder.reference(db, kind, user)
         return json.dumps(found, indent=1, default=str)
 
@@ -1952,7 +1967,8 @@ def _token_row(db: Session, caller: Any) -> Any:
     draft_id = _draft.get()
     if draft_id is not None:
         row = db.get(models.BuildDraft, draft_id)
-        return _DraftView(row, db, _by(caller)) if row is not None and row.user_id == caller.user_id else None
+        # _acting checked the user may work in it (build_drafts.reachable).
+        return _DraftView(row, db, _by(caller)) if row is not None else None
     return db.get(models.AgentToken, caller.token_hash) if getattr(caller, "token_hash", None) else None
 
 
@@ -2121,7 +2137,7 @@ async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: 
     propose_definition proposes: the editor's beside one, else the Builder draft `draft_id` names. `file` reads one
     of the Python files beside it instead (`files` lists them)."""
     with _acting(draft_id) as (db, user, caller):
-        _may_build(user, _kind_of(db, caller, None))
+        _may_build(user, _kind_of(db, caller, None), db, caller)
         files = _files_of(db, caller)
         if file is not None and file not in files:
             raise InputError(f"There is no file {file} beside the draft; there are: {', '.join(sorted(files)) or 'none'}.")
@@ -2142,7 +2158,7 @@ async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = Non
     From outside an editor, `draft_id` names the Builder draft to change."""
     with _acting(draft_id) as (db, user, caller):
         kind = _kind_of(db, caller, kind)
-        _may_build(user, kind)
+        _may_build(user, kind, db, caller)
         source = _source_of(db, caller, None)
         for i, edit in enumerate(edits or []):
             find, replace = str(edit.get("find") or ""), str(edit.get("replace") or "")
@@ -2182,7 +2198,7 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
 
     with _acting(draft_id) as (db, user, caller):
         kind = _kind_of(db, caller, kind)
-        _may_build(user, kind)
+        _may_build(user, kind, db, caller)
         source = _source_of(db, caller, None)
         files = _files_of(db, caller)
         changes = _yaml_named_as_file(list(changes or []), files, source)
@@ -2273,7 +2289,6 @@ async def describe_aws_operation(service: str, operation: Optional[str] = None) 
     from .. import aws_request
 
     with _acting() as (_db, user, _caller):
-        _may_build(user, "pane")
         try:
             return aws_request.describe(service, operation)
         except aws_request.AwsRequestError as e:
@@ -2288,7 +2303,7 @@ async def check_definition(kind: Optional[str] = None, source: Optional[str] = N
     Saves nothing."""
     with _acting(draft_id) as (db, user, caller):
         kind = _kind_of(db, caller, kind)
-        _may_build(user, kind)
+        _may_build(user, kind, db, caller)
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
         errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or _build_id(db, caller),
@@ -2311,7 +2326,7 @@ async def propose_definition(summary: str, kind: Optional[str] = None, source: O
     summary in its chat, for them to open, review and Save there -- the answer says where."""
     with _acting(draft_id) as (db, user, caller):
         kind = _kind_of(db, caller, kind)
-        _may_build(user, kind)
+        _may_build(user, kind, db, caller)
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
         errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or _build_id(db, caller),
@@ -2386,7 +2401,7 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
     from . import panes as agent_panes
 
     with _acting(draft_id) as (db, user, caller):
-        _may_build(user, _kind_of(db, caller, "pane"))
+        _may_build(user, _kind_of(db, caller, "pane"), db, caller)
         text = _source_of(db, caller, source)
         try:
             files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
@@ -2425,7 +2440,7 @@ async def try_definition(environment: Optional[str] = None, source: Optional[str
     from .. import builder
 
     with _acting(draft_id) as (db, user, caller):
-        _may_build(user, _kind_of(db, caller, "pane"))
+        _may_build(user, _kind_of(db, caller, "pane"), db, caller)
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
         if lock_errors:
@@ -2451,7 +2466,7 @@ async def investigate_run(run_id: int) -> dict:
             raise InputError(_OUT_OF_SCOPE)
         run = db.get(models.WorkflowRun, run_id)
         workflow = db.get(models.Workflow, run.workflow_id) if run else None
-        if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+        if run is None or workflow is None:
             raise InputError(f"There is no run {run_id} the user can see.")
         try:
             row = workflow_doors.investigate(db, user, run)
@@ -2492,13 +2507,13 @@ async def open_workflow(workflow_id: Optional[str] = None, run_id: Optional[int]
         if run_id is not None:
             run = db.get(models.WorkflowRun, run_id)
             workflow = db.get(models.Workflow, run.workflow_id) if run else None
-            if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+            if run is None or workflow is None:
                 raise InputError(f"There is no run {run_id} the user can see.")
             return {"shown": f"{workflow.label} #{run.number}", "show": {"href": f"?run={run.id}"}}
         if not workflow_id:
             raise InputError("Give the workflow_id (list_workflows) or a run_id.")
         workflow = db.get(models.Workflow, workflow_id)
-        if workflow is None or not workflows.can_run(db, user, workflow):
+        if workflow is None:
             raise InputError(f"There is no workflow '{workflow_id}' the user may run; list_workflows says which they may.")
         return {"shown": workflow.label, "show": {"href": f"?workflow={workflow.id}"}}
 
@@ -2511,7 +2526,7 @@ async def get_workflow_run(run_id: int) -> dict:
     with _acting() as (db, user, _caller):
         run = db.get(models.WorkflowRun, run_id)
         workflow = db.get(models.Workflow, run.workflow_id) if run else None
-        if run is None or workflow is None or not workflows.can_run(db, user, workflow):
+        if run is None or workflow is None:
             raise InputError(f"There is no run {run_id} the user can see.")
         return _run_out(db, run, user)
 

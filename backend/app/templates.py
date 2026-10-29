@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from . import connections, live_store, models, pane_access, store
+from . import connections, live_store, models, store
 from .panes import manifest as pane_manifest
 from .panes import variables as pane_variables
 
@@ -164,8 +164,9 @@ def _workflow_connection_params(db: Session, workflow_id: Any, values: dict) -> 
 
 
 def usable(user: models.User, row: models.PublishedTemplate) -> bool:
-    """Whether every pane of it is one the user's group may use."""
-    return set(pane_types(row.state or {})) <= pane_access.granted(user.group)
+    """Whether every pane of it is one that's here: every pane type is
+    everyone's (D160), but a built one may have been deleted since."""
+    return set(pane_types(row.state or {})) <= set(pane_manifest.manifests())
 
 
 def visible(db: Session, user: models.User) -> list[models.PublishedTemplate]:
@@ -240,8 +241,8 @@ def instantiate(db: Session, user: models.User, row: models.PublishedTemplate,
     """A new session of the user's from the template, its Environment
     variable set to the one they chose."""
     if not usable(user, row):
-        missing = sorted(set(pane_types(row.state or {})) - pane_access.granted(user.group))
-        raise TemplateError(f"{row.label} holds panes your group doesn't have ({', '.join(missing)}).")
+        missing = sorted(set(pane_types(row.state or {})) - set(pane_manifest.manifests()))
+        raise TemplateError(f"{row.label} holds panes that aren't here any more ({', '.join(missing)}).")
     state = copy.deepcopy(row.state or {})
     if needs_environment(state):
         reachable = {t["id"] for t in connections.targets(db, user, "aws")}
