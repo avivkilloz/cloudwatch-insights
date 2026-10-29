@@ -464,11 +464,14 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
 
 def access_errors(db: Session, definition: Definition, user: models.User, source: str = "") -> list[dict]:
     """A chain names only panes the builder's group may use, as a workflow
-    does (D121)."""
+    does (D121); a connection input names a connection type that's there (D159)."""
+    from . import type_defs
+
+    missing = type_defs.missing_errors(db, "step", source) if source else []
     if definition.steps is None:
-        return []
-    return workflows.access_errors(db, workflows.Definition(label=definition.label, steps=definition.steps),
-                                   user, source)
+        return missing
+    return missing + workflows.access_errors(
+        db, workflows.Definition(label=definition.label, steps=definition.steps), user, source)
 
 
 def used_by(db: Session, type_id: str) -> list[str]:

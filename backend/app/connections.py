@@ -241,6 +241,9 @@ def delete_type(db: Session, type_id: str, actor: Optional[models.User] = None) 
         raise ConnectionConfigError(f"{', '.join(panes)} reach{'es' if len(panes) == 1 else ''} connections of this type, so it stays.")
     db.delete(row)
     store.record(db, "connection_type", type_id, "delete", actor)
+    from . import build_drafts
+
+    build_drafts.forget(db, "connection", type_id)
     db.commit()
 
 

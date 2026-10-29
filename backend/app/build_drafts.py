@@ -19,8 +19,10 @@ from sqlalchemy.orm import Session
 
 from . import builder, live_events, models, step_types, workflows
 
-KINDS = ("pane", "step", "workflow")
-NOUNS = {"pane": "pane type", "step": "step type", "workflow": "workflow"}
+# A credential or connection type's draft is its YAML (D159, `type_defs`).
+KINDS = ("pane", "step", "workflow", "credential", "connection")
+NOUNS = {"pane": "pane type", "step": "step type", "workflow": "workflow", "credential": "credential type",
+         "connection": "connection type"}
 
 # A definition is a page or two of YAML; a chat is kept to its newest turns.
 MAX_SOURCE = 200_000
@@ -34,6 +36,10 @@ class DraftError(ValueError):
 
 
 def may_make(user: models.User, kind: str) -> bool:
+    if kind in ("credential", "connection"):
+        from . import type_access
+
+        return type_access.may_make(user)
     if kind == "workflow":
         return workflows.can_create(user)
     if kind == "step":
@@ -43,7 +49,12 @@ def may_make(user: models.User, kind: str) -> bool:
 
 def _target(db: Session, user: models.User, kind: str, target_id: str) -> Any:
     """The thing a draft changes, if it's there and theirs to change."""
-    if kind == "workflow":
+    if kind in ("credential", "connection"):
+        from . import type_access
+
+        row = db.get(_MODELS[kind], target_id)
+        ok = row is not None and type_access.why_locked(db, user, f"{kind}_type", row) is None
+    elif kind == "workflow":
         row = db.get(models.Workflow, target_id)
         ok = row is not None and workflows.can_edit(user, row)
     elif kind == "step":
@@ -76,7 +87,24 @@ def _chat(turns: Any) -> list:
     return turns
 
 
-_MODELS = {"pane": models.BuiltPaneType, "step": models.BuiltStepType, "workflow": models.Workflow}
+_MODELS = {"pane": models.BuiltPaneType, "step": models.BuiltStepType, "workflow": models.Workflow,
+           "credential": models.CredentialType, "connection": models.ConnectionType}
+
+
+def _same(kind: str, saved: str, source: str) -> bool:
+    if kind in ("credential", "connection"):
+        from . import type_defs
+
+        return type_defs.same(kind, saved, source)
+    return saved == source
+
+
+def _saved_source(kind: str, saved: Any) -> str:
+    if kind in ("credential", "connection"):
+        from . import type_defs
+
+        return type_defs.source_of(kind, saved)
+    return saved.source
 
 
 def out(db: Session, row: models.BuildDraft, full: bool = False) -> dict[str, Any]:
@@ -92,8 +120,8 @@ def out(db: Session, row: models.BuildDraft, full: bool = False) -> dict[str, An
         "updated_at": row.updated_at,
         "turns": len(row.chat or []),
         "version": row.version or 0,
-        "changed": saved is None or saved.source != row.source
-        or (row.kind != "workflow" and (getattr(saved, "files", None) or {}) != (row.files or {})),
+        "changed": saved is None or not _same(row.kind, _saved_source(row.kind, saved), row.source)
+        or (row.kind in ("pane", "step") and (getattr(saved, "files", None) or {}) != (row.files or {})),
         **({"source": row.source, "files": row.files or {}, "chat": row.chat or []} if full else {}),
     }
 

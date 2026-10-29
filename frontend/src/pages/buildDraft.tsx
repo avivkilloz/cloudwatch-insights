@@ -231,7 +231,10 @@ export function useBuildDraft(o: DraftOptions): DraftState {
   const follow = useCallback(async (by: string | null) => {
     if (idRef.current === null) return;
     const d = await api.getBuildDraft(idRef.current);
-    if ((d.version ?? 0) < versionRef.current) return;
+    // Only newer than what's held: one change can be announced twice (its
+    // text, then its files), and a second follow of the same version would
+    // drop what was typed since the first.
+    if ((d.version ?? 0) <= versionRef.current) return;
     versionRef.current = d.version ?? 0;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
@@ -358,11 +361,13 @@ export function useBuildDraft(o: DraftOptions): DraftState {
 
 /** This person's drafts of one kind, for its list: new ones, and the saved
  * ones they've changed and not saved. */
-export function useDraftList(kind: BuildKind): { fresh: BuildDraft[]; changed: Map<string, BuildDraft> } {
+export function useDraftList(kind: BuildKind, again = 0): { fresh: BuildDraft[]; changed: Map<string, BuildDraft> } {
   const [drafts, setDrafts] = useState<BuildDraft[]>([]);
+  // `again`: a list that stays mounted while an editor opens and closes over
+  // it (the type lists, D159) reads again when it comes back.
   useEffect(() => {
     api.listBuildDrafts(kind).then(setDrafts, () => setDrafts([]));
-  }, [kind]);
+  }, [kind, again]);
   return useMemo(
     () => ({
       fresh: drafts.filter((d) => d.target_id === null),

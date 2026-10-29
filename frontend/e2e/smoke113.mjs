@@ -86,7 +86,8 @@ const run = async () => {
     await page.click('.rail-row-page:has-text("Builder")');
     await page.click('.builder-list button:text-is("New pane")');
     await page.waitForSelector("#builder-source");
-    const builderScreen = await screenUntil(token, (c) => c.on_screen?.[0]?.view === "builder");
+    // The editor's own report, not the Builder list's that came a moment before it.
+    const builderScreen = await screenUntil(token, (c) => c.on_screen?.[0]?.kind === "pane");
     check(builderScreen.on_screen[0].kind === "pane" && builderScreen.on_screen[0].draft_id === null,
       "A new pane's editor is on screen, with no draft yet", JSON.stringify(builderScreen.on_screen[0]));
 

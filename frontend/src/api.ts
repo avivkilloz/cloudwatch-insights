@@ -214,10 +214,18 @@ export interface AccessTokenMade extends AccessToken {
   token: string;
 }
 
+/** A connection type a draft reaches, there or not (D159). */
+export interface BuildNeed {
+  kind: "connection";
+  id: string;
+  label: string | null;
+  exists: boolean;
+}
+
 export interface ScreenReport {
   view: "home" | "session" | "builder" | "workflows" | "settings" | "chat" | "code" | "other";
   session_id?: string | null;
-  build_kind?: "pane" | "workflow" | "step" | null;
+  build_kind?: "pane" | "workflow" | "step" | "credential" | "connection" | null;
   target_id?: string | null;
   draft_id?: number | null;
   timezone?: string;
@@ -228,8 +236,8 @@ export interface ScreenReport {
  * for a new one and the Building chat, saved as its builder types. Theirs alone. */
 export interface BuildDraft {
   id: number;
-  kind: "pane" | "step" | "workflow";
-  /** The pane type, step type or workflow it changes; null for a new one. */
+  kind: "pane" | "step" | "workflow" | "credential" | "connection";
+  /** The pane type, step type, workflow or type it changes; null for a new one. */
   target_id: string | null;
   new_id: string;
   label: string;
@@ -816,7 +824,7 @@ async function agentChat(
     scope: "global" | "session" | "run" | "build";
     run_id?: number | null;
     build?: {
-      kind: "pane" | "workflow" | "step";
+      kind: "pane" | "workflow" | "step" | "credential" | "connection";
       id: string | null;
       title: string;
       source: string;
@@ -1155,6 +1163,8 @@ export const api = {
   updateBuiltStep: (id: string, source: string, files: BuildFiles) =>
     req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source, files }) }),
   deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  builderNeeds: (kind: "pane" | "step" | "workflow", source: string) =>
+    req<BuildNeed[]>("/builder/needs", { method: "POST", body: JSON.stringify({ kind, source }) }),
   /** What this tab has on screen (D157), for Claude Code's "here". */
   reportScreen: (screen: ScreenReport) => req<void>("/screen", { method: "PUT", body: JSON.stringify(screen) }),
   listAccessTokens: () => req<AccessToken[]>("/access-tokens"),

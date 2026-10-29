@@ -3,10 +3,10 @@ the platform, for a group with the Builder (or an admin). Check reports every
 problem with its line; Create grants the new type to its builder's group."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import auth, builder, deps, models, runner_client
@@ -145,6 +145,20 @@ def check(payload: SourceIn, db: Session = Depends(get_db), user: models.User = 
     except builder.BuilderError as e:
         return {"ok": False, "errors": deps.merged(lock_errors, e.errors), "files": changed}
     return {"ok": not lock_errors, "errors": lock_errors, "files": changed}
+
+
+class NeedsIn(BaseModel):
+    kind: Literal["pane", "step", "workflow"]
+    source: str = Field(default="", max_length=400_000)
+
+
+@router.post("/needs")
+def needs(payload: NeedsIn, db: Session = Depends(get_db), _user: models.User = Depends(_builder)) -> list[dict]:
+    """The connection types a draft reaches, each said there or not (D159):
+    the editor's "Needs" line, a missing one with "Make it"."""
+    from .. import type_defs
+
+    return type_defs.needs(db, payload.kind, payload.source)
 
 
 class PreviewOut(BaseModel):

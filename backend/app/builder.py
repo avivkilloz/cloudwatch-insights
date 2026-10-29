@@ -545,8 +545,12 @@ def preview(source: str, type_id: Optional[str], user: Any,
     """The draft, checked as Check checks it and held to its builder's
     handlers, ready to be drawn by the pane renderer: what the editor holds,
     never saved and never granted to anyone."""
+    from . import type_defs
+
     manifest = parse(source, type_id, files)
     errors = access_errors(manifest, user, source)
+    with SessionLocal() as db:
+        errors += type_defs.missing_errors(db, "pane", source)
     if errors:
         raise _fail(errors)
     return manifest

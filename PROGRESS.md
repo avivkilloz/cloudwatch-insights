@@ -1298,7 +1298,7 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the types a pane needs, in the Builder (5-4a, D158).** The user:
+**This PR: the types a pane needs, in the Builder (5-4, D158-D159).** The user:
 building a pane, step or workflow often needs a credential type the platform
 doesn't have, so making types belongs to building. The Builder has
 Connections and Credentials beside Panes, Workflows and Steps -- the Settings
@@ -1308,8 +1308,14 @@ credential type a credential uses is an admin's (it shapes stored secrets).
 - Tests: backend `test_type_access.py` (3); browser `smoke114` (10), failing
   against the old frontend; smoke58/82/83/101 as before (smoke58's two
   history checks fail on main too: the dev database's leftover groups).
-- Next, 5-4b: types as drafts with a Building chat, the agent's and Claude
-  Code's tools for them, and a pane's "Needs" line.
+- And 5-4b, in the same PR (D159): a type is built as a pane is -- drafts,
+  the Building tab beside its editor, Claude Code's build tools (`kind:
+  "credential"`/`"connection"`) and live following -- and a pane, step or
+  workflow naming a connection type that isn't there fails Check at its line,
+  its editor's Needs line offering "Make it". Fixed on the way: an editor
+  followed one change twice (announced as text, then files), dropping what
+  was typed in between. Tests: backend `test_type_defs.py` (4); browser
+  `smoke115` (12), failing against the old frontend; smoke113 now steady.
 
 **#145 merged: Claude Code as a platform agent; panes from plain words
 (D155-D157).**

@@ -19,6 +19,7 @@ import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/
 import { ActionRunner, ActionRunnerContext } from "../panes/actionRunner";
 import BuilderForm from "./BuilderForm";
 import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
+import BuilderNeeds from "./BuilderNeeds";
 import { CredentialTypesView } from "../components/settings/CredentialsSettings";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest, setManifests } from "../panes/manifest";
@@ -50,7 +51,7 @@ import { takeBuilderAsk, useBuilderAskWaiting } from "../workflowFocus";
 // built here too, beside pane and step types (D128).
 type What = "pane" | "workflow" | "step" | "connection" | "credential";
 type Screen =
-  | { kind: "list"; what?: What }
+  | { kind: "list"; what?: What; make?: string }
   | { kind: "edit"; id: string | null; said?: string; draft?: number }
   | { kind: "workflow"; id: string | null; draft?: number }
   | { kind: "step"; id: string | null; said?: string; draft?: number };
@@ -110,6 +111,7 @@ export default function BuilderPage() {
     if (!asked) return;
     const taken = takeBuilderAsk();
     if (taken?.what === "draft") openDraft(taken.id);
+    else if (taken?.what === "type") setScreen({ kind: "list", what: "connection", make: taken.id });
     else if (taken) setScreen({ kind: "workflow", id: taken.id });
   }, [asked, openDraft]);
   // Opened at `?draft=<id>`.
@@ -151,7 +153,7 @@ export default function BuilderPage() {
   return (
     <>
       {linkError && <p className="error-text">{linkError}</p>}
-      <ListView open={setScreen} initial={screen.what ?? "pane"} />
+      <ListView key={screen.make ?? ""} open={setScreen} initial={screen.what ?? "pane"} make={screen.make} />
     </>
   );
 }
@@ -164,7 +166,7 @@ const WHATS = [
   ["credential", "Credentials"],
 ] as const;
 
-function ListView({ open, initial }: { open: (s: Screen) => void; initial: What }) {
+function ListView({ open, initial, make }: { open: (s: Screen) => void; initial: What; make?: string }) {
   const [what, setWhat] = useState<What>(initial);
   // The kinds of connection and credential a pane, step or workflow needs
   // (D158): made here by builders, for their group, in the same editors
@@ -179,6 +181,7 @@ function ListView({ open, initial }: { open: (s: Screen) => void; initial: What 
     return (
       <div className="builder-types">
         <ConnectionTypesSettings
+          make={make}
           switcher={switcher}
           intro="The kinds of connection a pane or step reaches: a base URL and plain settings. Yours are your group's."
         />
@@ -719,6 +722,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               </button>
             )}
           </div>
+          <BuilderNeeds kind="pane" source={source} />
           <DraftStatus kept={kept} />
         </Section>
         {previewOpen && (

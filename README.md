@@ -1002,7 +1002,12 @@ how a request is signed). The same editors as Settings, each with **Form** and
 their group's builders and admins change it, and the list says who made each.
 Once a credential of a type exists, only an admin changes that type -- it
 shapes stored secrets. Making the credentials themselves stays an admin's
-(Settings → Credentials).
+(Settings → Credentials). A type's editor keeps your work as a draft and has
+the Building tab beside it, like a pane's, and Claude Code builds types too.
+
+**Needs**: under a pane's, step's or workflow's editor, the connection types
+its draft reaches -- one that isn't there yet with **Make it**, which opens
+Connections with a new type of that id. Check says so too, at the line.
 
 **Steps**: the Builder's third list. A step is a request to an
 HTTP connection (any method; its path, query, headers and body templated from

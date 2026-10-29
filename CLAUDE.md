@@ -1042,6 +1042,22 @@ the platform, for a group with `builder_enabled` (admins always).
   builder's refusal counts them, never names them), sent with each type as
   `locked` and checked again by every route. The owner is deployment state,
   never in the store's file.
+- **Types are built as panes are** (D159; `type_defs.py`): their text is the
+  store's YAML (`source_of`, `STARTERS`, `parse`/`check` with lines,
+  `reference` generated from the validation's own constants); build drafts,
+  the MCP build tools, the agent router and the Builder's loop take kinds
+  `credential`/`connection` (no files, no try). A type draft's "changed" is
+  by meaning (`type_defs.same`): the browser's YAML and the store's differ in
+  spelling. The editors stay forms; `components/settings/TypeDraft.tsx` is a
+  headless keeper mounted per open editor (`key` per opening) that runs
+  `useBuildDraft` + `useOfferBuild` on `typeText` and reads text back with
+  `readType`; Save calls its `finish` through a ref. **Needs**
+  (`type_defs.needs`/`missing_errors`, `/api/builder/needs`,
+  `pages/BuilderNeeds.tsx`): a connection input naming a type that isn't
+  there is a Check error at its line (pane, step, workflow), and the editors
+  list what a draft reaches, "Make it" going through `openInBuilder({what:
+  "type"})`. An editor follows only a strictly newer draft version: one
+  change can be announced twice.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

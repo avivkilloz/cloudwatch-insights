@@ -78,6 +78,12 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke115` (D159: a pane draft naming a missing connection type says so in
+its Needs line and at Check's line, "Make it" opens Connections with that id,
+and made, both say it's there; a credential type's editor keeps its draft;
+Claude Code works on it on screen, live; and the Building tab beside it puts
+its change in the form) needs the agent and the fake model.
+
 `smoke114` (D158: as a member of a builder group, the Builder's Connections
 and Credentials make a connection type and a credential type -- the latter
 written as YAML, then seen in the form -- each the group's; an admin's type

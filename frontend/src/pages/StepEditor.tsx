@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
+import BuilderNeeds from "./BuilderNeeds";
 import { api, BuildFiles, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowProblem } from "../api";
 import Workspace from "../components/Workspace";
 import { CardRow } from "../components/SessionCard";
@@ -262,6 +263,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               )}
             </div>
           )}
+          <BuilderNeeds kind="step" source={source} />
           <DraftStatus kept={kept} />
         </Section>
         <Section title="Try">

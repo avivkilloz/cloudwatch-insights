@@ -246,6 +246,10 @@ def delete_type(type_id: str, db: Session = Depends(get_db), admin: models.User 
     audit.record(db, actor=admin, action="credential_type.delete", object_type="credential_type", object_id=type_id,
                  detail={"label": row.label})
     store.record(db, "credential_type", type_id, "delete", admin)
+    # Everyone's drafts of it (D159): nothing left to change.
+    from .. import build_drafts
+
+    build_drafts.forget(db, "credential", type_id)
     db.commit()
     return None
 

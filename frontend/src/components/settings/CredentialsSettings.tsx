@@ -1,4 +1,4 @@
-import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -16,7 +16,9 @@ import {
 import { CardRow, CardSection } from "../SessionCard";
 import { rowProps, Section, ViewHead, ViewSwitch } from "./settingsLayout";
 import { StoreBadge, useStoreNamespace } from "./StoreSettings";
-import TypeYaml, { TypeData } from "./TypeYaml";
+import TypeYaml, { TypeData, typeText } from "./TypeYaml";
+import TypeDraft, { readType } from "./TypeDraft";
+import { DraftState, draftTime, useDraftList } from "../../pages/buildDraft";
 
 /*
  * Settings → Credentials (PLATFORM_PLAN.md §13.6): one tab, switching between
@@ -640,6 +642,32 @@ function fieldOf(read: unknown): CredentialField {
   return { ...emptyField(), ...(read && typeof read === "object" ? (read as Partial<CredentialField>) : {}) };
 }
 
+/** A type's definition as the store's file has it: the YAML view, the draft's text (D159). */
+function credentialData(d: CredentialTypeDraft): TypeData {
+  return {
+    id: d.id,
+    label: d.label,
+    description: d.description,
+    fields: d.fields,
+    output_template: d.output_template,
+    inject: d.inject,
+    http_test: d.http_test,
+  };
+}
+
+function withData<T extends CredentialTypeDraft & { isNew: boolean }>(draft: T, d: TypeData): T {
+  return {
+    ...draft,
+    id: draft.isNew ? String(d.id ?? draft.id ?? "") : draft.id,
+    label: String(d.label ?? ""),
+    description: (d.description as string | null | undefined) ?? null,
+    fields: ((d.fields as unknown[] | undefined) ?? []).map(fieldOf),
+    output_template: (d.output_template as string | null | undefined) ?? null,
+    inject: (d.inject as CredentialInject | null | undefined) ?? null,
+    http_test: (d.http_test as CredentialTypeDraft["http_test"] | undefined) ?? null,
+  };
+}
+
 /** Settings → Credentials → Types and the Builder's Credentials (D158): one
  * editor, in both places. `intro` is the line beside the list's switcher. */
 export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; intro?: string }) {
@@ -656,6 +684,14 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editAs, setEditAs] = useState<"form" | "yaml">("form");
+  // The open editor's draft (D159): which one it was opened from, the text
+  // it started as, and a key per opening (the keeper's hooks are per type).
+  const [fromDraft, setFromDraft] = useState<number | null>(null);
+  const [baseText, setBaseText] = useState("");
+  const [opened, setOpened] = useState(0);
+  const [yamlKey, setYamlKey] = useState(0);
+  const drafts = useDraftList("credential", opened * 2 + (draft ? 1 : 0));
+  const keeper = useRef<DraftState | null>(null);
   const namespace = useStoreNamespace();
 
   async function refresh() {
@@ -671,7 +707,9 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
     refresh();
   }, []);
 
-  function start(from?: CredentialType, copy = false) {
+  function start(from?: CredentialType, copy = false, draftId: number | null = null) {
+    setFromDraft(draftId);
+    setOpened((n) => n + 1);
     setNotice(null);
     setError(null);
     setPreview(null);
@@ -680,7 +718,7 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
     setExampleOpen(!from);
     setAdvancedOpen(false);
     setEditAs("form");
-    setDraft(
+    const next: TypeDraft =
       from
         ? {
             isNew: copy,
@@ -705,8 +743,17 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
             output_template: null,
             inject: null,
             http_test: null,
-          },
-    );
+          };
+    setDraft(next);
+    setBaseText(typeText(credentialData(next)));
+  }
+
+  /** Text read into the form: a draft put back, a change made elsewhere, a proposal. */
+  function takeText(text: string, newId?: string) {
+    const data = readType(text);
+    if (!data) return;
+    setDraft((d) => (d ? withData({ ...d, id: d.isNew && newId ? newId : d.id }, data) : d));
+    setYamlKey((k) => k + 1);
   }
 
   function close() {
@@ -777,8 +824,11 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
       http_test: draft.http_test,
     };
     try {
-      if (draft.isNew) await api.createCredentialType(body);
-      else await api.updateCredentialType(draft.id, { ...body, confirm_remove: confirmRemove });
+      const saved = draft.isNew
+        ? await api.createCredentialType(body)
+        : await api.updateCredentialType(draft.id, { ...body, confirm_remove: confirmRemove });
+      // The draft keeps only its chat, now the saved one's (D125).
+      await keeper.current?.finish(saved.id, typeText(credentialData({ ...body, id: saved.id })));
       setNotice(`Saved ${draft.label}.`);
       setDraft(null);
       await refresh();
@@ -823,26 +873,8 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
     const inject = draft.inject;
     const setInject = (patch: Partial<CredentialInject> | null) =>
       setDraft({ ...draft, inject: patch === null ? null : ({ ...(inject ?? { kind: "header" }), ...patch } as CredentialInject) });
-    const asData: TypeData = {
-      id: draft.id,
-      label: draft.label,
-      description: draft.description,
-      fields: draft.fields,
-      output_template: draft.output_template,
-      inject: draft.inject,
-      http_test: draft.http_test,
-    };
-    const fromData = (d: TypeData) =>
-      setDraft({
-        ...draft,
-        id: draft.isNew ? String(d.id ?? "") : draft.id,
-        label: String(d.label ?? ""),
-        description: (d.description as string | null | undefined) ?? null,
-        fields: ((d.fields as unknown[] | undefined) ?? []).map(fieldOf),
-        output_template: (d.output_template as string | null | undefined) ?? null,
-        inject: (d.inject as CredentialInject | null | undefined) ?? null,
-        http_test: (d.http_test as CredentialTypeDraft["http_test"] | undefined) ?? null,
-      });
+    const asData = credentialData(draft);
+    const fromData = (d: TypeData) => setDraft(withData(draft, d));
     return (
       <div className="panel credential-view credential-type-editor">
         <ViewHead back={close} title={draft.isNew ? "New credential type" : draft.label}>
@@ -860,8 +892,29 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
         </ViewHead>
         {lockedWhy && <p className="muted credential-locked">{lockedWhy}</p>}
         {messages}
+        {!draft.builtin && (
+          <TypeDraft
+            key={opened}
+            kind="credential"
+            targetId={draft.isNew ? null : draft.id}
+            draftId={fromDraft}
+            base={baseText}
+            source={typeText(asData)}
+            newId={draft.isNew ? draft.id : ""}
+            title={draft.label || "New credential type"}
+            editable={!locked}
+            onText={takeText}
+            onProposed={(text, summary) => {
+              takeText(text);
+              setNotice(`The agent's version is in the editor, unsaved: ${summary}`);
+            }}
+            keeper={keeper}
+          />
+        )}
 
-        {editAs === "yaml" && <TypeYaml id="credential-type-yaml" data={asData} onData={fromData} readOnly={locked} />}
+        {editAs === "yaml" && (
+          <TypeYaml key={yamlKey} id="credential-type-yaml" data={asData} onData={fromData} readOnly={locked} />
+        )}
         {editAs === "form" && (
           <>
             {/* A disabled fieldset is how a locked type is shown read-only: every input inside goes with it. */}
@@ -1145,6 +1198,11 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
     <tr key={t.id} data-credential-type={t.id} {...rowProps(() => start(t))}>
       <td>
         <span className="credential-name">{t.label}</span> <StoreBadge state={t.store_state} />
+        {drafts.changed.has(t.id) && (
+          <span className="tag pending builder-draft-tag" title={`Your unsaved changes, from ${draftTime(drafts.changed.get(t.id)!)}`}>
+            Draft
+          </span>
+        )}
         {t.description && <div className="muted">{t.description}</div>}
       </td>
       <td>
@@ -1173,6 +1231,17 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
             </tr>
           </thead>
           <tbody>
+            {drafts.fresh.map((d) => (
+              <tr key={`draft-${d.id}`} data-draft={d.id} {...rowProps(() => start(undefined, false, d.id))}>
+                <td colSpan={colSpan}>
+                  {d.label || <span className="muted">Untitled</span>}
+                  <span className="tag pending builder-draft-tag" title="Not made yet: only you see it">
+                    Draft
+                  </span>{" "}
+                  <span className="muted">you · {draftTime(d)}</span>
+                </td>
+              </tr>
+            ))}
             {own.map(row)}
             {own.length === 0 && (
               <tr>
