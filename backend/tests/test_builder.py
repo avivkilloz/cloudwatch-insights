@@ -1,7 +1,8 @@
 """The Builder, first part (PLATFORM_PLAN.md §24, D103-D106): pane types made
 in the platform -- checked by the manifest's own model with the line of each
-mistake, used at once by their builder's group, others when granted, kept in
-the store and loaded beside the bundled manifests (the agent's kinds too)."""
+mistake, everyone's to use at once (D160) and its owner's, members' and
+admins' to change (D161), kept in the store and loaded beside the bundled
+manifests (the agent's kinds too)."""
 
 import yaml
 
@@ -9,7 +10,7 @@ from app import builder, models, store
 from app.db import SessionLocal
 from app.panes import manifest as pane_manifest
 from tests.conftest import client
-from tests.test_pane_grants import _login_as
+from tests.conftest import _login_as
 from tests.test_platform_tools import _token, call, mcp  # noqa: F401 -- a fixture
 from tests.test_store import _configure, _env, _show, _sync, remote  # noqa: F401 -- fixtures
 
@@ -50,11 +51,13 @@ def _member(username: str, group_id: int):
     return _login_as(username)
 
 
-def test_only_a_builder_or_an_admin_builds():
-    plain = _member("pat", _group("Plain", pane_types=["tool-base64"]))
-    assert plain.get("/api/builder/panes").status_code == 403
+def test_only_a_builder_or_an_admin_makes_one_and_anyone_reads_them():
+    plain = _member("pat", _group("Plain"))
+    assert plain.get("/api/builder/panes").json() == []
+    assert plain.post("/api/builder/panes", json={"id": "shouty", "source": ENCODER}).status_code == 403
+    assert plain.post("/api/builder/check", json={"source": ENCODER}).status_code == 403
     assert plain.get("/api/auth/me").json()["builder_enabled"] is False
-    builders = _member("bea", _group("Builders", builder_enabled=True, pane_types=["tool-base64"]))
+    builders = _member("bea", _group("Builders", builder_enabled=True))
     assert builders.get("/api/auth/me").json()["builder_enabled"] is True
     assert builders.get("/api/builder/panes").json() == []
     assert client.get("/api/auth/me").json()["builder_enabled"] is True  # an admin
@@ -77,28 +80,36 @@ def test_check_says_every_mistake_with_its_line():
     assert own.status_code == 400
 
 
-def test_a_builders_group_uses_it_at_once_and_others_when_granted():
-    builders = _group("Builders", builder_enabled=True, pane_types=["tool-base64"])
+def test_everyone_uses_it_at_once_and_its_owner_changes_it():
+    builders = _group("Builders", builder_enabled=True)
     bea = _member("bea", builders)
-    others = _member("oz", _group("Others", pane_types=["tool-base64"]))
+    others = _member("oz", _group("Others"))
+    cal = _member("cal", _group("Other builders", builder_enabled=True))
     made = bea.post("/api/builder/panes", json={"id": "shouty", "source": ENCODER})
     assert made.status_code == 201, made.text
     assert made.json()["label"] == "Shouty encoder" and made.json()["source"].startswith("id: shouty\n")
+    assert made.json()["owner"] == "bea" and made.json()["can_edit"] is True
 
-    assert "shouty" in [m["id"] for m in bea.get("/api/pane-types").json()]
-    assert "shouty" in bea.get("/api/auth/me").json()["pane_types"]
-    tools = next(c for c in bea.get("/api/catalogue").json()["categories"] if c["name"] == "Tools")
+    # Everyone's to use (D160).
+    for c in (bea, others, client):
+        assert "shouty" in [m["id"] for m in c.get("/api/pane-types").json()]
+    tools = next(c for c in others.get("/api/catalogue").json()["categories"] if c["name"] == "Tools")
     assert "shouty" in tools["pane_types"]
-    assert "shouty" not in [m["id"] for m in others.get("/api/pane-types").json()]
-    assert "shouty" in [m["id"] for m in client.get("/api/pane-types").json()]  # admins use every pane
 
-    # An edit is everyone's at once; Delete takes it away, grants and all.
+    # Its owner's to change (D161): another builder reads it, and is told why not.
+    seen = cal.get("/api/builder/panes/shouty").json()
+    assert seen["can_edit"] is False and "bea" in seen["locked"]
+    refused = cal.put("/api/builder/panes/shouty", json={"source": ENCODER})
+    assert refused.status_code == 400 and "bea" in refused.text
+    assert cal.delete("/api/builder/panes/shouty").status_code == 400
+
+    # An edit is everyone's at once; Delete takes it away.
     assert bea.put("/api/builder/panes/shouty", json={"source": ENCODER.replace("Shouty encoder", "Loud encoder")}).json()["label"] == "Loud encoder"
     assert pane_manifest.get("shouty").label == "Loud encoder"
+    # An admin changes anything.
+    assert client.put("/api/builder/panes/shouty", json={"source": ENCODER}).status_code == 200
     assert bea.delete("/api/builder/panes/shouty").status_code == 204
     assert "shouty" not in [m["id"] for m in bea.get("/api/pane-types").json()]
-    with SessionLocal() as db:
-        assert db.query(models.GroupPaneGrant).filter_by(pane_type="shouty").count() == 0
 
 
 def test_the_agent_uses_a_built_pane_like_any_other(mcp):
@@ -178,19 +189,21 @@ def test_the_agent_reads_what_a_definition_can_say_and_checks_a_draft(mcp):
 def test_the_agent_builds_only_what_its_user_may(mcp):
     from tests.test_platform_tools import call_error
 
-    plain = _group("Plain", pane_types=["tool-base64"], agent_enabled=True)
+    plain = _group("Plain", agent_enabled=True)
     _member("pat", plain)
-    builders = _group("Builders", builder_enabled=True, pane_types=["tool-base64"], agent_enabled=True)
+    builders = _group("Builders", builder_enabled=True, agent_enabled=True)
     _member("bea", builders)
     with SessionLocal() as db:
         pat = db.query(models.User).filter_by(username="pat").one().id
         bea = db.query(models.User).filter_by(username="bea").one().id
-    assert "isn't turned on" in call_error(mcp, _token(pat), "build_reference", kind="pane")
-    assert "isn't turned on" in call_error(mcp, _token(pat), "propose_definition", kind="pane", source=ENCODER, summary="x")
-    # A builder builds pane types, and since 5-3 workflows (D121); someone else neither.
+    # Reading is everyone's (D160); making something new is a Builder's (D161).
+    assert call(mcp, _token(pat), "build_reference", kind="pane")["kind"] == "pane"
+    assert "groups with the Builder" in call_error(mcp, _token(pat), "propose_definition", kind="pane", source=ENCODER,
+                                                    summary="x")
+    assert "groups with the Builder" in call_error(mcp, _token(pat), "check_definition", kind="workflow",
+                                                    source="label: W\nsteps: []\n")
     assert call(mcp, _token(bea), "check_definition", kind="pane", source=ENCODER)["ok"]
     assert call(mcp, _token(bea), "build_reference", kind="workflow")["kind"] == "workflow"
-    assert "for admins and builders" in call_error(mcp, _token(pat), "build_reference", kind="workflow")
 
 
 def test_with_a_store_the_yaml_may_name_it_without_its_namespace(remote):

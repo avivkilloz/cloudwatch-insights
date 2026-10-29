@@ -1,13 +1,13 @@
 """Drafts of what's being built (D125): saved as their builder types, listed
-beside what's built, opened again with their Building chat -- each person's
-own, one per existing thing, gone with it."""
+beside what's built, opened again with their chat -- a new one its starter's,
+one per existing thing shared by whoever may change it (D161), gone with it."""
 
 from tests.conftest import client
 from tests.test_builder import ENCODER, _group, _member
 
 
 def test_a_new_pane_types_draft_is_kept_with_its_chat_and_listed_as_its_builders():
-    bea = _member("bea_d", _group("Draft builders", builder_enabled=True, pane_types=["tool-base64"]))
+    bea = _member("bea_d", _group("Draft builders", builder_enabled=True))
     made = bea.post("/api/build-drafts", json={"kind": "pane", "source": ENCODER, "new_id": " shouty "})
     assert made.status_code == 201, made.text
     draft = made.json()
@@ -22,22 +22,26 @@ def test_a_new_pane_types_draft_is_kept_with_its_chat_and_listed_as_its_builders
     assert [d["id"] for d in bea.get("/api/build-drafts?kind=pane").json()] == [draft["id"]]
     assert bea.get("/api/build-drafts?kind=workflow").json() == []
 
-    # Nobody else's: not listed, read or changed -- an admin's neither.
+    # Nobody else's: not listed, read or changed -- but an admin, who may open
+    # anything (D161), doesn't see it listed among their own.
     assert client.get("/api/build-drafts").json() == []
-    assert client.get(f"/api/build-drafts/{draft['id']}").status_code == 404
-    assert client.put(f"/api/build-drafts/{draft['id']}", json={"source": "x"}).status_code == 404
+    assert client.get(f"/api/build-drafts/{draft['id']}").status_code == 200
+    other = _member("cal_d", _group("Other draft builders", builder_enabled=True))
+    assert other.get("/api/build-drafts").json() == []
+    assert other.get(f"/api/build-drafts/{draft['id']}").status_code == 404
+    assert other.put(f"/api/build-drafts/{draft['id']}", json={"source": "x"}).status_code == 404
     assert bea.delete(f"/api/build-drafts/{draft['id']}").status_code == 204
     assert bea.get("/api/build-drafts").json() == []
 
 
 def test_only_whoever_may_build_it_keeps_a_draft():
-    plain = _member("pat_d", _group("Plain drafts", pane_types=["tool-base64"]))
+    plain = _member("pat_d", _group("Plain drafts"))
     for kind in ("pane", "step", "workflow"):
         assert plain.post("/api/build-drafts", json={"kind": kind, "source": "label: x"}).status_code == 403
     assert client.post("/api/build-drafts", json={"kind": "dashboard", "source": "x"}).status_code == 400
 
 
-def test_an_existing_ones_draft_is_one_per_person_and_goes_with_it():
+def test_an_existing_ones_draft_is_one_and_goes_with_it():
     assert client.post("/api/builder/panes", json={"id": "shouty", "source": ENCODER}).status_code == 201
     assert client.post("/api/build-drafts", json={"kind": "pane", "target_id": "nope", "source": ENCODER}
                        ).status_code == 404

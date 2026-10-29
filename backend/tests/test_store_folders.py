@@ -67,7 +67,6 @@ def test_a_pane_with_code_is_a_folder_of_its_files_and_comes_back(remote):
     # Lost here, and restored from the repo with its files.
     with SessionLocal() as db:
         db.query(models.StoreItem).delete()
-        db.query(models.GroupPaneGrant).filter_by(pane_type="devops:devices").delete()
         db.query(models.BuiltPaneType).delete()
         db.commit()
     store.startup()

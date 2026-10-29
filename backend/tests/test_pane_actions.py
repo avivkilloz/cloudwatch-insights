@@ -109,11 +109,11 @@ def test_browse_takes_its_inputs_and_doesnt_write_them_back(aws):
     assert out["activeSearch"] == "x" and aws["browse"][0] == {"bucket": "logs", "prefix": "a/", "search": "x", "token": None}
 
 
-def test_the_groups_flag_and_its_environments_still_decide(aws):
+def test_the_groups_environments_still_decide(aws):
+    # Every pane is everyone's (D160); an environment the group can't see isn't.
     env = _environment()
-    _, as_g = _group("NoTables", [env])
-    client.put(f"/api/user-groups/{_group_id('NoTables')}", json={"tables_enabled": False})
-    assert _act("tables", "list_tables", {"connection": env}, c=as_g).status_code == 404
+    _, as_g = _group("Plain", [env])
+    assert _act("tables", "list_tables", {"connection": env}, c=as_g).status_code == 200
     other = _environment("Elsewhere", "999988887777")
     resp = _act("cognito", "list_user_pools", {"connection": other}, c=as_g)
     assert resp.status_code == 400 and "not configured" in resp.json()["detail"]

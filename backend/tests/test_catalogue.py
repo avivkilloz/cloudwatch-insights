@@ -1,7 +1,8 @@
 """The catalogue with categories (PLATFORM_PLAN.md §19.2, D66): categories are
 data, a pane's suggestion only places it until an admin does, renaming keeps
 the key, deleting moves the panes, favourites and hiding are each person's,
-and nobody sees a pane type their group can't use."""
+and everyone sees every pane type -- one none of their environments can run
+marked so, never left out (D160)."""
 
 from fastapi.testclient import TestClient
 
@@ -18,8 +19,8 @@ def _login_as(username: str, password: str = "pw-123456") -> TestClient:
     return c
 
 
-def _member(username: str, pane_types: list[str]) -> TestClient:
-    g = client.post("/api/user-groups", json={"name": f"{username}-g", "pane_types": pane_types}).json()
+def _member(username: str, environment_ids: list[int] | None = None) -> TestClient:
+    g = client.post("/api/user-groups", json={"name": f"{username}-g", "environment_ids": environment_ids or []}).json()
     assert client.post("/api/users", json={"username": username, "password": "pw-123456", "group_id": g["id"]}).status_code == 201
     return _login_as(username)
 
@@ -102,16 +103,18 @@ def test_delete_moves_its_panes():
         db.close()
 
 
-def test_only_admins_arrange_and_members_see_only_their_panes():
-    alice = _member("alice", ["tool-base64", "iot"])
+def test_only_admins_arrange_and_everyone_sees_every_pane():
+    alice = _member("alice")
     body = alice.get("/api/catalogue").json()
-    assert {t for c in body["categories"] for t in c["pane_types"]} == {"tool-base64", "iot"}
+    mine = {t for c in body["categories"] for t in c["pane_types"]}
+    assert {"tool-base64", "iot", "logs-cloudwatch", "tool-http"} <= mine
+    assert mine == {t for c in client.get("/api/catalogue").json()["categories"] for t in c["pane_types"]}
     assert alice.post("/api/catalogue/categories", json={"name": "Mine"}).status_code == 403
     assert alice.put("/api/catalogue/layout", json={"categories": []}).status_code == 403
 
 
 def test_favourites_and_hidden_are_each_persons():
-    alice = _member("alice", ["tool-base64", "tool-diff", "iot"])
+    alice = _member("alice")
     assert alice.put("/api/catalogue/preferences/iot", json={"favourite": True}).status_code == 200
     body = alice.put("/api/catalogue/preferences/tool-diff", json={"hidden": True}).json()
     assert body["favourites"] == ["iot"] and body["hidden"] == ["tool-diff"]
@@ -140,3 +143,20 @@ def test_a_category_says_what_it_is():
     assert _by_name(cleared)["Utilities"]["description"] == ""
     long = client.put(f"/api/catalogue/categories/{tools}", json={"name": "Utilities", "description": "x" * 301})
     assert long.status_code == 400 and "300 characters" in long.json()["detail"]
+
+
+def test_a_pane_no_environment_can_run_is_marked_not_hidden():
+    """Without an AWS connection anywhere they can see, the AWS panes say so;
+    a tool needs nothing, and the HTTP client's Target may be left unset."""
+    alice = _member("alice")
+    body = alice.get("/api/catalogue").json()
+    marked = body["no_environment"]
+    assert "iot" in marked and "logs-cloudwatch" in marked and "tables" in marked
+    assert "AWS" in marked["iot"] and "yet" in marked["iot"]
+    assert "tool-base64" not in marked and "tool-http" not in marked
+    assert "iot" in {t for c in body["categories"] for t in c["pane_types"]}
+
+    env = client.post("/api/environments", json={"name": "Prod", "account_id": "1", "region": "us-east-1"}).json()
+    bob = _member("bob", [env["id"]])
+    assert "iot" not in bob.get("/api/catalogue").json()["no_environment"]
+

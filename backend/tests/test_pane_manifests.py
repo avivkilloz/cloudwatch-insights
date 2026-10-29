@@ -87,7 +87,7 @@ def test_a_cards_clear_names_its_own_results_and_never_the_run(tmp_path):
     assert clears == [["items", "lastEvaluatedKey", "scannedCount"]]
 
 
-def test_pane_types_are_only_those_the_group_may_use():
+def test_every_pane_type_is_everyones():
     everything = client.get("/api/pane-types").json()
     assert {m["id"] for m in everything} == set(pane_manifest.manifests())
     base64 = next(m for m in everything if m["id"] == "tool-base64")
@@ -95,15 +95,14 @@ def test_pane_types_are_only_those_the_group_may_use():
     aside = base64["layout"][1]["aside"]
     assert len(aside) == 1 and aside[0]["copy"] == "output" and "copy_of" not in aside[0]
 
-    group = client.post("/api/user-groups", json={
-        "name": "logs-only", "opensearch_enabled": False, "iot_enabled": False, "tables_enabled": False,
-        "buckets_enabled": False, "cognito_enabled": False, "tools_enabled": False}).json()
+    # No grants (D160): a plain group's member is served every one too.
+    group = client.post("/api/user-groups", json={"name": "plain"}).json()
     client.post("/api/users", json={"username": "lo", "password": "pw-123456", "group_id": group["id"]})
     from tests.test_connections import _login_as
 
     as_lo = _login_as("lo", "pw-123456")
-    assert [m["id"] for m in as_lo.get("/api/pane-types").json()] == ["logs-cloudwatch"]
-    assert as_lo.post("/api/panes/api-table/actions/fetch", json={"inputs": {}}).status_code == 404
+    assert {m["id"] for m in as_lo.get("/api/pane-types").json()} == set(pane_manifest.manifests())
+    assert as_lo.post("/api/panes/nope/actions/fetch", json={"inputs": {}}).status_code == 404
 
 
 # ---------------------------------------------------------------- state

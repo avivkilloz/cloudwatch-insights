@@ -1,7 +1,8 @@
 """Step types made in the Builder (D122) and workflows for builders (D121):
 a declarative HTTP request or a chain of steps, checked with its lines, used
 by a workflow by name, run as its starter -- one that changes something
-waiting for a person first -- and a builder's workflows their group's."""
+waiting for a person first -- and a builder's workflows and step types theirs
+to change (D161) and everyone's to run (D160)."""
 
 import json
 
@@ -162,44 +163,45 @@ def test_a_chain_has_no_approval_of_its_own():
     assert any("the workflow's step that uses it is what's approved" in e for e in _check(held))
 
 
-# ---------------------------------------------------------------- workflows for builders (D121)
+# ---------------------------------------------------------------- workflows and step types for builders (D161)
 
 
-def test_a_builders_workflow_is_their_groups_to_edit_and_run(api):
+def test_a_builders_workflow_is_theirs_to_change_and_everyones_to_run(api):
     conn, _sent = api
-    builders = _group("Wf builders", builder_enabled=True, pane_types=["api-table"])
+    builders = _group("Wf builders", builder_enabled=True)
     bea = _member("bea_wf", builders)
     made = bea.post("/api/workflows", json={"id": "bea_flow", "source": _workflow("list_devices")})
     assert made.status_code == 400 and "there is no step type" in made.text
     assert bea.post("/api/builder/steps", json={"id": "list_devices", "source": LIST}).status_code == 201
     made = bea.post("/api/workflows", json={"id": "bea_flow", "source": _workflow("list_devices")})
     assert made.status_code == 201, made.text
-    assert made.json()["can_edit"] is True and made.json()["can_run"] is True
+    assert made.json()["can_edit"] is True and made.json()["owner"] == "bea_wf"
 
-    # Another group's builder sees neither the workflow nor may change the step type.
-    other = _member("cal_wf", _group("Other builders", builder_enabled=True, pane_types=["api-table"]))
-    assert other.get("/api/workflows/bea_flow").status_code == 404
+    # Another builder -- of her own group too -- sees both and changes neither.
+    other = _member("cal_wf", _group("Other builders", builder_enabled=True))
+    seen = other.get("/api/workflows/bea_flow").json()
+    assert seen["can_edit"] is False and "bea_wf" in seen["locked"]
+    assert other.put("/api/workflows/bea_flow", json={"source": _workflow("list_devices")}).status_code == 403
     assert other.put("/api/builder/steps/list_devices", json={"source": LIST}).status_code == 400
-    # A member of the group who isn't a builder runs it but can't make one.
-    plain = _member("dee_wf", _group("Plain wf", pane_types=["api-table"]))
+    mate = _member("eve_wf", builders)
+    assert mate.put("/api/builder/steps/list_devices", json={"source": LIST}).status_code == 400
+    # Someone without the Builder runs it but can't make one.
+    plain = _member("dee_wf", _group("Plain wf"))
     assert plain.post("/api/workflows", json={"id": "x", "source": _workflow("list_devices")}).status_code == 403
-    # Admins: everything, and only they grant it to another group.
+    assert plain.get("/api/workflows/bea_flow").status_code == 200
+    # Admins: everything.
     assert client.get("/api/workflows/bea_flow").json()["can_edit"] is True
-    assert bea.put("/api/workflows/bea_flow/grants", json={"group_ids": []}).status_code == 403
     assert bea.put("/api/workflows/bea_flow", json={"source": _workflow("list_devices").replace("Uses", "Lists")}
                    ).status_code == 200
 
 
-def test_a_builder_names_only_panes_their_group_may_use():
-    bea = _member("bea_wf2", _group("Wf builders 2", builder_enabled=True, pane_types=["tool-base64"]))
+def test_a_workflow_may_name_any_pane():
+    bea = _member("bea_wf2", _group("Wf builders 2", builder_enabled=True))
     scan = """label: Scan
 steps:
   - {id: scan, pane: tables, action: scan, with: {tableName: Orders}}
 """
-    resp = bea.post("/api/workflows/validate", json={"source": scan}).json()
-    assert resp["ok"] is False and "your group can't use DynamoDB panes" in resp["errors"][0]["message"]
-    assert resp["errors"][0]["line"] == 3
-    assert client.post("/api/workflows/validate", json={"source": scan}).json()["ok"] is True
+    assert bea.post("/api/workflows/validate", json={"source": scan}).json()["ok"] is True
 
 
 # ---------------------------------------------------------------- the agent builds them too (D123)

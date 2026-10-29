@@ -27,8 +27,8 @@ def _prometheus_env(group_id: int, base_url: str = "https://prom.example.com/") 
     return conn.json()
 
 
-def _member(name: str, pane_types: list[str]) -> tuple[int, object]:
-    g = client.post("/api/user-groups", json={"name": f"{name}-g", "pane_types": pane_types}).json()
+def _member(name: str) -> tuple[int, object]:
+    g = client.post("/api/user-groups", json={"name": f"{name}-g"}).json()
     assert client.post("/api/users", json={"username": name, "password": "pw-123456", "group_id": g["id"]}).status_code == 201
     return g["id"], _login_as(name, "pw-123456")
 
@@ -76,7 +76,7 @@ def test_a_connection_of_a_defined_type_has_its_base_url_checked():
 
 
 def test_a_type_in_use_or_needed_stays():
-    group_id, _ = _member("pat", ["prometheus"])
+    group_id, _ = _member("pat")
     conn = _prometheus_env(group_id)
     # Needed by the Prometheus pane, and a connection is of it.
     resp = client.delete("/api/connection-types/prometheus")
@@ -146,7 +146,7 @@ def prom(monkeypatch):
 
 
 def test_prometheus_queries_its_range_over_the_window(prom):
-    group_id, member = _member("pat", ["prometheus"])
+    group_id, member = _member("pat")
     conn = _prometheus_env(group_id)
     resp = member.post("/api/panes/prometheus/actions/run", json={
         "inputs": {"connection": conn["id"], "query": "up", "preset": "3600"}, "timezone": "Europe/London"})
@@ -160,7 +160,7 @@ def test_prometheus_queries_its_range_over_the_window(prom):
 
 
 def test_a_custom_range_is_read_in_the_browsers_zone(prom):
-    group_id, member = _member("pat", ["prometheus"])
+    group_id, member = _member("pat")
     conn = _prometheus_env(group_id)
     member.post("/api/panes/prometheus/actions/run", json={
         "inputs": {"connection": conn["id"], "query": "up", "preset": "custom",
@@ -170,9 +170,10 @@ def test_a_custom_range_is_read_in_the_browsers_zone(prom):
     assert q["start"] == "1704096000"  # 10:00 in Jerusalem is 08:00 UTC
 
 
-def test_prometheus_is_nobodys_until_granted(prom):
-    group_id, member = _member("pat", ["tool-base64"])
+def test_prometheus_is_everyones_on_their_own_connection(prom):
+    # No grant (D160): a member of any group runs it on a connection of theirs.
+    group_id, member = _member("pat")
     conn = _prometheus_env(group_id)
     resp = member.post("/api/panes/prometheus/actions/run", json={"inputs": {"connection": conn["id"], "query": "up"}})
-    assert resp.status_code == 404
-    assert prom == []
+    assert resp.status_code == 200, resp.text
+    assert len(prom) == 1

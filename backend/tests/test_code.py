@@ -306,7 +306,7 @@ def test_without_a_runner_code_is_kept_but_not_run(api, monkeypatch):
 def test_a_job_acts_as_its_user_and_reaches_only_their_connections(stack, api):
     conn, sent = api
     _make(PANE)
-    outsider = _member("out_code", _group("Coders", builder_enabled=True, pane_types=["devices"]))
+    outsider = _member("out_code", _group("Coders", builder_enabled=True))
     out = outsider.post("/api/panes/devices/actions/list", json={"inputs": {"connection": conn}})
     # Their group reaches no environment: the code's call is refused as theirs.
     assert out.status_code == 400 and sent == [], out.text

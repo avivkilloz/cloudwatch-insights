@@ -92,3 +92,15 @@ def send_http(c, payload: dict) -> _SendReply:
         "targetId": payload.get("target_id"),
     }
     return _SendReply(c.post("/api/panes/tool-http/actions/send", json={"inputs": inputs}))
+
+
+def login_as(username: str, password: str = "pw-123456") -> TestClient:
+    """A client of its own, signed in as `username`."""
+    c = TestClient(app)
+    resp = c.post("/api/auth/login", json={"username": username, "password": password})
+    assert resp.status_code == 200, resp.text
+    return c
+
+
+# The name the test files used when it lived beside the pane grants (D65).
+_login_as = login_as
