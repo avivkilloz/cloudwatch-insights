@@ -1006,6 +1006,11 @@ as you -- its list, then its first row opened -- and fixes whatever came back
 empty (a column read by the wrong name, a row's detail looking in the wrong
 place). Every later change in that editor is tried there too. It only reads.
 
+You can ask for a new pane in plain words -- what you want to see, not how
+the platform does it. With nothing built yet, the Builder starts from the
+working pane closest to what you asked (it says which) and changes it to
+fit, rather than writing everything from the starter.
+
 Before writing, it can read **recipes**: whole pane types that work, each
 saying why it's built so -- rows that open onto a second call, columns that
 need a call per row (the listing becomes code), modes, an HTTP API table.

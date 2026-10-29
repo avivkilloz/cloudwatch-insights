@@ -78,6 +78,11 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke111` (D155: a new pane asked for in plain words starts from the
+closest recipe -- picked by its words, the fake model naming none -- the
+starter replaced by it, its files beside it, and a draft with work in it
+never replaced) needs the agent and the fake model.
+
 `smoke110` (D154: a built pane's table exports its checked rows with their
 detail -- the Lambda recipe saved as is, "Include configuration" ticked, the
 JSON export carrying the `merge` fields its row action fetched) needs the

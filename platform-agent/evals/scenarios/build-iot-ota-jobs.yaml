@@ -6,7 +6,8 @@ about: >-
   reply that keeps it at `d.job.jobId`, and every round of "fix it" made it worse. Asked to export with details,
   it wrote an export action reading `ctx.state` (D154) where `detail.include` was built in. What reaches the editor must
   check clean, list in code (a call per job for its counts), open rows through a row action -- and, tried on the
-  fake environment, show its counts and open onto filled fields.
+  fake environment, show its counts and open onto filled fields. Asked in plain words (D155): the blank draft
+  starts from the closest recipe, chosen by the code when the model names none.
 build:
   kind: pane
   source: ""
@@ -41,13 +42,16 @@ aws:
         - thingArn: "arn:aws:iot:eu-west-1:000000000001:thing/pool-9"
           jobExecutionSummary: {status: FAILED, lastUpdatedAt: "2026-10-20T09:05:00+00:00"}
 messages:
+  # In the user's own words (D155): nothing of the platform's language -- no
+  # operations, no recipe, no "include". Getting from these to the pane is the
+  # Builder's job, and this is the bar a model is held to.
   - >-
-    create an IoT OTA jobs pane: list the jobs in the chosen environments with, for each job, how many executions
-    are queued, in progress, succeeded, failed and timed out as columns of the table (so the CSV export has them
-    too). Expanding a job should show its description, targets, its job document and the list of its executions
-    with each thing's status. I also need to export the selected jobs with their details.
+    I want a pane to follow our IoT OTA firmware jobs. For each job, show its status, when it started, and how
+    many devices are waiting, in progress, succeeded and failed. When I click on a job, show its description,
+    which devices or groups it targets, the job document, and the status of each device. I also want to export
+    the jobs I pick, with all those details.
 expect:
   - proposed:
       checks: true
-      contains: ["DescribeJob", "expand:", "detail:", "args:", "include:"]
+      contains: ["DescribeJob", "GetJobDocument", "expand:", "detail:", "args:", "include:"]
   - tried: true

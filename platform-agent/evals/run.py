@@ -228,9 +228,12 @@ def _judge_proposal(want: dict, turns: list[Turn], checked: Optional[dict]) -> l
     """A build scenario's `proposed`: something reached the editor; with
     `checks: true`, it checks clean as the editor's Check says; `contains`,
     text it must hold."""
-    proposed = next((t.proposed for t in reversed(turns) if t.proposed), None)
-    if proposed is None:
+    last = next((t for t in reversed(turns) if t.proposed), None)
+    if last is None:
         return ["Nothing was put in the editor."]
+    # The YAML and the files beside it: code lives in files (D149), so the AWS
+    # operations a code action calls are there, not in the YAML.
+    proposed = "\n".join([last.proposed or "", *(last.files or {}).values()])
     failures = []
     if want.get("checks") and checked is not None and not checked.get("ok"):
         problems = "; ".join(str(e.get("message")) for e in checked.get("errors") or [])

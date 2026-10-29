@@ -73,6 +73,7 @@ class Focus(BaseModel):
     try_on: Optional[str] = Field(default=None, max_length=200)
     try_now: Optional[bool] = None
     fix_now: Optional[bool] = None
+    blank: Optional[bool] = None
 
 
 class ChatRequest(BaseModel):

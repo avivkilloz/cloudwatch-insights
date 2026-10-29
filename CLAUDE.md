@@ -989,6 +989,15 @@ the platform, for a group with `builder_enabled` (admins always).
   in every Python file (`runner_client._ctx_problems`). A change naming the
   YAML as a file (`definition.yaml`, the id) is the YAML's
   (`server._yaml_named_as_file`); `actions[2].args` is a path; `op: edit` a set.
+- **A blank draft starts from the closest working pane** (D155): the
+  backend sends `blank` (a pane draft that's empty or exactly
+  `builder.STARTER`, no files); the plan's `start_from` names a recipe or
+  example, else `Builder.start_from` picks the recipe whose `#` notes share
+  most words with the request (`_words`, `MIN_SHARED`, ties none), and
+  `Builder.seed` makes the draft that pane (YAML without its notes, files
+  written) before the changes. A draft with work in it is never replaced.
+  Recipe notes are what the matching reads: write them in the words a
+  user would use.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

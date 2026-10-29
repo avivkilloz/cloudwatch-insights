@@ -264,6 +264,14 @@ def test_a_build_chat_carries_the_editor_and_is_its_editors_only(monkeypatch):
                                             "files": {}}
     assert received[0]["scope_id"] is None
     assert client.post("/api/agent/chat", json={**ASK, "scope": "build"}).status_code == 400
+    # Nothing built yet -- the starter a new pane opens with, or nothing: the
+    # Builder is told so, to start from the closest working pane (D155).
+    from app import builder
+
+    for source in (builder.STARTER, "", "label: Draft\n"):
+        received.clear()
+        client.post("/api/agent/chat", json={**ASK, "scope": "build", "build": {**build, "source": source}})
+        assert bool(received[0]["body"]["focus"].get("blank")) == (source != "label: Draft\n"), source[:20]
 
     group = client.post("/api/user-groups", json={"name": "Talkers", "role_name": "R", "agent_enabled": True}).json()
     assert client.post("/api/users", json={"username": "tal", "password": "pw-123456", "group_id": group["id"]}).status_code == 201

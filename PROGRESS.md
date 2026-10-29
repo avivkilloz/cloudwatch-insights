@@ -1298,7 +1298,19 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the second OTA chat (PLATFORM_PLAN.md §24, D154).**
+**This PR: building from plain words (D155).** The user's point:
+someone who doesn't know the platform's words should be able to say what
+they want to see. A new pane's draft (empty, or only the starter) now starts
+from the closest working pane: the model names it, or the code picks the
+recipe whose notes share the request's words. The draft becomes that pane
+and the model adapts it; the answer says so. The OTA eval scenario now asks
+in the user's own plain words, and the eval judges a proposal's files too.
+- Tests: backend (blank sent for the starter; the starter seeded with a
+  recipe checks clean), agent +2 (the model names a start; the code picks
+  one by its words, not when nothing's close, never over work), +1 evals;
+  browser `smoke111` (7), failing against the old agent and backend.
+
+**#144 merged: the second OTA chat (PLATFORM_PLAN.md §24, D154).**
 The user's chat after #143: opened jobs still mostly empty, an
 "Export selected with details" button failing with "Missing connections or
 job_id", and a turn of "Fix what's left" rounds that never converged. Their

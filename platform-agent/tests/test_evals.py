@@ -43,3 +43,18 @@ def test_a_build_scenario_is_judged_on_what_reached_the_editor():
     assert failures == ["What's in the editor doesn't check clean: no output jobs", "What's in the editor has no 'ListTopicRules'."]
     whole = Turn(proposed="operation: ListJobs\noperation: ListTopicRules\n")
     assert judge(scenario, [Turn(), whole], {}, {}, {"ok": True, "errors": []}) == []
+
+
+def test_what_reached_the_editor_counts_its_files_and_a_try_must_have_come_back_clean():
+    """The OTA scenario (D155) looks for DescribeJob, which the listing's code
+    calls -- in a file beside the YAML, not the YAML -- and expects the last
+    try to have found nothing empty."""
+    scenario = {"expect": [{"proposed": {"contains": ["include:", "DescribeJob"]}}, {"tried": True}]}
+    turn = Turn(answer="Done.", proposed="detail:\n  include: Include jobs\n",
+                files={"jobs.py": "ctx.aws(c, 'iot', 'DescribeJob', {})"},
+                steps=[{"name": "try_definition", "ok": True, "summary": '{"ok": true, "rows": {"rows": 2}}'}])
+    assert judge(scenario, [turn], {}, {}) == []
+    empty = Turn(answer="Done.", proposed="detail:\n  include: x\n", files={},
+                 steps=[{"name": "try_definition", "ok": False, "summary": '{"ok": false, "problems": ["…"]}'}])
+    failures = judge(scenario, [empty], {}, {})
+    assert "What's in the editor has no 'DescribeJob'." in failures and failures[-1].startswith("Tried, it didn't work")
