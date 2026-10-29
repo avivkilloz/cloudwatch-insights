@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-29, Claude Code through personal access tokens and Builder drafts (PLATFORM_PLAN.md D156), after a new pane starting from the closest recipe (D155)._
+_Last updated: 2026-10-29, credential and connection types in the Builder, made by builders for their group (PLATFORM_PLAN.md §24 5-4a, D158)._
 
 ## Platform plan
 
@@ -1297,6 +1297,22 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   `test_workflow_doors.py`; browser `smoke89` (9) and `smoke90` (11), each
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
+
+**This PR: the types a pane needs, in the Builder (5-4a, D158).** The user:
+building a pane, step or workflow often needs a credential type the platform
+doesn't have, so making types belongs to building. The Builder has
+Connections and Credentials beside Panes, Workflows and Steps -- the Settings
+editors, in both places (the user's call), each with Form and YAML. Builders
+make them for their group; their group's builders and admins change them; a
+credential type a credential uses is an admin's (it shapes stored secrets).
+- Tests: backend `test_type_access.py` (3); browser `smoke114` (10), failing
+  against the old frontend; smoke58/82/83/101 as before (smoke58's two
+  history checks fail on main too: the dev database's leftover groups).
+- Next, 5-4b: types as drafts with a Building chat, the agent's and Claude
+  Code's tools for them, and a pane's "Needs" line.
+
+**#145 merged: Claude Code as a platform agent; panes from plain words
+(D155-D157).**
 
 **And: Claude Code beside the user (D157).** Asked whether Claude Code can be
 their session and builder agent while they watch: sessions already followed

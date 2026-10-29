@@ -72,7 +72,8 @@ export const PAGES: PageDef[] = [
     help:
       "Make panes of your own, written as the same definition every pane is: inputs, actions -- a request to " +
       "a connection, or an action the platform already has -- and a layout. Yours to use at once; other groups' " +
-      "when an admin grants them. And workflows, and steps for them: a request, or a chain of steps used as one.",
+      "when an admin grants them. And workflows, and steps for them: a request, or a chain of steps used as one. " +
+      "And the kinds of connection and credential they need, your group's.",
     // A group's Builder, or an admin (D71).
     enabledFor: (user) => !!user?.builder_enabled,
     render: () => <BuilderPage />,

@@ -64,6 +64,10 @@ export interface ConnectionType {
   needed_by: string[];
   /** Where it stands in the store repo (D70); null when the store doesn't keep it. */
   store_state?: StoreState | null;
+  /** The group whose builders made it (D158); null for an admin's or a built-in. */
+  owner_group?: string | null;
+  /** Why you can't change it, in a sentence; null when you can. */
+  locked?: string | null;
 }
 
 /** An HTTP connection type as an admin saves it (D67): its Base URL is always there. */
@@ -475,6 +479,10 @@ export interface CredentialType {
   in_use: number;
   has_test: boolean;
   store_state?: StoreState | null;
+  /** The group whose builders made it (D158); null for an admin's or a built-in. */
+  owner_group?: string | null;
+  /** Why you can't change it, in a sentence; null when you can. */
+  locked?: string | null;
 }
 
 /** An item's place in the store repo (PLATFORM_PLAN.md §21): pushed, waiting

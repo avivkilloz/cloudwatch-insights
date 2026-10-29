@@ -2,8 +2,9 @@ import { ReactNode, useEffect, useState } from "react";
 import { api, ConnectionType, ConnectionTypeDraft, readableError } from "../../api";
 import { CardRow } from "../SessionCard";
 import Icon from "../Icon";
-import { rowProps, Section, ViewHead } from "./settingsLayout";
+import { rowProps, Section, ViewHead, ViewSwitch } from "./settingsLayout";
 import { StoreBadge, useStoreNamespace } from "./StoreSettings";
+import TypeYaml, { TypeData } from "./TypeYaml";
 
 /*
  * Settings → Environments → Types (PLATFORM_PLAN.md §19.3, D67): the kinds of
@@ -12,7 +13,15 @@ import { StoreBadge, useStoreNamespace } from "./StoreSettings";
  * signed with any credential type that knows how to sign a request. A pane's
  * manifest can ship the type it reaches (Prometheus does); it's then the
  * admin's to rename or add fields to, like one made here.
+ *
+ * The Builder's Connections shows the same editor (D158): builders make types
+ * for their own group, and the server says why one is locked to them.
  */
+
+const EDIT_AS = [
+  ["form", "Form"],
+  ["yaml", "YAML"],
+] as const;
 
 type Draft = ConnectionTypeDraft & { existing: boolean };
 
@@ -29,16 +38,17 @@ function draftOf(t?: ConnectionType): Draft {
 function originText(t: ConnectionType): string {
   if (t.builtin) return "Built in";
   if (t.origin?.startsWith("manifest:")) return `From the ${t.needed_by[0] ?? t.origin.slice(9)} pane`;
-  return "Yours";
+  return t.owner_group ? `${t.owner_group} builders` : "Admins";
 }
 
-export default function ConnectionTypesSettings({ switcher }: { switcher: ReactNode }) {
+export default function ConnectionTypesSettings({ switcher, intro }: { switcher: ReactNode; intro?: string }) {
   const [types, setTypes] = useState<ConnectionType[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editAs, setEditAs] = useState<"form" | "yaml">("form");
   const namespace = useStoreNamespace();
 
   async function refresh() {
@@ -54,11 +64,14 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
   }, []);
 
   const open = draft?.existing ? types.find((t) => t.id === draft.id) ?? null : null;
-  const locked = !!open?.builtin;
+  // Built in, or another group's (D158): the server says which.
+  const lockedWhy = open?.builtin ? null : open?.locked ?? null;
+  const locked = !!open?.builtin || !!lockedWhy;
 
   function start(t?: ConnectionType) {
     setNotice(null);
     setError(null);
+    setEditAs("form");
     setDraft(draftOf(t));
   }
 
@@ -106,6 +119,18 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
       setDraft({ ...draft, fields: draft.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
     // Why it can't be deleted, said up front rather than on a refused click.
     const keeps = open && (open.connections > 0 || open.needed_by.length > 0);
+    const asData: TypeData = { id: draft.id, label: draft.label, description: draft.description, fields: draft.fields };
+    const fromData = (d: TypeData) =>
+      setDraft({
+        ...draft,
+        id: draft.existing ? draft.id : String(d.id ?? ""),
+        label: String(d.label ?? ""),
+        description: (d.description as string | null | undefined) ?? null,
+        fields: ((d.fields as unknown[] | undefined) ?? []).map((f) => ({
+          key: "", label: "", help: "", required: false,
+          ...(f && typeof f === "object" ? (f as Partial<Draft["fields"][number]>) : {}),
+        })),
+      });
     return (
       <div className="panel credential-view connection-type-editor">
         <ViewHead back={() => setDraft(null)} title={draft.existing ? open?.label ?? draft.label : "New connection type"}>
@@ -126,9 +151,12 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
               Delete
             </button>
           )}
+          {!open?.builtin && <ViewSwitch views={EDIT_AS} view={editAs} onChange={setEditAs} />}
         </ViewHead>
+        {lockedWhy && <p className="muted credential-locked">{lockedWhy}</p>}
         {messages}
-        <fieldset disabled={locked} className="credential-fieldset">
+        {editAs === "yaml" && <TypeYaml id="connection-type-yaml" data={asData} onData={fromData} readOnly={locked} />}
+        <fieldset disabled={locked} className="credential-fieldset" hidden={editAs === "yaml"}>
           <Section title="Details">
             <CardRow label="Id">
               {draft.existing ? (
@@ -227,7 +255,7 @@ export default function ConnectionTypesSettings({ switcher }: { switcher: ReactN
     <div className="panel credential-list">
       <div className="credential-list-head">
         {switcher}
-        <span className="muted">The kinds of connection an environment can hold.</span>
+        <span className="muted">{intro ?? "The kinds of connection an environment can hold."}</span>
         <button onClick={() => start()}>New connection type</button>
       </div>
       {messages}

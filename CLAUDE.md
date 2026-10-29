@@ -1031,6 +1031,17 @@ the platform, for a group with `builder_enabled` (admins always).
   save chain), a text save sends `base_version` (409 = follow, never
   overwrite), `for_tab` hands a draft to an editor that had none
   (`open_draft(on_screen=True)`), and AgentContext merges a draft's turns by id.
+- **Credential and connection types in the Builder** (D158; `type_access.py`,
+  `owner_group_id` on both type tables): the Builder's Connections and
+  Credentials are the Settings editors (`ConnectionTypesSettings`,
+  `CredentialTypesView`), mounted in both places, each with Form | YAML
+  (`components/settings/TypeYaml.tsx`: the store's file shape, the form's
+  draft the truth). Builders make types for their own group; `why_locked`
+  is the one answer to "may this user change it" (built in; another group's;
+  a credential type a credential uses -- secrets are admins', D24, so a
+  builder's refusal counts them, never names them), sent with each type as
+  `locked` and checked again by every route. The owner is deployment state,
+  never in the store's file.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

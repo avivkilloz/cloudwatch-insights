@@ -994,6 +994,16 @@ text and the preview says it's of an older version, with **Draw again**. A pane 
 use the platform's own handlers only where your group may use the panes that
 run them (DynamoDB's, say, once your group has DynamoDB).
 
+**Connections and Credentials**: the Builder's fourth and fifth lists -- the
+kinds of connection a pane or step reaches (a base URL and plain settings)
+and the kinds of credential that sign its requests (fields, which are secret,
+how a request is signed). The same editors as Settings, each with **Form** and
+**YAML** (the file the store keeps). What a builder makes is their group's:
+their group's builders and admins change it, and the list says who made each.
+Once a credential of a type exists, only an admin changes that type -- it
+shapes stored secrets. Making the credentials themselves stays an admin's
+(Settings → Credentials).
+
 **Steps**: the Builder's third list. A step is a request to an
 HTTP connection (any method; its path, query, headers and body templated from
 its inputs) or a chain of existing steps used as one. **Check** points at

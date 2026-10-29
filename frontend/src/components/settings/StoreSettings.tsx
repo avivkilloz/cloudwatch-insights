@@ -36,6 +36,9 @@ export function useStoreNamespace(): string | null {
     api
       .getStore()
       .then((s) => live && setNs(s.configured && !s.problem ? s.namespace : null))
+      // A builder can't read the store's settings, only the namespace what
+      // they make is named in (D158): the Builder's schema says it.
+      .catch(() => api.builderSchema().then((b) => live && setNs(b.namespace ?? null)))
       .catch(() => undefined);
     return () => {
       live = false;

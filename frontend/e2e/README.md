@@ -78,6 +78,12 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke114` (D158: as a member of a builder group, the Builder's Connections
+and Credentials make a connection type and a credential type -- the latter
+written as YAML, then seen in the form -- each the group's; an admin's type
+opens read-only saying why; one a credential uses says it's an admin's now;
+an admin sees them in Settings) needs only the stack.
+
 `smoke113` (D157: with the session on screen, an access token's
 `get_context` names it as on screen and "here", and a pane added there shows
 at once; with a new pane's editor open, `open_draft(on_screen)` gives it a

@@ -1,7 +1,8 @@
 """Credentials, credential types and the audit log over HTTP (PLATFORM_PLAN.md
 §13.5).
 
-Admins manage everything here (D24). Anyone signed in can read the types
+Admins manage everything here (D24) -- but types, which builders make too,
+for their own group (D158, `type_access`). Anyone signed in can read the types
 (for a form) and the names of the credentials their group may use (to pick
 one). No route returns a secret value, to admins included (D25): a secret
 field is reported only as set or not, and replacing it is the only way to
@@ -10,10 +11,12 @@ change it.
 
 import datetime
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import audit, auth, credential_store, credential_types, models, schemas, store
+from .. import audit, auth, credential_store, credential_types, models, schemas, store, type_access
 from ..db import get_db
 
 types_router = APIRouter(prefix="/api/credential-types", tags=["credentials"])
@@ -44,7 +47,7 @@ _EXPECTED = (
 # ------------------------------------------------------------------- types
 
 
-def _type_out(db: Session, row: models.CredentialType) -> schemas.CredentialTypeOut:
+def _type_out(db: Session, row: models.CredentialType, user: models.User) -> schemas.CredentialTypeOut:
     in_use = db.query(models.Credential).filter(models.Credential.type_id == row.id).count()
     has_test = bool(row.http_test) or (row.builtin and row.id in credential_types.CHECKS)
     return schemas.CredentialTypeOut(
@@ -60,6 +63,8 @@ def _type_out(db: Session, row: models.CredentialType) -> schemas.CredentialType
         in_use=in_use,
         has_test=has_test,
         store_state=_store_state(db, "credential_type", row.id),
+        owner_group=type_access.owner_name(db, row),
+        locked=type_access.why_locked(db, user, type_access.CREDENTIAL, row),
     )
 
 
@@ -69,13 +74,29 @@ def _store_state(db: Session, kind: str, item_id: str):
 
 
 @types_router.get("", response_model=list[schemas.CredentialTypeOut])
-def list_types(db: Session = Depends(get_db), _user: models.User = Depends(auth.get_current_user)):
+def list_types(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     rows = db.query(models.CredentialType).order_by(models.CredentialType.builtin.desc(), models.CredentialType.label).all()
-    return [_type_out(db, row) for row in rows]
+    return [_type_out(db, row, user) for row in rows]
+
+
+def _maker(user: models.User = Depends(auth.get_current_user)) -> models.User:
+    """An admin, or a builder: who makes types (D158)."""
+    if not type_access.may_make(user):
+        raise HTTPException(status_code=403, detail="Making credential types is for admins and builders.")
+    return user
+
+
+def _changeable(db: Session, user: models.User, row: Optional[models.CredentialType]) -> models.CredentialType:
+    if row is None:
+        raise HTTPException(status_code=404, detail="That credential type doesn't exist.")
+    why = type_access.why_locked(db, user, type_access.CREDENTIAL, row)
+    if why:
+        raise HTTPException(status_code=403, detail=why)
+    return row
 
 
 @types_router.post("/infer")
-def infer_type(payload: schemas.CredentialTypeInfer, _admin: models.User = Depends(auth.require_admin)):
+def infer_type(payload: schemas.CredentialTypeInfer, _maker: models.User = Depends(_maker)):
     try:
         return credential_types.infer(payload.example)
     except credential_types.CredentialTypeError as e:
@@ -83,7 +104,7 @@ def infer_type(payload: schemas.CredentialTypeInfer, _admin: models.User = Depen
 
 
 @types_router.post("/preview")
-def preview_type(payload: schemas.CredentialTypePreview, _admin: models.User = Depends(auth.require_admin)):
+def preview_type(payload: schemas.CredentialTypePreview, _maker: models.User = Depends(_maker)):
     """The output template's result for sample values -- the editor's live
     preview. Only sample values typed into the editor go in; nothing stored."""
     try:
@@ -97,7 +118,7 @@ def preview_type(payload: schemas.CredentialTypePreview, _admin: models.User = D
 
 @types_router.post("", response_model=schemas.CredentialTypeOut, status_code=201)
 def create_type(
-    payload: schemas.CredentialTypeIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+    payload: schemas.CredentialTypeIn, db: Session = Depends(get_db), admin: models.User = Depends(_maker)
 ):
     # In the store's namespace when there is a store (D78).
     try:
@@ -124,6 +145,8 @@ def create_type(
         builtin=False,
         created_by_id=admin.id,
         updated_by_id=admin.id,
+        # A builder's is their group's (D158).
+        owner_group_id=type_access.owner_for(admin),
     )
     db.add(row)
     audit.record(db, actor=admin, action="credential_type.create", object_type="credential_type", object_id=type_id,
@@ -132,7 +155,7 @@ def create_type(
     store.record(db, "credential_type", type_id, "write", admin)
     db.commit()
     db.refresh(row)
-    return _type_out(db, row)
+    return _type_out(db, row, admin)
 
 
 @types_router.patch("/{type_id}", response_model=schemas.CredentialTypeOut)
@@ -140,13 +163,9 @@ def update_type(
     type_id: str,
     payload: schemas.CredentialTypeUpdate,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(auth.require_admin),
+    admin: models.User = Depends(auth.get_current_user),
 ):
-    row = db.get(models.CredentialType, type_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="That credential type doesn't exist.")
-    if row.builtin:
-        raise HTTPException(status_code=403, detail="Built-in types can't be edited. Copy it to make your own.")
+    row = _changeable(db, admin, db.get(models.CredentialType, type_id))
     data = payload.model_dump(exclude_unset=True)
     old_fields = row.fields
     try:
@@ -204,16 +223,17 @@ def update_type(
     store.record(db, "credential_type", type_id, "write", admin)
     db.commit()
     db.refresh(row)
-    return _type_out(db, row)
+    return _type_out(db, row, admin)
 
 
 @types_router.delete("/{type_id}", status_code=204)
-def delete_type(type_id: str, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def delete_type(type_id: str, db: Session = Depends(get_db), admin: models.User = Depends(auth.get_current_user)):
     row = db.get(models.CredentialType, type_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="That credential type doesn't exist.")
-    if row.builtin:
+    if row is not None and row.builtin:
         raise HTTPException(status_code=403, detail="Built-in types can't be deleted.")
+    # A builder's refusal says how many use it, never their names: those
+    # credentials are admins' (D24).
+    row = _changeable(db, admin, row)
     users = db.query(models.Credential).filter(models.Credential.type_id == type_id).all()
     if users:
         names = ", ".join(sorted(c.name for c in users)[:10])
