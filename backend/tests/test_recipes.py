@@ -209,3 +209,22 @@ def test_per_row_values_are_columns_of_every_row_and_open_by_environment_name(st
     assert d["job"]["jobId"] == "ota-9" and d["document"] == {"operation": "ota", "version": "2.1"}
     assert d["targets"] == "fleet" and d["executions"][0]["thing"] == "pool-7"
     assert asked[-1][0] == "444455556666", "the row's environment, reached by its name"
+
+
+def test_a_new_panes_starter_becomes_a_recipe_as_the_builder_seeds_it(mcp):
+    """D155: a blank draft is made the pane it starts from -- the editor's
+    starter replaced by the recipe's YAML (its notes left out) and its files
+    written beside it -- and it checks clean as it stands."""
+    from app.platform_tools import tokens
+
+    with SessionLocal() as db:
+        admin = db.query(models.User).filter_by(username="admin").one()
+        token = tokens.mint(db, admin, build={"kind": "pane", "id": None, "source": builder.STARTER, "files": {}})
+    recipe = RECIPES["per-row-values-in-code"]
+    body = "\n".join(line for line in recipe["source"].splitlines() if not line.startswith("#")).lstrip("\n")
+    changes = [{"op": "lines", "from": 1, "to": len(builder.STARTER.splitlines()), "text": body}]
+    changes += [{"op": "file", "name": name, "text": text} for name, text in recipe["files"].items()]
+    out = call(mcp, token, "change_definition", changes=changes)
+    assert out["ok"], out
+    draft = call(mcp, token, "read_draft")["text"]
+    assert "label: IoT jobs" in draft and "Service status" not in draft and "# Recipe" not in draft

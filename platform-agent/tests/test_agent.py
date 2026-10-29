@@ -89,7 +89,25 @@ async def run_pane(session_id: str, pane_id: str, ctx: Context, inputs: dict | N
 @stub.tool()
 async def build_reference(kind: str, ctx: Context) -> dict:
     _auth(ctx)
-    return {"kind": kind, "manifest": {"label": "str (required)"}, "live_functions": ["base64.convert"]}
+    return {"kind": kind, "manifest": {"label": "str (required)"}, "live_functions": ["base64.convert"],
+            "recipes": {"recipe:invoices": "invoices with a total each needs a call per invoice"}, "examples": ["iot"]}
+
+
+# A recipe (D152), as read_definition answers one: notes, then a working pane.
+INVOICES = ("# Recipe: invoices with a total each needs a call per invoice.\n"
+            "# - Each invoice's total and its customer's balance come from another call, one per invoice,\n"
+            "#   so the listing is code (invoices.py).\n"
+            "label: Invoices\nactions:\n- id: list\n  main: true\n  code:\n    file: invoices.py\n"
+            "outputs:\n- key: rows\n  render: table\nlayout:\n- title: Invoices\n  items:\n  - output: rows\n")
+
+
+@stub.tool()
+async def read_definition(kind: str, definition_id: str, ctx: Context) -> dict:
+    _auth(ctx)
+    if definition_id != "recipe:invoices":
+        raise ToolError(f"There is no pane type {definition_id}.")
+    return {"kind": kind, "id": definition_id, "source": INVOICES,
+            "files": {"invoices.py": "def run(inputs, ctx):\n    return {'rows': []}\n"}}
 
 
 @stub.tool()
@@ -188,6 +206,12 @@ async def change_definition(changes: list[dict], ctx: Context, kind: str | None 
     for change in changes:
         if change["op"] == "file":
             DRAFT["files"][change["name"]] = change["text"]
+            continue
+        if change["op"] == "lines" and not change.get("file"):
+            # The YAML's own lines (how a blank draft is made the pane it starts from).
+            lines = DRAFT["source"].splitlines()
+            lines[change["from"] - 1:change["to"]] = change["text"].splitlines()
+            data = yaml.safe_load("\n".join(lines)) or {}
             continue
         if change["op"] == "lines" and change.get("file"):
             lines = DRAFT["files"][change["file"]].splitlines()
@@ -953,3 +977,35 @@ def test_out_of_rounds_what_is_left_is_read_again_from_the_draft(settings):
     assert [e for e in events if e.get("propose")] and not [e for e in events if e["type"] == "notice"], \
         [e.get("message") for e in events if e["type"] == "notice"]
     assert "not saved yet" in _answer(events) and "Tried it on IoT Prod" in _answer(events)
+
+
+# ---------------------------------------------------------------- a blank draft starts from a working pane (D155)
+
+STARTER = "# A pane type: its inputs.\nlabel: Service status\nactions:\n- id: fetch\n  main: true\n"
+
+
+def test_a_blank_draft_starts_from_the_recipe_the_model_names(settings):
+    events = _build_on(settings, "start from recipe invoices, renamed Bills", STARTER, blank=True)
+    steps = _steps(events)
+    assert steps[:4] == ["build_reference", "plan_change", "read_definition", "change_definition"], steps
+    [proposed] = [e for e in events if e.get("propose")]
+    assert "code:" in proposed["propose"]["source"] and "Service status" not in proposed["propose"]["source"]
+    assert proposed["propose"]["files"]["invoices.py"].startswith("def run")
+    assert "# Recipe" not in proposed["propose"]["source"], "its notes go to the model, not into the pane"
+    assert _answer(events).startswith("I started from recipe:invoices")
+    told = fake_llm.BUILDS[-1]["messages"][-1]["content"]
+    assert "started as recipe:invoices" in told and "one per invoice" in told, "with why it's built so"
+
+
+def test_when_the_model_names_none_the_closest_recipe_is_chosen_by_its_words(settings):
+    # Plain words, nothing of the platform's: the notes share invoice, total,
+    # customer, balance with them.
+    plain = "rename it to Bills: our invoices, each with its total and the customer's balance"
+    events = _build_on(settings, plain, STARTER, blank=True)
+    assert "read_definition" in _steps(events) and _answer(events).startswith("I started from recipe:invoices")
+    # Nothing close: built from the starter, as before.
+    other = _build_on(settings, "rename it to Weather forecast for tomorrow", STARTER, blank=True)
+    assert "read_definition" not in _steps(other) and not _answer(other).startswith("I started")
+    # A draft with work in it is never replaced.
+    kept = _build_on(settings, plain, JOBS_PANE)
+    assert "read_definition" not in _steps(kept)

@@ -73,7 +73,8 @@ const run = async () => {
     await page.selectOption("#builder-start", "__code");
     await page.waitForSelector('.workspace-tab[data-file="devices.py"]');
     const tabs = await page.locator(".workspace-tab[data-file]").evaluateAll((els) => els.map((e) => e.getAttribute("data-file")));
-    check(JSON.stringify(tabs) === '["pane.yaml","devices.py"]', "Started from code: the YAML and its Python, a tab each", JSON.stringify(tabs));
+    check(JSON.stringify(tabs) === '["pane.yaml","devices.py","requirements.txt"]',
+      "Started from code: the YAML, its Python and its requirements, a tab each", JSON.stringify(tabs));
     check((await page.inputValue("#builder-source")).includes("file: devices.py") &&
       !(await page.inputValue("#builder-source")).includes("def run"), "…the YAML names the file; the code isn't in it");
     await page.fill("#builder-id", PANE);

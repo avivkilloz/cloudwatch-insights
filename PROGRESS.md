@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-22, the Builder after an IoT OTA jobs build (PLATFORM_PLAN.md §24, D145–D148): paths with dots, rows that open checked, a loop that keeps its work; a "+" tab and a Preview that toggles._
+_Last updated: 2026-10-29, Claude Code through personal access tokens and Builder drafts (PLATFORM_PLAN.md D156), after a new pane starting from the closest recipe (D155)._
 
 ## Platform plan
 
@@ -1298,7 +1298,56 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the second OTA chat (PLATFORM_PLAN.md §24, D154).**
+**And: Claude Code beside the user (D157).** Asked whether Claude Code can be
+their session and builder agent while they watch: sessions already followed
+any writer, but "here" was unknown from outside and the Builder editor
+neither followed a draft's changes nor kept from saving over them. Now each
+tab reports what it shows (`get_context`'s `on_screen`, the session on screen
+as `viewing_session`); `open_draft(on_screen=True)` works on the open
+editor's draft or gives it one; every draft change is versioned and
+announced, the editor follows (text, files, Building chat) and refuses to
+save over a newer version.
+- Tests: backend `test_screen.py` (4); browser `smoke113` (12: here is the
+  session on screen; the open editor takes a draft and shows each change
+  live, the user's typing kept; a proposal in the Building chat), failing
+  against the old frontend.
+
+**This PR, too: the platform from outside -- Claude Code (D156).** The
+user's question: can Claude connect to the platform's MCP, deployed
+internally? claude.ai's connectors and the Chrome extension call from
+Anthropic's cloud, so no; Claude Code on a machine in the network can, and
+now does:
+- Personal access tokens (Settings → My account → Access tokens): shown once
+  with the `claude mcp add` line, hashed, revocable, audited, only for a group
+  with the agent. `/api/mcp` takes them (and only them), through the same
+  nginx and ingress as the app; checked with Claude Code itself (`claude mcp
+  list`: connected) and the Python MCP client through the dev proxy.
+- Building from outside works on the user's Builder drafts (`draft_id`,
+  `open_draft`, `list_drafts`); a proposal stays in the draft with a chat turn
+  and a `/?draft=<id>` link that opens it in the Builder. Never a save.
+- The guide (`read_guide`, `platform://guide`), the reference and recipes as
+  resources, `build_pane`/`build_workflow` prompts, instructions that name the
+  loop.
+- A pane's first Python file brings a comment-only `requirements.txt`.
+- Tests: backend 697 (`test_access_tokens.py`, 10: lifecycle, the outside door
+  takes only personal tokens, revoked/expired/agent off, admin, drafts,
+  requirements, resources and prompts), `test_builder_loop` file sets;
+  browser `smoke112` (16), failing against the old frontend; `smoke104`/
+  `smoke106` updated for the starter's requirements.txt.
+
+**This PR: building from plain words (D155).** The user's point:
+someone who doesn't know the platform's words should be able to say what
+they want to see. A new pane's draft (empty, or only the starter) now starts
+from the closest working pane: the model names it, or the code picks the
+recipe whose notes share the request's words. The draft becomes that pane
+and the model adapts it; the answer says so. The OTA eval scenario now asks
+in the user's own plain words, and the eval judges a proposal's files too.
+- Tests: backend (blank sent for the starter; the starter seeded with a
+  recipe checks clean), agent +2 (the model names a start; the code picks
+  one by its words, not when nothing's close, never over work), +1 evals;
+  browser `smoke111` (7), failing against the old agent and backend.
+
+**#144 merged: the second OTA chat (PLATFORM_PLAN.md §24, D154).**
 The user's chat after #143: opened jobs still mostly empty, an
 "Export selected with details" button failing with "Missing connections or
 job_id", and a turn of "Fix what's left" rounds that never converged. Their

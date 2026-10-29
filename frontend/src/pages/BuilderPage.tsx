@@ -69,16 +69,56 @@ function useReloadPaneTypes(): () => Promise<void> {
   }, [refresh, replace]);
 }
 
+/** `?draft=<id>`: a draft to open, as a proposal from outside the Builder
+ * links to it (D156). Taken once, on load, and dropped from the address. */
+function takeDraftParam(): number | null {
+  const url = new URL(window.location.href);
+  const raw = url.searchParams.get("draft");
+  if (raw === null) return null;
+  url.searchParams.delete("draft");
+  window.history.replaceState(window.history.state, "", url.toString());
+  return /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
+/** The editor a draft opens in: a new one's, or the saved one's it changes. */
+function draftScreen(d: BuildDraft): Screen {
+  if (d.kind === "workflow") return { kind: "workflow", id: d.target_id, draft: d.id };
+  if (d.kind === "step") return { kind: "step", id: d.target_id, draft: d.id };
+  return { kind: "edit", id: d.target_id, draft: d.id };
+}
+
 export default function BuilderPage() {
-  const { view } = useSessions();
+  const { view, show } = useSessions();
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
-  // Asked from the Workflows page: New workflow, Open in the Builder.
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const openDraft = useCallback((id: number) => {
+    setLinkError(null);
+    api.getBuildDraft(id).then(
+      (d) => setScreen(draftScreen(d)),
+      (e) => {
+        setScreen({ kind: "list" });
+        setLinkError(readableError(e));
+      },
+    );
+  }, []);
+  // Asked from the Workflows page (New workflow, Open in the Builder), or a
+  // link to a draft followed in the app.
   const asked = useBuilderAskWaiting();
   useEffect(() => {
     if (!asked) return;
     const taken = takeBuilderAsk();
-    if (taken) setScreen({ kind: "workflow", id: taken.id });
-  }, [asked]);
+    if (taken?.what === "draft") openDraft(taken.id);
+    else if (taken) setScreen({ kind: "workflow", id: taken.id });
+  }, [asked, openDraft]);
+  // Opened at `?draft=<id>`.
+  useEffect(() => {
+    const id = takeDraftParam();
+    if (id === null) return;
+    show("builder");
+    openDraft(id);
+    // Once, on load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (view !== "builder") return null;
   if (screen.kind === "workflow") {
     return (
@@ -106,7 +146,12 @@ export default function BuilderPage() {
       />
     );
   }
-  return <ListView open={setScreen} initial={screen.what ?? "pane"} />;
+  return (
+    <>
+      {linkError && <p className="error-text">{linkError}</p>}
+      <ListView open={setScreen} initial={screen.what ?? "pane"} />
+    </>
+  );
 }
 
 function ListView({ open, initial }: { open: (s: Screen) => void; initial: What }) {

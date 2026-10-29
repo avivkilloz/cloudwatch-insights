@@ -11,6 +11,7 @@ import UserGroupsSettings from "../components/settings/UserGroupsSettings";
 import CatalogueSettings from "../components/settings/CatalogueSettings";
 import StoreSettings from "../components/settings/StoreSettings";
 import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
+import AccessTokens from "../components/settings/AccessTokens";
 import { ViewSwitch } from "../components/settings/settingsLayout";
 
 const EMPTY_SETTINGS: Settings = { app_title: null, app_logo_url: null };
@@ -586,6 +587,8 @@ function AccountSection({ user, onProfileSaved }: { user: User; onProfileSaved: 
           </button>
         </form>
       </div>
+
+      <AccessTokens allowed={!!user.agent_enabled} isAdmin={!!user.is_admin} />
     </>
   );
 }

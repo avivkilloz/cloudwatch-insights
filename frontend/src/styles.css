@@ -5114,3 +5114,50 @@ textarea.code-editor-text:focus {
 .agent-choices .muted {
   margin-right: 2px;
 }
+
+/* Personal access tokens (D156), in My account: the one-time token and the
+   lines that set Claude Code up with it, each beside its Copy. */
+.access-token-form {
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.access-token-made {
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.access-token-made > p {
+  margin: 0 0 10px;
+}
+
+.access-token-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.access-token-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono, monospace);
+}
+
+.access-token-command {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+}

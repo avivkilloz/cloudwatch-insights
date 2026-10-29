@@ -380,11 +380,19 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }, [viewingBuildKey]);
 
   // An editor's draft brings its Building chat back (D125): the turns it
-  // held, under the key the editor was opened with.
+  // held, under the key the editor was opened with -- and, when the draft
+  // changes elsewhere (D157: a proposal from Claude Code), the turns added
+  // there, after the ones this tab has.
   useEffect(() => {
-    const turns = viewingBuild?.draft?.turns;
+    const turns = viewingBuild?.draft?.turns as AgentTurn[] | null | undefined;
     if (!viewingBuild || !turns) return;
-    setBuildChats((prev) => (prev[viewingBuild.key] ? prev : { ...prev, [viewingBuild.key]: turns as AgentTurn[] }));
+    setBuildChats((prev) => {
+      const have = prev[viewingBuild.key];
+      if (!have) return { ...prev, [viewingBuild.key]: turns };
+      const known = new Set(have.map((t) => t.id));
+      const added = turns.filter((t) => !known.has(t.id));
+      return added.length ? { ...prev, [viewingBuild.key]: [...have, ...added] } : prev;
+    });
   }, [viewingBuild]);
 
   // Read through refs by `ask`, so a turn asks about what is on screen and

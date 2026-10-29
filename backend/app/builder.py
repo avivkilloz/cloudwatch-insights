@@ -32,7 +32,7 @@ import yaml
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from . import aws_request, catalogue, models, pane_access, row_paths, runner_client, store
+from . import aws_request, catalogue, deps, models, pane_access, row_paths, runner_client, store
 from .db import SessionLocal
 from .panes import handlers as pane_handlers
 from .panes import live as pane_live
@@ -1020,7 +1020,7 @@ CODE_EXAMPLE_FILES = {"devices.py": """def run(inputs, ctx):
     items.sort(key=lambda d: not d.get("online"))
     ctx.log(len(items), "devices")
     return {"rows": items}
-"""}
+""", "requirements.txt": deps.HINT}
 
 # Rows that open to show more, from a request of their own (a working pane type).
 DETAIL_EXAMPLE = """label: Stacks

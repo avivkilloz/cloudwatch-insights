@@ -21,7 +21,7 @@ import {
   saveWorkspace,
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
-import { subscribeLiveEvents } from "./liveEvents";
+import { DRAFT_EVENT, LiveEvent, subscribeLiveEvents } from "./liveEvents";
 import { announceApprovals } from "../workflowApprovals";
 import { applyOutputs, dropOutputs, outputsVersion } from "./outputs";
 import { migratePaneKeys } from "../panes/manifest";
@@ -685,6 +685,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         if (event.kind === "reorder") {
           if (event.order) followOrder(event.order);
           else catchUp();
+          return;
+        }
+        if (event.kind === "draft") {
+          // Not a session's: the Builder's editors follow their drafts (D157).
+          window.dispatchEvent(new CustomEvent<LiveEvent>(DRAFT_EVENT, { detail: event }));
           return;
         }
         if (event.kind === "approvals") {

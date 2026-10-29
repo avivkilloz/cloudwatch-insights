@@ -495,6 +495,29 @@ class AgentToken(Base):
     build_files = Column(JSON, nullable=True)
 
 
+class AccessToken(Base):
+    """A personal access token (D156): how Claude Code, or any MCP client the
+    user runs, calls the platform's MCP tools as them from outside -- the
+    agent's per-turn token lives fifteen minutes and only the backend ever
+    holds it. Made by its user in Settings, shown once, kept only as a hash;
+    it carries no draft or session of its own (a tool is told which draft it
+    works on), and it stops working when revoked, when it expires, or when
+    its user's group loses the agent -- the same gate as a chat turn."""
+
+    __tablename__ = "access_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    # Its first characters, so a list can say which one is which.
+    prefix = Column(String(16), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+
 class CredentialType(Base):
     """The shape of a kind of secret: a list of fields, each public or secret
     (PLATFORM_PLAN.md §13.3). Data, not code, so an admin can define one for
@@ -948,6 +971,33 @@ class BuildDraft(Base):
     files = Column(JSON, nullable=True)
     chat = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    # Bumped by every change (D157): the open editor follows a newer one,
+    # and its save made on an older one is refused rather than written over
+    # what Claude Code (or another tab) just did.
+    version = Column(Integer, nullable=False, default=0, server_default="0")
+
+
+class ScreenView(Base):
+    """What one of a user's browser tabs has on screen (D157): a session, a
+    Builder editor and its draft, or another page -- reported by the tab as
+    it changes, and every half minute while it's open. It's how Claude Code,
+    working through a personal access token, knows what "here" means: the
+    in-app agent is told by the turn, an outside client by this. Keyed by the
+    tab's X-Sync-Origin under its user, so one user's tab can't write
+    another's; rows are read only while fresh."""
+
+    __tablename__ = "screen_views"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    origin = Column(String(64), primary_key=True)
+    view = Column(String(16), nullable=False)
+    session_client_id = Column(String(64), nullable=True)
+    build_kind = Column(String(16), nullable=True)
+    build_target_id = Column(String(200), nullable=True)
+    draft_id = Column(Integer, nullable=True)
+    timezone = Column(String(64), nullable=True)
+    visible = Column(Boolean, nullable=False, default=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
 
 

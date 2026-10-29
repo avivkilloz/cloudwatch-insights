@@ -513,7 +513,9 @@ def _builder(messages: list[dict]) -> str:
         lookups = []
         if "jobs and rules" in lowered and not lowered.startswith("add modes"):
             lookups = [{"service": "iot", "operation": "ListJobs"}, {"service": "iot", "operation": "ListTopicRules"}]
-        return json.dumps({"change": True, "plan": f"Do this: {request}.", "lookups": lookups, "examples": []})
+        start = "recipe:invoices" if lowered.startswith("start from recipe invoices") else None
+        return json.dumps({"change": True, "plan": f"Do this: {request}.", "lookups": lookups, "examples": [],
+                           "start_from": start})
     if lowered.startswith("impossible"):
         return json.dumps({"give_up": "That needs a handler the platform doesn't have."})
     if lowered.startswith("add modes for jobs and rules"):

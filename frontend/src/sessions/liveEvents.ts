@@ -18,7 +18,8 @@ export interface LiveEvent {
   /** "access": this user's permission on a shared session changed. */
   /** "outputs": one pane's outputs changed (`pane`; `version` is that pane's). */
   /** "approvals": what waits for this user's decision changed (D88). */
-  kind: "upsert" | "close" | "delete" | "reorder" | "access" | "outputs" | "approvals";
+  /** "draft": one of this user's Builder drafts changed (D157; `draft_id`). */
+  kind: "upsert" | "close" | "delete" | "reorder" | "access" | "outputs" | "approvals" | "draft";
   client_id: string | null;
   version: number | null;
   /** The writer's X-Sync-Origin: a tab's id, or "agent". */
@@ -27,7 +28,17 @@ export interface LiveEvent {
   order?: string[];
   /** The pane whose outputs an "outputs" event is about. */
   pane?: string;
+  /** A "draft" event's draft, what it's of, who changed it ("“laptop”", "the
+   * agent"), and the tab whose editor should take it (open_draft on screen). */
+  draft_id?: number;
+  build_kind?: "pane" | "workflow" | "step";
+  target_id?: string | null;
+  by?: string;
+  for_tab?: string;
 }
+
+/** A "draft" event, passed on to the editors (pages/buildDraft.tsx). */
+export const DRAFT_EVENT = "cwi:draft";
 
 export function subscribeLiveEvents(onEvent: (event: LiveEvent) => void, onReconnect: () => void): () => void {
   const source = new EventSource("/api/live-sessions/events", { withCredentials: true });

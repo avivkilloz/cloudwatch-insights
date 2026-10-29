@@ -138,6 +138,12 @@ first, from the reference's examples, or recipes (recipe:<name>: whole working p
 they're built so -- read the one closest to what's asked) (at most {examples}). Both [] when you need none.
 """
 
+START = """
+The editor holds no pane yet. Also say what to start from: "start_from": "recipe:<name>" -- the reference's \
+recipes are whole working panes, each saying what it shows; take the one closest to what's asked -- or an \
+example's id, or null when none is close. The draft becomes that pane, and your changes adapt it.
+"""
+
 CHANGES = """\
 Now write the change. Reply with:
 {{
@@ -280,6 +286,12 @@ class Builder:
         # from the draft, not from the words of the last turn's notice, which
         # may name a change that couldn't be made rather than a problem.
         self.fix_now = bool(focus.get("fix_now"))
+        # A pane with nothing built yet (empty, or only the starter): the turn
+        # starts from the closest working pane, chosen by the model or, when
+        # it names none, by the code (D155).
+        self.blank = self.kind == "pane" and bool(focus.get("blank"))
+        self.reference_data: dict = {}
+        self.started = ""
         self.can_try = self.kind == "pane" and "try_definition" in tools
 
     # ------------------------------------------------------------ tools
@@ -435,6 +447,54 @@ class Builder:
         # read_draft numbers its lines; the context numbers them again.
         return _unnumbered(value.get("text", ""))
 
+    async def start_from(self, chosen: Any, plan: str) -> Optional[str]:
+        """What a blank draft starts from: the recipe or example the model
+        named, else the recipe whose notes share the most with what was asked
+        -- a plain request ("how many devices succeeded, per job") never says
+        "per-row values", and a model left to choose read none and wrote the
+        pane from nothing, the hard parts wrong."""
+        known = set((self.reference_data.get("recipes") or {})) | set(self.reference_data.get("examples") or [])
+        if isinstance(chosen, str) and chosen.strip() in known:
+            return chosen.strip()
+        wanted = _words(f"{self.messages[-1]['content']} {plan}")
+        best, score, tied = None, 0, False
+        for name in sorted(self.reference_data.get("recipes") or {}):
+            ok, out = await self.call("read_definition", {"kind": self.kind, "definition_id": name}, shown=False)
+            if not ok:
+                continue
+            notes = "\n".join(line for line in str(_json(out).get("source") or "").splitlines() if line.startswith("#"))
+            shared = len(wanted & _words(notes))
+            if shared > score:
+                best, score, tied = name, shared, False
+            elif shared == score:
+                tied = True  # two as close: neither is the one
+        return best if score >= MIN_SHARED and not tied else None
+
+    async def seed(self, start: str, draft: str) -> str:
+        """The draft made the pane it starts from -- its YAML without the
+        notes at its head (they go in front of the model instead) and its
+        files -- for the changes to adapt, rather than written from nothing."""
+        ok, out = await self.call("read_definition", {"kind": self.kind, "definition_id": start})
+        found = _json(out) if ok else {}
+        source = str(found.get("source") or "")
+        if not source:
+            return draft
+        lines = source.splitlines()
+        head = 0
+        while head < len(lines) and (lines[head].startswith("#") or not lines[head].strip()):
+            head += 1
+        notes, body = "\n".join(lines[:head]).strip(), "\n".join(lines[head:]) + "\n"
+        changes: list[dict] = [{"op": "lines", "from": 1, "to": max(1, len(draft.splitlines())), "text": body}]
+        changes += [{"op": "file", "name": name, "text": text} for name, text in sorted((found.get("files") or {}).items())]
+        ok, out = await self.call("change_definition", {"changes": changes})
+        if not ok:
+            self.read.append(f"The YAML of {start}:\n{source}")
+            return draft
+        self.started = f"I started from {start}, a working pane close to what you asked, and changed it to fit. "
+        self.read.append(f"The draft below started as {start}, a working pane close to what's asked: adapt it -- "
+                         f"change, add and remove what the request needs. Why it's built so:\n{notes}")
+        return await self.draft()
+
     async def left(self) -> tuple[list[str], dict, str]:
         """What's wrong with the draft as it is now: Check's problems, else
         what trying it found -- with the words to ask for their fix."""
@@ -460,6 +520,7 @@ class Builder:
         if not ok:
             raise BuildFailed(f"The Builder's reference couldn't be read: {reference[:300]}")
         self.reference = _compact(reference)
+        self.reference_data = _json(reference)
         for event in self.flush():
             yield event
         draft = self.focus.get("source") or ""
@@ -487,14 +548,18 @@ class Builder:
             instructions = REPAIR.format(what=what)
             applied = True  # the editor's draft is the one to propose
         else:
-            decided = await self.ask("plan_change", PLAN.format(lookups=MAX_LOOKUPS, examples=MAX_EXAMPLES),
-                                     self.context(draft))
+            asked = PLAN.format(lookups=MAX_LOOKUPS, examples=MAX_EXAMPLES) + (START if self.blank else "")
+            decided = await self.ask("plan_change", asked, self.context(draft))
             for event in self.flush():
                 yield event
             if not decided.get("change"):
                 yield {"type": "text", "delta": str(decided.get("answer") or "There's nothing to change.")}
                 return
             plan = str(decided.get("plan") or "")
+            if self.blank:
+                start = await self.start_from(decided.get("start_from"), plan)
+                if start:
+                    draft = await self.seed(start, draft)
             await self.lookups(decided)
             for event in self.flush():
                 yield event
@@ -558,7 +623,7 @@ class Builder:
                     yield event
                 if ok:
                     caught = f" The check caught {fixed} problem{'s' if fixed > 1 else ''} on the way, fixed." if fixed else ""
-                    yield {"type": "text", "delta": f"{summary}{caught}\n\nIt's in the editor, not saved yet: look it "
+                    yield {"type": "text", "delta": f"{self.started}{summary}{caught}\n\nIt's in the editor, not saved yet: look it "
                                                     "over, preview it and save."}
                     for event in self._tried_events(verdict):
                         yield event
@@ -600,7 +665,7 @@ class Builder:
             for event in self.flush():
                 yield event
             if ok:
-                yield {"type": "text", "delta": f"{summary}\n\nIt's in the editor, not saved yet: look it over, "
+                yield {"type": "text", "delta": f"{self.started}{summary}\n\nIt's in the editor, not saved yet: look it over, "
                                                 "preview it and save."}
                 for event in self._tried_events(verdict):
                     yield event
@@ -612,7 +677,7 @@ class Builder:
         for event in self.flush():
             yield event
         if ok:
-            yield {"type": "text", "delta": f"{summary}\n\nIt's in the editor, but it doesn't check clean yet -- "
+            yield {"type": "text", "delta": f"{self.started}{summary}\n\nIt's in the editor, but it doesn't check clean yet -- "
                                             f"the editor's Check lists what's left. Ask me to carry on and I'll "
                                             f"start from there."}
             why = f" (I stopped because the model's last reply couldn't be used: {stopped[:200]})" if stopped else ""
@@ -649,6 +714,29 @@ class Builder:
 
 class BuildFailed(Exception):
     """A turn the Builder can't carry on with; the message is the user's."""
+
+
+# A blank draft starts from the recipe sharing at least this many words with
+# the request, when the model names none.
+MIN_SHARED = 3
+_STOP = set("the and for with that this from what when which their there then them they you your our are was "
+            "were has have had not but all any can each its into also want need show see like just more most "
+            "one two only some such than too very will would should could here how why who per get those "
+            "pane pick start use make build add new".split())
+
+
+def _words(text: str) -> set[str]:
+    """The words of a text that say something, crudely stemmed: `jobs`,
+    `job's` and `job` are one."""
+    out = set()
+    for word in re.findall(r"[a-z]{3,}", text.lower()):
+        for suffix in ("ing", "ed", "es", "s"):
+            if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                word = word[: -len(suffix)]
+                break
+        if word not in _STOP:
+            out.add(word)
+    return out
 
 
 def _on(environment: Any) -> str:

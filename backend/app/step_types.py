@@ -46,7 +46,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 from sqlalchemy.orm import Session
 
-from . import connections, credential_types, masking, models, runner_client, store, tools_http_client, workflows
+from . import connections, credential_types, deps, masking, models, runner_client, store, tools_http_client, workflows
 from .panes.manifest import CodeFile
 from .resolve import ResolveError, resolve_identity_values, resolve_target
 
@@ -587,7 +587,7 @@ CODE_EXAMPLE_FILES = {"online.py": """def run(inputs, ctx):
     online = [d for d in reply.json()["items"] if d.get("online")]
     ctx.log(len(online), "online")
     return {"rows": online, "count": len(online)}
-"""}
+""", "requirements.txt": deps.HINT}
 
 
 def _fields(model: Any) -> dict[str, str]:

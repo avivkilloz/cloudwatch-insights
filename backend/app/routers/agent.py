@@ -193,6 +193,10 @@ async def agent_chat(
             **({"try_on": build.try_on} if build.try_on else {}),
             **({"try_now": True} if build.try_now else {}),
             **({"fix_now": True} if build.fix_now else {}),
+            # Nothing built yet -- empty, or the starter a new pane opens with:
+            # the Builder starts it from the closest working pane (D155).
+            **({"blank": True} if build.kind == "pane" and not build.files
+               and build.source.strip() in ("", builder.STARTER.strip()) else {}),
         }
 
     token = tokens.mint(

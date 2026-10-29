@@ -466,6 +466,48 @@ good at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
 or a prompt change against conversations it has got wrong before, run the
 scenarios in `platform-agent/evals` (its README).
 
+### Using the platform from Claude Code
+
+Claude Code can work in the platform as you, through the platform's MCP
+server: open and fill sessions, run panes and workflows, and build panes,
+steps and workflows. It needs to reach the app, so run it on a machine inside
+the network the platform is deployed in. claude.ai's connectors and the Chrome
+extension call from Anthropic's cloud, so they can't reach a deployment that
+isn't public.
+
+1. **Make a token.** Go to Settings → My account → Access tokens, give the
+   token a name and an expiry, and press Create token. It's shown once, so
+   copy it then. It works only while your group has the agent, and it reaches
+   what you can and nothing more.
+2. **Add the platform to Claude Code.** Paste the line the page shows:
+   ```bash
+   claude mcp add --transport http platform https://<the app>/api/mcp \
+     --header "Authorization: Bearer <token>"
+   ```
+   For a project, use its `.mcp.json` instead (the page shows that too), and
+   keep the token in `PLATFORM_TOKEN` rather than in the repo.
+3. **Ask Claude.** Two shortcuts help:
+   - `/platform:build_pane <what you want to see>` starts the building loop.
+   - `@platform:platform://guide` attaches the guide that explains the tools.
+
+Claude knows what you're looking at: your open tabs say what they show, so
+"here" is the session on your screen, and a pane it adds there appears as
+you watch.
+
+When Claude builds, it works in a Builder draft of yours: it opens one,
+changes it, checks it, tries it in an environment you choose, and proposes it.
+To build together, open the editor first (Builder → New pane, or the pane to
+change) and ask Claude to work on what's on screen. It takes that editor's
+draft, and each change it makes shows in your editor as it's made, with a
+line saying who made it. What you type lands in the same draft, and a save
+of yours made before its latest change never overwrites it. Its proposals
+appear in the editor's Building chat. Elsewhere, the link Claude gives you
+(`/?draft=<id>`) opens the draft. You review it and Save. Claude can't save.
+
+Revoke a token in the same place, and anything using it stops at once. An
+admin sees everyone's tokens there (names only, never the tokens) and can
+revoke any of them.
+
 ## Users, groups & login
 
 The app requires logging in — there's no anonymous/shared access. Every user
@@ -1005,6 +1047,11 @@ environments ("Try it on …"); pick one and the Builder runs the draft there
 as you -- its list, then its first row opened -- and fixes whatever came back
 empty (a column read by the wrong name, a row's detail looking in the wrong
 place). Every later change in that editor is tried there too. It only reads.
+
+You can ask for a new pane in plain words -- what you want to see, not how
+the platform does it. With nothing built yet, the Builder starts from the
+working pane closest to what you asked (it says which) and changes it to
+fit, rather than writing everything from the starter.
 
 Before writing, it can read **recipes**: whole pane types that work, each
 saying why it's built so -- rows that open onto a second call, columns that

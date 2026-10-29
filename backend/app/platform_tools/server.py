@@ -1,8 +1,10 @@
-"""The MCP server the platform agent calls, mounted at /mcp.
+"""The MCP server the platform agent calls, mounted at /mcp -- and Claude
+Code, or any MCP client a user runs, at /api/mcp (D156).
 
-Every call carries the per-turn token the backend minted for the user who
-asked (see `tokens`); the middleware below refuses anything else before MCP
-sees it, and each tool acts as that user. Tools fall into three groups:
+Every call carries a token standing for one user: the per-turn token the
+backend minted for whoever asked the agent, or a personal access token they
+made in Settings (see `tokens`); the middleware below refuses anything else
+before MCP sees it, and each tool acts as that user. The tools:
 
 - *Looking around:* the user's environments and the pane kinds their group
   allows (`get_context`), their open sessions, and the names a pane's inputs
@@ -12,6 +14,11 @@ sees it, and each tool acts as that user. Tools fall into three groups:
   or file it into a side-panel category.
 - *Running a pane* -- read-only searches only. The run happens here, and its
   results land in the pane's own result keys.
+- *Workflows:* list, run, read a run, investigate it.
+- *Building* pane types, step types and workflows: on the working draft
+  beside an editor, or on one of the user's Builder drafts (`draft_id`) from
+  outside -- read, change, check, try, propose; never save. And the guide,
+  reference and recipes, as tools and as resources, and prompts to start.
 
 Each change is one versioned, announced write (`live_store.mutate`), so the
 user's open panes follow the agent as it works. Anything that would reach
@@ -28,6 +35,7 @@ import contextvars
 import datetime
 import json
 import re
+from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -41,7 +49,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
-from .. import catalogue, connections, credential_store, deps, live_store, models, pane_outputs, schemas, templates
+from .. import (catalogue, connections, credential_store, deps, live_store, models, pane_outputs, presence, schemas,
+               templates)
 from ..db import SessionLocal
 from ..live_store import StoreError, tag_set, untag
 from ..panes import manifest as pane_manifest
@@ -89,7 +98,20 @@ region, called "Prod", or "Prod · iot" where one environment holds several) and
 the pane kinds you may use, with each kind's inputs. Put results where the \
 user can see them: create a session (or add panes to the one they are \
 viewing), set a pane's inputs, and run it. A run's rows go into the pane; you \
-get a sample back to answer from."""
+get a sample back to answer from. Workflows: list_workflows, run_workflow, \
+get_workflow_run.
+
+Building pane types, step types and workflows happens in Builder drafts, the \
+user's own: open_draft (or list_drafts) gives a draft_id the build tools take; \
+build_reference says every field; read the closest recipe; change the draft \
+with change_definition; check_definition and try_definition it; then \
+propose_definition leaves it in their Builder, where they review it and Save -- \
+you never save. Read the guide first (read_guide, or the resource \
+platform://guide): it has the loop and what works.
+
+get_context's on_screen says what the user's browser shows, the one in front \
+first: "here" is that session, or that Builder editor -- open_draft(on_screen=True) \
+works on its draft, and the user watches each change land in their editor."""
 
 mcp = FastMCP(
     "platform",
@@ -104,24 +126,41 @@ mcp = FastMCP(
 )
 
 _caller: contextvars.ContextVar[Optional[tokens.Caller]] = contextvars.ContextVar("platform_caller", default=None)
+# The Builder draft (D125) a build tool was told to work on (`draft_id`, D156):
+# from outside there's no editor, so no turn's working draft -- the user's own
+# draft stands in for it, and what's proposed lands there for them to review.
+_draft: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("platform_draft", default=None)
 
 
 @contextlib.contextmanager
-def _acting():
-    """The database session and user a tool acts with."""
+def _acting(draft_id: Optional[int] = None):
+    """The database session and user a tool acts with -- on `draft_id`, one of
+    the user's Builder drafts, when a build tool is given one."""
+    from .. import build_drafts
+
     caller = _caller.get()
     if caller is None:  # the middleware lets nothing through without one
         raise ToolError("Not authorised.")
     db = SessionLocal()
+    on_draft = None
     try:
         user = db.get(models.User, caller.user_id)
         if user is None:
             raise ToolError("Not authorised.")
+        if draft_id is not None:
+            try:
+                build_drafts.mine(db, user, draft_id)
+            except build_drafts.DraftError:
+                raise InputError(f"There is no draft {draft_id} of the user's; list_drafts lists them, "
+                                 "open_draft makes one.") from None
+            on_draft = _draft.set(draft_id)
         yield db, user, caller
     except (InputError, StoreError) as e:
         db.rollback()
         raise ToolError(str(e)) from None
     finally:
+        if on_draft is not None:
+            _draft.reset(on_draft)
         db.close()
 
 
@@ -363,19 +402,26 @@ def _describe_variables(db: Session, variables: dict[str, Any]) -> dict[str, Any
 @mcp.tool()
 async def get_context() -> dict:
     """Who you are acting for, the time where they are, the environments they can reach, the pane kinds their group
-    allows (with every input each kind takes), and the session they were looking at when they asked, if any. Call this
-    first."""
+    allows (with every input each kind takes), the session they were looking at when they asked, if any, and what
+    their open browser tabs show (on_screen: a session, or a Builder editor and its draft). Call this first."""
     with _acting() as (db, user, caller):
         categories = catalogue.category_of(db)
-        zone_name = caller.timezone or "UTC"
+        screens = presence.on_screen(db, user.id)
+        # From outside (D157) there's no turn to say these: the user's own
+        # tabs do -- the zone their browser is in, the session on screen.
+        zone_name = caller.timezone or next((v.timezone for v in screens if v.timezone), None) or "UTC"
         now = datetime.datetime.now(datetime.timezone.utc)
         try:
             local = now.astimezone(ZoneInfo(zone_name))
         except Exception:  # noqa: BLE001 -- an unknown zone just means UTC
             zone_name, local = "UTC", now
         viewing = None
-        if caller.viewing_session_id:
-            row, member = live_store.reachable(db, user.id, caller.viewing_session_id)
+        looking_at = caller.viewing_session_id
+        if looking_at is None and getattr(caller, "access_token_id", None):
+            looking_at = next((v.session_client_id for v in screens if v.view == "session" and v.session_client_id),
+                              None)
+        if looking_at:
+            row, member = live_store.reachable(db, user.id, looking_at)
             closed = (row.closed_at if member is None else member.closed_at) if row is not None else None
             if row is not None and closed is None:
                 viewing = _describe_session(db, row, user.id)
@@ -420,7 +466,30 @@ async def get_context() -> dict:
             ],
             "layouts": list(LAYOUTS),
             "viewing_session": viewing,
+            # What the user's open tabs show right now, the one in front first
+            # (D157): "here" is the first. A Builder editor's draft_id is what
+            # the build tools take -- or open_draft(on_screen=True) when it has none.
+            "on_screen": [_describe_screen(db, user, v) for v in screens],
         }
+
+
+def _describe_screen(db: Session, user: models.User, v: models.ScreenView) -> dict:
+    from .. import build_drafts
+
+    out: dict[str, Any] = {"view": v.view, "in_front": bool(v.visible)}
+    if v.view == "session" and v.session_client_id:
+        row, _member = live_store.reachable(db, user.id, v.session_client_id)
+        if row is not None:
+            out.update(session_id=row.client_id, title=row.title)
+    elif v.view == "builder" and v.build_kind:
+        out.update(kind=v.build_kind, target_id=v.build_target_id, draft_id=v.draft_id)
+        draft = db.get(models.BuildDraft, v.draft_id) if v.draft_id else None
+        if draft is not None and draft.user_id == user.id:
+            out["label"] = build_drafts.label(draft.source)
+        else:
+            out["draft_id"] = None
+            out["note"] = "No draft yet: open_draft(on_screen=True) makes one this editor shows."
+    return out
 
 
 @mcp.tool()
@@ -1622,26 +1691,278 @@ async def read_definition(kind: str, definition_id: str) -> dict:
         return {"kind": kind, "id": definition_id, "source": workflow.source}
 
 
+@mcp.tool()
+async def list_drafts(kind: Optional[str] = None) -> dict:
+    """The user's Builder drafts -- what they (or you) are building and haven't saved: each one's draft_id, kind,
+    label, the saved one it changes (target_id; none for a new one) and when it last changed. Work on one by
+    passing its draft_id to read_draft, change_definition, check_definition, try_definition and
+    propose_definition."""
+    from .. import build_drafts
+
+    with _acting() as (db, user, _caller):
+        rows = build_drafts.listed(db, user, kind)
+        return {"drafts": [{"draft_id": r.id, "kind": r.kind, "label": build_drafts.label(r.source),
+                            "target_id": r.target_id, "new_id": r.new_id or None,
+                            "updated_at": r.updated_at.isoformat() + "Z", "turns": len(r.chat or [])}
+                           for r in rows]}
+
+
+# What a new draft starts as, when it isn't copied from anything.
+def _starter(kind: str) -> tuple[str, dict[str, str]]:
+    from .. import builder, step_types
+
+    if kind == "pane":
+        return builder.STARTER, {}
+    if kind == "step":
+        return step_types.STARTER, {}
+    return "label: A new workflow\nsteps: []\n", {}
+
+
+@mcp.tool()
+async def open_draft(kind: Optional[str] = None, definition_id: Optional[str] = None,
+                     start_from: Optional[str] = None, new_id: Optional[str] = None, on_screen: bool = False) -> dict:
+    """A Builder draft to work on from outside the Builder, and its draft_id for the other build tools. With
+    `definition_id`, a draft of that saved pane type, step type or workflow (the user's own draft of it if they
+    have one, as they left it). Otherwise a new one: a copy of `start_from` (a recipe:<name>, an example or
+    anything read_definition reads), or the starter. `new_id` is the Id a new one will be saved as. The draft is
+    the user's: listed in their Builder, where they review it and Save -- nothing is saved here. From a recipe,
+    its notes come back (why_its_built_so) instead of going into the draft. `on_screen`: the draft of the editor
+    the user has open in the Builder (get_context's on_screen) -- its own if it has one, else one made now (from
+    `start_from` if given) that their editor takes and shows: every change you make, they watch happen."""
+    from .. import build_drafts, builder
+
+    with _acting() as (db, user, caller):
+        tab = None
+        if on_screen:
+            screen = next((v for v in presence.on_screen(db, user.id) if v.view == "builder" and v.build_kind), None)
+            if screen is None:
+                raise InputError("The user has no Builder editor on screen: ask them to open one (Builder → New pane, "
+                                 "or the one to change), or open a draft without on_screen.")
+            if kind and kind != screen.build_kind:
+                raise InputError(f"The editor on screen is a {screen.build_kind}'s, not a {kind}'s.")
+            kind = screen.build_kind
+            if screen.draft_id is not None:
+                found = db.get(models.BuildDraft, screen.draft_id)
+                if found is not None and found.user_id == user.id:
+                    return {"draft_id": found.id, "note": "The draft in the editor on the user's screen: they see "
+                            "every change you make to it.", **_draft_lines(found)}
+            tab = screen.origin
+            definition_id = definition_id or screen.build_target_id
+        if not kind:
+            raise InputError('Say kind: "pane", "workflow" or "step".')
+        _may_build(user, kind)
+        by = _by(caller)
+        try:
+            if definition_id:
+                found = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind,
+                                                                target_id=definition_id).first()
+                if found is not None and (build_drafts.out(db, found)["changed"] or tab):
+                    if tab:
+                        # The editor on screen takes it, as it is.
+                        build_drafts.announce(db, found, ORIGIN, by, for_tab=tab)
+                        db.commit()
+                    return {"draft_id": found.id, "note": "The user's own unsaved draft of it, as they left it.",
+                            **_draft_lines(found)}
+                saved = build_drafts._target(db, user, kind, definition_id)
+                row = build_drafts.save(db, user, kind, definition_id, saved.source,
+                                        files=None if kind == "workflow" else dict(saved.files or {}),
+                                        origin=ORIGIN, by=by, for_tab=tab)
+                return {"draft_id": row.id, "note": f"A draft of {definition_id}, as saved.", **_draft_lines(row)}
+            notes = ""
+            if start_from:
+                read = await read_definition(kind, start_from)
+                source, files = read["source"], dict(read.get("files") or {})
+                if start_from.startswith(builder.RECIPE_PREFIX):
+                    # A recipe's notes say why it's built so: for whoever builds,
+                    # not the pane's YAML -- as the Builder's own loop seeds one (D155).
+                    lines = source.splitlines()
+                    head = 0
+                    while head < len(lines) and (lines[head].startswith("#") or not lines[head].strip()):
+                        head += 1
+                    notes, source = "\n".join(lines[:head]).strip(), "\n".join(lines[head:]) + "\n"
+            else:
+                source, files = _starter(kind)
+            row = build_drafts.save(db, user, kind, None, source, new_id=new_id or "",
+                                    files=None if kind == "workflow" else files, origin=ORIGIN, by=by, for_tab=tab)
+        except build_drafts.DraftError as e:
+            raise InputError(str(e)) from None
+        return {"draft_id": row.id, "note": f"A new {build_drafts.NOUNS[kind]}'s draft"
+                + (f", copied from {start_from}." if start_from else ", from the starter.")
+                + (" The editor on the user's screen shows it now." if tab else ""), **_draft_lines(row),
+                **({"why_its_built_so": notes} if notes else {})}
+
+
+def _draft_lines(row: models.BuildDraft) -> dict[str, Any]:
+    return {"kind": row.kind, "target_id": row.target_id, "lines": len((row.source or "").splitlines()),
+            "files": {name: len(str(text).splitlines()) for name, text in sorted((row.files or {}).items())}}
+
+
+# ---------------------------------------------------------------- documentation (D156)
+# For a client outside the platform -- Claude Code with a personal access
+# token -- that arrives knowing nothing: the guide (the loop, and what works,
+# as the Builder's own loop is told), the reference generated from the models
+# (never hand-written), and the recipes. As resources, which Claude Code
+# @-mentions, and the guide as a tool too, which any client can call.
+
+GUIDE = (Path(__file__).parent / "guide.md").read_text()
+
+
+@mcp.tool()
+async def read_guide() -> dict:
+    """How to work with the platform through these tools, building included: the words it uses, the loop for
+    building in a Builder draft, and what works in a pane type, code, a workflow and a step type. Read it before
+    building anything."""
+    with _acting():
+        return {"guide": GUIDE}
+
+
+@mcp.resource("platform://guide", name="guide", title="How to work with the platform", mime_type="text/markdown")
+async def guide_resource() -> str:
+    with _acting():
+        return GUIDE
+
+
+@mcp.resource("platform://reference/{kind}", name="reference", mime_type="application/json",
+              title="What a pane type's, workflow's or step type's definition may say")
+async def reference_resource(kind: str) -> str:
+    from .. import builder, step_types
+
+    with _acting() as (db, user, _caller):
+        _may_build(user, kind)
+        found = step_types.reference(db, user) if kind == "step" else builder.reference(db, kind, user)
+        return json.dumps(found, indent=1, default=str)
+
+
+@mcp.resource("platform://recipes", name="recipes", title="Whole working pane types, with why", mime_type="text/markdown")
+async def recipes_resource() -> str:
+    from .. import builder
+
+    with _acting():
+        lines = ["# Recipes", "", "Whole pane types that work, their comments saying why they're built so. "
+                 "Read one with platform://recipes/<name>, or read_definition(\"pane\", \"recipe:<name>\").", ""]
+        lines += [f"- **{name}**: {recipe['about']}" for name, recipe in sorted(builder.recipes().items())]
+        return "\n".join(lines) + "\n"
+
+
+@mcp.resource("platform://recipes/{name}", name="recipe", title="A recipe, with its files", mime_type="text/markdown")
+async def recipe_resource(name: str) -> str:
+    from .. import builder
+
+    with _acting():
+        recipe = builder.recipes().get(name.removeprefix(builder.RECIPE_PREFIX))
+        if recipe is None:
+            raise InputError(f"There is no recipe {name}; platform://recipes lists them.")
+        parts = [f"# recipe:{name}", "", "## pane.yaml", "", "```yaml", recipe["source"].rstrip(), "```"]
+        for file, text in sorted(recipe["files"].items()):
+            parts += ["", f"## {file}", "", "```python" if file.endswith(".py") else "```", text.rstrip(), "```"]
+        return "\n".join(parts) + "\n"
+
+
+@mcp.prompt(name="build_pane", title="Build a pane type")
+async def build_pane_prompt(what: str) -> str:
+    """Build a new pane type from what the user wants to see, in a Builder draft they review and save."""
+    return (f"Build a pane type for the platform: {what}\n\n"
+            "Work in a Builder draft, as the platform's guide says (read_guide): open_draft for a new pane -- "
+            "start_from the recipe closest to this (platform://recipes) -- then build_reference, the recipe in "
+            "full, describe_aws_operation for any AWS call, change_definition, check_definition. Ask me which "
+            "environment to try it on, try_definition there, fix what comes back empty, and propose_definition "
+            "with a summary. Tell me where the draft is; I'll review it and save it.")
+
+
+@mcp.prompt(name="build_workflow", title="Build a workflow")
+async def build_workflow_prompt(what: str) -> str:
+    """Build a workflow from what the user wants it to do, in a Builder draft they review and save."""
+    return (f"Build a workflow for the platform: {what}\n\n"
+            "Work in a Builder draft, as the platform's guide says (read_guide): list_workflows for one to start "
+            "from, open_draft(\"workflow\") (start_from one of them if it's close), build_reference(\"workflow\") "
+            "for its fields and the panes, actions and step types it can run, change_definition, "
+            "check_definition, then propose_definition with a summary. Tell me where the draft is; I'll review it "
+            "and save it, and run it from the Workflows page.")
+
+
 # The turn's working draft (D114): beside an editor, the editor's text is kept
 # on the turn's token, changed a piece at a time by edit_definition, and the
 # tools below read it whenever they're given no `source` -- so a model never
 # writes a whole manifest again to change three lines of it.
 
 
-def _token_row(db: Session, caller: Any) -> Optional[models.AgentToken]:
+class _DraftView:
+    """A Builder draft standing in for a turn's token row (D156): the same
+    four fields the tools below read and write, kept in the draft -- so a
+    change made from Claude Code is in the user's Builder, as a draft of
+    theirs, and nowhere else until they save it."""
+
+    def __init__(self, row: models.BuildDraft, db: Session, by: Optional[str]) -> None:
+        self.row, self.db, self.by = row, db, by
+
+    @property
+    def build_kind(self) -> str:
+        return self.row.kind
+
+    @property
+    def build_id(self) -> Optional[str]:
+        return self.row.target_id
+
+    @property
+    def build_draft(self) -> str:
+        return self.row.source or ""
+
+    @build_draft.setter
+    def build_draft(self, text: str) -> None:
+        from .. import build_drafts
+
+        build_drafts._apply(self.row, text, None, None)
+        # The open editor follows (D157): announced on the tool's commit.
+        build_drafts.announce(self.db, self.row, ORIGIN, self.by)
+
+    @property
+    def build_files(self) -> dict[str, str]:
+        return dict(self.row.files or {})
+
+    @build_files.setter
+    def build_files(self, files: dict[str, str]) -> None:
+        from .. import build_drafts
+
+        build_drafts._apply(self.row, None, None, None, files)
+        build_drafts.announce(self.db, self.row, ORIGIN, self.by)
+
+
+def _token_row(db: Session, caller: Any) -> Any:
+    """The working draft's holder: the draft a tool was told to work on, else
+    the turn's token beside an editor, else None."""
+    draft_id = _draft.get()
+    if draft_id is not None:
+        row = db.get(models.BuildDraft, draft_id)
+        return _DraftView(row, db, _by(caller)) if row is not None and row.user_id == caller.user_id else None
     return db.get(models.AgentToken, caller.token_hash) if getattr(caller, "token_hash", None) else None
 
 
-def _kind_of(caller: Any, kind: Optional[str]) -> str:
-    kind = kind or getattr(caller, "build_kind", None)
+def _by(caller: Any) -> str:
+    """Who a draft's change is said to be by, in the editor's line."""
+    name = getattr(caller, "access_token_name", None)
+    return f"“{name}”" if name else "the agent"
+
+
+def _build_id(db: Session, caller: Any) -> Optional[str]:
+    """The saved one the working draft changes; None for a new one."""
+    row = _token_row(db, caller)
+    return row.build_id if row is not None else getattr(caller, "build_id", None)
+
+
+def _kind_of(db: Session, caller: Any, kind: Optional[str]) -> str:
+    row = _token_row(db, caller)
+    if isinstance(row, _DraftView) and kind and kind != row.build_kind:
+        raise InputError(f"Draft {row.row.id} is a {row.build_kind}'s, not a {kind}'s.")
+    kind = kind or (row.build_kind if row is not None else None) or getattr(caller, "build_kind", None)
     if kind is None:
-        raise InputError('Say kind: "pane" or "workflow".')
+        raise InputError('Say kind: "pane", "workflow" or "step" -- or work on a draft: open_draft makes one and '
+                         "gives its draft_id.")
     return kind
 
 
 def _source_of(db: Session, caller: Any, source: Optional[str]) -> str:
     """The text a tool works on: what it was given -- which then becomes the
-    turn's draft -- or the draft, beside an editor."""
+    turn's draft -- or the draft, beside an editor or named by draft_id."""
     row = _token_row(db, caller)
     if source is not None:
         if row is not None and row.build_kind:
@@ -1649,7 +1970,8 @@ def _source_of(db: Session, caller: Any, source: Optional[str]) -> str:
             db.commit()
         return source
     if row is None or not row.build_kind:
-        raise InputError("Give the definition as `source`: only beside an editor is there a draft to work on.")
+        raise InputError("There's no draft to work on: give draft_id (open_draft makes one, list_drafts lists the "
+                         "user's), or the definition as `source`.")
     return row.build_draft or ""
 
 
@@ -1774,12 +2096,13 @@ def _yaml_named_as_file(changes: list, files: dict[str, str], source: str) -> li
 
 
 @mcp.tool()
-async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: Optional[str] = None) -> dict:
-    """The working draft of the definition in the editor the user has open, with its line numbers -- what
-    change_definition changes and propose_definition proposes. `file` reads one of the Python files beside it
-    instead (`files` lists them). Only beside an editor."""
-    with _acting() as (db, user, caller):
-        _may_build(user, _kind_of(caller, None))
+async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: Optional[str] = None,
+                     draft_id: Optional[int] = None) -> dict:
+    """The working draft of the definition, with its line numbers -- what change_definition changes and
+    propose_definition proposes: the editor's beside one, else the Builder draft `draft_id` names. `file` reads one
+    of the Python files beside it instead (`files` lists them)."""
+    with _acting(draft_id) as (db, user, caller):
+        _may_build(user, _kind_of(db, caller, None))
         files = _files_of(db, caller)
         if file is not None and file not in files:
             raise InputError(f"There is no file {file} beside the draft; there are: {', '.join(sorted(files)) or 'none'}.")
@@ -1790,14 +2113,16 @@ async def read_draft(start_line: int = 1, end_line: Optional[int] = None, file: 
 
 
 @mcp.tool()
-async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = None) -> dict:
+async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = None,
+                          draft_id: Optional[int] = None) -> dict:
     """Changes the working draft of the definition in the editor the user has open, a piece at a time: each edit is
     {"find": text that appears exactly once in the draft, "replace": what goes there instead} -- to add, find a
     nearby line and replace it with itself plus the new lines. All or none are applied, in order. Then the draft is
     checked, and any problem comes back with its line and the lines around it. Nothing reaches the editor until
-    propose_definition (with no source) puts the draft there. Far cheaper than writing the whole definition again."""
-    with _acting() as (db, user, caller):
-        kind = _kind_of(caller, kind)
+    propose_definition (with no source) puts the draft there. Far cheaper than writing the whole definition again.
+    From outside an editor, `draft_id` names the Builder draft to change."""
+    with _acting(draft_id) as (db, user, caller):
+        kind = _kind_of(db, caller, kind)
         _may_build(user, kind)
         source = _source_of(db, caller, None)
         for i, edit in enumerate(edits or []):
@@ -1811,7 +2136,7 @@ async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = Non
         row.build_draft = source
         db.commit()
         files = _files_of(db, caller)
-        errors = _checked(db, kind, source, caller.build_id, user, files)
+        errors = _checked(db, kind, source, _build_id(db, caller), user, files)
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "lines": len(source.splitlines())}
         if errors:
             out["near"] = _near(source, errors, files=files)
@@ -1819,7 +2144,8 @@ async def edit_definition(edits: list[dict[str, str]], kind: Optional[str] = Non
 
 
 @mcp.tool()
-async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] = None) -> dict:
+async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] = None,
+                            draft_id: Optional[int] = None) -> dict:
     """Changes the working draft of the definition in the editor the user has open by path, never by text: each
     change is {"op": "set"|"add"|"remove", "path": "where", "value": plain data (set, add), "before": an item
     (add, optional)}. A path's parts are keys or list items, an item named by its key/id/title (or field=value, or
@@ -1832,11 +2158,11 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
     its lines, and the YAML names it: `code: {file: health.py}`. All or none are applied, in order, then the draft
     is checked: problems come back with their file and line. Add everything a part needs in one call -- its
     action, its output, its card and its file -- so nothing names what isn't there yet. Nothing reaches the
-    editor until propose_definition."""
+    editor until propose_definition. From outside an editor, `draft_id` names the Builder draft to change."""
     from .. import yaml_edit
 
-    with _acting() as (db, user, caller):
-        kind = _kind_of(caller, kind)
+    with _acting(draft_id) as (db, user, caller):
+        kind = _kind_of(db, caller, kind)
         _may_build(user, kind)
         source = _source_of(db, caller, None)
         files = _files_of(db, caller)
@@ -1845,19 +2171,21 @@ async def change_definition(changes: list[dict[str, Any]], kind: Optional[str] =
         if on_files and kind == "workflow":
             raise InputError("A workflow has no files of its own; its steps do. Nothing was changed.")
         on_yaml = [c for c in changes if not _is_file_change(c)]
-        before = source
+        before, files_before = source, files
         try:
             files = _change_files(files, on_files)
             if on_yaml or not on_files:
                 source = yaml_edit.apply_all(source, on_yaml)
             source, files, moved = _code_to_files(kind, before, source, files)
+            if kind != "workflow":
+                files = deps.with_requirements(files_before, files)
         except yaml_edit.EditError as e:
             raise InputError(f"{e} Nothing was changed.") from None
         row = _token_row(db, caller)
         row.build_draft, row.build_files = source, files
         db.commit()
         files, lock_errors = await _lock_draft(db, caller, files)
-        errors = deps.merged(lock_errors, _checked(db, kind, source, caller.build_id, user, files))
+        errors = deps.merged(lock_errors, _checked(db, kind, source, _build_id(db, caller), user, files))
         out: dict[str, Any] = {"ok": not errors, "errors": errors, "changed": len(changes),
                                "lines": len(source.splitlines()),
                                "files": {name: len(text.splitlines()) for name, text in sorted(files.items())}}
@@ -1934,15 +2262,16 @@ async def describe_aws_operation(service: str, operation: Optional[str] = None) 
 
 @mcp.tool()
 async def check_definition(kind: Optional[str] = None, source: Optional[str] = None,
-                           definition_id: Optional[str] = None) -> dict:
-    """Checks a pane type's or a workflow's YAML in full, as Check and Save do: every problem, each with its line.
-    Without `source`, the working draft beside the editor. Saves nothing."""
-    with _acting() as (db, user, caller):
-        kind = _kind_of(caller, kind)
+                           definition_id: Optional[str] = None, draft_id: Optional[int] = None) -> dict:
+    """Checks a pane type's, step type's or workflow's YAML in full, as Check and Save do: every problem, each with
+    its file and line. Without `source`, the working draft -- the editor's, or the Builder draft `draft_id` names.
+    Saves nothing."""
+    with _acting(draft_id) as (db, user, caller):
+        kind = _kind_of(db, caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
-        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or getattr(caller, "build_id", None),
+        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or _build_id(db, caller),
                                                    user, files))
         out: dict[str, Any] = {"ok": not errors, "errors": errors}
         if errors:
@@ -1952,19 +2281,24 @@ async def check_definition(kind: Optional[str] = None, source: Optional[str] = N
 
 @mcp.tool()
 async def propose_definition(summary: str, kind: Optional[str] = None, source: Optional[str] = None,
-                             definition_id: Optional[str] = None, even_with_problems: bool = False) -> dict:
+                             definition_id: Optional[str] = None, even_with_problems: bool = False,
+                             draft_id: Optional[int] = None) -> dict:
     """Puts a pane type's or a workflow's YAML into the editor the user has open, replacing what's there, for them
     to review, Check and Save -- you can't save it yourself. Without `source`, the working draft (what
     edit_definition made). It's checked first: with any problem, nothing is put there and this fails, naming them
     -- unless even_with_problems, for when the user asked for the draft as it is. `summary` says in a sentence
-    what you changed."""
-    with _acting() as (db, user, caller):
-        kind = _kind_of(caller, kind)
+    what you changed. From outside an editor, with `draft_id`: the draft is left in the user's Builder with your
+    summary in its chat, for them to open, review and Save there -- the answer says where."""
+    with _acting(draft_id) as (db, user, caller):
+        kind = _kind_of(db, caller, kind)
         _may_build(user, kind)
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
-        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or getattr(caller, "build_id", None),
+        errors = deps.merged(lock_errors, _checked(db, kind, text, definition_id or _build_id(db, caller),
                                                    user, files))
+        holder = _token_row(db, caller)
+        if isinstance(holder, _DraftView) and (not errors or even_with_problems):
+            return _proposed_in_draft(db, caller, holder, kind, text, files, summary, errors)
         if errors and even_with_problems:
             # The Builder's loop (D116), when its rounds ran out: the user's
             # editor gets the work so far -- its Check shows what's left, and
@@ -1980,27 +2314,65 @@ async def propose_definition(summary: str, kind: Optional[str] = None, source: O
                 "propose": {"kind": kind, "source": text, "files": files, "summary": summary[:300]}}
 
 
+def _proposed_in_draft(db: Session, caller: Any, holder: "_DraftView", kind: str, text: str, files: dict[str, str],
+                       summary: str, errors: list[dict]) -> dict:
+    """A proposal from outside the Builder (D156): it stays in the draft --
+    the user's own, listed in their Builder -- with a turn in its Building
+    chat saying who proposed what, so opening it shows why it's changed.
+    Nothing is saved: a person does that, as from the Builder's own agent."""
+    from .. import build_drafts
+
+    row = holder.row
+    holder.build_draft = text
+    if kind != "workflow":
+        holder.build_files = files
+    who = getattr(caller, "access_token_name", None)
+    turn = {
+        "id": f"mcp-{int(datetime.datetime.utcnow().timestamp() * 1000)}",
+        "question": f"Proposed from outside the Builder{f' (access token “{who}”)' if who else ''}.",
+        "answer": summary[:2000] + (f"\n\nIt still has problems: {_problems(errors)}" if errors else ""),
+        "steps": [],
+        "status": "done",
+        "startedAt": int(datetime.datetime.utcnow().timestamp() * 1000),
+    }
+    build_drafts._apply(row, None, None, list(row.chat or []) + [turn])
+    build_drafts.announce(db, row, ORIGIN, _by(caller))
+    db.commit()
+    name = build_drafts.label(text) or row.target_id or row.new_id or f"draft {row.id}"
+    where = {"pane": "Panes", "step": "Steps", "workflow": "Workflows"}[kind]
+    out: dict[str, Any] = {
+        "ok": not errors, "draft_id": row.id,
+        "note": (f"It's in the user's Builder, unsaved: Builder → {where} → {name} (Draft) -- or the platform's "
+                 f"address followed by /?draft={row.id}. They review it there, Check and Save; you can't save it."),
+        "link": f"/?draft={row.id}",
+    }
+    if errors:
+        out["problems"] = _problems(errors)
+    return out
+
+
 @mcp.tool()
 async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = None, source: Optional[str] = None,
-                             definition_id: Optional[str] = None) -> dict:
+                             definition_id: Optional[str] = None, draft_id: Optional[int] = None) -> dict:
     """Runs one action of a pane type's draft, as the user, on real connections -- the editor's Preview, for you:
     try a draft before proposing it, and read what its reply really holds (where the rows are, what the fields
     are called). Without `source`, the working draft. Nothing is saved or shown anywhere. `inputs` as
-    set_pane_inputs takes them (a connection by id). A background run or a live function can't be previewed."""
+    set_pane_inputs takes them (a connection by id). A background run or a live function can't be previewed.
+    `draft_id` names a Builder draft to preview, from outside an editor."""
     from fastapi import HTTPException
 
     from .. import builder
     from . import panes as agent_panes
 
-    with _acting() as (db, user, caller):
-        _may_build(user, "pane")
+    with _acting(draft_id) as (db, user, caller):
+        _may_build(user, _kind_of(db, caller, "pane"))
         text = _source_of(db, caller, source)
         try:
             files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
             if lock_errors:
                 raise InputError(f"Its requirements can't be locked: {_problems(lock_errors)}")
             result = await asyncio.to_thread(
-                builder.run_preview, db, user, text, definition_id or getattr(caller, "build_id", None), action,
+                builder.run_preview, db, user, text, definition_id or _build_id(db, caller), action,
                 dict(inputs or {}), None, files)
         except HTTPException as e:
             raise InputError(str(e.detail)) from None
@@ -2020,25 +2392,26 @@ async def preview_definition(action: str, inputs: Optional[dict[str, Any]] = Non
 
 @mcp.tool()
 async def try_definition(environment: Optional[str] = None, source: Optional[str] = None,
-                         definition_id: Optional[str] = None) -> dict:
+                         definition_id: Optional[str] = None, draft_id: Optional[int] = None) -> dict:
     """Tries a pane type's draft the way its user will: its main action with its inputs' defaults and its
     connections in `environment` (an environment's name), then opens its first row as the pane would -- and says
     what came back empty (columns, a detail's fields) and why. Without `source`, the working draft. Without an
     environment when it needs one, answers needs_environment with the environments it could run in: ask the user
-    which to try it on. Nothing is saved or shown anywhere; it runs as the user, reads only."""
+    which to try it on. Nothing is saved or shown anywhere; it runs as the user, reads only. `draft_id` names a
+    Builder draft to try, from outside an editor."""
     from fastapi import HTTPException
 
     from .. import builder
 
-    with _acting() as (db, user, caller):
-        _may_build(user, "pane")
+    with _acting(draft_id) as (db, user, caller):
+        _may_build(user, _kind_of(db, caller, "pane"))
         text = _source_of(db, caller, source)
         files, lock_errors = await _lock_draft(db, caller, _files_of(db, caller))
         if lock_errors:
             raise InputError(f"Its requirements can't be locked: {_problems(lock_errors)}")
         try:
             return await asyncio.to_thread(builder.try_draft, db, user, text,
-                                           definition_id or getattr(caller, "build_id", None), files, environment)
+                                           definition_id or _build_id(db, caller), files, environment)
         except builder.BuilderError as e:
             raise InputError(f"It doesn't check yet, so it can't be tried: {_problems(e.errors)}") from None
         except HTTPException as e:
@@ -2154,9 +2527,14 @@ class McpEndpoint:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return
-        caller = self._authenticate(scope)
+        # /api/mcp is the door from outside (D156): reachable wherever the app
+        # is, so it takes only a personal access token -- a turn's token is
+        # the agent container's, used inside the cluster at /mcp.
+        outside = str(scope.get("path") or "").startswith("/api/")
+        caller = self._authenticate(scope, outside)
         if caller is None:
-            await _plain(send, 401, "A valid agent token is required.", {"www-authenticate": "Bearer"})
+            await _plain(send, 401, "A valid access token is required: make one in Settings → My account → Access "
+                         "tokens, and send it as `Authorization: Bearer <token>`.", {"www-authenticate": "Bearer"})
             return
         if self._manager is None:
             await _plain(send, 503, "The MCP endpoint isn't running yet.")
@@ -2170,14 +2548,14 @@ class McpEndpoint:
             _caller.reset(token)
 
     @staticmethod
-    def _authenticate(scope: Scope) -> Optional[tokens.Caller]:
+    def _authenticate(scope: Scope, outside: bool = False) -> Optional[tokens.Caller]:
         header = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
         scheme, _, token = header.partition(" ")
         if scheme.lower() != "bearer" or not token:
             return None
         db = SessionLocal()
         try:
-            return tokens.resolve(db, token.strip())
+            return tokens.resolve(db, token.strip(), personal_only=outside)
         finally:
             db.close()
 

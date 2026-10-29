@@ -84,6 +84,37 @@ def watched(db: Session, session_row: models.LiveSession, agent_until: Optional[
     return bool(watching_users(db, session_row))
 
 
+# A tab says what it shows when that changes and every 30 s while it's open
+# (D157); past this it's gone, or asleep.
+SCREEN_FRESH_SECONDS = 75
+
+
+def show(db: Session, user_id: int, origin: str, view: str, session_client_id: Optional[str] = None,
+         build_kind: Optional[str] = None, build_target_id: Optional[str] = None, draft_id: Optional[int] = None,
+         timezone: Optional[str] = None, visible: bool = True) -> None:
+    """What one of the user's tabs has on screen now."""
+    row = db.get(models.ScreenView, (user_id, origin))
+    if row is None:
+        row = models.ScreenView(user_id=user_id, origin=origin)
+        db.add(row)
+    row.view, row.session_client_id = view, session_client_id
+    row.build_kind, row.build_target_id, row.draft_id = build_kind, build_target_id, draft_id
+    row.timezone, row.visible, row.updated_at = timezone, visible, _now()
+    # Tabs long gone: tidiness only, stale rows are never read.
+    db.query(models.ScreenView).filter(models.ScreenView.user_id == user_id,
+                                       models.ScreenView.updated_at < _now() - datetime.timedelta(days=1)).delete()
+    db.commit()
+
+
+def on_screen(db: Session, user_id: int) -> list[models.ScreenView]:
+    """What the user's open tabs show, the one in front first: a visible tab
+    before a hidden one, then the latest to say so."""
+    fresh = _now() - datetime.timedelta(seconds=SCREEN_FRESH_SECONDS)
+    rows = (db.query(models.ScreenView)
+            .filter(models.ScreenView.user_id == user_id, models.ScreenView.updated_at >= fresh).all())
+    return sorted(rows, key=lambda v: (not v.visible, -v.updated_at.timestamp()))
+
+
 def sweep(db: Session) -> int:
     """Forgets tabs nobody has heard from in a long while (a replica that died
     with streams open). Only tidiness: stale rows are ignored anyway."""

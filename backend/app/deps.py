@@ -35,6 +35,21 @@ REQUIREMENTS = "requirements.txt"
 LOCK = "requirements.lock"
 NAMES = (REQUIREMENTS, LOCK)
 
+# What a code pane's or step's requirements.txt starts as: there from the
+# first .py on, so where packages go is plain to whoever writes the code --
+# a person or a model, which otherwise imported packages nothing installed.
+# Comments only, so nothing is locked and no venv is made until it names one.
+HINT = "# A package a line, as pip reads it (requests>=2.31). Check and Save lock it.\n"
+
+
+def with_requirements(before: dict[str, str], after: dict[str, str]) -> dict[str, str]:
+    """`after`, with a requirements.txt holding only the hint when its first
+    Python file was just added and it has none."""
+    if REQUIREMENTS in after or any(n.endswith(".py") for n in before) or not any(n.endswith(".py") for n in after):
+        return after
+    return {**after, REQUIREMENTS: HINT}
+
+
 MAX_REQUIREMENTS = 100
 MAX_BYTES = 20_000
 LOCK_SECONDS = 120
