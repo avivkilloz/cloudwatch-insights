@@ -64,8 +64,8 @@ export interface ConnectionType {
   needed_by: string[];
   /** Where it stands in the store repo (D70); null when the store doesn't keep it. */
   store_state?: StoreState | null;
-  /** The group whose builders made it (D158); null for an admin's or a built-in. */
-  owner_group?: string | null;
+  /** Who owns it (D161): its maker unless an admin handed it on. */
+  owner?: string | null;
   /** Why you can't change it, in a sentence; null when you can. */
   locked?: string | null;
 }
@@ -95,21 +95,14 @@ export interface Settings {
 }
 
 /** A user belongs to exactly one group; the group is the sole unit of
- * access control -- which IAM role to assume, which tabs are visible, and
- * (for non-admin groups) which environments are visible. */
+ * access control -- who it is on each connection (its identities), and (for
+ * non-admin groups) which environments are visible. Every pane type is
+ * everyone's (D160). */
 export interface UserGroup {
   id: number;
   name: string;
   role_name: string | null;
   is_admin: boolean;
-  logs_enabled: boolean;
-  opensearch_enabled: boolean;
-  iot_enabled: boolean;
-  tables_enabled: boolean;
-  buckets_enabled: boolean;
-  cognito_enabled: boolean;
-  aggregator_enabled: boolean;
-  tools_enabled: boolean;
   /** The platform agent. Off unless an admin turns it on: it acts with
    * everything the group can reach. */
   agent_enabled: boolean;
@@ -118,18 +111,19 @@ export interface UserGroup {
   /** Ignored for the Admin group, which always sees every environment. */
   environment_ids: number[];
   user_count: number;
-  /** The pane types it may use (D65; every one for the Admin group). The
-   * *_enabled booleans above are worked out from these, and kept as shorthand. */
-  pane_types: string[];
 }
 
 /** The catalogue panes are picked from (D66): its categories in order, each
- * with the pane types the caller may use, and their own favourites and hidden. */
+ * with its pane types -- every one is everyone's (D160) -- and the caller's
+ * own favourites and hidden. */
 export interface Catalogue {
   /** `description`: a line under its name where panes are offered; "" for none. */
   categories: { id: number; name: string; description: string; pane_types: string[] }[];
   favourites: string[];
   hidden: string[];
+  /** Pane types none of the caller's environments can run, each with why:
+   * offered, and said so, rather than left out. */
+  no_environment?: Record<string, string>;
 }
 
 /** The user's home page (R3, D63): a session they can reach, or the title of
@@ -146,19 +140,11 @@ export interface User {
   group_name: string;
   is_admin: boolean;
   avatar_url: string | null;
-  logs_enabled: boolean;
-  opensearch_enabled: boolean;
-  iot_enabled: boolean;
-  tables_enabled: boolean;
-  buckets_enabled: boolean;
-  cognito_enabled: boolean;
-  aggregator_enabled: boolean;
-  tools_enabled: boolean;
   agent_enabled: boolean;
-  /** Whether they build pane types (§24): their group's Builder, or an admin. */
+  /** Whether they make new pane types, steps, workflows and types (§24):
+   * their group's Builder, or an admin. Changing one is its owner's, its
+   * members' and admins' (D161), whatever this says. */
   builder_enabled: boolean;
-  /** The pane types the user's group may use (D65): what the catalogue offers. */
-  pane_types: string[];
 }
 
 /** One pane's inputs under a name (PLATFORM_PLAN.md D46). Never a sensitive input. */
@@ -191,6 +177,10 @@ export interface BuiltPaneType {
   store_state: StoreState | null;
   /** Whether it loads now: a handler it names may have gone since. */
   loads: boolean;
+  /** Who owns it, whether the caller may change it, and if not why (D161). */
+  owner?: string | null;
+  can_edit?: boolean;
+  locked?: string | null;
 }
 
 /** A step type made in the Builder (D122): a declarative HTTP request, or a
@@ -222,6 +212,25 @@ export interface BuildNeed {
   exists: boolean;
 }
 
+/** Someone who works on something built (D161). */
+export interface BuildPerson {
+  id: number;
+  username: string;
+  avatar_url: string | null;
+}
+
+/** Who works on something built (D161): its owner, the members they added,
+ * and whether the caller may add and remove them. `target` is a saved one's
+ * id, or `draft:<id>` for one still being made. */
+export interface BuildMembers {
+  kind: BuildDraft["kind"];
+  target: string;
+  owner: BuildPerson | null;
+  members: BuildPerson[];
+  can_manage: boolean;
+  draft_id: number | null;
+}
+
 export interface ScreenReport {
   view: "home" | "session" | "builder" | "workflows" | "settings" | "chat" | "code" | "other";
   session_id?: string | null;
@@ -233,7 +242,9 @@ export interface ScreenReport {
 }
 
 /** What's being built and isn't saved (D125): the editor's text, the Id typed
- * for a new one and the Building chat, saved as its builder types. Theirs alone. */
+ * for a new one and its chat, saved as it's typed. One per saved thing, shared
+ * by everyone who may change it (D161); a new one's is its starter's and their
+ * members'. */
 export interface BuildDraft {
   id: number;
   kind: "pane" | "step" | "workflow" | "credential" | "connection";
@@ -247,6 +258,9 @@ export interface BuildDraft {
   changed: boolean;
   /** Bumped by every change (D157): a save names the one it was made on. */
   version: number;
+  /** More than one person works in it (D161): its chat is then people
+   * talking, an agent answering only when @mentioned (D163). */
+  shared?: boolean;
   /** Only when read whole (one draft, or an existing one's). */
   source?: string;
   files?: BuildFiles;
@@ -266,6 +280,8 @@ export interface BuiltStepType {
   files: BuildFiles;
   loads: boolean;
   can_edit: boolean;
+  owner?: string | null;
+  locked?: string | null;
   updated_at: string | null;
   updated_by: string | null;
   store_state: StoreState | null;
@@ -487,8 +503,8 @@ export interface CredentialType {
   in_use: number;
   has_test: boolean;
   store_state?: StoreState | null;
-  /** The group whose builders made it (D158); null for an admin's or a built-in. */
-  owner_group?: string | null;
+  /** Who owns it (D161): its maker unless an admin handed it on. */
+  owner?: string | null;
   /** Why you can't change it, in a sentence; null when you can. */
   locked?: string | null;
 }
@@ -640,12 +656,13 @@ export interface Workflow {
   description: string | null;
   parameters: WorkflowParam[];
   steps: number;
+  /** Whether the caller may change it (D161), and if not why. */
   can_edit: boolean;
-  can_run: boolean;
+  owner?: string | null;
+  locked?: string | null;
   last_run: WorkflowRun | null;
   store_state?: StoreState | null;
   source?: string;
-  group_ids?: number[];
 }
 
 export interface WorkflowProblem {
@@ -834,6 +851,10 @@ async function agentChat(
       try_now?: boolean;
       /** "Fix what's left": what's left is read from the draft, not the last notice. */
       fix_now?: boolean;
+      /** The editor's draft: a new one's members reach it through it (D161). */
+      draft_id?: number;
+      /** "platform": the platform agent answers (@platform-agent in a shared draft's chat, D163), not the Builder. */
+      agent?: "builder" | "platform";
     };
   },
   onEvent: (event: AgentEvent) => void,
@@ -1026,8 +1047,6 @@ export const api = {
   updateWorkflow: (id: string, source: string) =>
     req<Workflow>(`/workflows/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source }) }),
   deleteWorkflow: (id: string) => req<void>(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  setWorkflowGrants: (id: string, groupIds: number[]) =>
-    req<Workflow>(`/workflows/${encodeURIComponent(id)}/grants`, { method: "PUT", body: JSON.stringify({ group_ids: groupIds }) }),
   startWorkflowRun: (id: string, params: Record<string, unknown>, timezone?: string) =>
     req<WorkflowRun>(`/workflows/${encodeURIComponent(id)}/runs`, {
       method: "POST",
@@ -1184,6 +1203,8 @@ export const api = {
     source?: string;
     files?: BuildFiles;
     chat?: unknown[];
+    /** A saved one's draft, which someone else may have just made (D161): a 409 then. */
+    expect_new?: boolean;
   }) =>
     req<BuildDraft>("/build-drafts", { method: "POST", body: JSON.stringify(payload) }),
   updateBuildDraft: (
@@ -1192,6 +1213,22 @@ export const api = {
   ) =>
     req<BuildDraft>(`/build-drafts/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteBuildDraft: (id: number) => req<void>(`/build-drafts/${id}`, { method: "DELETE" }),
+  buildMembers: (kind: BuildDraft["kind"], target: string) =>
+    req<BuildMembers>(`/build-members/${kind}/${encodeURIComponent(target)}`),
+  inviteBuildMember: (kind: BuildDraft["kind"], target: string, username: string) =>
+    req<BuildMembers>(`/build-members/${kind}/${encodeURIComponent(target)}/members`, {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    }),
+  removeBuildMember: (kind: BuildDraft["kind"], target: string, userId: number) =>
+    req<BuildMembers | { left: true }>(`/build-members/${kind}/${encodeURIComponent(target)}/members/${userId}`, {
+      method: "DELETE",
+    }),
+  handBuildOn: (kind: BuildDraft["kind"], target: string, username: string) =>
+    req<BuildMembers>(`/build-members/${kind}/${encodeURIComponent(target)}/owner`, {
+      method: "PUT",
+      body: JSON.stringify({ username }),
+    }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),
   publishTemplate: (payload: { saved_session_id: number; id: string; label: string; description?: string }) =>
     req<PublishedTemplate & { changes: string[] }>("/templates", { method: "POST", body: JSON.stringify(payload) }),

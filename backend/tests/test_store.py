@@ -443,7 +443,7 @@ def test_the_askpass_answers_with_the_token_only_to_git(tmp_path):
 
 
 def test_admins_only(remote):
-    g = client.post("/api/user-groups", json={"name": "plain", "pane_types": []}).json()
+    g = client.post("/api/user-groups", json={"name": "plain"}).json()
     client.post("/api/users", json={"username": "plain", "password": "pw-123456", "group_id": g["id"]})
     from fastapi.testclient import TestClient
     from app.main import app

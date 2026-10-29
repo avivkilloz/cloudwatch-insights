@@ -11,7 +11,7 @@ def _login_as(username: str, password: str) -> TestClient:
     return c
 
 
-def test_create_group_with_role_tabs_and_environment_access():
+def test_create_group_with_role_and_environment_access():
     resp = client.post(
         "/api/environments", json={"name": "Prod", "account_id": "111122223333", "region": "us-east-1"}
     )
@@ -22,8 +22,8 @@ def test_create_group_with_role_tabs_and_environment_access():
         json={
             "name": "Ops",
             "role_name": "OpsReadOnlyRole",
+            # An old client's per-page flags are ignored: every pane is everyone's (D160).
             "iot_enabled": False,
-            "tools_enabled": False,
             "environment_ids": [env_id],
         },
     )
@@ -31,9 +31,7 @@ def test_create_group_with_role_tabs_and_environment_access():
     group = resp.json()
     assert group["role_name"] == "OpsReadOnlyRole"
     assert group["is_admin"] is False
-    assert group["iot_enabled"] is False
-    assert group["tools_enabled"] is False
-    assert group["logs_enabled"] is True  # default, untouched
+    assert "iot_enabled" not in group and "pane_types" not in group
     assert group["environment_ids"] == [env_id]
     assert group["user_count"] == 0
 
@@ -137,28 +135,15 @@ def test_duplicate_group_name_rejected():
     assert resp.status_code == 400
 
 
-def test_cloudwatch_and_opensearch_are_separate_permissions():
-    """They are two pages and two sets of credentials, so one flag covering
-    both could not express "CloudWatch only" -- which is the common case for
-    a group whose accounts have no OpenSearch domain at all."""
-    group = client.post(
-        "/api/user-groups",
-        json={"name": "LogsOnly", "role_name": "ReadOnly", "opensearch_enabled": False},
-    ).json()
-    assert group["logs_enabled"] is True
-    assert group["opensearch_enabled"] is False
-
+def test_a_group_is_given_environments_the_agent_and_the_builder_not_panes():
+    """Every pane type is everyone's (D160): a group says which environments
+    it sees and who it is there, and whether it has the agent and the
+    Builder -- nothing per pane."""
+    group = client.post("/api/user-groups", json={"name": "Plain", "role_name": "ReadOnly"}).json()
+    assert group["agent_enabled"] is False and group["builder_enabled"] is False
     client.post("/api/users", json={"username": "lena", "password": "x", "group_id": group["id"]})
     me = _login_as("lena", "x").get("/api/auth/me").json()
-    # The frontend reads these to decide which panes it offers, so the split
-    # has to survive the trip through /api/auth/me as well as the group API.
-    assert me["logs_enabled"] is True
-    assert me["opensearch_enabled"] is False
-
-    # And each can be turned round independently of the other.
-    updated = client.put(
-        f"/api/user-groups/{group['id']}",
-        json={"logs_enabled": False, "opensearch_enabled": True},
-    ).json()
-    assert updated["logs_enabled"] is False
-    assert updated["opensearch_enabled"] is True
+    assert me["agent_enabled"] is False and me["builder_enabled"] is False
+    assert not any(k.endswith("_enabled") and k not in ("agent_enabled", "builder_enabled") for k in me)
+    updated = client.put(f"/api/user-groups/{group['id']}", json={"builder_enabled": True}).json()
+    assert updated["builder_enabled"] is True

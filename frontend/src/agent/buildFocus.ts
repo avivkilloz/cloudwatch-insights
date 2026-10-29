@@ -24,6 +24,11 @@ export interface BuildDraftHooks {
   turns: unknown[] | null;
   saveTurns: (turns: unknown[]) => void;
   keep: (source: string, files?: BuildFiles) => void;
+  /** Its draft, once there is one, and whether more than one person works
+   * in it (D161): its chat is then people talking, an agent answering only
+   * when @mentioned (D163). */
+  id: number | null;
+  shared: boolean;
 }
 
 export interface BuildFocus {

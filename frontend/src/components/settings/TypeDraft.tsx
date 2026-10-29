@@ -10,7 +10,7 @@
  * elsewhere, a proposal -- is read as YAML into the form.
  */
 
-import { MutableRefObject } from "react";
+import { MutableRefObject, useEffect } from "react";
 import { parse } from "yaml";
 import { useOfferBuild } from "../../agent/buildFocus";
 import { DraftState, DraftStatus, useBuildDraft } from "../../pages/buildDraft";
@@ -37,6 +37,7 @@ export default function TypeDraft({
   onText,
   onProposed,
   keeper,
+  onDraftId,
 }: {
   kind: "credential" | "connection";
   /** The saved type it changes; null for a new one. */
@@ -55,9 +56,12 @@ export default function TypeDraft({
   onProposed: (text: string, summary: string) => void;
   /** Where the editor reaches the draft from: Save finishes it, as Create/Save does a pane's. */
   keeper: MutableRefObject<DraftState | null>;
+  /** The draft's id once there is one: a new one's members are kept on it (D161). */
+  onDraftId?: (id: number | null) => void;
 }) {
-  const kept = useBuildDraft({ kind, targetId, draftId, base, source, newId, restore: (text, id) => onText(text, id) });
+  const kept = useBuildDraft({ kind, targetId, draftId, base, source, newId, editable, restore: (text, id) => onText(text, id) });
   keeper.current = kept;
+  useEffect(() => onDraftId?.(kept.id), [kept.id, onDraftId]);
   useOfferBuild(kind, targetId, title, editable, source, (text, summary) => onProposed(text, summary), kept.hooks);
   return <DraftStatus kept={kept} />;
 }

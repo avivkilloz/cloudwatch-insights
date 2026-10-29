@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOfferBuild } from "../agent/buildFocus";
 import BuilderNeeds from "./BuilderNeeds";
+import BuildMembers from "../components/BuildMembers";
 import { api, BuildFiles, BuiltStepType, readableError, StepSchema, WorkflowParam, WorkflowProblem } from "../api";
 import Workspace from "../components/Workspace";
 import { CardRow } from "../components/SessionCard";
@@ -49,6 +50,7 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
     newId,
     files,
     baseFiles,
+    editable,
     restore: (text, typedId, keptFiles) => {
       setSource(text);
       setFiles(keptFiles);
@@ -263,10 +265,11 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               )}
             </div>
           )}
-          <BuilderNeeds kind="step" source={source} />
+          {editable && <BuilderNeeds kind="step" source={source} />}
+          {!editable && item?.locked && <p className="muted builder-locked">{item.locked}</p>}
           <DraftStatus kept={kept} />
         </Section>
-        <Section title="Try">
+        {editable && <Section title="Try">
           {draft?.request ? (
             <>
               <p className="muted" style={{ marginTop: 0 }}>
@@ -304,8 +307,10 @@ export default function StepEditor({ id, said, draftId, back, opened }: StepScre
               {draft ? "A chain of steps is tried in a workflow: save it, then use it as step: its id." : "Fix the YAML to try it."}
             </p>
           )}
-        </Section>
+        </Section>}
       </div>
+      {/* Who changes it (D161): its owner, the members they add, admins. */}
+      {editable && <BuildMembers kind="step" target={isNew ? (kept.id !== null ? `draft:${kept.id}` : null) : id} />}
     </div>
   );
 }

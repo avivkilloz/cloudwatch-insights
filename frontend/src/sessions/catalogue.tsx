@@ -2,8 +2,10 @@
  * The catalogue panes are picked from (PLATFORM_PLAN.md §19.2, D66): the
  * admin's categories in their order, and this person's favourites and hidden
  * pane types. The default page, the side panel's Add list, the strip's +
- * menu, the session card's adds and the group form all draw from here, so a
- * pane is in the same place wherever it's offered.
+ * menu and the session card's adds all draw from here, so a pane is in the
+ * same place wherever it's offered. Every pane type is everyone's (D160): one
+ * none of this person's environments can run is offered with why
+ * (`noEnvironment`), never left out.
  *
  * Until it has loaded (or if it can't), panes are grouped as their manifests
  * say -- Services, Tools -- rather than not offered at all.
@@ -24,10 +26,12 @@ export interface CatalogueGroup {
 }
 
 interface CatalogueApi {
-  /** The categories, each with the panes this person may use, hidden ones included. */
+  /** The categories, each with its panes, hidden ones included. */
   categories: CatalogueGroup[];
   favourites: string[];
   hidden: string[];
+  /** Pane types none of this person's environments can run, each with why. */
+  noEnvironment: Record<string, string>;
   /** Every person's lists: Favourites first (if any), then each category,
    * hidden pane types left out unless asked for. */
   groups: (options?: { withHidden?: boolean; withFavourites?: boolean }) => CatalogueGroup[];
@@ -50,7 +54,6 @@ export function CatalogueProvider({ children }: { children: ReactNode }) {
   }, [user?.id]);
 
   const byType = useMemo(() => new Map(SESSION_TYPES.map((t) => [t.type as string, t])), [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const offered = useCallback((t: SessionTypeDef) => t.enabledFor(user), [user]);
 
   const categories = useMemo<CatalogueGroup[]>(() => {
     if (!data) {
@@ -58,25 +61,26 @@ export function CatalogueProvider({ children }: { children: ReactNode }) {
       return (["Services", "Tools"] as const).map((group) => ({
         id: null,
         name: group,
-        types: SESSION_TYPES.filter((t) => t.group === group && offered(t)),
+        types: SESSION_TYPES.filter((t) => t.group === group),
       }));
     }
     return data.categories.map((c) => ({
       id: c.id,
       name: c.name,
       description: c.description,
-      types: c.pane_types.map((id) => byType.get(id)).filter((t): t is SessionTypeDef => !!t && offered(t)),
+      types: c.pane_types.map((id) => byType.get(id)).filter((t): t is SessionTypeDef => !!t),
     }));
-  }, [data, byType, offered]);
+  }, [data, byType]);
 
   const favourites = data?.favourites ?? [];
   const hidden = data?.hidden ?? [];
+  const noEnvironment = useMemo(() => data?.no_environment ?? {}, [data]);
 
   const groups = useCallback(
     ({ withHidden = false, withFavourites = true }: { withHidden?: boolean; withFavourites?: boolean } = {}) => {
       const keep = (t: SessionTypeDef) => withHidden || !hidden.includes(t.type);
       const out: CatalogueGroup[] = [];
-      const favs = favourites.map((id) => byType.get(id)).filter((t): t is SessionTypeDef => !!t && offered(t) && keep(t));
+      const favs = favourites.map((id) => byType.get(id)).filter((t): t is SessionTypeDef => !!t && keep(t));
       if (withFavourites && favs.length) out.push({ id: null, name: "Favourites", types: favs });
       for (const c of categories) {
         const types = c.types.filter(keep);
@@ -84,7 +88,7 @@ export function CatalogueProvider({ children }: { children: ReactNode }) {
       }
       return out;
     },
-    [categories, favourites, hidden, byType, offered],
+    [categories, favourites, hidden, byType],
   );
 
   const setPreference = useCallback(async (type: string, pref: { favourite?: boolean; hidden?: boolean }) => {
@@ -101,13 +105,14 @@ export function CatalogueProvider({ children }: { children: ReactNode }) {
       categories,
       favourites,
       hidden,
+      noEnvironment,
       groups,
       setFavourite: (type, on) => setPreference(type, { favourite: on }),
       setHidden: (type, on) => setPreference(type, { hidden: on }),
       replace: setData,
       error,
     }),
-    [categories, favourites, hidden, groups, setPreference, error],
+    [categories, favourites, hidden, noEnvironment, groups, setPreference, error],
   );
   return <CatalogueContext.Provider value={value}>{children}</CatalogueContext.Provider>;
 }

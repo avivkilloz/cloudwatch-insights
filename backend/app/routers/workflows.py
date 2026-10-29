@@ -1,9 +1,10 @@
-"""Workflows over HTTP (PLATFORM_PLAN.md §22): definitions (an admin's, and
-since 5-3 a builder's own group's, D121), who may run them, runs and steps.
+"""Workflows over HTTP (PLATFORM_PLAN.md §22): definitions, runs and steps.
+Everyone runs every workflow, as themselves (D160); a group with the Builder
+makes new ones, and each is changed by its owner, its members and admins (D161).
 
 A run's inputs and outputs go only to whoever may read it -- its starter,
-their group, admins (`workflows.can_read`); anyone else who may run the
-workflow sees that a run happened, not what it found."""
+their group, admins (`workflows.can_read`); anyone else sees that a run
+happened, not what it found."""
 
 from typing import Any, Optional
 
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, models, workflow_doors, workflows
+from .. import auth, build_access, models, workflow_doors, workflows
 from ..db import get_db
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -26,10 +27,6 @@ class WorkflowIn(BaseModel):
 
 class SourceIn(BaseModel):
     source: str
-
-
-class GrantsIn(BaseModel):
-    group_ids: list[int]
 
 
 class RunIn(BaseModel):
@@ -60,16 +57,16 @@ def _guard(fn):
 
 def _workflow(db: Session, user: models.User, workflow_id: str) -> models.Workflow:
     row = db.get(models.Workflow, workflow_id)
-    if row is None or not workflows.visible(db, user, row):
-        raise HTTPException(status_code=404, detail="There is no such workflow for you.")
+    if row is None:
+        raise HTTPException(status_code=404, detail="There is no such workflow.")
     return row
 
 
 def _editable(db: Session, user: models.User, workflow_id: str) -> models.Workflow:
     row = _workflow(db, user, workflow_id)
-    if not workflows.can_edit(user, row):
-        raise HTTPException(status_code=403, detail="Only an admin, or a builder of the group that made it, may change "
-                                                    "this workflow.")
+    why = build_access.why_locked(db, user, "workflow", row)
+    if why:
+        raise HTTPException(status_code=403, detail=why)
     return row
 
 
@@ -82,7 +79,7 @@ def _creator(user: models.User = Depends(auth.get_current_user)) -> models.User:
 def _run(db: Session, user: models.User, run_id: int) -> models.WorkflowRun:
     run = db.get(models.WorkflowRun, run_id)
     workflow = db.get(models.Workflow, run.workflow_id) if run else None
-    if run is None or workflow is None or not workflows.visible(db, user, workflow):
+    if run is None or workflow is None:
         raise HTTPException(status_code=404, detail="There is no such run for you.")
     return run
 
@@ -100,28 +97,27 @@ def _out(db: Session, user: models.User, row: models.Workflow, detail: bool = Fa
         "description": row.description,
         "parameters": row.definition.get("parameters") or [],
         "steps": len(row.definition.get("steps") or []),
-        "can_edit": workflows.can_edit(user, row),
-        "can_run": workflows.can_run(db, user, row),
+        "can_edit": workflows.can_edit(db, user, row),
+        "owner": build_access.owner_name(db, row),
+        "locked": build_access.why_locked(db, user, "workflow", row),
         "last_run": workflows.summary(db, last, user) if last else None,
         "store_state": next(iter(db.query(models.StoreItem.state).filter_by(kind="workflow", item_id=row.id)), (None,))[0],
     }
     if detail:
         out["source"] = row.source
         out["definition"] = row.definition
-        if workflows.can_edit(user, row):
-            out["group_ids"] = [g.group_id for g in db.query(models.WorkflowGrant).filter_by(workflow_id=row.id)]
     return out
 
 
 @router.get("")
 def list_workflows(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
-    return [_out(db, user, w) for w in workflows.listed(db, user)]
+    return [_out(db, user, w) for w in workflows.listed(db)]
 
 
 @router.post("/validate")
-def validate(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(_creator)):
+def validate(payload: SourceIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     """What saving would say, without saving: every problem, with its line --
-    a builder's naming a pane their group can't use among them (D121)."""
+    for anyone working on a workflow, a member without the Builder too."""
     try:
         definition = workflows.parse(payload.source)
     except workflows.WorkflowError as e:
@@ -164,13 +160,6 @@ def delete(workflow_id: str, db: Session = Depends(get_db), user: models.User = 
     return None
 
 
-@router.put("/{workflow_id}/grants")
-def put_grants(workflow_id: str, payload: GrantsIn, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
-    row = _workflow(db, admin, workflow_id)
-    _guard(lambda: workflows.set_grants(db, row, payload.group_ids))
-    return _out(db, admin, row, detail=True)
-
-
 class OptionsIn(BaseModel):
     params: dict[str, Any] = {}
 
@@ -181,8 +170,6 @@ def parameter_options(workflow_id: str, key: str, payload: OptionsIn, db: Sessio
     """A parameter's choices for the Build with parameters form (D94), listed
     by its pane input's loader as the caller, from the form's values so far."""
     row = _workflow(db, user, workflow_id)
-    if not workflows.can_run(db, user, row):
-        raise HTTPException(status_code=403, detail="Your group may not run this workflow.")
     return _guard(lambda: workflows.parameter_options(db, user, row, key, payload.params))
 
 
@@ -214,8 +201,8 @@ def recent_runs(
     db: Session = Depends(get_db),
     user: models.User = Depends(auth.get_current_user),
 ):
-    """Recent runs across the workflows the caller may run."""
-    visible = {w.id for w in workflows.listed(db, user)}
+    """Recent runs across the workflows."""
+    visible = {w.id for w in workflows.listed(db)}
     q = db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id.in_(visible or {""}))
     if mine:
         q = q.filter(models.WorkflowRun.started_by_id == user.id)

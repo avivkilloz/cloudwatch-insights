@@ -10,7 +10,7 @@ import {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { api, readableError, SavedSession, SessionMember, SessionPermission, UserSuggestion } from "../api";
+import { api, readableError, SavedSession, SessionMember, SessionPermission } from "../api";
 import {
   SessionKeyScope,
   useDropSessionKeys,
@@ -21,6 +21,7 @@ import {
 import { setPanesInRail, usePanesInRail, useRailSlot } from "../components/railSlot";
 import { PaneMenuSlot } from "../components/paneMenuSlot";
 import Avatar from "../components/Avatar";
+import UsernameField from "../components/UsernameField";
 import Icon from "../components/Icon";
 import SessionVariables from "../components/SessionVariables";
 import { announceVariableChange, VARIABLE_LABELS, VARIABLES_KEY, VariableName, Variables } from "../panes/variables";
@@ -479,8 +480,8 @@ export default function AggregatorPage() {
   // which is what reordering rewrites. Each open pane is its kind's catalogue
   // entry under the pane's own id and name.
   const kinds = catalogue();
-  const available = kinds.filter((s) => s.enabledFor(user));
-  const { groups: catalogueGroups } = useCatalogue();
+  const available = kinds;
+  const { groups: catalogueGroups, noEnvironment } = useCatalogue();
   const open = services.flatMap((id) => {
     const def = kinds.find((s) => s.id === paneType(id, paneTypes));
     return def ? [{ ...def, id, type: def.id, label: paneTitle(id, paneTypes, paneTitles) }] : [];
@@ -1193,15 +1194,6 @@ export default function AggregatorPage() {
   const [memberError, setMemberError] = useState<string | null>(null);
   const [inviteUsername, setInviteUsername] = useState("");
   const [invitePermission, setInvitePermission] = useState<SessionPermission>("editor");
-  const [usernameSuggestions, setUsernameSuggestions] = useState<UserSuggestion[]>([]);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  // Picking a suggestion sets inviteUsername to that exact username, which
-  // would otherwise re-trigger the fetch effect below and reopen the dropdown
-  // with the one match that name now finds -- this skips exactly that one
-  // re-run, so the dropdown only comes back once the user actually types more.
-  const suppressNextSuggestFetch = useRef(false);
-
   useEffect(() => {
     if (!scope) return;
     let cancelled = false;
@@ -1216,64 +1208,6 @@ export default function AggregatorPage() {
     };
   }, [scope?.id]);
 
-  // Debounced, and filtered against who's already invited (suggesting someone
-  // already a member would just 409 on invite) -- one request per pause in
-  // typing, not one per keystroke.
-  useEffect(() => {
-    if (suppressNextSuggestFetch.current) {
-      suppressNextSuggestFetch.current = false;
-      return;
-    }
-    const prefix = inviteUsername.trim();
-    if (!prefix) {
-      setUsernameSuggestions([]);
-      setSuggestionsOpen(false);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      const invited = new Set(members.map((m) => m.user_id));
-      api
-        .suggestUsers(prefix)
-        .then((matches) => {
-          if (cancelled) return;
-          setUsernameSuggestions(matches.filter((u) => !invited.has(u.id)));
-          setSuggestionsOpen(true);
-          setHighlightedSuggestion(-1);
-        })
-        .catch(() => {});
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inviteUsername, members]);
-
-  function pickSuggestion(user: UserSuggestion) {
-    suppressNextSuggestFetch.current = true;
-    setInviteUsername(user.username);
-    setUsernameSuggestions([]);
-    setSuggestionsOpen(false);
-    setHighlightedSuggestion(-1);
-  }
-
-  function onUsernameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (!suggestionsOpen || usernameSuggestions.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlightedSuggestion((i) => (i + 1) % usernameSuggestions.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightedSuggestion((i) => (i <= 0 ? usernameSuggestions.length - 1 : i - 1));
-    } else if (e.key === "Enter" && highlightedSuggestion >= 0) {
-      e.preventDefault();
-      pickSuggestion(usernameSuggestions[highlightedSuggestion]);
-    } else if (e.key === "Escape") {
-      setSuggestionsOpen(false);
-      setHighlightedSuggestion(-1);
-    }
-  }
-
   async function withMemberError(fn: () => Promise<void>) {
     setMemberError(null);
     try {
@@ -1287,7 +1221,6 @@ export default function AggregatorPage() {
     e.preventDefault();
     const username = inviteUsername.trim();
     if (!username || !scope) return;
-    setSuggestionsOpen(false);
     withMemberError(async () => {
       const member = await api.inviteSessionMember(scope.id, username, invitePermission);
       setMembers((m) => [...m, member]);
@@ -1345,9 +1278,9 @@ export default function AggregatorPage() {
               {shown.map((x) => (
                 <button
                   key={x.id}
-                  className="secondary aggregator-add-pane"
+                  className={`secondary aggregator-add-pane${noEnvironment[x.id] ? " no-environment" : ""}`}
                   onClick={() => addPane(x.id)}
-                  title={`Add a new ${x.label} pane`}
+                  title={`Add a new ${x.label} pane${noEnvironment[x.id] ? ` (${noEnvironment[x.id]})` : ""}`}
                   aria-label={`Add ${x.label} pane`}
                 >
                   + {x.label}
@@ -1503,45 +1436,12 @@ export default function AggregatorPage() {
               </div>
             ))}
             <form className="session-member-invite" onSubmit={inviteMember}>
-              <div className="session-member-invite-field">
-                <input
-                  className="session-card-input"
-                  placeholder="Username"
-                  value={inviteUsername}
-                  onChange={(e) => setInviteUsername(e.target.value)}
-                  onKeyDown={onUsernameKeyDown}
-                  onFocus={() => {
-                    if (usernameSuggestions.length > 0) setSuggestionsOpen(true);
-                  }}
-                  onBlur={() => setSuggestionsOpen(false)}
-                  aria-label="Username to invite"
-                  role="combobox"
-                  aria-expanded={suggestionsOpen}
-                  aria-autocomplete="list"
-                  autoComplete="off"
-                />
-                {suggestionsOpen && usernameSuggestions.length > 0 && (
-                  <div className="username-suggestions" role="listbox">
-                    {usernameSuggestions.map((u, i) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        role="option"
-                        aria-selected={i === highlightedSuggestion}
-                        className={"username-suggestion" + (i === highlightedSuggestion ? " active" : "")}
-                        onMouseDown={(e) => {
-                          // Picks the suggestion before the input's onBlur can
-                          // close the dropdown out from under this click.
-                          e.preventDefault();
-                          pickSuggestion(u);
-                        }}
-                      >
-                        {u.username}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <UsernameField
+                value={inviteUsername}
+                onChange={setInviteUsername}
+                exclude={members.map((m) => m.user_id)}
+                label="Username to invite"
+              />
               <select
                 value={invitePermission}
                 onChange={(e) => setInvitePermission(e.target.value as SessionPermission)}

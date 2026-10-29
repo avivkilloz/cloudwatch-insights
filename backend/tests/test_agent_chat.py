@@ -275,12 +275,30 @@ def test_a_build_chat_carries_the_editor_and_is_its_editors_only(monkeypatch):
 
     group = client.post("/api/user-groups", json={"name": "Talkers", "role_name": "R", "agent_enabled": True}).json()
     assert client.post("/api/users", json={"username": "tal", "password": "pw-123456", "group_id": group["id"]}).status_code == 201
-    from tests.test_pane_grants import _login_as
+    from tests.conftest import _login_as
 
     tal = _login_as("tal")
     assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": build}).status_code == 403
     workflow = {**build, "kind": "workflow"}
     assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": workflow}).status_code == 403
+
+    # Without the Builder, a member asks beside what they were added to
+    # (D161) -- a saved one, or a new one's draft -- and may ask the platform
+    # agent rather than the Builder's loop (@platform-agent, D163).
+    from tests.test_builder import ENCODER
+
+    assert client.post("/api/builder/panes", json={"id": "shouty", "source": ENCODER}).status_code == 201
+    saved = {**build, "id": "shouty", "source": ENCODER}
+    assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": saved}).status_code == 403
+    assert client.post("/api/build-members/pane/shouty/members", json={"username": "tal"}).status_code == 201
+    received.clear()
+    asked = tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": {**saved, "agent": "platform"}})
+    assert asked.status_code == 200 and received[0]["body"]["focus"]["agent"] == "platform"
+    draft = client.post("/api/build-drafts", json={"kind": "pane", "source": ENCODER}).json()
+    new = {**build, "draft_id": draft["id"]}
+    assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": new}).status_code == 403
+    assert client.post(f"/api/build-members/pane/draft:{draft['id']}/members", json={"username": "tal"}).status_code == 201
+    assert tal.post("/api/agent/chat", json={**ASK, "scope": "build", "build": new}).status_code == 200
     assert _tokens_left() == 0
 
 

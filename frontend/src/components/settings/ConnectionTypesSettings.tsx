@@ -1,3 +1,5 @@
+import BuildMembers from "../BuildMembers";
+import { useAuth } from "../../AuthContext";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, ConnectionType, ConnectionTypeDraft, readableError } from "../../api";
 import { CardRow } from "../SessionCard";
@@ -58,10 +60,12 @@ function withData(draft: Draft, d: TypeData): Draft {
 function originText(t: ConnectionType): string {
   if (t.builtin) return "Built in";
   if (t.origin?.startsWith("manifest:")) return `From the ${t.needed_by[0] ?? t.origin.slice(9)} pane`;
-  return t.owner_group ? `${t.owner_group} builders` : "Admins";
+  return t.owner ?? "Admins";
 }
 
 export default function ConnectionTypesSettings({ switcher, intro, make }: { switcher: ReactNode; intro?: string; make?: string }) {
+  // Making a new one is a Builder's (D161); changing one, its owner's and members'.
+  const maker = !!useAuth().user?.builder_enabled;
   const [types, setTypes] = useState<ConnectionType[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +80,8 @@ export default function ConnectionTypesSettings({ switcher, intro, make }: { swi
   const [yamlKey, setYamlKey] = useState(0);
   const drafts = useDraftList("connection", opened * 2 + (draft ? 1 : 0));
   const keeper = useRef<DraftState | null>(null);
+  // The open editor's draft id: a new one's members are kept on it (D161).
+  const [keptId, setKeptId] = useState<number | null>(null);
   const namespace = useStoreNamespace();
 
   async function refresh() {
@@ -210,6 +216,7 @@ export default function ConnectionTypesSettings({ switcher, intro, make }: { swi
               setNotice(`The agent's version is in the editor, unsaved: ${summary}`);
             }}
             keeper={keeper}
+            onDraftId={setKeptId}
           />
         )}
         {editAs === "yaml" && (
@@ -306,6 +313,10 @@ export default function ConnectionTypesSettings({ switcher, intro, make }: { swi
             </button>
           </div>
         )}
+        {/* Who changes it (D161): its owner, the members they add, admins. */}
+        {!locked && (
+          <BuildMembers kind="connection" target={draft.existing ? draft.id ?? null : keptId !== null ? `draft:${keptId}` : null} />
+        )}
       </div>
     );
   }
@@ -315,7 +326,7 @@ export default function ConnectionTypesSettings({ switcher, intro, make }: { swi
       <div className="credential-list-head">
         {switcher}
         <span className="muted">{intro ?? "The kinds of connection an environment can hold."}</span>
-        <button onClick={() => start()}>New connection type</button>
+        {maker && <button onClick={() => start()}>New connection type</button>}
       </div>
       {messages}
       {loaded && (

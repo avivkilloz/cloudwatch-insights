@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-29, credential and connection types in the Builder, made by builders for their group (PLATFORM_PLAN.md §24 5-4a, D158)._
+_Last updated: 2026-10-29, no grants; owners, members and shared drafts for what's built (PLATFORM_PLAN.md §24 5-5, D160-D163)._
 
 ## Platform plan
 
@@ -1298,7 +1298,26 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
 
-**This PR: the types a pane needs, in the Builder (5-4, D158-D159).** The user:
+**This PR: who builds with whom (5-5, D160-D163).** The user: what's built
+should be everyone's to use, with access set per group only on environments,
+connections and credentials; who may *change* a built thing is admins, then
+its owner, then members they add, as with sessions; members talk in the
+draft's chat and tag agents; one second tab in the agent panel, not several.
+- D160: grants removed entirely (the user's call) -- every pane type,
+  workflow and template everyone's; a pane with no environment for it says
+  so; Users → Groups keeps Features (agent, Builder), environments,
+  identities.
+- D161: an owner (a person) and members per built thing (`build_access`,
+  `build_members`, the editors' Members section, Hand on, leave); one draft
+  per thing, shared, announced to all of them; the Builder on everyone's
+  rail, read-only where they can't change it.
+- D162: two people typing in one draft are merged by lines (`merge3.ts`);
+  only overlapping changes conflict, theirs kept there.
+- D163: the second tab is Session / Draft / Run; a shared draft's chat is
+  people talking, `@builder` and `@platform-agent` called on.
+- Tests: browser `smoke116` (18), failing against the old frontend.
+
+**#146 merged: the types a pane needs, in the Builder (5-4, D158-D159).** The user:
 building a pane, step or workflow often needs a credential type the platform
 doesn't have, so making types belongs to building. The Builder has
 Connections and Credentials beside Panes, Workflows and Steps -- the Settings

@@ -20,6 +20,7 @@ import { ActionRunner, ActionRunnerContext } from "../panes/actionRunner";
 import BuilderForm from "./BuilderForm";
 import ConnectionTypesSettings from "../components/settings/ConnectionTypesSettings";
 import BuilderNeeds from "./BuilderNeeds";
+import BuildMembers from "../components/BuildMembers";
 import { CredentialTypesView } from "../components/settings/CredentialsSettings";
 import ManifestPane from "../panes/ManifestPane";
 import { PaneManifest, setManifests } from "../panes/manifest";
@@ -168,6 +169,7 @@ const WHATS = [
 
 function ListView({ open, initial, make }: { open: (s: Screen) => void; initial: What; make?: string }) {
   const [what, setWhat] = useState<What>(initial);
+  const maker = !!useAuth().user?.builder_enabled;
   // The kinds of connection and credential a pane, step or workflow needs
   // (D158): made here by builders, for their group, in the same editors
   // Settings shows admins. Their list carries the switch in its own head.
@@ -183,7 +185,7 @@ function ListView({ open, initial, make }: { open: (s: Screen) => void; initial:
         <ConnectionTypesSettings
           make={make}
           switcher={switcher}
-          intro="The kinds of connection a pane or step reaches: a base URL and plain settings. Yours are your group's."
+          intro="The kinds of connection a pane or step reaches: a base URL and plain settings."
         />
       </div>
     );
@@ -192,7 +194,7 @@ function ListView({ open, initial, make }: { open: (s: Screen) => void; initial:
       <div className="builder-types">
         <CredentialTypesView
           switcher={switcher}
-          intro="The kinds of credential a connection is signed with: fields, and which are secret. Yours are your group's."
+          intro="The kinds of credential a connection is signed with: fields, and which are secret."
         />
       </div>
     );
@@ -202,9 +204,10 @@ function ListView({ open, initial, make }: { open: (s: Screen) => void; initial:
         <h2>Builder</h2>
         <div className="credential-view-actions">
           <ViewSwitch views={WHATS} view={what} onChange={setWhat} />
-          {what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane</button>}
-          {what === "workflow" && <button onClick={() => open({ kind: "workflow", id: null })}>New workflow</button>}
-          {what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step</button>}
+          {/* Making something new is a Builder's (D161); changing what's here, its members'. */}
+          {maker && what === "pane" && <button onClick={() => open({ kind: "edit", id: null })}>New pane</button>}
+          {maker && what === "workflow" && <button onClick={() => open({ kind: "workflow", id: null })}>New workflow</button>}
+          {maker && what === "step" && <button onClick={() => open({ kind: "step", id: null })}>New step</button>}
         </div>
       </div>
       {what === "pane" && <PaneList open={open} />}
@@ -363,8 +366,8 @@ function PaneList({ open }: { open: (s: Screen) => void }) {
     <>
       <p className="muted" style={{ maxWidth: "80ch" }}>
         Panes made here, written as the same definition every pane is: its inputs, the actions that fill its
-        outputs -- a request to a connection, or an action the platform already has -- and how it's laid out. One you
-        make is your group's to use at once; other groups get it when an admin grants it in Users → Groups → Panes.
+        outputs -- a request to a connection, or an action the platform already has -- and how it's laid out. Every
+        one is everyone's to use; it's changed by whoever made it, the members they add, and admins.
       </p>
       {error && <p className="error-text">{error}</p>}
       {items !== null && items.length === 0 && drafts.fresh.length === 0 && <p className="muted">None made yet.</p>}
@@ -427,6 +430,8 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
   // Kept as it's typed, with the Building chat (D125).
   const base = isNew ? schema?.starter ?? null : item?.source ?? null;
   const baseFiles = isNew ? {} : item?.files ?? null;
+  // Its owner's, its members' and admins' to change (D161); anyone else reads it.
+  const editable = isNew || !!item?.can_edit;
   const kept = useBuildDraft({
     kind: "pane",
     targetId: id,
@@ -436,6 +441,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     newId,
     files,
     baseFiles,
+    editable,
     restore: (text, typedId, keptFiles) => {
       setSource(text);
       setFiles(keptFiles);
@@ -447,7 +453,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
     "pane",
     id,
     title,
-    true,
+    editable && (isNew || item !== null),
     source,
     (text, summary, proposed) => {
       setSource(text);
@@ -578,7 +584,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
       setItem(saved);
       setSource(saved.source);
       setFiles(saved.files ?? {});
-      if (isNew) open({ kind: "edit", id: saved.id, said: `Created ${saved.label} (${saved.id}): your group can use it now.` });
+      if (isNew) open({ kind: "edit", id: saved.id, said: `Created ${saved.label} (${saved.id}): everyone can use it now.` });
       else setNotice("Saved.");
     } catch (e) {
       setError(readableError(e));
@@ -627,7 +633,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             Open in a session
           </button>
         )}
-        {!isNew && item && (
+        {!isNew && item?.can_edit && (
           <button className="danger" onClick={remove}>
             Delete
           </button>
@@ -645,7 +651,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               )}
             </CardRow>
           )}
-          <CardRow label="Start from">
+          {editable && <CardRow label="Start from">
             <select id="builder-start" value="" onChange={(e) => startFrom(e.target.value)}>
               <option value="">{isNew ? "The starter below, or an example…" : "Replace with an example…"}</option>
               <option value="__starter">The starter</option>
@@ -656,7 +662,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
                 </option>
               ))}
             </select>
-          </CardRow>
+          </CardRow>}
           <CardRow label="Edit as">
             <ViewSwitch
               views={[
@@ -670,6 +676,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           <Workspace
             id="builder-source"
             main="pane.yaml"
+            readOnly={!editable}
             source={source}
             minRows={Math.min(34, Math.max(14, source.split("\n").length + 1))}
             onSource={(text) => {
@@ -685,7 +692,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
             }}
             problems={problems}
             mainView={
-              editAs === "form" ? (
+              editAs === "form" && editable ? (
                 <BuilderForm
                   source={source}
                   schema={schema}
@@ -700,19 +707,24 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           />
           {notice && <p className="muted builder-notice">{notice}</p>}
           {error && <p className="error-text">{error}</p>}
+          {!editable && item?.locked && <p className="muted builder-locked">{item.locked}</p>}
           <div className="row credential-view-foot">
-            <button onClick={save} disabled={busy || (isNew && !newId.trim())}>
-              {busy ? "Saving…" : isNew ? "Create" : "Save"}
-            </button>
-            <button className="secondary" onClick={check} disabled={busy}>
-              Check
-            </button>
+            {editable && (
+              <button onClick={save} disabled={busy || (isNew && !newId.trim())}>
+                {busy ? "Saving…" : isNew ? "Create" : "Save"}
+              </button>
+            )}
+            {editable && (
+              <button className="secondary" onClick={check} disabled={busy}>
+                Check
+              </button>
+            )}
             <button
               className={`secondary builder-preview-toggle${previewOpen ? " active" : ""}`}
               aria-pressed={previewOpen}
               title={previewOpen ? "Hide the preview" : "Draw the definition as the pane it makes"}
               onClick={togglePreview}
-              disabled={busy}
+              disabled={busy || !editable}
             >
               Preview
             </button>
@@ -722,7 +734,7 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
               </button>
             )}
           </div>
-          <BuilderNeeds kind="pane" source={source} />
+          {editable && <BuilderNeeds kind="pane" source={source} />}
           <DraftStatus kept={kept} />
         </Section>
         {previewOpen && (
@@ -758,7 +770,9 @@ function Editor({ id, said, draftId, open }: { id: string | null; said?: string;
           </Section>
         )}
       </div>
-      {schema && (
+      {/* Who changes it (D161): its owner, the members they add, admins. */}
+      {editable && <BuildMembers kind="pane" target={isNew ? (kept.id !== null ? `draft:${kept.id}` : null) : id} />}
+      {schema && editable && (
         <Section title="What it can name">
           <p className="muted" style={{ marginTop: 0 }}>
             An action is a <code>request</code> -- to a connection of an HTTP type (its path, query and where its

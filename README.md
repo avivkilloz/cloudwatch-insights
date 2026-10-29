@@ -522,14 +522,13 @@ control:
   group — except the built-in **Admin** group, which always sees every
   environment, so admins can't accidentally lock themselves out of one they
   forgot to self-grant).
-- **Which panes** it can use: a checkbox per pane type, under **Services**
-  and **Tools** (with **All** / **None** for each), in **Settings → Users →
-  Groups → Panes**. Each tool is its own permission now -- "Tools" used to be
-  one switch for all six -- and a pane a group hasn't been given isn't
-  offered to its members, can't be run by them, and isn't a kind the agent
-  can use for them. An existing group keeps exactly the panes it had. The
-  **Platform agent** is a checkbox of its own there too, off for a new group.
-  Settings itself is handled separately, see below.
+- **Not which panes**: every pane type, workflow and template is everyone's
+  to use. What a pane reaches is the group's environments and its identity
+  on them, which every run checks, so a pane none of a person's environments
+  can run is still offered, saying "No environment for it yet". Under
+  **Features** a group has the **Platform agent** (off for a new group) and
+  the **Builder** (making new panes, workflows, steps and types). Settings
+  itself is handled separately, see below.
 
 Everything about the current user lives behind their **picture** (or their
 initials), at the end of the strip — or of the docked agent panel's header:
@@ -883,8 +882,8 @@ and its labels). It auto-refreshes like any pane and the agent can run it.
 
 It's built from its manifest alone: the Prometheus connection type comes with
 it (Settings → Environments → **Types**, "From the Prometheus pane"), and it's
-listed under its own **Observability** category. Like any pane type added
-later, no group has it until an admin ticks it in **Users → Groups → Panes**.
+listed under its own **Observability** category. Like any pane type, it's
+everyone's: it runs for whoever's environments have a Prometheus connection.
 Add a Prometheus connection to an environment (its Base URL, e.g.
 `https://prometheus.example.com`), and a credential if it needs signing.
 
@@ -948,7 +947,7 @@ past a failure with `continue_on_error`.
 - **Make repeatable** (an admin's, on a session's card): drafts a workflow
   from the session -- a step per pane, its environments as parameters -- and
   opens it in the editor to check and save.
-- **The Workflow pane** (Platform, granted to a group like any pane): runs a
+- **The Workflow pane** (Platform, everyone's like any pane): runs a
   workflow from inside a session -- pick it, fill in its parameters (the same
   fields as **Run ▸** on the Workflows page), Run -- and follows it there,
   with a link that opens the whole run on the Workflows page.
@@ -960,16 +959,29 @@ past a failure with `continue_on_error`.
 
 ## The Builder
 
-Groups with the **Builder** turned on (Users → Groups; admins always) get a
-**Builder** row at the top of the side panel, for making pane types of their
-own. A pane type is written as the same definition every pane is -- its
+The **Builder** row at the top of the side panel is everyone's: what's built
+there is everyone's to use and read. Groups with the **Builder** turned on
+(Users → Groups → Features; admins always) make new ones; each is changed by
+whoever made it, the **members** they add, and admins (below). A pane type is written as the same definition every pane is -- its
 inputs, the actions that fill its outputs (a request to an HTTP connection,
 an action the platform already has, or a function worked out as you type) and
 its layout -- starting from a working starter or from any of the platform's
 own panes as an example. **Check** points at the line of any mistake;
-**Create** makes it, for your group to use at once (**Open in a session**);
-other groups get it when an admin grants it in Users → Groups → Panes. With a
-store repo set up, each pane type is kept there as written.
+**Create** makes it, for everyone to use at once (**Open in a session**).
+With a store repo set up, each pane type is kept there as written.
+
+**Members, and building together**: each editor shows its **Members** -- the
+owner (who made it) and the people they add by username, Builder or not; the
+owner or an admin adds and removes them and can **Hand on** ownership, and a
+member can leave. Everyone listed changes it, in **one shared draft**: each
+editor shows the others' changes as they're typed, and what you typed
+meanwhile is merged in by lines (only when two people change the same lines
+is the other's kept there, and it says so). The agent panel's second tab is
+that draft's **chat** (**Session**, **Draft** or **Run**, whichever is on
+screen): with more than one person working on it, people talk there, and the
+Builder answers when a message mentions **@builder** (it changes the draft,
+for everyone), the platform agent when one mentions **@platform-agent**. A
+credential type that credentials use stays an admin's to change.
 
 **Any AWS service**: an action can call any AWS API that reads, as data --
 a `request` naming the `service` and `operation` (Lambda's `ListFunctions`,
@@ -977,7 +989,7 @@ ECS's `DescribeServices`…), on the environments the pane's user picks, as
 their group's AWS identity. With several environments it's one table with an
 Environment column, and an environment that fails says so beside it.
 Operations that change something, or hand out credentials or secret values,
-are refused. The agent's Building tab knows the shape, with a Lambda example.
+are refused. The agent panel's Draft tab knows the shape, with a Lambda example.
 
 **Form**: Edit as YAML or Form -- the form shows what a pane is made of (its
 inputs, the actions that fill its outputs, the outputs and the cards they're
@@ -990,20 +1002,18 @@ definition as the pane it makes -- its inputs, its buttons, its tables -- and
 its actions run as you, on your real connections, so you see what a request
 really answers before shaping its rows; pressed again, the card closes and the
 editor has the width. Nothing is saved and no session holds it; change the
-text and the preview says it's of an older version, with **Draw again**. A pane can
-use the platform's own handlers only where your group may use the panes that
-run them (DynamoDB's, say, once your group has DynamoDB).
+text and the preview says it's of an older version, with **Draw again**.
 
 **Connections and Credentials**: the Builder's fourth and fifth lists -- the
 kinds of connection a pane or step reaches (a base URL and plain settings)
 and the kinds of credential that sign its requests (fields, which are secret,
 how a request is signed). The same editors as Settings, each with **Form** and
-**YAML** (the file the store keeps). What a builder makes is their group's:
-their group's builders and admins change it, and the list says who made each.
+**YAML** (the file the store keeps). Each is its maker's, its members' and
+admins' to change, and the list says who owns each.
 Once a credential of a type exists, only an admin changes that type -- it
 shapes stored secrets. Making the credentials themselves stays an admin's
 (Settings → Credentials). A type's editor keeps your work as a draft and has
-the Building tab beside it, like a pane's, and Claude Code builds types too.
+the Draft tab beside it, like a pane's, and Claude Code builds types too.
 
 **Needs**: under a pane's, step's or workflow's editor, the connection types
 its draft reaches -- one that isn't there yet with **Make it**, which opens
@@ -1023,7 +1033,7 @@ the **+** after them adds one), the action names it (`code: {file: health.py}`, 
 `function:` when it isn't `run`), and files import each other (`from helpers
 import window`). Start from "An action that's code" or "Code" for one ready
 to try. Check points at the file and line of a mistake, and a run that fails
-names them too. The Building tab's agent writes code the same way, as a file.
+names them too. The Draft tab's Builder writes code the same way, as a file.
 It runs in
 the platform's runner, never in the backend, and reaches out only through
 `ctx.http(connection, path)` and `ctx.aws(connection, service, operation)`
@@ -1045,7 +1055,7 @@ doesn't wait. Packages must have a wheel for Linux; options, URLs and paths
 in `requirements.txt` aren't taken.
 
 **Building with the agent**: while a pane type's editor -- or a step type's, or a workflow's, on
-the Workflows page -- is open, the agent panel's second tab is **Building**.
+the Workflows page -- is open, the agent panel's second tab is **Draft**.
 Say what it should do or what to change ("add a status filter", "show this
 pane's jobs and rules too"): the Builder works out what to change, looks up
 any AWS operation it needs (what it takes and where its reply keeps its

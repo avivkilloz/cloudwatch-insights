@@ -188,7 +188,7 @@ def check_removed_fields(db: Session, row: models.ConnectionType, fields: list[d
 
 
 def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[models.User] = None,
-              owner_group_id: Optional[int] = None) -> models.ConnectionType:
+              owner_id: Optional[int] = None) -> models.ConnectionType:
     """Creates (`type_id` None, the id in `spec`) or edits an HTTP connection
     type. Built-ins are locked; a type's id never changes -- panes name it.
     A new one is named in the store's namespace when there is a store (D78),
@@ -207,7 +207,7 @@ def save_type(db: Session, type_id: Optional[str], spec: dict, actor: Optional[m
         if db.get(models.ConnectionType, new_id) is not None:
             raise ConnectionConfigError(f"There is already a connection type {new_id}.")
         row = models.ConnectionType(id=new_id, builtin=False, identity_types=[ANY_INJECT], origin=None,
-                                    owner_group_id=owner_group_id)
+                                    owner_id=owner_id)
         db.add(row)
     else:
         row = db.get(models.ConnectionType, type_id)

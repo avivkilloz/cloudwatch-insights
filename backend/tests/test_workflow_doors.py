@@ -65,7 +65,7 @@ def test_investigate_opens_a_session_of_what_the_run_found(aws):
     assert "From Scans #1" in state["description"] and "said: 2 orders." in state["description"]
 
     # Only a reader may: another group sees the run happened, not what it found.
-    _, bob = _member("bob", ["tables"], env, grant="scans")
+    _, bob = _member("bob", env)
     assert bob.post(f"/api/workflow-runs/{run['id']}/investigate").status_code == 400
 
 
@@ -124,7 +124,7 @@ def test_a_session_drafts_a_workflow_with_its_environments_as_parameters(aws):
     made = client.post("/api/workflows", json={"id": draft["suggested_id"], "source": draft["source"]})
     assert made.status_code == 201, made.text
 
-    _, bob = _member("bob", ["tables"], env)
+    _, bob = _member("bob", env)
     assert bob.post("/api/workflows/draft", json={"session": "dr-1"}).status_code == 403
 
 
@@ -189,7 +189,7 @@ def test_a_runs_chat_is_kept_on_the_run_for_its_readers():
     client.post(url, json={"turns": [one]})
     assert client.get(url).json()["turns"][0]["answer"] == "Because."
 
-    _, bob = _member("bob", ["tables"], None, grant="chatty")
+    _, bob = _member("bob", None)
     assert bob.get(url).status_code == 403
 
 

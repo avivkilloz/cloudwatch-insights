@@ -730,6 +730,14 @@ button,
   line-height: 1.35;
 }
 
+/* A pane none of this person's environments can run (D160): offered anyway,
+   and said so -- an admin adding the connection is all it needs. */
+.home-card-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* How many of this card the new session gets: − n + along the card's foot,
    right-aligned so every card's stepper lines up down the grid. A row of its
    own rather than over the card's corner, because it is three controls, not
@@ -4144,25 +4152,6 @@ button.icon-btn {
   font-size: 13px;
 }
 
-/* ---- Access per pane type (D65): a group's Panes in Users -> Groups ---- */
-.group-panes {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-}
-.group-panes-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 4px 14px;
-}
-.group-panes-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-
 /* ---- The catalogue (D66): a card's star and hide, Show hidden ---- */
 /* In the card's corner, over the title's row: shown on hover or focus, and
    always while on, so a starred card says so at a glance. */
@@ -5197,6 +5186,33 @@ textarea.code-editor-text:focus {
 }
 
 .builder-need-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A pane none of this person's environments can run (D160), in the shorter
+   lists: still offered, dimmed, its title saying why. */
+.rail-row-type.no-environment .rail-row-label,
+.session-add-item.no-environment .session-add-name,
+.aggregator-add-pane.no-environment {
+  opacity: 0.6;
+}
+
+/* ---- Who works on something built (D161): its owner and members ---- */
+/* The session card's members grid, less its permission column: a member
+   changes it or isn't one. */
+.session-members.build-members {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.build-hand-on {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  width: 100%;
+  max-width: 720px;
+}
+.build-owner {
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -151,10 +151,11 @@ def test_an_aws_operation_is_described_without_a_call(mcp):
                                                          operation="ListRules")
     secret = call(mcp, _token(), "describe_aws_operation", service="secretsmanager", operation="GetSecretValue")
     assert "credentials or secrets" in secret["refused"]
-    _member("pat3", _group("Plain3", pane_types=["tool-base64"], agent_enabled=True))
+    _member("pat3", _group("Plain3", agent_enabled=True))
     with SessionLocal() as db:
         pat = db.query(models.User).filter_by(username="pat3").one().id
-    assert "isn't turned on" in call_error(mcp, _token(pat), "describe_aws_operation", service="iot")
+    # Reading botocore's model is everyone's, Builder or not (D160).
+    assert "ListTopicRules" in call(mcp, _token(pat), "describe_aws_operation", service="iot")["reads"]
 
 
 # ---------------------------------------------------------------- rows held to the reply

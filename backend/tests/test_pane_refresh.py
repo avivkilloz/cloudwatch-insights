@@ -109,8 +109,6 @@ def _viewer(sid: str, name: str, env: int):
         row = db.query(models.LiveSession).filter(models.LiveSession.client_id == sid).one()
         db.add(models.SessionMember(session_id=row.id, user_id=uid, permission="viewer"))
         db.commit()
-    gid = next(g["id"] for g in client.get("/api/user-groups").json() if g["name"] == f"g-{name}")
-    client.put(f"/api/user-groups/{gid}", json={"tables_enabled": True})
     return as_them
 
 

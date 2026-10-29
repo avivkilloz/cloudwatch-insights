@@ -91,7 +91,9 @@ class ConnectionTypeOut(BaseModel):
     # Where it stands in the store repo (D70): synced, pending, conflict --
     # null when the store doesn't keep it (no store, or built in).
     store_state: Optional[str] = None
-    owner_group: Optional[str] = None
+    # Who owns it (D161): its maker unless an admin handed it on; null for an
+    # admin's from before owners, a built-in or a manifest's.
+    owner: Optional[str] = None
     locked: Optional[str] = None
 
 
@@ -156,34 +158,14 @@ class SettingsUpdate(BaseModel):
 # ---- Auth / users / user groups ----
 #
 # A user belongs to exactly one group; the group is the sole unit of access
-# control (role to assume, visible tabs, visible environments). The Admin
+# control (its identities, its visible environments, the agent and the Builder;
+# every pane type is everyone's, D160). The Admin
 # group (UserGroup.is_admin) always sees every environment and is the only
 # group whose members can manage users/groups/settings/environments.
-
-TAB_FIELDS = [
-    "logs_enabled",
-    "opensearch_enabled",
-    "iot_enabled",
-    "tables_enabled",
-    "buckets_enabled",
-    "cognito_enabled",
-    "tools_enabled",
-    "aggregator_enabled",
-    "agent_enabled",
-]
-
 
 class UserGroupBase(BaseModel):
     name: str
     role_name: Optional[str] = None
-    logs_enabled: bool = True
-    opensearch_enabled: bool = True
-    iot_enabled: bool = True
-    tables_enabled: bool = True
-    buckets_enabled: bool = True
-    cognito_enabled: bool = True
-    aggregator_enabled: bool = True
-    tools_enabled: bool = True
     # Off unless asked for: see UserGroup.agent_enabled.
     agent_enabled: bool = False
     # Off unless asked for: see UserGroup.builder_enabled.
@@ -194,28 +176,14 @@ class UserGroupCreate(UserGroupBase):
     # Environment ids this group can see (ignored for the Admin group, which
     # always sees every environment regardless of this list).
     environment_ids: list[int] = []
-    # Exactly the pane types it may use (D65). Left out, the booleans above
-    # are taken as shorthand for them, as they always meant.
-    pane_types: Optional[list[str]] = None
 
 
 class UserGroupUpdate(BaseModel):
     name: Optional[str] = None
     role_name: Optional[str] = None
-    logs_enabled: Optional[bool] = None
-    opensearch_enabled: Optional[bool] = None
-    iot_enabled: Optional[bool] = None
-    tables_enabled: Optional[bool] = None
-    buckets_enabled: Optional[bool] = None
-    cognito_enabled: Optional[bool] = None
-    aggregator_enabled: Optional[bool] = None
-    tools_enabled: Optional[bool] = None
     agent_enabled: Optional[bool] = None
     builder_enabled: Optional[bool] = None
     environment_ids: Optional[list[int]] = None
-    # Exactly the pane types it may use (D65); wins over the booleans above,
-    # which are shorthand for grants of the panes that name them.
-    pane_types: Optional[list[str]] = None
 
 
 class UserGroupOut(UserGroupBase):
@@ -224,9 +192,6 @@ class UserGroupOut(UserGroupBase):
     is_admin: bool
     environment_ids: list[int] = []
     user_count: int = 0
-    # The pane types it may use (every one, for the Admin group). The
-    # booleans are worked out from these.
-    pane_types: list[str] = []
 
 
 class UserBase(BaseModel):
@@ -251,22 +216,12 @@ class UserOut(BaseModel):
     group_name: str
     is_admin: bool
     avatar_url: Optional[str] = None
-    # The user's group's tab visibility -- included here (not just on
-    # UserGroupOut) because /api/auth/me is how a non-admin user, who can't
-    # call the admin-only /api/user-groups, finds out which tabs they can see.
-    logs_enabled: bool
-    opensearch_enabled: bool
-    iot_enabled: bool
-    tables_enabled: bool
-    buckets_enabled: bool
-    cognito_enabled: bool
-    aggregator_enabled: bool
-    tools_enabled: bool
+    # Whether the platform agent is on for their group. Every pane type is
+    # everyone's (D160): what a group is given is its environments and who it
+    # is on them, never a list of panes.
     agent_enabled: bool = False
     # Whether they may build pane types (§24): their group's Builder, or an admin.
     builder_enabled: bool = False
-    # The pane types the user's group may use (D65): what the catalogue offers.
-    pane_types: list[str] = []
 
 
 class LoginRequest(BaseModel):
@@ -866,8 +821,8 @@ class CredentialTypeOut(BaseModel):
     in_use: int = 0
     has_test: bool = False
     store_state: Optional[str] = None
-    # The group whose builders made it (D158); null for an admin's or a built-in.
-    owner_group: Optional[str] = None
+    # Who owns it (D161): its maker unless an admin handed it on.
+    owner: Optional[str] = None
     # Why the caller can't change it, in a sentence; null when they can.
     locked: Optional[str] = None
 

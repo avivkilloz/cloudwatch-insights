@@ -97,6 +97,14 @@ class BuildFocus(BaseModel):
     try_now: bool = False
     # "Fix what's left": the Builder reads what's left from the draft itself.
     fix_now: bool = False
+    # The editor's draft (D161): a new one's members work in it without the
+    # Builder of their own, as its starter's invitees.
+    draft_id: Optional[int] = None
+    # Who answers (D163): the Builder's loop, which changes the draft
+    # (@builder), or the platform agent, which talks about it and reads
+    # what's around it (@platform-agent) -- with the same tools, as the chat
+    # agent beside an editor always had them.
+    agent: Literal["builder", "platform"] = "builder"
 
 
 class AgentChatRequest(BaseModel):
@@ -169,31 +177,25 @@ async def agent_chat(
         build = payload.build
         if build is None:
             raise HTTPException(status_code=400, detail="A build chat needs the editor it's about.")
-        if build.kind == "workflow":
-            # As its editor (D121): a new one is any builder's or admin's; an
-            # existing one, an admin's or its group's builders'.
-            from .. import workflows
+        # A new one is a Builder's (or an admin's) to make; an existing one,
+        # its owner's, members' and admins' to change (D161).
+        from .. import build_access
 
-            existing = db.get(models.Workflow, build.id) if build.id else None
-            allowed = workflows.can_edit(current_user, existing)
-        elif build.kind in ("credential", "connection"):
-            # A type (D158): a new one is any builder's; an existing one,
-            # whoever may change it now.
-            from .. import type_access, type_defs
+        from .. import build_drafts
 
-            existing = db.get(type_defs.MODELS[build.kind], build.id) if build.id else None
-            allowed = (type_access.may_make(current_user) if existing is None
-                       else type_access.why_locked(db, current_user, f"{build.kind}_type", existing) is None)
-        else:
-            allowed = builder.can_build(current_user)
-        if not allowed:
-            raise HTTPException(
-                status_code=403,
-                detail="Only an admin, or a builder of the group that made it, edits this workflow."
-                if build.kind == "workflow"
-                else "That type is locked to you: it says why in its editor." if build.kind in ("credential", "connection")
-                else "Building pane types and steps isn't turned on for your group.",
-            )
+        existing = db.get(build_access.MODELS[build.kind], build.id) if build.id else None
+        invited = False
+        if existing is None and build.draft_id is not None:
+            try:
+                invited = build_drafts.reachable(db, current_user, build.draft_id).target_id is None
+            except build_drafts.DraftError:
+                invited = False
+        if existing is None and not invited and not build_access.can_create(current_user):
+            raise HTTPException(status_code=403, detail="Making pane types, steps, workflows and types is for admins "
+                                                        "and groups with the Builder.")
+        why = build_access.why_locked(db, current_user, build.kind, existing) if existing is not None else None
+        if why:
+            raise HTTPException(status_code=403, detail=why)
         focus = {
             "kind": "build",
             "what": build.kind,
@@ -204,6 +206,7 @@ async def agent_chat(
             **({"try_on": build.try_on} if build.try_on else {}),
             **({"try_now": True} if build.try_now else {}),
             **({"fix_now": True} if build.fix_now else {}),
+            **({"agent": "platform"} if build.agent == "platform" else {}),
             # Nothing built yet -- empty, or the starter a new pane opens with:
             # the Builder starts it from the closest working pane (D155).
             **({"blank": True} if build.kind == "pane" and not build.files

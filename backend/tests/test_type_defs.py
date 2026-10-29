@@ -62,10 +62,10 @@ def test_a_draft_of_an_existing_type_is_its_text_and_held_to_who_may_change_it()
     assert "label: Acme API" in text and "base_url" not in text
     draft = client.post("/api/build-drafts", json={"kind": "connection", "target_id": "acme", "source": text})
     assert draft.status_code == 201 and draft.json()["changed"] is False
-    # Another group's builder can't make a draft of an admin's type.
+    # Another builder can't work in a draft of an admin's type, and is told why (D161).
     other = _member("oli", _group("Others", builder_enabled=True))
-    assert other.post("/api/build-drafts", json={"kind": "connection", "target_id": "acme", "source": text}
-                      ).status_code == 404
+    refused = other.post("/api/build-drafts", json={"kind": "connection", "target_id": "acme", "source": text})
+    assert refused.status_code == 403 and "Made by admin" in refused.json()["detail"]
     assert other.post("/api/build-drafts", json={"kind": "connection", "source": "label: Mine\n"}).status_code == 201
     # Deleting the type forgets everyone's drafts of it.
     assert client.delete("/api/connection-types/acme").status_code == 204

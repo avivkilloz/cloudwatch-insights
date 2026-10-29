@@ -27,18 +27,10 @@ class UserGroup(Base):
     # (manage users/groups/settings/environments), and it always sees every
     # environment regardless of the group_environment_access list.
     is_admin = Column(Boolean, nullable=False, server_default="false")
-    logs_enabled = Column(Boolean, nullable=False, server_default="true")
-    # CloudWatch and OpenSearch are two pages and two sets of credentials, so
-    # a group can have one without the other. Older databases carried both
-    # under logs_enabled; the column is backfilled from it when it is added,
-    # in main.py, so nobody silently gains a page they were not given.
-    opensearch_enabled = Column(Boolean, nullable=False, server_default="true")
-    iot_enabled = Column(Boolean, nullable=False, server_default="true")
-    tables_enabled = Column(Boolean, nullable=False, server_default="true")
-    buckets_enabled = Column(Boolean, nullable=False, server_default="true")
-    cognito_enabled = Column(Boolean, nullable=False, server_default="true")
-    aggregator_enabled = Column(Boolean, nullable=False, server_default="true")
-    tools_enabled = Column(Boolean, nullable=False, server_default="true")
+    # The per-page booleans (logs_enabled, tools_enabled, …) and then a grant
+    # per pane type (D65) used to say which panes a group may use. Every pane
+    # type is everyone's now (D160): a group is given environments and who it
+    # is on them. The old columns stay in the table, unread.
     # The platform agent acts as the user who asks it, with everything their
     # group can reach -- so unlike the page flags it starts off, and an admin
     # turns it on for a group deliberately. The Admin group gets it on
@@ -54,21 +46,6 @@ class UserGroup(Base):
     environment_links = relationship(
         "GroupEnvironmentAccess", back_populates="group", cascade="all, delete-orphan"
     )
-    # Which pane types it may use (D65, pane_access.py) -- the *_enabled
-    # columns above are no longer read for panes; they're kept for rollback.
-    pane_grants = relationship("GroupPaneGrant", cascade="all, delete-orphan", lazy="selectin")
-
-
-class GroupPaneGrant(Base):
-    """One pane type a group may use (PLATFORM_PLAN.md §19.1, D65). The Admin
-    group needs none: it can use every pane type."""
-
-    __tablename__ = "group_pane_grants"
-    __table_args__ = (UniqueConstraint("group_id", "pane_type", name="uq_group_pane_grant"),)
-
-    id = Column(Integer, primary_key=True)
-    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
-    pane_type = Column(String, nullable=False)
 
 
 class CatalogueCategory(Base):
@@ -201,9 +178,10 @@ class ConnectionType(Base):
     builtin = Column(Boolean, nullable=False, server_default="false")
     # "manifest:<pane type>" for one a pane shipped; null for an admin's own.
     origin = Column(String, nullable=True)
-    # The group whose builders made it and may change it (D158); null for an
-    # admin's, a built-in, a manifest's or one restored from the store.
-    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    # Who made it, unless an admin handed it on (D161): with its members
+    # (build_members) and admins, who may change it. Null: an admin's alone.
+    # Deployment state, never in the store's file.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class Connection(Base):
@@ -549,10 +527,10 @@ class CredentialType(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
-    # The group whose builders made it and may change it (D158); null for an
-    # admin's, a built-in or one restored from the store. Deployment state:
-    # never in the store's file.
-    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    # Who made it, unless an admin handed it on (D161): with its members
+    # (build_members) and admins, who may change it. Null: an admin's alone.
+    # Deployment state, never in the store's file.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class Credential(Base):
@@ -762,10 +740,10 @@ class Workflow(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
-    # The group whose builders may edit it (D121): the group of the builder
-    # who made it. None -- an admin's, or one from before builders -- is
-    # admins' alone.
-    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    # Who made it, unless an admin handed it on (D161): with its members
+    # (build_members) and admins, who may change it. Null: an admin's alone.
+    # Deployment state, never in the store's file.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class PublishedTemplate(Base):
@@ -804,6 +782,10 @@ class BuiltPaneType(Base):
     source = Column(Text, nullable=False)
     # Its Python files beside the YAML (D136), name -> text; None is none.
     files = Column(JSON, nullable=True)
+    # Who made it, unless an admin handed it on (D161): with its members
+    # (build_members) and admins, who may change it. Null: an admin's alone.
+    # Deployment state, never in the store's file.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -814,8 +796,7 @@ class BuiltStepType(Base):
     """A step type made in the Builder (PLATFORM_PLAN.md §7.3, D122): a
     declarative HTTP request or a chain of steps, used by workflows as one
     step. Kept as its YAML, verbatim, like a pane type's (the store's
-    `steps/<name>.yaml`); `owner_group_id` is the group whose builders may
-    change it, as a workflow's (D121)."""
+    `steps/<name>.yaml`). Changed by its owner, its members and admins (D161)."""
 
     __tablename__ = "built_step_types"
 
@@ -823,22 +804,31 @@ class BuiltStepType(Base):
     source = Column(Text, nullable=False)
     # Its Python files beside the YAML (D136), name -> text; None is none.
     files = Column(JSON, nullable=True)
-    owner_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
+    # Who made it, unless an admin handed it on (D161): with its members
+    # (build_members) and admins, who may change it. Null: an admin's alone.
+    # Deployment state, never in the store's file.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
 
 
-class WorkflowGrant(Base):
-    """A group that may run a workflow (D84). The Admin group needs none."""
+class BuildMember(Base):
+    """Someone besides its owner who may change something built (D161): a
+    pane type, a step type, a workflow, a credential or connection type --
+    `target_id` its id, or `draft:<id>` for one still being made. Added by
+    its owner or an admin, as a session's members are by its owner."""
 
-    __tablename__ = "workflow_grants"
-    __table_args__ = (UniqueConstraint("workflow_id", "group_id", name="uq_workflow_grant"),)
+    __tablename__ = "build_members"
+    __table_args__ = (UniqueConstraint("kind", "target_id", "user_id", name="uq_build_member"),)
 
     id = Column(Integer, primary_key=True)
-    workflow_id = Column(String(64), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
-    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(16), nullable=False)
+    target_id = Column(String(80), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
 
 
 class WorkflowRun(Base):
@@ -954,21 +944,25 @@ class Blob(Base):
 
 
 class BuildDraft(Base):
-    """What someone is building and hasn't saved (D125): a pane type's, a step
-    type's or a workflow's text as they left it, the Id they typed for a new
-    one, and their Building chat about it -- saved as they type, so leaving
-    the page loses nothing. Theirs alone, and deployment state: never the
-    store's (a plugin repo holds what was saved, not what's half made). One
-    per person per existing item (`target_id`); a new one has none, and
-    there may be several."""
+    """What's being built and isn't saved (D125): a pane type's, a step
+    type's, a workflow's or a type's text as it was left, the Id typed for a
+    new one, and the chat about it -- saved as it's typed, so leaving the
+    page loses nothing. Deployment state: never the store's (a plugin repo
+    holds what was saved, not what's half made).
+
+    One per saved item (`target_id`), shared by everyone who may change it
+    (D161) -- its owner, its members, admins -- and kept after Save, holding
+    the chat; a new one has none and is its starter's (`user_id`) and its
+    members' (build_members, `draft:<id>`)."""
 
     __tablename__ = "build_drafts"
     __table_args__ = (
-        Index("uq_build_drafts_target", "user_id", "kind", "target_id", unique=True,
+        Index("uq_build_drafts_item", "kind", "target_id", unique=True,
               postgresql_where=text("target_id IS NOT NULL")),
     )
 
     id = Column(Integer, primary_key=True)
+    # Who started it: a new one's owner until it's created.
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     kind = Column(String(16), nullable=False)
     target_id = Column(String(64), nullable=True)

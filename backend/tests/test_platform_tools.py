@@ -159,7 +159,7 @@ def test_tokens_are_stored_only_as_hashes():
 def test_context_lists_only_what_the_group_can_reach(mcp):
     visible = _environment("Visible")
     _environment("Hidden", "999988887777")
-    bob = _group(agent_enabled=True, iot_enabled=False)
+    bob = _group(agent_enabled=True)
     groups = client.get("/api/user-groups").json()
     agents = next(g for g in groups if g["name"] == "Agents")
     client.put(f"/api/user-groups/{agents['id']}", json={"environment_ids": [visible]})
@@ -167,8 +167,8 @@ def test_context_lists_only_what_the_group_can_reach(mcp):
     context = call(mcp, _token(bob, timezone="Europe/London"), "get_context")
     assert [e["name"] for e in context["environments"]] == ["Visible"]
     kinds = [k["kind"] for k in context["pane_kinds"]]
-    assert "iot" not in kinds and "logs-cloudwatch" in kinds
-    # Every kind the group has is offered.
+    # Every kind is offered: every pane is everyone's (D160).
+    assert "iot" in kinds and "logs-cloudwatch" in kinds
     mqtt = next(k for k in context["pane_kinds"] if k["kind"] == "tool-mqtt")
     # MQTT's connection is the server's now (D54): the agent can fill it in,
     # connect and read -- but not publish.
@@ -220,24 +220,19 @@ def test_create_session_writes_the_browsers_own_shape_and_announces_it_as_the_ag
     assert _row(again["session_id"]).title == "Checkout errors 2"
 
 
-def test_a_kind_the_group_lacks_can_not_be_added(mcp):
-    bob = _group(agent_enabled=True, tables_enabled=False)
-    error = call_error(mcp, _token(bob), "create_session", title="x", panes=[{"kind": "tables"}])
-    assert "DynamoDB" in error
-
-
-def test_add_pane_also_refuses_a_kind_the_group_lacks(mcp):
-    bob_id = _group(agent_enabled=True, tables_enabled=False)
+def test_any_kind_can_be_added_and_an_unknown_one_cant(mcp):
+    # Every pane is everyone's (D160): a plain group's agent adds any kind.
+    bob_id = _group(agent_enabled=True)
     token = _token(bob_id)
-    session = call(mcp, token, "create_session", title="x", panes=[{"kind": "tool-base64"}])["session_id"]
-    error = call_error(mcp, token, "add_pane", session_id=session, kind="tables")
-    assert "DynamoDB" in error
+    session = call(mcp, token, "create_session", title="x", panes=[{"kind": "tables"}])["session_id"]
+    call(mcp, token, "add_pane", session_id=session, kind="iot")
+    assert "no pane kind" in call_error(mcp, token, "add_pane", session_id=session, kind="nope")
     db = SessionLocal()
     try:
         row = live_store.get(db, bob_id, session)
     finally:
         db.close()
-    assert row.state["services"] == ["tool-base64"]
+    assert row.state["services"] == ["tables", "iot"]
 
 
 def test_run_pane_also_refuses_an_environment_outside_the_group(mcp):
@@ -296,15 +291,15 @@ def test_nobody_can_run_a_shared_pane_with_the_owners_access(mcp, monkeypatch):
     assert searched == ["111100001111", "999988887777"] and out["thingResults"]["total"] == 1
 
 
-def test_a_shared_sessions_pane_is_still_gated_by_the_members_own_group_not_the_owners(mcp):
-    # The owner's group has "tables" turned on; the invited editor's doesn't
-    # -- the pane already exists in the shared session, but the member's own
-    # agent still can't touch it, exactly as if they'd tried to add it fresh.
+def test_a_shared_sessions_pane_is_the_members_to_use_too(mcp):
+    # Every pane is everyone's (D160): an invited editor's agent fills in a
+    # pane the owner added, whatever their group -- what it reaches when it
+    # runs is still theirs (the environment tests above).
     session = call(mcp, _token(), "create_session", title="Shared", panes=[{"kind": "tables"}])["session_id"]
-    bob = _group(agent_enabled=True, tables_enabled=False)
+    bob = _group(agent_enabled=True)
     client.post(f"/api/live-sessions/{session}/members", json={"username": "bob", "permission": "editor"})
-    error = call_error(mcp, _token(bob), "set_pane_inputs", session_id=session, pane_id="tables", inputs={})
-    assert "DynamoDB" in error
+    call(mcp, _token(bob), "set_pane_inputs", session_id=session, pane_id="tables", inputs={"tableName": "Orders"})
+    assert _row(session).state["tables.in.tableName"] == "Orders"
 
 
 def test_adding_and_removing_panes_follows_the_browsers_rules(mcp):

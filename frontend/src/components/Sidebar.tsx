@@ -74,7 +74,7 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
   const openPublished = useOpenPublishedFromMenu();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
-  const { groups: catalogueGroups } = useCatalogue();
+  const { groups: catalogueGroups, noEnvironment } = useCatalogue();
 
   // Which row is being renamed in place. Started from the row's ⋮ or from a
   // double-click on its name.
@@ -431,7 +431,9 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
             </span>
           )}
         </button>
-        {user?.builder_enabled && (
+        {/* Everyone's (D160, D161): what's built is everyone's to read, and its
+            members change it whether or not their group has the Builder. */}
+        {user && (
           <button className={`rail-row rail-row-page${view === "builder" ? " active" : ""}`} onClick={() => show("builder")}>
             <span className="rail-row-icon">
               <Icon name="builder" />
@@ -601,9 +603,9 @@ export default function Sidebar({ open: expanded, brand }: { open: boolean; bran
                 {types.map((t) => (
                   <button
                     key={t.type}
-                    className="rail-row rail-row-type"
+                    className={`rail-row rail-row-type${noEnvironment[t.type] ? " no-environment" : ""}`}
                     onClick={() => startOne(t.type)}
-                    title={`Start a session on ${t.label} — ${t.description}`}
+                    title={`Start a session on ${t.label} — ${t.description}${noEnvironment[t.type] ? ` (${noEnvironment[t.type]})` : ""}`}
                   >
                     <span className="rail-row-label">{t.label}</span>
                   </button>

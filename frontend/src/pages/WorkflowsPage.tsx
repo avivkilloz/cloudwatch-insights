@@ -5,7 +5,6 @@ import {
   api,
   BlobRef,
   readableError,
-  UserGroup,
   Workflow,
   WorkflowApproval,
   WorkflowParam,
@@ -17,8 +16,9 @@ import CodeEditor, { problemLines } from "../components/CodeEditor";
 import { CardRow } from "../components/SessionCard";
 import { ParamFields } from "../components/WorkflowParamFields";
 import { StoreBadge } from "../components/settings/StoreSettings";
-import { rowProps, Section, TagPicker, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
+import { rowProps, Section, ViewHead, ViewSwitch } from "../components/settings/settingsLayout";
 import { useAuth } from "../AuthContext";
+import BuildMembers from "../components/BuildMembers";
 import { DraftStatus, draftTime, useBuildDraft, useDraftList } from "./buildDraft";
 import { useSessions } from "../sessions/SessionContext";
 import { APPROVALS_EVENT, useWaitingApprovals } from "../workflowApprovals";
@@ -258,7 +258,9 @@ function ListView({ open }: { open: (s: Screen) => void }) {
                     <span className="muted">Never run</span>
                   )}
                 </td>
-                <td className="workflows-run-cell">{w.can_run && <span className="muted">Run ▸</span>}</td>
+                <td className="workflows-run-cell">
+                  <span className="muted">Run ▸</span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -293,8 +295,9 @@ function WaitingForYou({ open }: { open: (s: Screen) => void }) {
   );
 }
 
-/** Admins and builders (D121): a builder's is their group's to edit and run.
- * Made in the Builder's Workflows, beside pane and step types (D128). */
+/** Admins and builders make new ones (D121): everyone's to run at once
+ * (D160), changed by its maker and the members they add (D161). Made in the
+ * Builder's Workflows, beside pane and step types (D128). */
 function NewWorkflowButton() {
   const { user } = useAuth();
   const { show } = useSessions();
@@ -359,7 +362,6 @@ function WorkflowView({
   draft?: Draft | null;
   buildDraft?: number | null;
 }) {
-  const { user } = useAuth();
   const { show } = useSessions();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -411,7 +413,7 @@ function WorkflowView({
   return (
     <div className="panel credential-view workflow-view">
       <ViewHead back={() => open({ kind: "list" })} title={isNew ? "New workflow" : workflow!.label}>
-        {workflow?.can_run && !running && (
+        {workflow && !running && (
           <button className="workflow-run-button" onClick={() => setRunning(true)}>
             Run ▸
           </button>
@@ -451,8 +453,6 @@ function WorkflowView({
           saved={(w) => (isNew ? open({ kind: "workflow", id: w.id }) : (setWorkflow(w), load()))}
         />
       )}
-      {/* Granting other groups stays an admin's (D121, as for built panes). */}
-      {workflow?.can_edit && user?.is_admin && <AccessSection workflow={workflow} saved={setWorkflow} />}
     </div>
   );
 }
@@ -473,7 +473,6 @@ export function WorkflowEditor({
   back: () => void;
   opened: (id: string) => void;
 }) {
-  const { user } = useAuth();
   const { show } = useSessions();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -531,7 +530,6 @@ export function WorkflowEditor({
         setNewId={setNewId}
         saved={(w) => (isNew ? opened(w.id) : setWorkflow(w))}
       />
-      {workflow?.can_edit && user?.is_admin && <AccessSection workflow={workflow} saved={setWorkflow} />}
     </div>
   );
 }
@@ -623,6 +621,7 @@ function DefinitionSection({
     base,
     source,
     newId,
+    editable,
     restore: (text, typedId) => {
       setSource(text);
       if (isNew) setNewId(typedId);
@@ -680,6 +679,7 @@ function DefinitionSection({
   }
 
   return (
+    <>
     <Section title="Definition">
       {isNew && (
         <CardRow label="Id">
@@ -729,44 +729,11 @@ function DefinitionSection({
       )}
       {editable && <BuilderNeeds kind="workflow" source={source} />}
       {editable && <DraftStatus kept={kept} />}
+      {!editable && workflow?.locked && <p className="muted builder-locked">{workflow.locked}</p>}
     </Section>
-  );
-}
-
-function AccessSection({ workflow, saved }: { workflow: Workflow; saved: (w: Workflow) => void }) {
-  const [groups, setGroups] = useState<UserGroup[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    api
-      .listUserGroups()
-      .then((all) => setGroups(all.filter((g) => !g.is_admin)))
-      .catch((e) => setError(readableError(e)));
-  }, []);
-  async function change(ids: number[]) {
-    try {
-      saved(await api.setWorkflowGrants(workflow.id, ids));
-    } catch (e) {
-      setError(readableError(e));
-    }
-  }
-  return (
-    <Section title="Access">
-      <CardRow label="Who may run it">
-        <TagPicker
-          items={groups}
-          chosen={workflow.group_ids ?? []}
-          onChange={change}
-          label="Let a group run it"
-          addLabel="+ A group…"
-          allChosenLabel="Every group may"
-          emptyLabel="Admins only"
-        />
-      </CardRow>
-      <p className="muted connection-type-note">
-        A run acts as whoever starts it. Its outputs are seen by them, their group and admins.
-      </p>
-      {error && <p className="error-text">{error}</p>}
-    </Section>
+    {/* Who changes it (D161): its owner, the members they add, admins. */}
+    {editable && <BuildMembers kind="workflow" target={isNew ? (kept.id !== null ? `draft:${kept.id}` : null) : workflow?.id ?? null} />}
+    </>
   );
 }
 

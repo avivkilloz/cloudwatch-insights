@@ -3,8 +3,8 @@
 //   - Settings → Catalogue: a new category, a pane moved into it, the category
 //     moved first, renamed -- and every list of panes follows: the default
 //     page, the side panel's Add list, a session's card;
-//   - a member sees only the panes their group may use, under the same
-//     categories; starring one puts it first in their lists as Favourites,
+//   - a member sees every pane (D160), under the same categories, in the
+//     admin's order; starring one puts it first in their lists as Favourites,
 //     hiding one leaves it out until "Show hidden";
 //   - deleting a category moves its panes to the one chosen.
 import { check, clearWorkspace, launch, newPage, newSession, openApp, report, SHOWN, signIn } from "./harness.mjs";
@@ -84,15 +84,15 @@ const run = async () => {
   check(cardRows[2] === "Security" && cardRows.includes("Services") && cardRows.includes("Tools"), "…and a session's card", JSON.stringify(cardRows));
 
   // ---- 2. a member's own view
-  const g = (await api(page, "POST", "/user-groups", { name: `g-${USER}`, pane_types: ["tool-jwt", "tool-base64", "tool-diff"] })).body;
+  const g = (await api(page, "POST", "/user-groups", { name: `g-${USER}` })).body;
   await api(page, "POST", "/users", { username: USER, password: "pw-123456", group_id: g.id });
   const member = await newPage(browser);
   await signIn(member, { username: USER, password: "pw-123456" });
   await member.click(".rail-row-home");
   await member.waitForSelector(".home h3");
   const theirs = (await homeHeadings(member)).map((h) => h.trim().toUpperCase());
-  check(JSON.stringify(theirs.slice(0, 2)) === JSON.stringify(["SECURITY", "TOOLS"]) && !theirs.includes("SERVICES"),
-    "A member sees the same categories, with only their panes, and none left empty", JSON.stringify(theirs));
+  check(theirs[0] === "SECURITY" && theirs.includes("TOOLS") && theirs.includes("SERVICES"),
+    "A member sees the same categories, every pane in them (D160)", JSON.stringify(theirs));
   await member.hover('.home-card[data-pane-type="tool-base64"]');
   await member.click('[aria-label="Star Base64"]');
   await member.waitForFunction(() => [...document.querySelectorAll(".rail .rail-heading")].some((h) => h.textContent.trim().toUpperCase() === "FAVOURITES"));

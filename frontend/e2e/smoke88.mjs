@@ -1,7 +1,7 @@
 // The doors between workflows and sessions (PLATFORM_PLAN.md §22.10,
 // D95-D98), as an admin, against the faked backend's log groups (an account
 // starting "0000") and the fake model:
-//   - a run on screen makes the agent panel's second tab "This run", whose
+//   - a run on screen makes the agent panel's second tab "Run" (D163), whose
 //     chat reaches the agent with the run read in, and is kept on the run;
 //   - Investigate in a session opens what the run found as a pane, holding
 //     its results, with where it came from in the description;
@@ -66,8 +66,8 @@ const run = async () => {
     await page.waitForSelector(".workflow-run");
     await page.waitForSelector(DOCK);
     const tabs = await page.locator(`${DOCK} .agent-tab`).allInnerTexts();
-    check(tabs.some((t) => t.startsWith("This run")), "A run on screen makes the panel's second tab This run", JSON.stringify(tabs));
-    await page.click(`${DOCK} .agent-tab:has-text("This run")`);
+    check(tabs.some((t) => t.startsWith("Run")), "A run on screen makes the panel's second tab Run", JSON.stringify(tabs));
+    await page.click(`${DOCK} .agent-tab:text-is("Run")`);
     const intro = await page.locator(`${DOCK} .agent-transcript`).innerText();
     check(intro.includes(`${LABEL} #1`), "…and it says which run", intro.slice(0, 200));
     await page.fill(`${DOCK} .agent-compose-input`, "which run is this?");

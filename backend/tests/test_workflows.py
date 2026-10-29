@@ -63,13 +63,10 @@ def _errors(source: str) -> list[str]:
     return [f"{e.get('line')}: {e['message']}" for e in resp.json()["errors"]]
 
 
-def _member(name: str, pane_types: list[str], env: int | None = None, grant: str | None = None):
-    g = client.post("/api/user-groups", json={"name": f"{name}-g", "pane_types": pane_types,
-                                              "environment_ids": [env] if env else [], "role_name": "R"}).json()
+def _member(name: str, env: int | None = None):
+    g = client.post("/api/user-groups", json={"name": f"{name}-g", "environment_ids": [env] if env else [],
+                                              "role_name": "R"}).json()
     assert client.post("/api/users", json={"username": name, "password": "pw-123456", "group_id": g["id"]}).status_code == 201
-    if grant:
-        current = client.get(f"/api/workflows/{grant}").json().get("group_ids", [])
-        assert client.put(f"/api/workflows/{grant}/grants", json={"group_ids": current + [g["id"]]}).status_code == 200
     return g["id"], _login_as(name, "pw-123456")
 
 
@@ -99,14 +96,19 @@ def test_each_step_is_checked(snippet, says):
     assert any(says in e for e in _errors(source)), _errors(source)
 
 
-def test_saved_as_written_with_its_id_and_admins_only():
+def test_saved_as_written_with_its_id_made_by_a_builder_and_everyones_to_run():
     made = _create()
     assert made["id"] == "table_check" and made["label"] == "Table check"
     assert made["source"].startswith("id: table_check\n# Says how many items")
     assert [p["key"] for p in made["parameters"]] == ["env", "table"]
-    _, bob = _member("bob", ["tables"])
+    assert made["owner"] == "admin" and made["can_edit"] is True
+    _, bob = _member("bob")
     assert bob.post("/api/workflows", json={"id": "mine", "source": SCAN}).status_code == 403
-    assert bob.get("/api/workflows/table_check").status_code == 404  # not granted: not there for them
+    # Everyone's to see and run (D160); not bob's to change (D161).
+    seen = bob.get("/api/workflows/table_check").json()
+    assert seen["can_edit"] is False and "admin" in seen["locked"]
+    assert "table_check" in [w["id"] for w in bob.get("/api/workflows").json()]
+    assert bob.put("/api/workflows/table_check", json={"source": SCAN}).status_code == 403
 
 
 # ---------------------------------------------------------------- running
@@ -175,20 +177,19 @@ def test_parameters_are_checked_at_the_start(aws):
 def test_a_step_acts_as_the_starter(aws):
     env = _environment()
     _create()
-    # Granted the workflow, but not DynamoDB: the scan is refused as their own click would be.
-    _, bob = _member("bob", ["tool-base64"], env, grant="table_check")
-    run = _run("table_check", {"env": env}, c=bob)
-    done = _finished(run["id"], c=bob)
-    assert done["status"] == "failed"
-    assert "DynamoDB turned on" in done["steps"][0]["error"]
+    # Everyone runs it (D160), but as themselves: an environment bob's group
+    # doesn't have is refused as his own click would be.
+    _, bob = _member("bob")
+    refused = _run("table_check", {"env": env}, c=bob, status=400)
+    assert "reach" in refused["detail"], refused
     assert aws["scan"] == []
 
 
 def test_a_runs_outputs_are_its_starters_groups_and_admins(aws):
     env = _environment()
     _create()
-    gid, bob = _member("bob", ["tables"], env, grant="table_check")
-    _, carol = _member("carol", ["tables"], env, grant="table_check")
+    gid, bob = _member("bob", env)
+    _, carol = _member("carol", env)
     # dave shares bob's group.
     assert client.post("/api/users", json={"username": "dave", "password": "pw-123456", "group_id": gid}).status_code == 201
     dave = _login_as("dave", "pw-123456")

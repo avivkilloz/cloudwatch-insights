@@ -59,29 +59,18 @@ def test_a_drafts_action_runs_as_its_builder_and_nothing_is_stored(monkeypatch):
     assert broken.status_code == 400 and broken.json()["detail"].startswith("The draft has a problem: Line ")
 
 
-def test_only_a_builder_previews():
-    plain = _member("pat", _group("Plain", pane_types=["tool-base64"]))
+def test_only_a_builder_previews_a_new_one():
+    plain = _member("pat", _group("Plain"))
     assert plain.post("/api/builder/preview", json={"source": ENCODER}).status_code == 403
     assert plain.post("/api/builder/preview/actions/convert", json={"source": ENCODER}).status_code == 403
 
 
-def test_a_builder_names_only_handlers_of_panes_their_group_may_use():
-    """Built panes are granted to their builder's group at once (D105): a
-    handler of a pane they weren't given reached past the admin's grants."""
-    bea = _member("bea", _group("Builders", builder_enabled=True, pane_types=["tool-base64"]))
-    assert "aws.dynamodb.scan" not in bea.get("/api/builder/schema").json()["handlers"]
-    checked = bea.post("/api/builder/check", json={"source": SCAN}).json()
-    assert checked["ok"] is False
-    [error] = checked["errors"]
-    assert error["line"] == 12 and "can't use the handler aws.dynamodb.scan" in error["message"] and "DynamoDB" in error["message"]
-    assert bea.post("/api/builder/panes", json={"id": "peek", "source": SCAN}).status_code == 400
-    assert bea.post("/api/builder/preview", json={"source": SCAN}).json()["ok"] is False
-
-    # Given DynamoDB, they may build on its handlers; an admin always may.
-    dee = _member("dee", _group("Table builders", builder_enabled=True, pane_types=["tables"]))
-    assert "aws.dynamodb.scan" in dee.get("/api/builder/schema").json()["handlers"]
-    assert dee.post("/api/builder/check", json={"source": SCAN}).json() == {"ok": True, "errors": []}
-    assert client.post("/api/builder/check", json={"source": SCAN}).json()["ok"] is True
+def test_a_builder_names_any_handler():
+    """Every pane is everyone's (D160), so a built pane may name the handler of
+    any: who it reaches is still the user's environments, at run time."""
+    bea = _member("bea", _group("Builders", builder_enabled=True))
+    assert "aws.dynamodb.scan" in bea.get("/api/builder/schema").json()["handlers"]
+    assert bea.post("/api/builder/check", json={"source": SCAN}).json() == {"ok": True, "errors": []}
     assert set(builder.handler_owners()["aws.dynamodb.scan"]) == {"tables"}
 
 
@@ -92,11 +81,11 @@ def test_the_agent_previews_a_draft_before_proposing_it(mcp, monkeypatch):
     assert out["outputs"]["rows"]["rows"] == 1 and out["outputs"]["rows"]["sample"][0]["Name"] == "orders"
     assert "nothing was saved" in out["note"]
     assert "background run" not in call_error(mcp, _token(), "preview_definition", source=ONE, action="nope")
-    # The agent, but not the Builder: its token is valid, its build tools refused.
-    _member("pat2", _group("Plain2", pane_types=["tool-base64"], agent_enabled=True))
+    # The agent, but not the Builder: its token is valid, a new one's preview refused.
+    _member("pat2", _group("Plain2", agent_enabled=True))
     with SessionLocal() as db:
         pat_id = db.query(models.User).filter_by(username="pat2").one().id
-    assert "isn't turned on" in call_error(mcp, _token(pat_id), "preview_definition", source=ONE, action="list")
+    assert "groups with the Builder" in call_error(mcp, _token(pat_id), "preview_definition", source=ONE, action="list")
 
 
 # ---------------------------------------------------------------- the turn's working draft (D114)

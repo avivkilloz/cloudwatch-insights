@@ -257,7 +257,6 @@ def _load_pane(db: Session, data: dict, row: Optional[models.BuiltPaneType],
 
 
 def _remove_pane(db: Session, row: models.BuiltPaneType) -> None:
-    db.query(models.GroupPaneGrant).filter_by(pane_type=row.id).delete()
     db.delete(row)
 
 

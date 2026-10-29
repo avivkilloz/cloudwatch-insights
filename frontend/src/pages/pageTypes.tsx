@@ -70,12 +70,13 @@ export const PAGES: PageDef[] = [
     label: "Builder",
     description: "Make panes, workflows and steps of your own.",
     help:
-      "Make panes of your own, written as the same definition every pane is: inputs, actions -- a request to " +
-      "a connection, or an action the platform already has -- and a layout. Yours to use at once; other groups' " +
-      "when an admin grants them. And workflows, and steps for them: a request, or a chain of steps used as one. " +
-      "And the kinds of connection and credential they need, your group's.",
-    // A group's Builder, or an admin (D71).
-    enabledFor: (user) => !!user?.builder_enabled,
+      "Panes made here, written as the same definition every pane is: inputs, actions -- a request to a " +
+      "connection, or an action the platform already has -- and a layout; workflows, and steps for them; and the " +
+      "kinds of connection and credential they need. Everyone's to use; changed by whoever made each, the members " +
+      "they add, and admins.",
+    // Everyone reads what's built (D160) and members change it (D161); making
+    // something new is a group's Builder's, or an admin's (D71).
+    enabledFor: () => true,
     render: () => <BuilderPage />,
   },
   {

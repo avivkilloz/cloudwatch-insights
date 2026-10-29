@@ -272,7 +272,10 @@ async def run_turn(
         yield {"type": "error", "message": f"The agent couldn't reach the platform's tools ({_reason(e)})."}
         return
 
-    if focus and focus.get("kind") == "build" and settings.builder == "loop":
+    # Beside an editor the Builder's loop answers -- unless the turn asked the
+    # platform agent (@platform-agent in a shared draft's chat, D163), which
+    # answers as the chat agent always did beside an editor.
+    if focus and focus.get("kind") == "build" and settings.builder == "loop" and focus.get("agent") != "platform":
         # Beside an editor, the Builder's own loop (D116): the code decides
         # every step, the model only what to change.
         http = httpx.AsyncClient(timeout=300)

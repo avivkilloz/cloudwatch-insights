@@ -1,5 +1,6 @@
-// CloudWatch and OpenSearch are separate group permissions, and a saved item's
-// collapsed row shows its name rather than its JSON.
+// A saved item's collapsed row shows its name rather than its JSON. (It also
+// checked CloudWatch and OpenSearch were separate group permissions; groups
+// have no per-pane permissions since D160 -- smoke80 checks that now.)
 import { BASE, SHOT, check, launch, report } from "./harness.mjs";
 const SAVED = '.panel:has(h2:text-is("Library"))';
 const GROUP = "Smoke CW only";
@@ -39,49 +40,6 @@ const run = async () => {
       if (g.name === group) await fetch(`/api/user-groups/${g.id}`, { method: "DELETE", credentials: "same-origin" });
     }
   }, [GROUP, USER]);
-
-  // ---------- 1. two permissions, not one ----------
-  // Users and their groups are one tab, switched inside it (D50).
-  await openSettings(page, "Users");
-  await page.click('.segmented button:text-is("Groups")');
-  // Groups open into sections now (PLATFORM_PLAN.md §14.8); a new one too.
-  await page.click('button:text-is("New group")');
-  await page.waitForSelector(".group-editor .group-flags", { timeout: 15000 });
-  const toggles = await page.locator(".group-editor .group-flags .checkbox-item").allInnerTexts();
-  const names = toggles.map((t) => t.trim());
-  check(names.includes("CloudWatch") && names.includes("OpenSearch"),
-    "The group form offers CloudWatch and OpenSearch separately", JSON.stringify(names));
-  check(!names.some((n) => n.includes("+")), "…and nothing is offered as a pair", JSON.stringify(names));
-  await page.screenshot({ path: `${SHOT}/36-groups.png` });
-
-  // A group with one and not the other -- which the old single flag could not say.
-  await page.fill("#group-name", GROUP);
-  await page.locator('.group-editor .checkbox-item:has-text("OpenSearch") input[type=checkbox]').uncheck();
-  await page.click('.group-editor .credential-view-foot button:text-is("Create")');
-  await page.waitForTimeout(800);
-  const stored = await page.evaluate(async (group) => {
-    const list = await (await fetch("/api/user-groups", { credentials: "same-origin" })).json();
-    const g = list.find((x) => x.name === group);
-    return g && { logs: g.logs_enabled, opensearch: g.opensearch_enabled };
-  }, GROUP);
-  check(stored && stored.logs === true && stored.opensearch === false,
-    "A group can have CloudWatch without OpenSearch", JSON.stringify(stored));
-
-  // And the pane list that user sees follows the two flags independently.
-  await page.evaluate(async ([group, user]) => {
-    const list = await (await fetch("/api/user-groups", { credentials: "same-origin" })).json();
-    const g = list.find((x) => x.name === group);
-    await fetch("/api/users", {
-      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user, password: "SmokePass123!", group_id: g.id }),
-    });
-  }, [GROUP, USER]);
-
-  const theirs = await login(browser, USER, "SmokePass123!");
-  const cards = await theirs.locator(".home-card-title").allInnerTexts();
-  check(cards.includes("CloudWatch"), "That group sees CloudWatch", JSON.stringify(cards));
-  check(!cards.includes("OpenSearch"), "…and not OpenSearch", JSON.stringify(cards));
-  await theirs.context().close();
 
   // ---------- 2. a saved row reads as its name ----------
   await page.evaluate(async () => {

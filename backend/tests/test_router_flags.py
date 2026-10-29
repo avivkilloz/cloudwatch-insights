@@ -1,31 +1,16 @@
-"""The per-page group flags (logs_enabled, opensearch_enabled, iot_enabled,
-tables_enabled, buckets_enabled, cognito_enabled, tools_enabled) are what the
-frontend uses to decide which pages to offer -- until now, the routers behind
-those pages never re-checked them, only environment visibility and the
-group's IAM role (pane_access.require closes that, per pane type now: D65).
-A raw request to a page a group's UI never shows used to still go through,
-as long as the group had the environment and a role; these tests prove that's
-no longer true, for one representative endpoint per flag.
+"""Every pane type is everyone's (D160): the per-page flags and then the grants
+per pane type (D65) are gone, and what still decides what a person reaches is
+their group's environments and who it is there. A pane's actions answer any
+signed-in user -- and still refuse an environment their group can't see,
+before any AWS call.
 
-Each disabled-flag call has to fail with pane_access.require's message ("turned
-on") *before* ever reaching AWS -- there are no real AWS credentials in this
-test run, so if the flag check didn't short-circuit first, the request would
-still fail, but with a different error (502, from the client call), which is
-exactly what proves the boundary: the enabled-flag counterpart of each test
-gets *that* different error instead, confirming the flag check passed and
-the request reached the (deliberately unreachable) AWS call."""
+There are no real AWS credentials in this run, so a call that gets past the
+platform's own checks fails at AWS instead (an error per environment, or a
+502): that different failure is what proves it got through."""
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-from tests.conftest import client
-
-
-def _login_as(username: str, password: str) -> TestClient:
-    c = TestClient(app)
-    resp = c.post("/api/auth/login", json={"username": username, "password": password})
-    assert resp.status_code == 200, resp.text
-    return c
+from tests.conftest import client, login_as
 
 
 def _environment(name: str = "Prod") -> int:
@@ -34,82 +19,57 @@ def _environment(name: str = "Prod") -> int:
     return resp.json()["id"]
 
 
-def _user(env_id: int, **flags) -> TestClient:
-    resp = client.post(
-        "/api/user-groups", json={"name": f"group-{flags}", "role_name": "R", "environment_ids": [env_id], **flags}
-    )
+def _user(env_ids: list[int], name: str) -> TestClient:
+    resp = client.post("/api/user-groups", json={"name": f"group-{name}", "role_name": "R", "environment_ids": env_ids})
     assert resp.status_code == 201, resp.text
     group_id = resp.json()["id"]
-    username = f"user-{group_id}"
+    username = f"user-{name}"
     client.post("/api/users", json={"username": username, "password": "pw-123456", "group_id": group_id})
-    return _login_as(username, "pw-123456")
-
-
-def _refused(resp) -> None:
-    assert resp.status_code == 400, resp.text
-    assert "turned on" in resp.json()["detail"], resp.text
-
-
-def _reached_aws(resp) -> None:
-    # Not the flag's own 400 -- whatever AWS-call error comes back instead
-    # (502, no real credentials here) proves the flag check let it through.
-    assert resp.status_code != 400 or "turned on" not in resp.json().get("detail", ""), resp.text
+    return login_as(username)
 
 
 def _action(c: TestClient, pane: str, action: str, inputs: dict):
     return c.post(f"/api/panes/{pane}/actions/{action}", json={"inputs": inputs})
 
 
-def _no_pane(resp) -> None:
-    # A ported pane's actions are one endpoint, which a group without the
-    # pane's flag doesn't have at all -- the same 404 as a pane type that
-    # doesn't exist, rather than a hint that it does.
-    assert resp.status_code == 404, resp.text
-    assert "no pane type" in resp.json()["detail"], resp.text
+def _reached_aws(resp) -> None:
+    # Not refused by the platform: whatever AWS-call error comes back instead.
+    assert resp.status_code not in (403, 404), resp.text
+    assert "turned on" not in str(resp.json()), resp.text
 
 
-def test_tables_disabled_refuses_dynamodb():
+def test_every_pane_type_is_offered_to_everyone():
     env_id = _environment()
-    off = _user(env_id, tables_enabled=False)
-    _no_pane(_action(off, "tables", "list_tables", {"connection": env_id}))
-    on = _user(env_id, tables_enabled=True)
-    _reached_aws(_action(on, "tables", "list_tables", {"connection": env_id}))
+    c = _user([env_id], "plain")
+    types = {m["id"] for m in c.get("/api/pane-types").json()}
+    assert {"tables", "buckets", "cognito", "logs-cloudwatch", "logs-opensearch", "iot", "tool-http",
+            "tool-mqtt"} <= types
+    me = c.get("/api/auth/me").json()
+    assert "pane_types" not in me and "logs_enabled" not in me
 
 
-def test_buckets_disabled_refuses_s3():
+def test_any_user_reaches_any_pane_in_their_own_environment():
     env_id = _environment()
-    off = _user(env_id, buckets_enabled=False)
-    _no_pane(_action(off, "buckets", "list_buckets", {"connection": env_id}))
-    on = _user(env_id, buckets_enabled=True)
-    _reached_aws(_action(on, "buckets", "list_buckets", {"connection": env_id}))
-
-
-def test_cognito_disabled_refuses_user_pools():
-    env_id = _environment()
-    off = _user(env_id, cognito_enabled=False)
-    _no_pane(_action(off, "cognito", "list_user_pools", {"connection": env_id}))
-    on = _user(env_id, cognito_enabled=True)
-    _reached_aws(_action(on, "cognito", "list_user_pools", {"connection": env_id}))
-
-
-def test_logs_disabled_refuses_cloudwatch():
-    env_id = _environment()
-    off = _user(env_id, logs_enabled=False)
-    _no_pane(_action(off, "logs-cloudwatch", "list_log_groups", {"connections": [env_id]}))
-    on = _user(env_id, logs_enabled=True)
-    resp = _action(on, "logs-cloudwatch", "list_log_groups", {"connections": [env_id]})
+    c = _user([env_id], "reach")
+    _reached_aws(_action(c, "tables", "list_tables", {"connection": env_id}))
+    _reached_aws(_action(c, "buckets", "list_buckets", {"connection": env_id}))
+    _reached_aws(_action(c, "cognito", "list_user_pools", {"connection": env_id}))
+    resp = _action(c, "logs-cloudwatch", "list_log_groups", {"connections": [env_id]})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["groups"][0].get("error")  # no real AWS -- fails past the flag check
-
-
-def test_opensearch_disabled_refuses_domains():
-    env_id = _environment()
-    off = _user(env_id, opensearch_enabled=False)
-    _no_pane(_action(off, "logs-opensearch", "list_domains", {"connections": [env_id]}))
-    on = _user(env_id, opensearch_enabled=True)
-    resp = _action(on, "logs-opensearch", "list_domains", {"connections": [env_id]})
+    assert resp.json()["groups"][0].get("error")  # no real AWS -- past every check of ours
+    resp = _action(c, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["groups"][0].get("error")
+    assert resp.json()["thingResults"][0].get("error")
+    _reached_aws(_action(c, "tool-mqtt", "publish", {"connection": env_id, "publishTopic": "devices/x", "payload": "{}"}))
+
+
+def test_an_environment_the_group_cant_see_is_still_refused():
+    mine = _environment("Mine")
+    theirs = _environment("Theirs")
+    c = _user([mine], "fenced")
+    resp = _action(c, "tables", "list_tables", {"connection": theirs})
+    assert resp.status_code in (400, 403, 404), resp.text
+    assert "AccessDenied" not in resp.text
 
 
 def test_the_old_per_service_routes_are_gone():
@@ -126,24 +86,3 @@ def test_the_old_per_service_routes_are_gone():
     assert client.get("/api/tables/list", params={"environment_id": env_id}).status_code == 404
     assert client.get("/api/buckets/list", params={"environment_id": env_id}).status_code == 404
     assert client.get("/api/cognito/user-pools", params={"environment_id": env_id}).status_code == 404
-
-
-def test_iot_disabled_refuses_search():
-    env_id = _environment()
-    off = _user(env_id, iot_enabled=False)
-    on = _user(env_id, iot_enabled=True)
-    _no_pane(_action(off, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"}))
-    resp = _action(on, "iot", "search", {"connections": [env_id], "queryString": "thingName:*"})
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["thingResults"][0].get("error")  # no real AWS -- fails past the flag check, per environment
-
-
-def test_tools_disabled_refuses_http_client_and_mqtt():
-    env_id = _environment()
-    off = _user(env_id, tools_enabled=False)
-    _no_pane(_action(off, "tool-http", "send", {"method": "GET", "url": "http://example.com"}))
-    publish = {"connection": env_id, "publishTopic": "devices/x", "payload": "{}"}
-    _no_pane(_action(off, "tool-mqtt", "publish", publish))
-
-    on = _user(env_id, tools_enabled=True)
-    _reached_aws(_action(on, "tool-mqtt", "publish", publish))

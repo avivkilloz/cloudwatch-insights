@@ -96,7 +96,7 @@ const run = async () => {
 
     // ---- 3. created, it runs in a session
     await page.click('.builder-view button:text-is("Create")');
-    await page.waitForSelector('.builder-notice:has-text("your group can use it now")', { timeout: 10000 });
+    await page.waitForSelector('.builder-notice:has-text("everyone can use it now")', { timeout: 10000 });
     const pane = (await api(page, "GET", "/builder/panes")).body.find((t) => t.id.endsWith(PANE));
     made.push(["pane", pane.id]);
     await page.click('.builder-view button:text-is("Open in a session")');

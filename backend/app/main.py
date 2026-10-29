@@ -16,7 +16,6 @@ from . import (
     credential_types,
     masking,
     models,
-    pane_access,
     store,
     workflows,
 )
@@ -30,6 +29,7 @@ from .routers import (
     agent,
     blobs as blobs_router,
     build_drafts as build_drafts_router,
+    build_members as build_members_router,
     builder as builder_router,
     auth,
     catalogue as catalogue_router,
@@ -53,20 +53,37 @@ from .routers import (
 Base.metadata.create_all(bind=engine)
 _added_columns = ensure_columns()
 
-# CloudWatch and OpenSearch used to share one flag, so a database written
-# before the split says nothing about OpenSearch on its own. Its column
-# defaults to true for brand-new groups, which would hand OpenSearch to every
-# group that had logs turned off -- so on the upgrade that adds it, it starts
-# out saying exactly what logs_enabled said.
-if "user_groups.opensearch_enabled" in _added_columns:
-    with engine.begin() as _conn:
-        _conn.execute(text("UPDATE user_groups SET opensearch_enabled = logs_enabled"))
-
 # The agent flag starts off for every group (see UserGroup.agent_enabled), but
 # the Admin group -- which can turn it on for anyone -- has it from the start.
 if "user_groups.agent_enabled" in _added_columns:
     with engine.begin() as _conn:
         _conn.execute(text("UPDATE user_groups SET agent_enabled = true WHERE is_admin"))
+
+# Who may change what's built is a person now, not a group (D161): what was
+# there is its maker's. A connection type kept no maker, so it is admins'
+# until one hands it on.
+for _table in ("built_pane_types", "built_step_types", "workflows", "credential_types"):
+    if f"{_table}.owner_id" in _added_columns:
+        with engine.begin() as _conn:
+            _conn.execute(text(f"UPDATE {_table} SET owner_id = created_by_id"))
+
+# One draft per thing built, shared by everyone who may change it (D161), in
+# place of one per person: the newest of each is kept, the others' chats
+# folded into it. Only while the old per-person index is there, so once.
+with engine.begin() as _conn:
+    if _conn.execute(text("SELECT 1 FROM pg_indexes WHERE indexname = 'uq_build_drafts_target'")).first():
+        from .build_drafts import fold_duplicates
+
+        fold_duplicates(_conn)
+        _conn.execute(text("DROP INDEX uq_build_drafts_target"))
+    _conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_build_drafts_item ON build_drafts (kind, target_id) "
+                       "WHERE target_id IS NOT NULL"))
+
+# Pane types and workflows were granted to groups (D65, D84); every one is
+# everyone's now (D160), so the grants go. Harmless to repeat.
+with engine.begin() as _conn:
+    _conn.execute(text("DROP TABLE IF EXISTS group_pane_grants"))
+    _conn.execute(text("DROP TABLE IF EXISTS workflow_grants"))
 
 # An environment is no longer an AWS account and region itself (its
 # connections are), so those two columns stop being required. Kept for one
@@ -86,9 +103,6 @@ try:
     # ids, group roles become group identities (PLATFORM_PLAN.md §14.5).
     for _line in connections.migrate_legacy(_bootstrap_db):
         logging.getLogger("connections").warning("Migrated %s", _line)
-    # Once per database: the per-page booleans become grants per pane type (D65).
-    for _line in pane_access.migrate(_bootstrap_db):
-        logging.getLogger("pane_access").warning("Migrated %s", _line)
     # The categories the panes suggest, the first time each is suggested (D66).
     catalogue.ensure_categories(_bootstrap_db)
     # Once per database: the per-pane saved stores become saved inputs (D46).
@@ -175,6 +189,7 @@ app.include_router(store_router.router)
 app.include_router(templates_router.router)
 app.include_router(builder_router.router)
 app.include_router(build_drafts_router.router)
+app.include_router(build_members_router.router)
 app.include_router(runner_router.router)
 app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)

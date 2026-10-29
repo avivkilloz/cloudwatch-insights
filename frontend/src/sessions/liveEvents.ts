@@ -18,8 +18,9 @@ export interface LiveEvent {
   /** "access": this user's permission on a shared session changed. */
   /** "outputs": one pane's outputs changed (`pane`; `version` is that pane's). */
   /** "approvals": what waits for this user's decision changed (D88). */
-  /** "draft": one of this user's Builder drafts changed (D157; `draft_id`). */
-  kind: "upsert" | "close" | "delete" | "reorder" | "access" | "outputs" | "approvals" | "draft";
+  /** "draft": a Builder draft this user works in changed (D157, D161; `draft_id`). */
+  /** "build_members": who works on something built changed (D161). */
+  kind: "upsert" | "close" | "delete" | "reorder" | "access" | "outputs" | "approvals" | "draft" | "build_members";
   client_id: string | null;
   version: number | null;
   /** The writer's X-Sync-Origin: a tab's id, or "agent". */
@@ -31,7 +32,7 @@ export interface LiveEvent {
   /** A "draft" event's draft, what it's of, who changed it ("“laptop”", "the
    * agent"), and the tab whose editor should take it (open_draft on screen). */
   draft_id?: number;
-  build_kind?: "pane" | "workflow" | "step";
+  build_kind?: "pane" | "workflow" | "step" | "credential" | "connection";
   target_id?: string | null;
   by?: string;
   for_tab?: string;
@@ -39,6 +40,10 @@ export interface LiveEvent {
 
 /** A "draft" event, passed on to the editors (pages/buildDraft.tsx). */
 export const DRAFT_EVENT = "cwi:draft";
+
+/** A "build_members" event, passed on to the members sections and the draft
+ * lists (components/BuildMembers.tsx): someone was added, left or handed on. */
+export const BUILD_MEMBERS_EVENT = "cwi:build-members";
 
 export function subscribeLiveEvents(onEvent: (event: LiveEvent) => void, onReconnect: () => void): () => void {
   const source = new EventSource("/api/live-sessions/events", { withCredentials: true });

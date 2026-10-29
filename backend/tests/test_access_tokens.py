@@ -183,7 +183,7 @@ def test_a_draft_of_a_saved_one_and_of_someone_else(mcp):
     _call(mcp, token, "change_definition", draft_id=opened["draft_id"],
           changes=[{"op": "set", "path": "description", "value": "Changed outside."}])
     again = _call(mcp, token, "open_draft", kind="pane", definition_id=type_id)
-    assert again["draft_id"] == opened["draft_id"] and "as they left it" in again["note"]
+    assert again["draft_id"] == opened["draft_id"] and "as it was left" in again["note"]
     # A kind that isn't the draft's is refused; so is another person's draft.
     assert "is a pane's, not a workflow's" in _error(mcp, token, "check_definition", kind="workflow",
                                                      draft_id=opened["draft_id"])

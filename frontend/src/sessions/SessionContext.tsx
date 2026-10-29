@@ -21,7 +21,7 @@ import {
   saveWorkspace,
 } from "./storage";
 import { SYNC_DEBOUNCE_MS, WorkspaceSync, fromWire, mergeSession } from "./sync";
-import { DRAFT_EVENT, LiveEvent, subscribeLiveEvents } from "./liveEvents";
+import { BUILD_MEMBERS_EVENT, DRAFT_EVENT, LiveEvent, subscribeLiveEvents } from "./liveEvents";
 import { announceApprovals } from "../workflowApprovals";
 import { applyOutputs, dropOutputs, outputsVersion } from "./outputs";
 import { migratePaneKeys } from "../panes/manifest";
@@ -690,6 +690,11 @@ export function SessionsProvider({ userId, children }: { userId: number; childre
         if (event.kind === "draft") {
           // Not a session's: the Builder's editors follow their drafts (D157).
           window.dispatchEvent(new CustomEvent<LiveEvent>(DRAFT_EVENT, { detail: event }));
+          return;
+        }
+        if (event.kind === "build_members") {
+          // Who works on something built changed (D161): its members and the lists look again.
+          window.dispatchEvent(new CustomEvent<LiveEvent>(BUILD_MEMBERS_EVENT, { detail: event }));
           return;
         }
         if (event.kind === "approvals") {

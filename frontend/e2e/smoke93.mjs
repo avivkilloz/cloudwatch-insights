@@ -3,7 +3,7 @@
 // script (it renames what's in the editor, by path; the loop checks it and
 // proposes it):
 //   - opening the Builder's editor makes the agent panel's second tab
-//     "Building", selected, its intro naming what's open;
+//     "Draft" (D163), selected, its intro naming what's open;
 //   - asked there, the agent reads what a definition can say and the editor's
 //     text, and its proposal lands in the editor, unsaved, with a notice --
 //     nothing is saved until the user saves it;
@@ -52,9 +52,9 @@ const run = async () => {
   await page.click('.builder-list button:text-is("New pane")');
   await page.waitForFunction(() => document.querySelector("#builder-source")?.value.includes("label: Service status"));
   const tabs = await page.locator(`${DOCK} .agent-tab`).allInnerTexts();
-  check(tabs[1]?.startsWith("Building"), "The Builder's editor makes the panel's second tab Building", JSON.stringify(tabs));
+  check(tabs[1]?.startsWith("Draft"), "The Builder's editor makes the panel's second tab Draft", JSON.stringify(tabs));
   check(
-    (await page.locator(`${DOCK} .agent-tab.active`).innerText()).startsWith("Building"),
+    (await page.locator(`${DOCK} .agent-tab.active`).innerText()).startsWith("Draft"),
     "…and opening the editor selects it",
   );
   const intro = await page.locator(`${DOCK} .agent-transcript`).innerText();
@@ -89,7 +89,7 @@ const run = async () => {
   await page.click('.rail-row-page:has-text("Workflows")');
   await page.click('button:text-is("New workflow")');
   await page.waitForSelector("#workflow-source");
-  check((await page.locator(`${DOCK} .agent-tab.active`).innerText()).startsWith("Building"), "A workflow's editor is the Building tab too");
+  check((await page.locator(`${DOCK} .agent-tab.active`).innerText()).startsWith("Draft"), "A workflow's editor is the Draft tab too");
   const before = await page.inputValue("#workflow-source");
   await ask(page, `build ${WF_LABEL}`);
   const after = await page.inputValue("#workflow-source");

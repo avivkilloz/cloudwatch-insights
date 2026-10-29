@@ -350,8 +350,8 @@ Detailer = Callable[[RunContext, dict, dict], Awaitable[dict]]
 class PaneKind:
     type: str
     label: str
-    # The old group switch that covered it (D65): only informational now --
-    # access is the group's grant of this kind's type (pane_access.py).
+    # The old group switch that covered it: only informational -- every
+    # kind is everyone's (D160).
     flag: Optional[str]
     about: str
     inputs: tuple[Input, ...]
@@ -960,10 +960,9 @@ def output_key(kind: PaneKind, pane_id: str, key: str) -> str:
 
 
 def available_kinds(user: models.User) -> list[PaneKind]:
-    # The same grants the browser's pane list and every handler go by (D65).
-    from .. import pane_access
-
-    return [k for k in KINDS.values() if pane_access.allowed(user.group, k.type)]
+    # Every kind is everyone's (D160): what a user reaches is their group's
+    # environments and identities, which every run checks.
+    return list(KINDS.values())
 
 
 def kind_for(user: models.User, type_: str) -> PaneKind:
@@ -972,8 +971,6 @@ def kind_for(user: models.User, type_: str) -> PaneKind:
         raise InputError(
             f"There is no pane kind '{type_}' the agent can use. The kinds are: {', '.join(KINDS)}."
         )
-    if kind not in available_kinds(user):
-        raise InputError(f"Your group doesn't have {kind.label} turned on, so it can't be used here.")
     return kind
 
 

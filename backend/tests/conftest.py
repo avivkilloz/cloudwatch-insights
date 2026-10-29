@@ -19,7 +19,7 @@ os.environ.setdefault("STORAGE_PATH", tempfile.mkdtemp(prefix="cwi-blobs-"))
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, builder, catalogue, connections, credential_types, models, pane_access
+from app import bootstrap, builder, catalogue, connections, credential_types, models
 from app.db import Base, SessionLocal, engine
 from app.main import app
 
@@ -54,8 +54,6 @@ def _clean_database():
         # The role becomes the Admin group's default AWS identity, the way
         # the startup migration does it for a real database (§14.5).
         connections.migrate_legacy(db)
-        # As at startup: from here on, groups' pane access is grants (D65).
-        pane_access.migrate(db)
         catalogue.ensure_categories(db)
         # The registry outlives a test; a pane type an earlier one built doesn't.
         builder.load(db)
@@ -94,3 +92,15 @@ def send_http(c, payload: dict) -> _SendReply:
         "targetId": payload.get("target_id"),
     }
     return _SendReply(c.post("/api/panes/tool-http/actions/send", json={"inputs": inputs}))
+
+
+def login_as(username: str, password: str = "pw-123456") -> TestClient:
+    """A client of its own, signed in as `username`."""
+    c = TestClient(app)
+    resp = c.post("/api/auth/login", json={"username": username, "password": password})
+    assert resp.status_code == 200, resp.text
+    return c
+
+
+# The name the test files used when it lived beside the pane grants (D65).
+_login_as = login_as

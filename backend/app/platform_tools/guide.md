@@ -17,12 +17,16 @@ The words the platform uses:
 - **Environment**: a named group of **connections**. An AWS account and region
   is one connection; an HTTP API's base URL is another.
 - **Pane type**: a YAML *manifest* that describes a pane. A pane type built in
-  the platform can have Python files beside it.
+  the platform can have Python files beside it. Every pane type, workflow and
+  template is everyone's to use; what a user reaches with one is their
+  group's environments and identities.
 - **Workflow**: steps run the same way each time. A step is a pane's action,
   a **step type** or a note. Each run is kept.
-- **Builder**: the page where pane types, step types and workflows are made.
-  Whatever is being built and not yet saved is a **draft**, which belongs to
-  its user.
+- **Builder**: the page where pane types, step types, workflows and
+  credential and connection types are made. Each one is changed by its
+  **owner** (who made it), the **members** they add, and admins. Whatever is
+  being built and not yet saved is a **draft**: one per thing, shared by
+  everyone who may change it.
 
 ## Looking and doing
 
@@ -55,14 +59,19 @@ The words the platform uses:
 
 What you build is a **draft in the user's Builder**. You never save; the user
 reviews the draft and presses Save. Saving is theirs because a saved pane type
-is at once usable by their group.
+is at once usable by everyone.
+
+Making something new needs the user's group to have the Builder. Changing
+something saved needs the user to be its owner, one of its members, or an
+admin; `open_draft` says so when they aren't.
 
 ### The loop
 
 1. **Pick the draft.**
    - `list_drafts` lists the user's drafts.
    - `open_draft(kind, definition_id=…)` changes a saved pane type, step type
-     or workflow.
+     or workflow. That is its one draft, shared with its owner and members:
+     they see your changes as you make them.
    - `open_draft(kind, start_from="recipe:…")` starts a new one from the
      closest recipe, which is better than a blank page.
    - `open_draft(kind)` with neither starts from the starter.
@@ -120,11 +129,15 @@ is at once usable by their group.
      `/?draft=<id>` on the platform's address.
    - Tell the user to open it there, look at it, and Save.
 
-If the user types in the open draft while you change it, both edits land
-in one draft, in order. Their editor shows each of your changes as you make
-it, and a save of theirs made on an older version is refused rather than
-written over yours. Read the draft again (`read_draft`) before a change if
-they may have typed since.
+If the user -- or another member -- types in the open draft while you change
+it, both edits land in one draft. Their editor shows each of your changes as
+you make it and merges what they typed meanwhile by lines; only when you and
+they change the same lines is yours kept over theirs there. Read the draft
+again (`read_draft`) before a change if they may have typed since.
+
+A shared draft's chat (more than one person works in it) is people talking:
+the Builder answers only when a message mentions `@builder`, the platform
+agent `@platform-agent`. A proposal you make lands there for all of them.
 
 ### Pane types: what works
 

@@ -288,13 +288,12 @@ def test_who_may_decide():
     env = _environment()
     _wf(GATE.format(by=", by: others", coe=""))
     _wf(GATE.format(by=", by: admins", coe=""), "w_admins")
-    gid, bob = _member("bob", ["tables"], env, grant="wf")
-    client.put("/api/workflows/w_admins/grants", json={"group_ids": [gid]})
+    gid, bob = _member("bob", env)
     client.post("/api/users", json={"username": "carol", "password": "pw-123456", "group_id": gid})
     from tests.test_connections import _login_as
 
     carol = _login_as("carol", "pw-123456")
-    _, dave = _member("dave", ["tables"], env, grant="wf")
+    _, dave = _member("dave", env)
 
     run = _finished(_run("wf", {}, c=bob)["id"], c=bob)
     approval = _step(run, "ok")["approval"]
@@ -383,7 +382,7 @@ steps:
     assert len(scans) == 1, "the scan wasn't run again"
     assert _step(second, "report")["outputs"]["text"] == "2 items"
 
-    _, bob = _member("bob", ["tables"], env, grant="wf")
+    _, bob = _member("bob", env)
     refused = bob.post(f"/api/workflow-runs/{first['id']}/rerun", json={"from_step": "describe"})
     assert refused.status_code == 400 and "aren't yours to see" in refused.json()["detail"]
     missing = client.post(f"/api/workflow-runs/{first['id']}/rerun", json={"from_step": "nope"})
@@ -417,7 +416,7 @@ steps:
     whole = client.get(f"/api/blobs/{step['outputs_blob']}")
     assert whole.status_code == 200 and whole.headers["content-type"] == "application/json"
     assert len(json.loads(whole.content)["items"]) == 8000
-    _, bob = _member("bob", ["tables"], env, grant="wf")
+    _, bob = _member("bob", env)
     assert bob.get(f"/api/blobs/{step['outputs_blob']}").status_code == 404
 
     # A rerun from the note reads the copied stage's whole outputs back.
@@ -594,10 +593,14 @@ def test_a_parameter_lists_its_options_from_a_pane_inputs_loader(monkeypatch, cl
     assert [o["value"] for o in listed["options"]] == ["/app", "/worker"] and "errors" not in listed
     assert client.post("/api/workflows/wf/parameters/env/options", json={"params": {}}).status_code == 400
 
-    # Listed as the caller: a group without the pane gets the reason, not the groups.
-    _, bob = _member("bob", ["tables"], env, grant="wf")
-    refused = bob.post(url, json={"params": {"env": env}}).json()
-    assert refused["options"] == [] and refused["error"]
+    # Listed as the caller: every pane is everyone's (D160), but a group
+    # without the environment gets the reason, not the groups.
+    _, bob = _member("bob", env)
+    assert [o["value"] for o in bob.post(url, json={"params": {"env": env}}).json()["options"]] == ["/app", "/worker"]
+    _, eve = _member("eve")
+    refused = eve.post(url, json={"params": {"env": env}}).json()
+    # The loader fans out per environment, so the refusal is that environment's.
+    assert refused["options"] == [] and refused["errors"], refused
 
     # Several values, a lone one taken as a list of one.
     done = _finished(_run("wf", {"env": env, "groups": ["/app", "/worker"]})["id"])

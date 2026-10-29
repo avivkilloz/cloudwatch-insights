@@ -10,7 +10,7 @@ import yaml
 from app import models, store
 from app.db import SessionLocal
 from tests.conftest import client
-from tests.test_pane_grants import _login_as
+from tests.conftest import _login_as
 from tests.test_platform_tools import _environment
 from tests.test_platform_tools import mcp  # noqa: F401 -- a fixture
 from tests.test_store import _configure, _env, _show, _sync, remote  # noqa: F401 -- fixtures
@@ -51,9 +51,8 @@ def _publish(saved_id: int, template_id: str = "orders_debug", c=client):
                                           "description": "The orders panes, for any environment."})
 
 
-def _member(username: str, pane_types: list[str], env: int) -> object:
-    g = client.post("/api/user-groups", json={"name": f"g-{username}", "role_name": "R", "environment_ids": [env],
-                                              "pane_types": pane_types})
+def _member(username: str, envs: list[int]) -> object:
+    g = client.post("/api/user-groups", json={"name": f"g-{username}", "role_name": "R", "environment_ids": envs})
     assert g.status_code == 201, g.text
     assert client.post("/api/users", json={"username": username, "password": "pw-123456",
                                            "group_id": g.json()["id"]}).status_code == 201
@@ -87,7 +86,7 @@ def test_publishing_makes_a_template_work_anywhere_and_says_what_changed():
 
 def test_only_admins_publish():
     env = _environment()
-    member = _member("pat", ["tables"], env)
+    member = _member("pat", [env])
     saved = member.post("/api/saved-sessions", json={"page": "aggregator", "name": "Mine", "state": {
         "services": ["tables"], "tables.in.tableName": "T"}}).json()["id"]
     assert _publish(saved, c=member).status_code == 403
@@ -95,17 +94,19 @@ def test_only_admins_publish():
     assert _publish(saved).status_code == 400
 
 
-def test_its_offered_to_whoever_may_use_every_pane_and_opens_for_their_environment():
+def test_its_offered_to_everyone_and_opens_for_their_environment():
+    # Every pane is everyone's (D160): what limits opening it is the
+    # environment, which must be one of theirs.
     env, other = _environment(), _environment()
     assert _publish(_saved(_session_state(env, other))).status_code == 201
-    able = _member("ana", ["tables", "logs-cloudwatch", "tool-http"], env)
-    unable = _member("bo", ["tables"], env)
+    able = _member("ana", [env])
+    unable = _member("bo", [])
     assert [t["id"] for t in able.get("/api/templates").json()] == ["orders_debug"]
     # Only its publisher is told which saved template of theirs it replaces.
     assert able.get("/api/templates").json()[0]["from_saved_session_id"] is None
     assert client.get("/api/templates").json()[0]["from_saved_session_id"] is not None
-    assert unable.get("/api/templates").json() == []
-    assert unable.post("/api/templates/orders_debug/open", json={"environment": env}).status_code == 404
+    assert [t["id"] for t in unable.get("/api/templates").json()] == ["orders_debug"]
+    assert unable.post("/api/templates/orders_debug/open", json={"environment": env}).status_code == 400
 
     refused = able.post("/api/templates/orders_debug/open", json={})
     assert refused.status_code == 400 and "Choose the environment" in refused.json()["detail"]

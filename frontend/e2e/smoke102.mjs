@@ -106,7 +106,7 @@ const run = async () => {
     // ---- 1. one Builder: pane types, workflows, step types
     await page.click('.rail-row-page:has-text("Builder")');
     const tabs = await page.locator(".builder-list .segmented button").allInnerTexts();
-    check(JSON.stringify(tabs) === '["Panes","Workflows","Steps"]', "The Builder lists panes, workflows and steps", JSON.stringify(tabs));
+    check(JSON.stringify(tabs.slice(0, 3)) === '["Panes","Workflows","Steps"]', "The Builder lists panes, workflows and steps", JSON.stringify(tabs));
     await page.click('.rail-row-page:has-text("Workflows")');
     await page.click('.workflows-list button:text-is("New workflow")');
     await page.waitForSelector(".builder-view #workflow-source");

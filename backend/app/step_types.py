@@ -418,22 +418,15 @@ def run_code(db: Session, user: models.User, definition: Definition, inputs: dic
 # ---------------------------------------------------------------- saving
 
 
-def can_edit(user: models.User, row: Optional[models.BuiltStepType] = None) -> bool:
-    """As a workflow (D121): an admin any; a builder their group's; without a
-    row, whether they may make one."""
-    group = user.group
-    if group is None or not (group.is_admin or group.builder_enabled):
-        return False
-    return row is None or group.is_admin or (row.owner_group_id is not None and row.owner_group_id == group.id)
-
-
 def save(db: Session, user: models.User, requested_id: Optional[str], source: str,
          row: Optional[models.BuiltStepType] = None, files: Optional[dict[str, str]] = None) -> models.BuiltStepType:
-    from . import builder
+    from . import build_access, builder
 
-    if not can_edit(user, row):
-        raise StepTypeError("Only an admin, or a builder of the group that made it, may change this step type."
-                            if row else "Making step types is for admins and builders.")
+    # Making one is a Builder's; changing one its owner's, members' and admins' (D161).
+    why = build_access.why_locked(db, user, "step", row) if row is not None else (
+        None if build_access.can_create(user) else "Making step types is for admins and groups with the Builder.")
+    if why:
+        raise StepTypeError(why)
     if row is None:
         try:
             type_id = store.full_id(db, requested_id or "", ID_RE)
@@ -450,8 +443,7 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
     source = workflows.ensure_id_line(source, type_id)
     now = datetime.datetime.utcnow()
     if row is None:
-        row = models.BuiltStepType(id=type_id, created_by_id=user.id, created_at=now,
-                                   owner_group_id=None if user.group.is_admin else user.group.id)
+        row = models.BuiltStepType(id=type_id, created_by_id=user.id, created_at=now, owner_id=user.id)
         db.add(row)
     row.source, row.files, row.updated_by_id, row.updated_at = source, dict(files or {}), user.id, now
     builder._bump(db)
@@ -463,8 +455,8 @@ def save(db: Session, user: models.User, requested_id: Optional[str], source: st
 
 
 def access_errors(db: Session, definition: Definition, user: models.User, source: str = "") -> list[dict]:
-    """A chain names only panes the builder's group may use, as a workflow
-    does (D121); a connection input names a connection type that's there (D159)."""
+    """A connection input names a connection type that's there (D159), in the
+    step type and in a chain's steps, as a workflow's do."""
     from . import type_defs
 
     missing = type_defs.missing_errors(db, "step", source) if source else []
@@ -483,10 +475,11 @@ def used_by(db: Session, type_id: str) -> list[str]:
 
 
 def delete(db: Session, user: models.User, row: models.BuiltStepType) -> None:
-    from . import builder
+    from . import build_access, builder
 
-    if not can_edit(user, row):
-        raise StepTypeError("Only an admin, or a builder of the group that made it, may delete this step type.")
+    why = build_access.why_locked(db, user, "step", row)
+    if why:
+        raise StepTypeError(why)
     users = used_by(db, row.id)
     if users:
         raise StepTypeError(f"{', '.join(users)} use{'s' if len(users) == 1 else ''} it: change them first.")
@@ -646,6 +639,5 @@ def describe(row: models.BuiltStepType) -> dict[str, Any]:
         "loads": definition is not None,
         "source": row.source,
         "files": row.files or {},
-        "owner_group_id": row.owner_group_id,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }

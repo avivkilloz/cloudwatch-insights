@@ -65,11 +65,7 @@ def require_admin(current_user: models.User = Depends(get_current_user)) -> mode
 
 
 def user_out(user: models.User) -> schemas.UserOut:
-    from . import pane_access
-
     group = user.group
-    # The old per-page booleans, as the grants say them (D65).
-    flags = pane_access.legacy_flags(group) if group else {}
     return schemas.UserOut(
         id=user.id,
         username=user.username,
@@ -77,15 +73,6 @@ def user_out(user: models.User) -> schemas.UserOut:
         group_name=group.name if group else "",
         is_admin=bool(group and group.is_admin),
         avatar_url=user.avatar_url,
-        logs_enabled=flags.get("logs_enabled", False),
-        opensearch_enabled=flags.get("opensearch_enabled", False),
-        iot_enabled=flags.get("iot_enabled", False),
-        tables_enabled=flags.get("tables_enabled", False),
-        buckets_enabled=flags.get("buckets_enabled", False),
-        cognito_enabled=flags.get("cognito_enabled", False),
-        aggregator_enabled=group.aggregator_enabled if group else False,
-        tools_enabled=flags.get("tools_enabled", False),
         agent_enabled=group.agent_enabled if group else False,
         builder_enabled=bool(group and (group.is_admin or group.builder_enabled)),
-        pane_types=sorted(pane_access.granted(group)),
     )
