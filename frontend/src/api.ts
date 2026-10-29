@@ -191,6 +191,25 @@ export interface BuiltPaneType {
 
 /** A step type made in the Builder (D122): a declarative HTTP request, or a
  * chain of steps, a workflow uses by name as one step. */
+/** A personal access token (D156): how the user's own MCP client -- Claude
+ * Code in their terminal -- calls the platform's tools as them. The token
+ * itself is in `AccessTokenMade` only, the one time it's made. */
+export interface AccessToken {
+  id: number;
+  name: string;
+  prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  /** Whose it is, in an admin's list of everyone's. */
+  username?: string | null;
+}
+
+export interface AccessTokenMade extends AccessToken {
+  token: string;
+}
+
 /** What's being built and isn't saved (D125): the editor's text, the Id typed
  * for a new one and the Building chat, saved as its builder types. Theirs alone. */
 export interface BuildDraft {
@@ -1116,6 +1135,11 @@ export const api = {
   updateBuiltStep: (id: string, source: string, files: BuildFiles) =>
     req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source, files }) }),
   deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listAccessTokens: () => req<AccessToken[]>("/access-tokens"),
+  listAllAccessTokens: () => req<AccessToken[]>("/access-tokens/all"),
+  createAccessToken: (name: string, days: number) =>
+    req<AccessTokenMade>("/access-tokens", { method: "POST", body: JSON.stringify({ name, days }) }),
+  revokeAccessToken: (id: number) => req<void>(`/access-tokens/${id}`, { method: "DELETE" }),
   listBuildDrafts: (kind: BuildDraft["kind"]) => req<BuildDraft[]>(`/build-drafts?kind=${kind}`),
   /** This person's draft of an existing one, whole -- or none. */
   draftOf: async (kind: BuildDraft["kind"], target: string): Promise<BuildDraft | null> =>

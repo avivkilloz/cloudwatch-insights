@@ -998,6 +998,27 @@ the platform, for a group with `builder_enabled` (admins always).
   written) before the changes. A draft with work in it is never replaced.
   Recipe notes are what the matching reads: write them in the words a
   user would use.
+- **Claude Code from outside** (D156; `models.AccessToken`, `routers/
+  access_tokens.py`, `tokens.mint_personal`/`_personal`, Settings → My account
+  → Access tokens, `components/settings/AccessTokens.tsx`): a personal access
+  token (`cwi_…`, shown once, hashed, revocable, audited) calls the MCP tools
+  as its user -- only while their group has the agent, checked per call. The
+  endpoint is also at `/api/mcp` (what nginx and the ingress pass on), which
+  takes **only** personal tokens; a turn's token stays at `/mcp`. Without an
+  editor, build tools take `draft_id`: `_acting(draft_id)` sets `_draft`, and
+  `_token_row` returns a `_DraftView` over the user's `BuildDraft` in place of
+  the token row (`build_kind/id/draft/files` map to `kind/target_id/source/
+  files`) -- so every build tool works on either unchanged; read the build id
+  through `_build_id`, the kind through `_kind_of(db, …)`. `open_draft`/
+  `list_drafts` make and find them; `propose_definition` on a draft leaves it
+  there with a chat turn and a `/?draft=<id>` link (BuilderPage takes it,
+  `followAppLink` too) -- never a save. The guide is `platform_tools/guide.md`
+  (`read_guide`, resource `platform://guide`); `platform://reference/<kind>`
+  and `platform://recipes[/<name>]` are generated; prompts `build_pane`/
+  `build_workflow`. Keep the guide in step with the Builder loop's rules.
+  A pane's or step's first `.py` brings `requirements.txt` holding
+  `deps.HINT` (`deps.with_requirements` in `change_definition`; Workspace's
+  `add`; the code starters): comments only lock nothing.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

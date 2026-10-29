@@ -78,6 +78,12 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke112` (D156: an access token made in Settings, shown once with the
+`claude mcp add` line; with it, JSON-RPC to `/api/mcp` opens a Builder draft,
+changes and proposes it, and `/?draft=<id>` opens it with the proposal in its
+chat; revoked, refused at once; a first `.py` brings `requirements.txt`) needs
+only the stack -- admin must be in a group with the agent.
+
 `smoke111` (D155: a new pane asked for in plain words starts from the
 closest recipe -- picked by its words, the fake model naming none -- the
 starter replaced by it, its files beside it, and a draft with work in it

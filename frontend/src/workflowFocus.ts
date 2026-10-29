@@ -79,7 +79,7 @@ export function useWorkflowScreenWaiting(): boolean {
 
 /** A workflow to open in the Builder's Workflows (D128) -- the Workflows
  * page's New workflow and Open in the Builder: one editor, one place. */
-export type BuilderAsk = { what: "workflow"; id: string | null };
+export type BuilderAsk = { what: "workflow"; id: string | null } | { what: "draft"; id: number };
 let builderAsk: BuilderAsk | null = null;
 
 export function openInBuilder(next: BuilderAsk) {
@@ -103,7 +103,7 @@ export function useBuilderAskWaiting(): boolean {
  * every open session's last second of edits. Anything else is left to the
  * browser. Returns whether it was taken.
  */
-export function followAppLink(href: string, show: (view: "workflows") => void): boolean {
+export function followAppLink(href: string, show: (view: "workflows" | "builder") => void): boolean {
   let url: URL;
   try {
     url = new URL(href, window.location.href);
@@ -113,6 +113,13 @@ export function followAppLink(href: string, show: (view: "workflows") => void): 
   if (url.origin !== window.location.origin) return false;
   const run = url.searchParams.get("run");
   const workflow = url.searchParams.get("workflow");
+  const draft = url.searchParams.get("draft");
+  if (draft && /^\d+$/.test(draft)) {
+    // A Builder draft (D156): what Claude Code proposed, there to review.
+    openInBuilder({ what: "draft", id: Number(draft) });
+    show("builder");
+    return true;
+  }
   if (run && /^\d+$/.test(run)) openWorkflowScreen({ kind: "run", id: Number(run) });
   else if (workflow) openWorkflowScreen({ kind: "workflow", id: workflow });
   else return false;

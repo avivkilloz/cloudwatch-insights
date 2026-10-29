@@ -25,6 +25,7 @@ from .panes import runs as pane_runs
 from .panes import saved as pane_saved
 from .platform_tools import server as platform_server
 from .routers import (
+    access_tokens as access_tokens_router,
     agent,
     blobs as blobs_router,
     build_drafts as build_drafts_router,
@@ -178,6 +179,7 @@ app.include_router(workflows_router.router)
 app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)
 app.include_router(blobs_router.router)
+app.include_router(access_tokens_router.router)
 
 
 @app.get("/api/health")
@@ -192,3 +194,8 @@ def health():
 # redirect the other, and an MCP client doesn't follow a redirected POST.
 app.router.routes.append(Route("/mcp", endpoint=platform_server.endpoint))
 app.router.routes.append(Route("/mcp/", endpoint=platform_server.endpoint))
+# And under /api for MCP clients outside the cluster -- Claude Code on a
+# user's machine, with a personal access token (D156) -- since /api is all
+# the frontend's nginx and the ingress pass on. Only personal tokens there.
+app.router.routes.append(Route("/api/mcp", endpoint=platform_server.endpoint))
+app.router.routes.append(Route("/api/mcp/", endpoint=platform_server.endpoint))

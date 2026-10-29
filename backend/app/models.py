@@ -495,6 +495,29 @@ class AgentToken(Base):
     build_files = Column(JSON, nullable=True)
 
 
+class AccessToken(Base):
+    """A personal access token (D156): how Claude Code, or any MCP client the
+    user runs, calls the platform's MCP tools as them from outside -- the
+    agent's per-turn token lives fifteen minutes and only the backend ever
+    holds it. Made by its user in Settings, shown once, kept only as a hash;
+    it carries no draft or session of its own (a tool is told which draft it
+    works on), and it stops working when revoked, when it expires, or when
+    its user's group loses the agent -- the same gate as a chat turn."""
+
+    __tablename__ = "access_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    # Its first characters, so a list can say which one is which.
+    prefix = Column(String(16), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+
 class CredentialType(Base):
     """The shape of a kind of secret: a list of fields, each public or secret
     (PLATFORM_PLAN.md §13.3). Data, not code, so an admin can define one for

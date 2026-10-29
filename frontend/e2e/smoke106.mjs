@@ -1,5 +1,5 @@
 // A pane's requirements (6-2, D141-D144), as a member of a builder group:
-//   - "+ File" takes requirements.txt (typed "requirements"), after the Python;
+//   - the code starter has requirements.txt, after the Python;
 //   - Check locks it: a requirements.lock tab appears, read-only, every package
 //     pinned with its hashes; the Python imports the package and the preview
 //     runs it in the runner, installed through the platform's own index;
@@ -58,12 +58,9 @@ const run = async () => {
     await page.waitForSelector('.workspace-tab[data-file="devices.py"]');
     await page.fill("#builder-id", PANE);
 
-    // ---- 1. + File takes requirements.txt, after the Python
-    await page.click(".workspace-add");
-    await page.fill("#builder-source-new-file", "requirements");
-    await page.keyboard.press("Enter");
-    await page.waitForSelector('.workspace-tab.active[data-file="requirements.txt"]');
-    check((await page.inputValue("#builder-source-file")).startsWith("# A package a line"), "+ File: \"requirements\" is requirements.txt, with a line saying what goes in it");
+    // ---- 1. the code starter has requirements.txt, after the Python (D156)
+    await openTab(page, "requirements.txt");
+    check((await page.inputValue("#builder-source-file")).startsWith("# A package a line"), "Started from code: requirements.txt is there, with a line saying what goes in it");
     await page.fill("#builder-source-file", "six==1.16.0\n");
     await openTab(page, "devices.py");
     await page.fill("#builder-source-file", CODE);

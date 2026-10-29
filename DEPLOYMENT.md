@@ -291,7 +291,17 @@ Things worth knowing:
   role.
 - `/mcp` is on the backend Service but not under `/api`, so the frontend's
   nginx (and so the ingress) never routes a browser to it. Every call there
-  needs a live per-turn token anyway.
+  needs a live per-turn token (or a personal access token) anyway.
+- The same endpoint is at **`/api/mcp`** for Claude Code on a user's machine
+  (README, "Using the platform from Claude Code"), so it is reachable wherever
+  the app is. There it takes only a **personal access token**, which a user
+  makes in Settings and which works only while their group has the agent; a
+  turn's token isn't accepted there. Keep the app internal as it is: nothing
+  about this needs it public, and claude.ai's own connectors couldn't use an
+  internal deployment anyway. MCP over HTTP is ordinary POSTs with JSON
+  replies here (stateless), so the existing proxy and ingress settings carry
+  it. To stop it, turn the agent off for a group, or revoke tokens (an admin
+  sees everyone's in Settings → My account).
 - Optionally, share a key between the backend and the agent so nothing else
   in the cluster can call the agent and spend the model's budget: create a
   Secret with an `AGENT_SERVICE_KEY` and set

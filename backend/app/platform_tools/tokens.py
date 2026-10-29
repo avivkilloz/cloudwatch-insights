@@ -74,13 +74,23 @@ class Caller:
     build_kind: Optional[str] = None
     build_id: Optional[str] = None
     token_hash: Optional[str] = None
+    # A personal access token's id (D156): a call from outside -- Claude Code
+    # on the user's own machine -- with no turn, editor or session of its own.
+    access_token_id: Optional[int] = None
+    access_token_name: Optional[str] = None
 
 
-def resolve(db: DbSession, token: str) -> Optional[Caller]:
+def resolve(db: DbSession, token: str, personal_only: bool = False) -> Optional[Caller]:
     """The caller a token stands for, or None if it is unknown, expired, or
     its user's group no longer has the agent. The flag is checked on every
     call, not only when the turn starts, so turning the agent off for a group
-    stops a turn that is already running."""
+    stops a turn that is already running. `personal_only` refuses a turn's
+    token: only the backend and the agent container ever hold one, and they
+    talk inside the cluster."""
+    if token.startswith(PERSONAL_PREFIX):
+        return _personal(db, token)
+    if personal_only:
+        return None
     row = db.get(models.AgentToken, _hash(token))
     if row is None or row.expires_at < datetime.datetime.utcnow():
         return None
@@ -96,6 +106,41 @@ def resolve(db: DbSession, token: str) -> Optional[Caller]:
         build_id=row.build_id,
         token_hash=row.token_hash,
     )
+
+
+# A personal access token says what it is, so a leaked one is recognisable
+# (and a secret scanner can be taught its shape) and resolve() knows which
+# table to look in without trying both.
+PERSONAL_PREFIX = "cwi_"
+# How often a token's last use is written: a busy Claude Code session calls a
+# tool every few seconds, and a write per call would be a row lock per call.
+LAST_USED_EVERY = datetime.timedelta(minutes=1)
+
+
+def mint_personal(db: DbSession, user: models.User, name: str,
+                  expires_at: Optional[datetime.datetime]) -> tuple[models.AccessToken, str]:
+    """A new personal access token: the row, and the token itself -- which
+    is never stored or shown again."""
+    token = PERSONAL_PREFIX + secrets.token_urlsafe(32)
+    row = models.AccessToken(user_id=user.id, name=name, token_hash=_hash(token), prefix=token[:10],
+                             expires_at=expires_at)
+    db.add(row)
+    return row, token
+
+
+def _personal(db: DbSession, token: str) -> Optional[Caller]:
+    row = db.query(models.AccessToken).filter_by(token_hash=_hash(token)).first()
+    now = datetime.datetime.utcnow()
+    if row is None or row.revoked_at is not None or (row.expires_at is not None and row.expires_at < now):
+        return None
+    user = db.get(models.User, row.user_id)
+    if user is None or user.group is None or not user.group.agent_enabled:
+        return None
+    if row.last_used_at is None or now - row.last_used_at > LAST_USED_EVERY:
+        row.last_used_at = now
+        db.commit()
+    return Caller(user_id=user.id, timezone=None, viewing_session_id=None,
+                  access_token_id=row.id, access_token_name=row.name)
 
 
 def revoke(db: DbSession, token: str) -> None:

@@ -7,6 +7,7 @@ import Icon from "./Icon";
 // the platform's -- written by Check and Save, never by hand.
 const REQUIREMENTS = "requirements.txt";
 const LOCK = "requirements.lock";
+const REQUIREMENTS_HINT = "# A package a line, as pip reads it (requests>=2.31). Check and Save lock it.\n";
 // Python first, then what it needs and its lock.
 const rank = (name: string) => (name === REQUIREMENTS ? 1 : name === LOCK ? 2 : 0);
 
@@ -70,13 +71,11 @@ export default function Workspace({
       setNameError(`There is a ${name} already.`);
       return;
     }
-    const text =
-      name === REQUIREMENTS
-        ? "# A package a line, as pip reads it (requests>=2.31). Check and Save lock it.\n"
-        : names.length === 0
-          ? "def run(inputs, ctx):\n    return {}\n"
-          : "";
-    onFiles({ ...files, [name]: text });
+    const firstPy = name !== REQUIREMENTS && !names.some((n) => n.endsWith(".py"));
+    const text = name === REQUIREMENTS ? REQUIREMENTS_HINT : firstPy ? "def run(inputs, ctx):\n    return {}\n" : "";
+    // The first module brings requirements.txt with it (backend deps.HINT):
+    // where packages go is then plain, before anyone imports one.
+    onFiles({ ...files, [name]: text, ...(firstPy && !(REQUIREMENTS in files) ? { [REQUIREMENTS]: REQUIREMENTS_HINT } : {}) });
     setNaming(null);
     setNameError(null);
     setOpen(name);

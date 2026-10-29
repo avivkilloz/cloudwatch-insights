@@ -9,7 +9,7 @@ import pytest
 import yaml
 from botocore.stub import Stubber
 
-from app import aws_client, builder, models, yaml_edit
+from app import aws_client, builder, deps, models, yaml_edit
 from app.db import SessionLocal
 from tests.conftest import client
 from tests.test_aws_request import FUNCTION, ONE, _check, _env
@@ -234,7 +234,7 @@ def test_the_agent_writes_code_as_files_beside_the_yaml(mcp):
     token = _build_token(builder.CODE_EXAMPLE.replace("      file: devices.py", "      file: shaped.py"))
     broken = "def run(inputs, ctx):\n    rows = [\n    return {'rows': rows}\n"
     out = call(mcp, token, "change_definition", changes=[{"op": "file", "name": "shaped.py", "text": broken}])
-    assert out["ok"] is False and out["files"] == {"shaped.py": 3}
+    assert out["ok"] is False and out["files"] == {"shaped.py": 3, "requirements.txt": 1}
     [error] = out["errors"]
     assert error["file"] == "shaped.py" and error["line"] == 2 and "isn't valid Python" in error["message"]
     assert "shaped.py:\n1: def run(inputs, ctx):\n2:     rows = [" in out["near"]
@@ -244,7 +244,8 @@ def test_the_agent_writes_code_as_files_beside_the_yaml(mcp):
     assert call(mcp, token, "read_draft", file="shaped.py")["text"] == (
         "1: def run(inputs, ctx):\n2:     rows = [{'id': 'd1'}]\n3:     return {'rows': rows}")
     proposed = call(mcp, token, "propose_definition", summary="Code.")["propose"]
-    assert proposed["files"] == {"shaped.py": "def run(inputs, ctx):\n    rows = [{'id': 'd1'}]\n    return {'rows': rows}\n"}
+    assert proposed["files"] == {"shaped.py": "def run(inputs, ctx):\n    rows = [{'id': 'd1'}]\n    return {'rows': rows}\n",
+                                 "requirements.txt": deps.HINT}
     refused = call_error(mcp, token, "change_definition", changes=[{"op": "file", "name": "os.py", "text": "x = 1"}])
     assert "would stand in for Python's own os module" in refused and "Nothing was changed" in refused
     # Code set into the YAML itself goes into a file of its own (D149), never
@@ -295,7 +296,7 @@ def test_code_the_agent_writes_into_the_yaml_is_moved_into_a_file(mcp):
     out = call(mcp, token, "change_definition", changes=[
         *({"op": "file", "name": name, "text": text} for name, text in builder.CODE_EXAMPLE_FILES.items()),
         {"op": "set", "path": "actions/list/code", "value": code}])
-    assert out["ok"] is True and out["files"] == {"devices.py": 6, "list.py": 2}, out
+    assert out["ok"] is True and out["files"] == {"devices.py": 6, "list.py": 2, "requirements.txt": 1}, out
     assert "moved into files of its own" in out["moved"] and "actions/list/code -> list.py" in out["moved"]
     proposed = call(mcp, token, "propose_definition", summary="x")["propose"]
     assert "code:\n      file: list.py" in proposed["source"] and "def run" not in proposed["source"]

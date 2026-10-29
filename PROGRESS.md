@@ -2,7 +2,7 @@
 
 Where the work stands. Durable architecture/conventions are in `CLAUDE.md`.
 
-_Last updated: 2026-10-22, the Builder after an IoT OTA jobs build (PLATFORM_PLAN.md §24, D145–D148): paths with dots, rows that open checked, a loop that keeps its work; a "+" tab and a Preview that toggles._
+_Last updated: 2026-10-29, Claude Code through personal access tokens and Builder drafts (PLATFORM_PLAN.md D156), after a new pane starting from the closest recipe (D155)._
 
 ## Platform plan
 
@@ -1297,6 +1297,29 @@ templates (PLATFORM_PLAN.md §23, D99–D102).**
   `test_workflow_doors.py`; browser `smoke89` (9) and `smoke90` (11), each
   failing against the old frontend; smoke66/85/86/87/88 green after the
   Workflows page's form moved into a shared component.
+
+**This PR, too: the platform from outside -- Claude Code (D156).** The
+user's question: can Claude connect to the platform's MCP, deployed
+internally? claude.ai's connectors and the Chrome extension call from
+Anthropic's cloud, so no; Claude Code on a machine in the network can, and
+now does:
+- Personal access tokens (Settings → My account → Access tokens): shown once
+  with the `claude mcp add` line, hashed, revocable, audited, only for a group
+  with the agent. `/api/mcp` takes them (and only them), through the same
+  nginx and ingress as the app; checked with Claude Code itself (`claude mcp
+  list`: connected) and the Python MCP client through the dev proxy.
+- Building from outside works on the user's Builder drafts (`draft_id`,
+  `open_draft`, `list_drafts`); a proposal stays in the draft with a chat turn
+  and a `/?draft=<id>` link that opens it in the Builder. Never a save.
+- The guide (`read_guide`, `platform://guide`), the reference and recipes as
+  resources, `build_pane`/`build_workflow` prompts, instructions that name the
+  loop.
+- A pane's first Python file brings a comment-only `requirements.txt`.
+- Tests: backend `test_access_tokens.py` (10: lifecycle, the outside door
+  takes only personal tokens, revoked/expired/agent off, admin, drafts,
+  requirements, resources and prompts), `test_builder_loop` file sets;
+  browser `smoke112` (16), failing against the old frontend; `smoke104`/
+  `smoke106` updated for the starter's requirements.txt.
 
 **This PR: building from plain words (D155).** The user's point:
 someone who doesn't know the platform's words should be able to say what

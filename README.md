@@ -466,6 +466,40 @@ good at tool calling (`AGENT_MODEL`, or `agent.model` in Helm) -- see
 or a prompt change against conversations it has got wrong before, run the
 scenarios in `platform-agent/evals` (its README).
 
+### Using the platform from Claude Code
+
+Claude Code can work in the platform as you, through the platform's MCP
+server: open and fill sessions, run panes and workflows, and build panes,
+steps and workflows. It needs to reach the app, so run it on a machine inside
+the network the platform is deployed in. claude.ai's connectors and the Chrome
+extension call from Anthropic's cloud, so they can't reach a deployment that
+isn't public.
+
+1. **Make a token.** Go to Settings → My account → Access tokens, give the
+   token a name and an expiry, and press Create token. It's shown once, so
+   copy it then. It works only while your group has the agent, and it reaches
+   what you can and nothing more.
+2. **Add the platform to Claude Code.** Paste the line the page shows:
+   ```bash
+   claude mcp add --transport http platform https://<the app>/api/mcp \
+     --header "Authorization: Bearer <token>"
+   ```
+   For a project, use its `.mcp.json` instead (the page shows that too), and
+   keep the token in `PLATFORM_TOKEN` rather than in the repo.
+3. **Ask Claude.** Two shortcuts help:
+   - `/platform:build_pane <what you want to see>` starts the building loop.
+   - `@platform:platform://guide` attaches the guide that explains the tools.
+
+When Claude builds, it works in a Builder draft of yours: it opens one,
+changes it, checks it, tries it in an environment you choose, and proposes it.
+The draft then waits in your Builder, with Claude's summary in its Building
+chat; the link Claude gives you (`/?draft=<id>`) opens it. You review it and
+Save. Claude can't save.
+
+Revoke a token in the same place, and anything using it stops at once. An
+admin sees everyone's tokens there (names only, never the tokens) and can
+revoke any of them.
+
 ## Users, groups & login
 
 The app requires logging in — there's no anonymous/shared access. Every user
