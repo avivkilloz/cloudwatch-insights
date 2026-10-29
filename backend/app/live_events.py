@@ -55,18 +55,23 @@ def notify(
     origin: Optional[str],
     order: Optional[list[str]] = None,
     pane: Optional[str] = None,
+    extra: Optional[dict] = None,
 ) -> None:
     """Queue an announcement on the caller's transaction; it goes out when the
     caller commits. `origin` is the writer's own id (a browser tab's, or
     "agent"), so a writer can ignore the echo of its own change. `order` is a
     reorder's new id order -- ids, not state, so it's safe to broadcast.
     `pane` names the pane whose outputs changed (kind "outputs"), whose
-    `version` is then that pane's, not the session's."""
+    `version` is then that pane's, not the session's; `extra`, what another
+    kind needs ("draft": which, of what)."""
     event = {"user_id": user_id, "kind": kind, "client_id": client_id, "version": version, "origin": origin}
     if order is not None:
         event["order"] = order
     if pane is not None:
         event["pane"] = pane
+    # What else a kind of its own carries (a draft's id and kind, D157): ids
+    # and names, never content.
+    event.update({k: v for k, v in (extra or {}).items() if k not in event})
     payload = json.dumps(event)
     if len(payload.encode()) > MAX_PAYLOAD_BYTES:
         event.pop("order", None)

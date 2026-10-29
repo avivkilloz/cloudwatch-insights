@@ -78,6 +78,12 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke113` (D157: with the session on screen, an access token's
+`get_context` names it as on screen and "here", and a pane added there shows
+at once; with a new pane's editor open, `open_draft(on_screen)` gives it a
+draft the editor shows, each later change shows live with the user's typing
+kept, and a proposal lands in its Building chat) needs only the stack.
+
 `smoke112` (D156: an access token made in Settings, shown once with the
 `claude mcp add` line; with it, JSON-RPC to `/api/mcp` opens a Builder draft,
 changes and proposes it, and `/?draft=<id>` opens it with the proposal in its

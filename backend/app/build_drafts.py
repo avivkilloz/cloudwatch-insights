@@ -17,7 +17,7 @@ import yaml
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import builder, models, step_types, workflows
+from . import builder, live_events, models, step_types, workflows
 
 KINDS = ("pane", "step", "workflow")
 NOUNS = {"pane": "pane type", "step": "step type", "workflow": "workflow"}
@@ -91,6 +91,7 @@ def out(db: Session, row: models.BuildDraft, full: bool = False) -> dict[str, An
         "label": label(row.source),
         "updated_at": row.updated_at,
         "turns": len(row.chat or []),
+        "version": row.version or 0,
         "changed": saved is None or saved.source != row.source
         or (row.kind != "workflow" and (getattr(saved, "files", None) or {}) != (row.files or {})),
         **({"source": row.source, "files": row.files or {}, "chat": row.chat or []} if full else {}),
@@ -128,10 +129,31 @@ def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
     if chat is not None:
         row.chat = _chat(chat)
     row.updated_at = datetime.datetime.utcnow()
+    row.version = (row.version or 0) + 1
+
+
+def announce(db: Session, row: models.BuildDraft, origin: Optional[str], by: Optional[str] = None,
+             for_tab: Optional[str] = None) -> None:
+    """Tells the user's tabs a draft changed (D157), on the caller's commit:
+    the editor holding it fetches it and follows. `by` says who, for its
+    line ("Claude Code (laptop)"); `for_tab`, a tab whose editor has no draft
+    yet and should take this one (open_draft for what's on screen)."""
+    db.flush()
+    live_events.notify(db, row.user_id, "draft", None, row.version, origin, extra={
+        "draft_id": row.id, "build_kind": row.kind, "target_id": row.target_id,
+        **({"by": by} if by else {}), **({"for_tab": for_tab} if for_tab else {})})
+
+
+class Stale(DraftError):
+    """A save made on a version that's no longer the draft's."""
+
+    def __init__(self) -> None:
+        super().__init__("This draft was changed elsewhere since you opened it; it's been brought up to date.", 409)
 
 
 def save(db: Session, user: models.User, kind: str, target_id: Optional[str], source: Optional[str],
-         new_id: Optional[str] = None, chat: Any = None, files: Optional[dict[str, str]] = None) -> models.BuildDraft:
+         new_id: Optional[str] = None, chat: Any = None, files: Optional[dict[str, str]] = None,
+         origin: Optional[str] = None, by: Optional[str] = None, for_tab: Optional[str] = None) -> models.BuildDraft:
     """A new draft -- or, of an existing one, the draft this person already
     has of it, changed: one each, whichever tab saves first."""
     if kind not in KINDS:
@@ -147,20 +169,27 @@ def save(db: Session, user: models.User, kind: str, target_id: Optional[str], so
         db.add(row)
     _apply(row, source if source is not None else (row.source or ""), None if target_id else new_id, chat, files)
     try:
+        announce(db, row, origin, by, for_tab)
         db.commit()
     except IntegrityError:
         # Another tab's first save of the same one won: change that one.
         db.rollback()
         row = db.query(models.BuildDraft).filter_by(user_id=user.id, kind=kind, target_id=target_id).one()
         _apply(row, source, None, chat, files)
+        announce(db, row, origin, by, for_tab)
         db.commit()
     return row
 
 
 def update(db: Session, user: models.User, row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
-           chat: Any, target_id: Optional[str] = None, files: Optional[dict[str, str]] = None) -> models.BuildDraft:
+           chat: Any, target_id: Optional[str] = None, files: Optional[dict[str, str]] = None,
+           origin: Optional[str] = None, base_version: Optional[int] = None) -> models.BuildDraft:
     if not may_make(user, row.kind):
         raise DraftError(f"You can't build a {NOUNS[row.kind]}.", 403)
+    # Text saved on top of an older version would undo what was done since
+    # (Claude Code's changes, another tab's): refused, and the editor follows.
+    if base_version is not None and base_version != (row.version or 0) and (source is not None or files is not None):
+        raise Stale()
     if target_id and row.target_id != target_id:
         # A new one just created: its draft goes on as that one's -- its chat
         # with it -- in place of any this person had of it.
@@ -172,6 +201,7 @@ def update(db: Session, user: models.User, row: models.BuildDraft, source: Optio
                                            models.BuildDraft.id != row.id).delete()
         row.target_id, row.new_id = target_id, ""
     _apply(row, source, None if row.target_id else new_id, chat, files)
+    announce(db, row, origin)
     db.commit()
     return row
 

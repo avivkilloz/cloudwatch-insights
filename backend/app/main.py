@@ -26,6 +26,7 @@ from .panes import saved as pane_saved
 from .platform_tools import server as platform_server
 from .routers import (
     access_tokens as access_tokens_router,
+    screen as screen_router,
     agent,
     blobs as blobs_router,
     build_drafts as build_drafts_router,
@@ -180,6 +181,7 @@ app.include_router(workflows_router.runs_router)
 app.include_router(workflows_router.approvals_router)
 app.include_router(blobs_router.router)
 app.include_router(access_tokens_router.router)
+app.include_router(screen_router.router)
 
 
 @app.get("/api/health")

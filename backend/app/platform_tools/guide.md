@@ -29,6 +29,10 @@ The words the platform uses:
 1. `get_context` comes first. It returns the environments, the pane kinds
    with their inputs, and the open sessions. Answer from what it returns,
    never from memory.
+   - Its `on_screen` lists what the user's browser tabs show, the one in
+     front first: a session, or a Builder editor and its draft. "Here" and
+     "this" mean the first one.
+   - `viewing_session` is the session on screen, described in full.
 2. To show something, put it in a pane:
    - `create_session`, or `add_pane` to the session the user is viewing.
    - `set_pane_inputs`, then `run_pane`. The rows land in the pane, and you
@@ -63,7 +67,12 @@ is at once usable by their group.
      closest recipe, which is better than a blank page.
    - `open_draft(kind)` with neither starts from the starter.
 
-   Each of these gives a `draft_id`. Pass it to every tool below.
+   - `open_draft(on_screen=True)` takes the editor the user has open in the
+     Builder (`on_screen` names it). If that editor already has a draft, you
+     get that one; if not, one is made and their editor takes it.
+
+   Each of these gives a `draft_id`. Pass it to every tool below. If the user
+   has that draft open, their editor follows each change you make, live.
 2. **Read before writing.**
    - `build_reference(kind)` lists every field and what it means, with the
      handlers, input types, renders, examples and rules. The same text is the
@@ -111,10 +120,11 @@ is at once usable by their group.
      `/?draft=<id>` on the platform's address.
    - Tell the user to open it there, look at it, and Save.
 
-If the user has the same draft open in the Builder while you change it, their
-editor doesn't follow your changes until they open the draft again. A Save
-from that open editor keeps their text, not yours. Tell them to reopen it
-after you propose.
+If the user types in the open draft while you change it, both edits land
+in one draft, in order. Their editor shows each of your changes as you make
+it, and a save of theirs made on an older version is refused rather than
+written over yours. Read the draft again (`read_draft`) before a change if
+they may have typed since.
 
 ### Pane types: what works
 

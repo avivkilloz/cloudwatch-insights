@@ -5,7 +5,7 @@ built, and opened again as they were left -- the chat with them."""
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,9 @@ class DraftChange(BaseModel):
     source: Optional[str] = None
     files: Optional[dict[str, str]] = None
     chat: Optional[list[Any]] = None
+    # The version the text was edited from (D157): a save on an older one is
+    # a 409, not a write over what changed since. Left out by a chat-only save.
+    base_version: Optional[int] = None
 
 
 class DraftOut(BaseModel):
@@ -42,6 +45,7 @@ class DraftOut(BaseModel):
     label: str = ""
     updated_at: datetime
     turns: int = 0
+    version: int = 0
     # False for a saved one's draft holding only its chat.
     changed: bool = True
     source: Optional[str] = None
@@ -72,18 +76,21 @@ def get_draft(draft_id: int, db: Session = Depends(get_db), user: models.User = 
 
 
 @router.post("", response_model=DraftOut, status_code=201)
-def save_draft(payload: DraftIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def save_draft(payload: DraftIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user),
+               origin: Optional[str] = Header(default=None, alias="X-Sync-Origin", max_length=64)):
     row = _guard(lambda: build_drafts.save(db, user, payload.kind, payload.target_id, payload.source, payload.new_id,
-                                           payload.chat, payload.files))
+                                           payload.chat, payload.files, origin=origin))
     return build_drafts.out(db, row)
 
 
 @router.put("/{draft_id}", response_model=DraftOut)
 def change_draft(draft_id: int, payload: DraftChange, db: Session = Depends(get_db),
-                 user: models.User = Depends(auth.get_current_user)):
+                 user: models.User = Depends(auth.get_current_user),
+                 origin: Optional[str] = Header(default=None, alias="X-Sync-Origin", max_length=64)):
     row = _guard(lambda: build_drafts.mine(db, user, draft_id))
     return build_drafts.out(db, _guard(lambda: build_drafts.update(db, user, row, payload.source, payload.new_id,
-                                                                  payload.chat, payload.target_id, payload.files)))
+                                                                  payload.chat, payload.target_id, payload.files,
+                                                                  origin=origin, base_version=payload.base_version)))
 
 
 @router.delete("/{draft_id}", status_code=204)

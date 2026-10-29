@@ -210,6 +210,16 @@ export interface AccessTokenMade extends AccessToken {
   token: string;
 }
 
+export interface ScreenReport {
+  view: "home" | "session" | "builder" | "workflows" | "settings" | "chat" | "code" | "other";
+  session_id?: string | null;
+  build_kind?: "pane" | "workflow" | "step" | null;
+  target_id?: string | null;
+  draft_id?: number | null;
+  timezone?: string;
+  visible: boolean;
+}
+
 /** What's being built and isn't saved (D125): the editor's text, the Id typed
  * for a new one and the Building chat, saved as its builder types. Theirs alone. */
 export interface BuildDraft {
@@ -223,6 +233,8 @@ export interface BuildDraft {
   turns: number;
   /** False for a saved one's draft that holds only its chat (kept after Save). */
   changed: boolean;
+  /** Bumped by every change (D157): a save names the one it was made on. */
+  version: number;
   /** Only when read whole (one draft, or an existing one's). */
   source?: string;
   files?: BuildFiles;
@@ -1135,6 +1147,8 @@ export const api = {
   updateBuiltStep: (id: string, source: string, files: BuildFiles) =>
     req<BuiltStepType>(`/builder/steps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ source, files }) }),
   deleteBuiltStep: (id: string) => req<void>(`/builder/steps/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** What this tab has on screen (D157), for Claude Code's "here". */
+  reportScreen: (screen: ScreenReport) => req<void>("/screen", { method: "PUT", body: JSON.stringify(screen) }),
   listAccessTokens: () => req<AccessToken[]>("/access-tokens"),
   listAllAccessTokens: () => req<AccessToken[]>("/access-tokens/all"),
   createAccessToken: (name: string, days: number) =>
@@ -1154,7 +1168,10 @@ export const api = {
     chat?: unknown[];
   }) =>
     req<BuildDraft>("/build-drafts", { method: "POST", body: JSON.stringify(payload) }),
-  updateBuildDraft: (id: number, payload: { target_id?: string; new_id?: string; source?: string; files?: BuildFiles; chat?: unknown[] }) =>
+  updateBuildDraft: (
+    id: number,
+    payload: { target_id?: string; new_id?: string; source?: string; files?: BuildFiles; chat?: unknown[]; base_version?: number },
+  ) =>
     req<BuildDraft>(`/build-drafts/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteBuildDraft: (id: number) => req<void>(`/build-drafts/${id}`, { method: "DELETE" }),
   listPublishedTemplates: () => req<PublishedTemplate[]>("/templates"),

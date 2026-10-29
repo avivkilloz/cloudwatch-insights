@@ -11,11 +11,35 @@
  * chat, as the saved one's (`finish`), so how it was built isn't lost.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, BuildDraft, BuildFiles, readableError } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { api, ApiError, BuildDraft, BuildFiles, readableError, SYNC_ORIGIN } from "../api";
 import { BuildDraftHooks, BuildKind } from "../agent/buildFocus";
+import { DRAFT_EVENT, LiveEvent } from "../sessions/liveEvents";
 
 const SAVE_AFTER_MS = 800;
+
+/** The Builder editor open in this tab, and its draft (D157): what this tab
+ * reports as on screen, so Claude Code knows which draft it's helping with. */
+export interface EditorOnScreen {
+  kind: BuildKind;
+  targetId: string | null;
+  draftId: number | null;
+}
+let onScreen: EditorOnScreen | null = null;
+const screenListeners = new Set<() => void>();
+function setOnScreen(next: EditorOnScreen | null) {
+  onScreen = next;
+  screenListeners.forEach((l) => l());
+}
+export function useEditorOnScreen(): EditorOnScreen | null {
+  return useSyncExternalStore(
+    (l) => {
+      screenListeners.add(l);
+      return () => screenListeners.delete(l);
+    },
+    () => onScreen,
+  );
+}
 
 export interface DraftOptions {
   kind: BuildKind;
@@ -67,6 +91,9 @@ export function useBuildDraft(o: DraftOptions): DraftState {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [id, setId] = useState<number | null>(draftId);
+  // The draft's version this editor holds (D157): its saves are made on it,
+  // and an announced change past it is fetched and shown.
+  const versionRef = useRef<number>(0);
 
   // Read by saves that may outlive the editor (a turn's answer, its proposal).
   const idRef = useRef<number | null>(draftId);
@@ -101,8 +128,20 @@ export function useBuildDraft(o: DraftOptions): DraftState {
     (change: { source?: string; new_id?: string; files?: BuildFiles; chat?: unknown[] }) =>
       enqueue(async () => {
         let saved: BuildDraft;
-        if (idRef.current !== null) saved = await api.updateBuildDraft(idRef.current, change);
-        else {
+        if (idRef.current !== null) {
+          // Text is saved on the version it was edited from; a chat alone isn't held to one.
+          const held = change.source !== undefined || change.files !== undefined;
+          try {
+            saved = await api.updateBuildDraft(idRef.current, held ? { ...change, base_version: versionRef.current } : change);
+          } catch (e) {
+            // Changed elsewhere first (Claude Code, another tab): theirs is shown, not written over.
+            if (e instanceof ApiError && e.status === 409) {
+              await followRef.current(null);
+              return;
+            }
+            throw e;
+          }
+        } else {
           saved = await api.createBuildDraft({
             kind,
             target_id: targetId,
@@ -114,6 +153,7 @@ export function useBuildDraft(o: DraftOptions): DraftState {
           idRef.current = saved.id;
           setId(saved.id);
         }
+        versionRef.current = Math.max(versionRef.current, saved.version ?? 0);
         setError(null);
         setStatus(`Draft saved ${at(saved.updated_at.endsWith("Z") ? saved.updated_at : `${saved.updated_at}Z`)}`);
       }),
@@ -155,6 +195,7 @@ export function useBuildDraft(o: DraftOptions): DraftState {
         if (d) {
           idRef.current = d.id;
           setId(d.id);
+          versionRef.current = d.version ?? 0;
           last.current = { source: d.source ?? "", newId: d.new_id, files: filesKey(d.files) };
           turnCount.current = d.chat?.length ?? 0;
           setTurns(d.chat ?? []);
@@ -181,6 +222,54 @@ export function useBuildDraft(o: DraftOptions): DraftState {
       cancelled = true;
     };
   }, [ready, loaded, draftId, targetId, kind]);
+
+  // Changed somewhere else (D157): Claude Code through an access token, the
+  // agent, another tab. The editor shows it -- the text, the files, the chat
+  // -- and a moment's edit not yet saved gives way, rather than being saved
+  // over it. Run on the save chain, so it never lands between a save and
+  // its reply.
+  const follow = useCallback(async (by: string | null) => {
+    if (idRef.current === null) return;
+    const d = await api.getBuildDraft(idRef.current);
+    if ((d.version ?? 0) < versionRef.current) return;
+    versionRef.current = d.version ?? 0;
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+    last.current = { source: d.source ?? "", newId: d.new_id, files: filesKey(d.files) };
+    turnCount.current = d.chat?.length ?? 0;
+    setTurns(d.chat ?? []);
+    restoreRef.current(d.source ?? "", d.new_id, d.files ?? {});
+    setError(null);
+    setStatus(`${by ? `Changed by ${by}` : "Changed elsewhere"} at ${at(Date.now())}: that's what's shown.`);
+  }, []);
+  const followRef = useRef(follow);
+  followRef.current = follow;
+
+  useEffect(() => {
+    if (!loaded) return;
+    const onDraft = (e: Event) => {
+      const event = (e as CustomEvent<LiveEvent>).detail;
+      if (event.build_kind !== kind || event.draft_id === undefined) return;
+      if (idRef.current === null) {
+        // A draft made for this editor (open_draft on screen): taken, as this one's.
+        if (event.for_tab !== SYNC_ORIGIN || (event.target_id ?? null) !== targetId) return;
+        idRef.current = event.draft_id;
+        setId(event.draft_id);
+      } else if (event.draft_id !== idRef.current) return;
+      if (event.version !== null && event.version <= versionRef.current) return;
+      const by = event.by ?? null;
+      enqueue(() => followRef.current(by));
+    };
+    window.addEventListener(DRAFT_EVENT, onDraft);
+    return () => window.removeEventListener(DRAFT_EVENT, onDraft);
+  }, [loaded, kind, targetId, enqueue]);
+
+  // Said to be on screen while open, with its draft once it has one.
+  useEffect(() => {
+    setOnScreen({ kind, targetId, draftId: id });
+  }, [kind, targetId, id]);
+  useEffect(() => () => setOnScreen(null), []);
 
   // Every change, a moment later.
   // By what they hold, never the objects: an editor's `{}` is a new one each

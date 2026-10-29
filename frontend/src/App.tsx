@@ -25,6 +25,7 @@ import { PersistedSession } from "./sessions/storage";
 import { setManifests } from "./panes/manifest";
 import { registerManifestPanes } from "./sessions/paneTypes";
 import { applyTheme, getInitialTheme, ThemeId } from "./theme";
+import { useReportScreen } from "./sessions/screenReport";
 
 /** Whether the left rail is showing, and how wide it and the agent's dock are.
  * Per-browser preferences, not workspace state. */
@@ -184,6 +185,9 @@ function AppShell({ appTitle, appLogoUrl, theme, onThemeChange, onSettingsChange
 
   const agent = useAgent();
   const brand: BrandInfo = { title: appTitle, logoUrl: appLogoUrl };
+  // What's on screen, for Claude Code's "here" (D157): only where its tools
+  // can be used -- a group with the agent.
+  useReportScreen(!!user?.agent_enabled, view, view === "session" ? activeId : null);
 
   // A newer build is deployed: say so, and reload at the next move to another
   // page or session -- a natural break, never in the middle of typing. Every

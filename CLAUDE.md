@@ -1019,6 +1019,18 @@ the platform, for a group with `builder_enabled` (admins always).
   A pane's or step's first `.py` brings `requirements.txt` holding
   `deps.HINT` (`deps.with_requirements` in `change_definition`; Workspace's
   `add`; the code starters): comments only lock nothing.
+- **What's on screen, and drafts that follow** (D157; `models.ScreenView`,
+  `routers/screen.py`, `presence.show`/`on_screen`, `sessions/screenReport.ts`):
+  a tab reports its view (session, or Builder editor + draft from
+  `buildDraft`'s `useEditorOnScreen`) on change, focus, every 30 s and hidden
+  on `pagehide`; `get_context`'s `on_screen` and, for a personal token,
+  `viewing_session`/timezone come from it. A draft's every change bumps
+  `version` and is announced (`build_drafts.announce`, kind `"draft"`,
+  `DRAFT_EVENT` in the browser) -- any new writer of a draft must call it
+  before its commit. The editor follows (`useBuildDraft`'s `follow`, on the
+  save chain), a text save sends `base_version` (409 = follow, never
+  overwrite), `for_tab` hands a draft to an editor that had none
+  (`open_draft(on_screen=True)`), and AgentContext merges a draft's turns by id.
 - **A table exports rows with their detail** like a list (D154,
   `ListView.IncludeDetail`, `useTableDetail().withDetail/load`): `detail.include`
   labels the box beside Export, `merge` the fields added. Never an export

@@ -490,11 +490,19 @@ isn't public.
    - `/platform:build_pane <what you want to see>` starts the building loop.
    - `@platform:platform://guide` attaches the guide that explains the tools.
 
+Claude knows what you're looking at: your open tabs say what they show, so
+"here" is the session on your screen, and a pane it adds there appears as
+you watch.
+
 When Claude builds, it works in a Builder draft of yours: it opens one,
 changes it, checks it, tries it in an environment you choose, and proposes it.
-The draft then waits in your Builder, with Claude's summary in its Building
-chat; the link Claude gives you (`/?draft=<id>`) opens it. You review it and
-Save. Claude can't save.
+To build together, open the editor first (Builder → New pane, or the pane to
+change) and ask Claude to work on what's on screen. It takes that editor's
+draft, and each change it makes shows in your editor as it's made, with a
+line saying who made it. What you type lands in the same draft, and a save
+of yours made before its latest change never overwrites it. Its proposals
+appear in the editor's Building chat. Elsewhere, the link Claude gives you
+(`/?draft=<id>`) opens the draft. You review it and Save. Claude can't save.
 
 Revoke a token in the same place, and anything using it stops at once. An
 admin sees everyone's tokens there (names only, never the tokens) and can
