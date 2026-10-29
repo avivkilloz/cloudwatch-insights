@@ -78,7 +78,7 @@ const run = async () => {
     // ---- 2. made and used
     await page.fill("#builder-id", NAME);
     await page.click('.builder-view button:text-is("Create")');
-    await page.waitForSelector('.builder-notice:has-text("your group can use it now")', { timeout: 10000 });
+    await page.waitForSelector('.builder-notice:has-text("everyone can use it now")', { timeout: 10000 });
     made = (await api(page, "GET", "/builder/panes")).body.find((t) => t.id.endsWith(NAME));
     await page.click('.builder-view button:text-is("Open in a session")');
     await page.waitForSelector(`${PANE} button:text-is("Rules")`, { timeout: 10000 });

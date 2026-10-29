@@ -88,6 +88,9 @@ export interface AskExtra {
 // drowning out the people talking to each other. `\b` keeps it from also
 // matching inside a longer word ("@platform-agentic").
 const AGENT_MENTION = /@platform-agent\b/i;
+// A shared draft's chat (D163): the Builder changes the draft when asked by
+// name; the platform agent answers about it (and what's around it).
+const BUILDER_MENTION = /@builder\b/i;
 
 /** "run": a workflow run's own chat (D98), stored on the run, its readers'.
  * "build": beside the editor on screen (D107), kept in this tab only. */
@@ -383,15 +386,28 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // held, under the key the editor was opened with -- and, when the draft
   // changes elsewhere (D157: a proposal from Claude Code), the turns added
   // there, after the ones this tab has.
+  // A shared draft's (D161) brings others' turns as they're written -- a
+  // member's message, their question while it runs and then its answer --
+  // so a turn already here is replaced by the newer copy of it.
   useEffect(() => {
     const turns = viewingBuild?.draft?.turns as AgentTurn[] | null | undefined;
     if (!viewingBuild || !turns) return;
     setBuildChats((prev) => {
       const have = prev[viewingBuild.key];
       if (!have) return { ...prev, [viewingBuild.key]: turns };
+      const incoming = new Map(turns.map((t) => [t.id, t]));
       const known = new Set(have.map((t) => t.id));
       const added = turns.filter((t) => !known.has(t.id));
-      return added.length ? { ...prev, [viewingBuild.key]: [...have, ...added] } : prev;
+      let changed = added.length > 0;
+      const kept = have.map((t) => {
+        const newer = incoming.get(t.id);
+        if (newer && newer !== t && (newer.status !== t.status || newer.answer !== t.answer)) {
+          changed = true;
+          return newer;
+        }
+        return t;
+      });
+      return changed ? { ...prev, [viewingBuild.key]: [...kept, ...added] } : prev;
     });
   }, [viewingBuild]);
 
@@ -550,13 +566,24 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       // A run's chat is its readers' -- the starter's group and admins -- so
       // it says who asked, as a shared session's does; the agent answers
       // every message there, as in an unshared session.
-      const shared = scope === "session" && isShared(sessionId!);
+      // A shared draft's chat (D161, D163) is the same: people talk, the
+      // Builder answers @builder (it changes the draft), the platform agent
+      // @platform-agent; an unshared one's goes to the Builder, as ever.
+      const sharedBuild = scope === "build" && !!build?.draft?.shared;
+      const shared = (scope === "session" && isShared(sessionId!)) || sharedBuild;
       const byName = (shared || scope === "run") && userRef.current;
       const author = byName ? { id: userRef.current!.id, name: userRef.current!.username } : undefined;
-      if (shared && !AGENT_MENTION.test(question)) {
+      const toPlatform = sharedBuild && AGENT_MENTION.test(question) && !BUILDER_MENTION.test(question);
+      if (shared && !(sharedBuild ? BUILDER_MENTION.test(question) || toPlatform : AGENT_MENTION.test(question))) {
         const id = `t${Date.now().toString(36)}${(turnCounter++).toString(36)}`;
         const chatTurn: AgentTurn = { id, question, author, answer: "", steps: [], status: "done", agentInvoked: false };
-        writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), chatTurn].slice(-KEPT_TURNS));
+        if (sharedBuild) {
+          const kept = [...(buildChatsRef.current[buildKey!] ?? []), chatTurn].slice(-KEPT_TURNS);
+          setBuildChats((prev) => ({ ...prev, [buildKey!]: kept }));
+          build!.draft!.saveTurns(kept);
+        } else {
+          writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), chatTurn].slice(-KEPT_TURNS));
+        }
         return;
       }
 
@@ -595,6 +622,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       if (scope === "session") {
         writeSessionState(sessionId!, SESSION_CHAT_KEY, [...storedTurns(sessionId!), first].slice(-KEPT_TURNS));
       }
+      // A shared draft's too: its other members see the question and that it's being worked on.
+      if (sharedBuild) build!.draft!.saveTurns([...(buildChatsRef.current[buildKey!] ?? []), first].slice(-KEPT_TURNS));
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -679,6 +708,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
                     ...(tryOn ? { try_on: tryOn } : {}),
                     ...(extra?.tryOn ? { try_now: true } : {}),
                     ...(extra?.fix ? { fix_now: true } : {}),
+                    // A new one's members reach it through its draft (D161).
+                    ...(build.draft?.id != null ? { draft_id: build.draft.id } : {}),
+                    ...(toPlatform ? { agent: "platform" as const } : {}),
                   },
                 }
               : {}),
@@ -723,7 +755,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       if (scope === "global") setGlobalTurns([]);
       // A run's chat is everyone's who reads the run: not one person's to clear.
       else if (scope === "session" && viewingRef.current) writeSessionState(viewingRef.current, SESSION_CHAT_KEY, []);
-      else if (scope === "build" && viewingBuildRef.current) {
+      // A shared draft's chat is its members' too: not one person's to clear.
+      else if (scope === "build" && viewingBuildRef.current && !viewingBuildRef.current.draft?.shared) {
         const key = viewingBuildRef.current.key;
         setBuildChats((prev) => ({ ...prev, [key]: [] }));
         viewingBuildRef.current.draft?.saveTurns([]);

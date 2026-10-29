@@ -77,7 +77,7 @@ const run = async () => {
 
     // ---- 2. created: theirs at once
     await builder.click('.builder-view button:text-is("Create")');
-    await builder.waitForSelector(`.builder-notice:has-text("your group can use it now")`, { timeout: 10000 });
+    await builder.waitForSelector(`.builder-notice:has-text("everyone can use it now")`, { timeout: 10000 });
     await builder.screenshot({ path: `${SHOT}/smoke92-builder.png` });
     await builder.click('.builder-view button:text-is("Open in a session")');
     await builder.waitForSelector(`${SHOWN} .aggregator-tab-label:text-is("Shouty ${STAMP}")`, { timeout: 10000 });

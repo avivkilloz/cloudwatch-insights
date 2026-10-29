@@ -5,7 +5,7 @@
 //     Steps;
 //   - a connection type and a credential type are made there -- the
 //     credential type written as YAML, then seen in the form -- each the
-//     builder's group's ("Made by");
+//     builder's to change (D161: "Made by" names them);
 //   - an admin's type opens read-only, saying why;
 //   - once a credential uses their type, it's an admin's to change, and says so;
 //   - an admin sees the builder's types in Settings, the same editor.
@@ -64,7 +64,7 @@ const run = async () => {
     await page.click('.credential-view-foot button:text-is("Create")');
     await page.waitForSelector(`.connection-types-table tr:has-text("Acme API ${STAMP}")`);
     const connRow = await page.locator(`.connection-types-table tr:has-text("Acme API ${STAMP}")`).innerText();
-    check(connRow.includes(`${GROUP} builders`), "A builder makes a connection type in the Builder: their group's", connRow);
+    check(connRow.includes(USER), "A builder makes a connection type in the Builder: theirs", connRow);
 
     // ---- 2. a credential type, written as YAML
     await builderTab(page, "Credentials");
@@ -103,12 +103,12 @@ const run = async () => {
     await page.click('.credential-view-foot button:text-is("Save type")');
     await page.waitForSelector(`.credential-types-table tr:has-text("Acme key ${STAMP}")`);
     const credRow = await page.locator(`.credential-types-table tr:has-text("Acme key ${STAMP}")`).innerText();
-    check(credRow.includes(`${GROUP} builders`) && credRow.includes("token"), "A builder makes a credential type: their group's", credRow);
+    check(credRow.includes(USER) && credRow.includes("token"), "A builder makes a credential type: theirs", credRow);
     await page.screenshot({ path: `${SHOT}/smoke114-list.png`, fullPage: true });
 
     // ---- 3. an admin's type opens read-only, saying why
     await page.click(`.credential-types-table tr:has-text("Admins' key ${STAMP}")`);
-    check((await page.locator(".credential-locked").innerText()).includes("only they, or an admin, change it") &&
+    check((await page.locator(".credential-locked").innerText()).includes("Made by admin") &&
       (await page.locator('.credential-view-foot button:text-is("Save type")').count()) === 0,
       "An admin's type opens read-only, saying why", theirs.status);
     await page.click('.credential-view-foot button:text-is("Close")');
@@ -131,7 +131,7 @@ const run = async () => {
     await admin.click('.settings-tabs .tab:text-is("Credentials")');
     await admin.click('.credentials-settings .segmented button:text-is("Types")');
     await admin.waitForSelector(`.credential-types-table tr:has-text("Acme key ${STAMP}")`);
-    check((await admin.locator(`.credential-types-table tr:has-text("Acme key ${STAMP}")`).innerText()).includes(`${GROUP} builders`),
+    check((await admin.locator(`.credential-types-table tr:has-text("Acme key ${STAMP}")`).innerText()).includes(USER),
       "An admin sees the builder's type in Settings, saying whose");
   } finally {
     if (credId) await api(admin, "DELETE", `/credentials/${credId}`);

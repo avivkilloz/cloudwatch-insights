@@ -190,6 +190,12 @@ export default function HomePage() {
                       >
                         <span className="home-card-title">{t.label}</span>
                         <span className="home-card-desc">{t.description}</span>
+                        {/* Offered anyway (D160): an admin adding the connection is all it needs. */}
+                        {catalogue.noEnvironment[t.type] && (
+                          <span className="home-card-note" title={catalogue.noEnvironment[t.type]}>
+                            No environment for it yet
+                          </span>
+                        )}
                       </button>
                       <div className="home-card-count" role="group" aria-label={`How many ${t.label} panes`}>
                         <button

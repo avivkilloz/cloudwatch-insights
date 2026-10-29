@@ -69,7 +69,8 @@ backend/app/
                      approvals (§22)
   yaml_edit.py       changes to a definition's YAML by path, spliced and checked by meaning (D117)
   row_paths.py       paths into a reply for a request's rows: dotted, [0], [Key=Name] (D124)
-  build_drafts.py    what's being built and not saved: text, Id and Building chat, per person (D125)
+  build_drafts.py    what's being built and not saved: text, Id and chat, one per thing, shared (D125, D161)
+  build_access.py    who changes what's built: its owner, its members, admins (D161)
   step_types.py      step types made in the Builder: an HTTP request, a chain of steps or code, used by workflows (D122)
   runner_client.py   code run in the runner: a job per run (runner_jobs, its token), problems() before it runs (§25)
   outbound.py        what code sends out (ctx.http / ctx.aws), made here as whoever runs it (D133)
@@ -123,7 +124,7 @@ helm/ argocd/ docker-compose.yml   deployment
 **Panes are described by manifests (PLATFORM_PLAN.md §15).** One YAML file
 per pane type in `backend/app/panes/manifests/`, validated by a strict Pydantic
 model (`panes/manifest.py`: a typo fails startup and the tests, naming the file)
-and served, filtered by the group's flags, at `GET /api/pane-types`.
+and served, every one to everyone (D160), at `GET /api/pane-types`.
 - **Ported vs drawn by hand.** `state: v2` + `rendered: true` (Base64, Diff,
   JWT, the API table, DynamoDB, Cognito, S3, IoT, the HTTP client, CloudWatch,
   OpenSearch, MQTT -- every pane, since 3b-5) means the generic renderer
@@ -140,7 +141,7 @@ and served, filtered by the group's flags, at `GET /api/pane-types`.
   one. Never give a ported pane a route of its own or the agent a runner of
   its own: that is the drift this exists to end. (For a pane still drawn by
   hand, `handler` names its legacy agent runner in `platform_tools/panes.
-  HANDLERS`.) `run_handler` checks the group's flag itself and fills an
+  HANDLERS`.) `run_handler` fills an
   unset input with its default. Every pane's old per-service routes are gone
   (D49; their bodies are the handlers), the logs' and saved queries' last,
   in 3b-4, with the agent's `list_log_groups`/`list_opensearch_*`:
@@ -410,8 +411,8 @@ fingerprint, not templates -- and a pane reads them with `usePaneOutputs`.
 
 **The catalogue** (D66, §19.2; `catalogue.py`, `routers/catalogue.py`,
 `sessions/catalogue.tsx`) is how panes are offered, everywhere: the default
-page, the side panel's Add list, the strip's +, a session's card and the group
-form all read `useCatalogue()` -- never group panes by `group` again. Categories
+page, the side panel's Add list, the strip's + and a session's card all read
+`useCatalogue()` -- never group panes by `group` again. Categories
 are rows with a fixed `key` (what a manifest's `category:`, else its `group`,
 suggests) and a `name` an admin can change -- so a rename doesn't make the next
 start recreate the old one (`ensure_categories` creates only a suggested key
@@ -420,9 +421,12 @@ thing) places every pane in it, pinning it against a manifest's later
 suggestion; deleting a category places its panes in another. Favourites and
 hidden are each person's (`catalogue_preferences`): Favourites first in the
 shorter lists (not on the default page, where each card has its star), hidden
-left out until "Show hidden". `GET /api/catalogue` gives each person only the
-panes their group may use and drops empty categories except for an admin.
-Access isn't here: moving a pane never changes who can use it. A suite that
+left out until "Show hidden". `GET /api/catalogue` gives everyone every pane
+(D160) and drops empty categories except for an admin; `no_environment` names
+the panes none of the person's environments can run (a required connection
+input of a type they have no connection of), which the lists offer dimmed and
+the default page's card says so -- an admin adding the connection is all they
+need. A suite that
 arranges it puts it back (smoke81), or later suites see a different order.
 A category has a `description` (the line under its heading on the default
 page, edited with its name in Settings → Catalogue): null means its key's
@@ -625,44 +629,22 @@ Saved templates carry `__savedStateVersion`; older per-page shapes are migrated
 in `sessions/templates.tsx`. Assume any stored shape you invent will need a
 migration later.
 
-**Access control is per group, never per user.** A user belongs to one
-`UserGroup`, which carries its identities (who it is on each kind of
-connection -- its AWS role, D31), the visible environments and **one grant
-per pane type** (D65, §19.1: `group_pane_grants`; the Admin group needs none).
-`pane_access.py` is the one answer -- `allowed`/`require`, called by
-`/api/pane-types`, the action and request endpoints (`run_handler`,
-`run_request`), the HTTP client's Send and the agent's `available_kinds`; never
-read a group boolean for a pane again. The old booleans (`logs_enabled`,
-`tools_enabled`, …) are shorthand in the API only: read as "has any pane whose
-manifest `flag` names it", written by granting or revoking those panes;
-`pane_types` is the exact list and wins. They were migrated into grants once
-(`pane_grants_migrated`), and a manifest's `flag` is optional -- a pane type
-without one (a plugin's) is granted to no group until an admin ticks it in
-Users → Groups → Panes. `agent_enabled` stays a boolean: the agent isn't a
-pane. `/api/auth/me` returns `pane_types` (and the booleans) so the frontend
-can decide what to offer (`enabledFor` in `paneTypes.tsx`).
-The paragraph below is the history of how the routers came to check at all.
-The agent's MCP tools re-check them (`platform_tools/panes.kind_for`,
-`_flagged`), since the agent must never reach further than its user's UI
-would -- **and so do the per-service routes now** (`resolve.require_flag`,
-(now `pane_access.require`), called at the top of every AWS-calling endpoint left in `tools.py`, right
-where `resolve_environment`/`resolve_role_name` already were; a ported
-pane's actions -- every AWS call now, MQTT's included -- get it from
-`routers/panes.run_handler`, and the action endpoint
-answers a group without the pane's flag with the 404 of a pane that doesn't
-exist). This used to be a real, if not agent-reachable, gap: a group with an
-environment and a role but a page's flag off could still reach that page's
-API by a raw request, since only the frontend's own offer of the button (and
-the agent's tools) ever checked the flag -- environment and role were the
-*only* thing the routers themselves re-verified. Found and closed while
-investigating a report of the agent reaching services/environments/roles a
-user shouldn't have (that report's own mechanism was never reproduced by
-tracing the agent's tool chain -- `kind_for`, environment validation and role
-resolution all held at every call site checked, including the shared-session
-cross-group case and `add_pane`/`run_pane` specifically; `test_router_flags.py`
-and the new `test_platform_tools.py` cases cover both boundaries now, not
-just `create_session`/`set_pane_inputs`). The Admin group (`is_admin`)
-always passes both checks, same as before.
+**Access control is per group, never per user -- and it's the data, not the
+panes** (D160). A user belongs to one `UserGroup`, which carries its
+identities (who it is on each kind of connection -- its AWS role, D31), the
+visible environments, its credentials, and two switches: `agent_enabled` and
+`builder_enabled` (who may make new things). **Every pane type, workflow and
+template is everyone's to use**: a run acts as the caller, through their
+group's environments and identity, which every handler, request and step
+checks -- so a list of panes per group (D65's `group_pane_grants`) and of
+groups per workflow (D84's `workflow_grants`) protected nothing a run doesn't
+already, and are gone (tables dropped at startup, `pane_access.py` removed,
+the old page booleans and `pane_types` out of the API and `/api/auth/me`,
+Users → Groups without Panes). Never add a per-group list of panes back: what
+a group may *reach* is its environments. A pane none of someone's environments
+can run is offered with why (the catalogue's `no_environment`, "No environment
+for it yet"), never hidden. The Admin group (`is_admin`) sees every
+environment. Who may *change* something built is per person (D161, below).
 
 **No migration framework.** `ensure_columns()` in `db.py` adds missing columns
 on startup (only ones safe to backfill — nullable or with a server default) and
@@ -737,14 +719,12 @@ their own (the rail's Workflows row), never a session.
   choice -- another case, or part of just one -- as that choice
   (`_as_listed`, on `start`): asked for "/fake/API", the agent's run queried a
   log group that doesn't exist; anything else is kept as given.
-- **A run acts as its starter** (every step through `pane_access.require` and
-  the handler's own connection check), and **its inputs and outputs are its
-  starter's, their group's and admins'** (`can_read`, D84) -- other granted
-  groups see that it happened. **Editing is an admin's or its group's
-  builders'** (D121, `can_create`/`can_edit(user, workflow)`): a builder's
-  workflow gets `owner_group_id` and a grant to their group on creation;
-  granting others stays an admin's; a builder names only panes their group may
-  use (`access_errors`, at validate, save and the agent's check).
+- **A run acts as its starter** (every step through the handler's own
+  connection and identity checks), anyone may start any workflow (D160), and
+  **its inputs and outputs are its starter's, their group's and admins'**
+  (`can_read`, D84) -- everyone else sees that it happened. **Making one is a
+  Builder's; changing one its owner's, members' and admins'** (D161,
+  `build_access`), as every built thing.
 - **Step types** (D122, `step_types.py`, `built_step_types`, store `steps/`):
   `request` (an HTTP call on a connection input of an HTTP type, any method,
   CEL over `inputs`; `send` mirrors `run_request`'s identity, SSRF guard and
@@ -830,8 +810,8 @@ id, kept in the store (`Kind` `template`).
   connections, credentials, OpenSearch indices and a workflow's connection
   parameters removed; a secret-looking header's value blanked. What changed
   is answered in words and shown to the publisher.
-- **Offered** to whoever's group may use each of its panes
-  (`templates.usable`, `pane_access.granted`) -- no grant of its own -- in
+- **Offered** to everyone (D160; `templates.usable` only asks that each of
+  its pane types is still there) -- no grant of its own -- in
   place of the saved template it was published from (`saved_session_id`,
   told only to its owner as `from_saved_session_id`): both, under one name,
   read as a duplicate.
@@ -861,17 +841,15 @@ the platform, for a group with `builder_enabled` (admins always).
   the YAML's id to that (`new_id`); a draft without an Id isn't held to
   anything -- its id line used to fail against "draft" first, and Check
   dropped that error, so nothing after it was checked.
-- **Its handlers are its builder's group's** (D113, `usable_handlers`): only
-  handlers of pane types that group may use (admins: all), held by Check,
-  Preview, Save and the agent's check; the handler lists show only those. A
-  built pane is its group's at once, so without this a builder reached a
-  handler (DynamoDB's scan) an admin never granted them.
+- **Any handler** (D160, undoing D113's "its builder's group's"): every pane
+  type is everyone's, so a handler reached through a built pane reaches
+  nothing the caller's environments and identity don't already allow.
 - **The preview** (D112): the real `ManifestPane`, given the draft's manifest
   from `/api/builder/preview`, in no session (outputs stay in the tab), its
   server actions sent through `panes/actionRunner.ts`'s context to
   `/api/builder/preview/actions` with the text it was drawn from --
-  `run_request`/`run_handler` with `draft=True` (no pane grant for a draft;
-  the Builder grant and D113 instead), nothing stored. Background runs aren't
+  `run_request`/`run_handler` with `draft=True` (for whoever may make one or
+  change the one it's a draft of: `routers/builder._may_work`), nothing stored. Background runs aren't
   previewed. The agent's `preview_definition` is the same run, sampled.
 - **The form** (5-2d, D115, `pages/BuilderForm.tsx`): Edit as YAML | Form
   over the one text. Every change goes through `pages/builderYaml.ts` --
@@ -881,17 +859,38 @@ the platform, for a group with `builder_enabled` (admins always).
   follows the key into the layout and the requests. What the form doesn't
   cover stays the YAML's ("+N in the YAML"). Examples come without id, flag
   and connection types (`builder.example_source`), so they check clean.
-- **Its builder's group is granted it on creation**; others when an admin
-  grants it (D65). The browser reloads pane types, the user and the catalogue
-  after a save (`useReloadPaneTypes`), so "Open in a session" works at once.
-- **The agent panel's second tab is about what's on screen** -- a session,
-  a run (This run) or an editor (Building) -- and isn't there with none of
-  them (`AgentPanel`'s `hasSecond`; the chosen tab is kept for when one
-  comes back): it used to sit there saying "Open a session…".
+- **Everyone's to use at once** (D160). The browser reloads pane types, the
+  user and the catalogue after a save (`useReloadPaneTypes`), so "Open in a
+  session" works at once.
+- **Who changes what's built** (D161; `build_access.py`, `build_members`,
+  `routers/build_members.py`, `components/BuildMembers.tsx`): a pane type,
+  step type, workflow, credential or connection type is changed by its owner
+  (`owner_id`, a person: its maker, or whom an admin or the owner handed it
+  on to), the members they add, and admins -- `why_locked` is the one answer,
+  sent with each as `locked`/`can_edit` and checked again by every route, the
+  draft routes, the agent router and the MCP build tools. A credential type a
+  credential uses stays an admin's (D158). Making something new is a
+  Builder's (`can_create`); being added is the grant to change, Builder or
+  not -- so the Builder is on everyone's rail, read-only where they can't
+  change it. Members are kept by `(kind, target)`, `draft:<id>` for one still
+  being made (`adopt` moves them on Create). The editors' **Members** section
+  (owner, members, Add, Hand on, ✕ to leave) is the session card's, minus
+  permissions; `UsernameField` is the shared invite box.
+- **The agent panel's second tab is the chat of what's on screen** (D163),
+  named by what it is -- **Session**, **Draft** (an editor) or **Run** -- and
+  isn't there with none of them (`AgentPanel`'s `hasSecond`; the chosen tab
+  is kept for when one comes back). A draft's chat works as a shared
+  session's: unshared, every message goes to the Builder; shared (`shared` on
+  the draft: more than one participant), people talk, `@builder` asks the
+  Builder's loop and `@platform-agent` the platform agent (`agent:
+  "platform"` on the turn's build focus; the Builder's loop reads
+  "who: @builder what" as the request, `builder._request`). A question is
+  written to the draft's chat when asked, so the others see it running; a
+  shared draft's chat isn't one person's to clear.
 - **The agent builds beside the editor** (5-2, D107-D108). An editor that may
   be edited registers itself (`agent/buildFocus.ts`'s `useOfferBuild`: the
   Builder's, a workflow's `DefinitionSection`), and the agent panel's second
-  tab is then **Building** (scope `"build"`, its turns in memory per editor
+  tab is then **Draft** (scope `"build"`, its turns in memory per editor
   key). The turn carries the editor's text; the router lets only whoever may
   edit it ask; the agent service reads `build_reference` first and attaches
   the text (`prompt.build_prompt`, `turn_reads`). The text is also the turn's
@@ -1028,20 +1027,20 @@ the platform, for a group with `builder_enabled` (admins always).
   `version` and is announced (`build_drafts.announce`, kind `"draft"`,
   `DRAFT_EVENT` in the browser) -- any new writer of a draft must call it
   before its commit. The editor follows (`useBuildDraft`'s `follow`, on the
-  save chain), a text save sends `base_version` (409 = follow, never
-  overwrite), `for_tab` hands a draft to an editor that had none
+  save chain), a text save sends `base_version` (409 = follow and merge,
+  never overwrite), `for_tab` hands a draft to an editor that had none
   (`open_draft(on_screen=True)`), and AgentContext merges a draft's turns by id.
-- **Credential and connection types in the Builder** (D158; `type_access.py`,
-  `owner_group_id` on both type tables): the Builder's Connections and
+- **Credential and connection types in the Builder** (D158; their owner and
+  members as any built thing's, D161): the Builder's Connections and
   Credentials are the Settings editors (`ConnectionTypesSettings`,
   `CredentialTypesView`), mounted in both places, each with Form | YAML
   (`components/settings/TypeYaml.tsx`: the store's file shape, the form's
-  draft the truth). Builders make types for their own group; `why_locked`
-  is the one answer to "may this user change it" (built in; another group's;
-  a credential type a credential uses -- secrets are admins', D24, so a
-  builder's refusal counts them, never names them), sent with each type as
-  `locked` and checked again by every route. The owner is deployment state,
-  never in the store's file.
+  draft the truth). `build_access.why_locked` is the one answer to "may this
+  user change it" (built in; not its owner's, a member's or an admin's; a
+  credential type a credential uses -- secrets are admins', D24, so a
+  refusal counts them, never names them), sent with each type as `locked`
+  and checked again by every route. The owner is deployment state, never in
+  the store's file.
 - **Types are built as panes are** (D159; `type_defs.py`): their text is the
   store's YAML (`source_of`, `STARTERS`, `parse`/`check` with lines,
   `reference` generated from the validation's own constants); build drafts,
@@ -1068,18 +1067,25 @@ the platform, for a group with `builder_enabled` (admins always).
   while Preview (`.builder-preview-toggle`, pressed) is on -- the editor has
   the width otherwise; a stale drawing offers "Draw again"
   (`.builder-preview-redraw`), since Preview pressed again closes it.
-- **Drafts** (D125, `build_drafts.py`, `/api/build-drafts`,
-  `pages/buildDraft.tsx`'s `useBuildDraft`): each editor (pane, step,
-  workflow) keeps its text, a new one's Id and its Building chat as its
-  builder's own draft -- made by the first change, saved ~1 s after each and
-  on unmount, put back on opening (an existing one's only once its saved
-  text is in, or that load overwrote the draft). One per person per saved
-  thing (`target_id`, a partial unique index); a new one's are rows of their
-  own in the lists. The chat rides on the editor's `BuildFocus.draft`
-  (`saveTurns`, `keep` for a proposal arriving after the editor closed), so
-  a turn that outlives its editor still lands. Create/Save leaves only the
-  chat, moved onto the saved one (`changed: false`); deleting the thing
-  forgets everyone's drafts of it. Never the store's.
+- **Drafts** (D125, D161, `build_drafts.py`, `/api/build-drafts`,
+  `pages/buildDraft.tsx`'s `useBuildDraft`): each editor keeps its text, a
+  new one's Id and its chat as a draft -- made by the first change, saved
+  ~1 s after each and on unmount, put back on opening (an existing one's only
+  once its saved text is in, or that load overwrote the draft). **One per
+  saved thing, everyone's who may change it** (`uq_build_drafts_item`;
+  `reachable`, never "the user's own"); a new one's is its starter's and its
+  members', rows of their own in the lists. Every change is announced to
+  all its participants and anyone with it on screen; each editor follows
+  the others' and merges what it typed meanwhile by lines (D162,
+  `pages/merge3.ts`: only overlapping changes conflict, theirs kept there),
+  and a create that finds it just made by someone else is a 409
+  (`expect_new`) it merges into. The chat rides on the editor's
+  `BuildFocus.draft` (`saveTurns`, `keep` for a proposal arriving after the
+  editor closed) and is merged by turn id on the server (`merge_chat`; empty
+  is Clear), so two people's messages both survive. Create/Save leaves the
+  chat (and members), moved onto the saved one (`changed: false`); Discard
+  puts a saved one's text back for everyone; deleting the thing forgets its
+  draft and members. Never the store's.
 - **Rows that open, and paths** (D124): a row action may be a `request`
   (`routers/panes.run_row`; its detail is its one row, `{rows}`, or the
   reply without `rows`), its connection by the row's `Environment` name

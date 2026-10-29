@@ -199,6 +199,22 @@ to delete"} -- or a Python file, {"op": "file", "name": "health.py", "text": "th
 "lines" change edits that file's lines). Nothing else goes in a change."""
 
 
+
+# In a shared draft's chat (D163) the Builder answers only @builder, and the
+# message comes as "<who>: @builder <what>": the request is what follows,
+# said with who asked. Without the mention it's an unshared chat's, as typed.
+_SPEAKER = re.compile(r"^([\w.@-]{1,64}): (.*)$", re.S)
+_MENTION = re.compile(r"@builder\b[,:]?\s*", re.I)
+
+
+def _request(content: str) -> str:
+    if not _MENTION.search(content):
+        return content
+    found = _SPEAKER.match(content)
+    who, said = (found.group(1), found.group(2)) if found else (None, content)
+    said = _MENTION.sub("", said).strip()
+    return f"{said}\n\n(Asked by {who}, in the draft's shared chat.)" if who else said
+
 def _noun(kind: str) -> str:
     return {"pane": "pane type", "step": "step type", "credential": "credential type",
             "connection": "connection type"}.get(kind, "workflow")
@@ -406,7 +422,7 @@ class Builder:
         parts.append(f"The draft now, with line numbers:\n{_numbered(draft)}")
         for name, text in sorted(self.files.items()):
             parts.append(f"The file {name} beside it, with line numbers:\n{_numbered(text)}")
-        parts.append(_history(self.messages) + f"The user's request: {self.messages[-1]['content']}")
+        parts.append(_history(self.messages) + f"The user's request: {_request(self.messages[-1]['content'])}")
         return "\n\n".join(parts)
 
     async def lookups(self, value: dict) -> int:
@@ -471,7 +487,7 @@ class Builder:
         known = set((self.reference_data.get("recipes") or {})) | set(self.reference_data.get("examples") or [])
         if isinstance(chosen, str) and chosen.strip() in known:
             return chosen.strip()
-        wanted = _words(f"{self.messages[-1]['content']} {plan}")
+        wanted = _words(f"{_request(self.messages[-1]['content'])} {plan}")
         best, score, tied = None, 0, False
         for name in sorted(self.reference_data.get("recipes") or {}):
             ok, out = await self.call("read_definition", {"kind": self.kind, "definition_id": name}, shown=False)

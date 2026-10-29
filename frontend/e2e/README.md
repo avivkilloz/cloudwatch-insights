@@ -78,10 +78,18 @@ Access section -- approved and sent) needs the faked backend (a `.fake` host;
 icons, the same icons on the strip while the rail is hidden, and a stored view
 of the Agent page landing home) needs nothing beyond the backend.
 
+`smoke116` (D160-D163: as a member of a group with no Builder and no
+environments, every pane is offered, CloudWatch saying no environment has it
+yet; the group form has no Panes; an admin's pane type opens read-only, then
+-- added from the editor's Members -- editable; both typing in its draft at
+once end with both changes; its Draft chat carries a plain message to the
+other person with no agent answer, and `@builder` renames it in both editors;
+the member saves) needs the agent and the fake model. Two pages, two users.
+
 `smoke115` (D159: a pane draft naming a missing connection type says so in
 its Needs line and at Check's line, "Make it" opens Connections with that id,
 and made, both say it's there; a credential type's editor keeps its draft;
-Claude Code works on it on screen, live; and the Building tab beside it puts
+Claude Code works on it on screen, live; and the Draft tab beside it puts
 its change in the form) needs the agent and the fake model.
 
 `smoke114` (D158: as a member of a builder group, the Builder's Connections

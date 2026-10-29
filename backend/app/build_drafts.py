@@ -81,9 +81,10 @@ def merge_chat(kept: list, sent: list) -> list:
     out = list(sent)
     for i, turn in enumerate(kept):
         if isinstance(turn, dict) and turn.get("id") not in sent_ids:
-            # After the turn it followed, where that's still there.
+            # After the turn it followed, where that's still there; first if it was first.
             before = kept[i - 1].get("id") if i and isinstance(kept[i - 1], dict) else None
-            at = next((j + 1 for j, t in enumerate(out) if isinstance(t, dict) and t.get("id") == before), None)
+            at = 0 if i == 0 else next((j + 1 for j, t in enumerate(out)
+                                        if isinstance(t, dict) and t.get("id") == before), None)
             out.insert(at if at is not None else len(out), turn)
             sent_ids.add(turn.get("id"))
     return out
@@ -182,7 +183,9 @@ def _apply(row: models.BuildDraft, source: Optional[str], new_id: Optional[str],
     if new_id is not None:
         row.new_id = new_id.strip()[:64]
     if chat is not None:
-        row.chat = _chat(merge_chat(list(row.chat or []), chat))
+        # Empty is Clear -- offered only while nobody else is in it (D163);
+        # anything else is merged, so a turn another tab added survives.
+        row.chat = _chat(merge_chat(list(row.chat or []), chat)) if chat else []
     row.updated_at = datetime.datetime.utcnow()
     row.version = (row.version or 0) + 1
 
@@ -216,9 +219,12 @@ class Stale(DraftError):
 
 def save(db: Session, user: models.User, kind: str, target_id: Optional[str], source: Optional[str],
          new_id: Optional[str] = None, chat: Any = None, files: Optional[dict[str, str]] = None,
-         origin: Optional[str] = None, by: Optional[str] = None, for_tab: Optional[str] = None) -> models.BuildDraft:
+         origin: Optional[str] = None, by: Optional[str] = None, for_tab: Optional[str] = None,
+         expect_new: bool = False) -> models.BuildDraft:
     """A new draft -- or, of an existing one, its draft, changed: one for
-    everyone who may change it, whoever saves first making it."""
+    everyone who may change it, whoever saves first making it. An editor that
+    thought it was making it (`expect_new`) and finds someone else did first
+    is told so (409) and merges into theirs, rather than writing over it."""
     if kind not in KINDS:
         raise DraftError(f"A draft is of a {', '.join(KINDS)}.")
     if not target_id and not may_make(user, kind):
@@ -227,6 +233,8 @@ def save(db: Session, user: models.User, kind: str, target_id: Optional[str], so
     if target_id:
         _target(db, user, kind, target_id)
         row = db.query(models.BuildDraft).filter_by(kind=kind, target_id=target_id).first()
+        if row is not None and expect_new and source is not None:
+            raise Stale()
     if row is None:
         row = models.BuildDraft(user_id=user.id, kind=kind, target_id=target_id or None, source="", chat=[])
         db.add(row)
@@ -237,6 +245,8 @@ def save(db: Session, user: models.User, kind: str, target_id: Optional[str], so
     except IntegrityError:
         # Another tab's first save of the same one won -- or another person's: change that one.
         db.rollback()
+        if expect_new:
+            raise Stale() from None
         row = db.query(models.BuildDraft).filter_by(kind=kind, target_id=target_id).one()
         _apply(row, source, None, chat, files)
         announce(db, row, origin, by, for_tab, also=user.id)

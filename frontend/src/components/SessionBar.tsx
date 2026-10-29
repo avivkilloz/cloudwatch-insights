@@ -45,7 +45,7 @@ export default function SessionBar({
   const openPublished = useOpenPublishedFromMenu();
   const { startOne, startFromTemplate } = useStartSession();
   const { user } = useAuth();
-  const { groups: catalogueGroups } = useCatalogue();
+  const { groups: catalogueGroups, noEnvironment } = useCatalogue();
   const waiting = useWaitingApprovals();
   // Set when the current tab is being renamed in place, from the ⋮ below.
   const [renaming, setRenaming] = useState(false);
@@ -94,7 +94,7 @@ export default function SessionBar({
               <Icon name="workflow" />
               {waiting.length > 0 && <span className="session-bar-page-dot" aria-hidden="true" />}
             </button>
-            {user?.builder_enabled && (
+            {user && (
               <button
                 className={`session-bar-page${view === "builder" ? " active" : ""}`}
                 data-page="builder"
@@ -190,12 +190,12 @@ export default function SessionBar({
                     {types.map((t) => (
                       <button
                         key={t.type}
-                        className="session-add-item"
+                        className={`session-add-item${noEnvironment[t.type] ? " no-environment" : ""}`}
                         onClick={() => {
                           startOne(t.type);
                           closeMenu();
                         }}
-                        title={`Start a session on ${t.label} — ${t.description}`}
+                        title={`Start a session on ${t.label} — ${t.description}${noEnvironment[t.type] ? ` (${noEnvironment[t.type]})` : ""}`}
                       >
                         <span className="session-add-name">{t.label}</span>
                       </button>

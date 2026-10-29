@@ -1,3 +1,5 @@
+import BuildMembers from "../BuildMembers";
+import { useAuth } from "../../AuthContext";
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
@@ -634,8 +636,8 @@ const EDIT_AS = [
 ] as const;
 
 /** Who made a type, for its row: a builder group's, an admin's, or built in (D158). */
-export function madeBy(t: { builtin: boolean; owner_group?: string | null }): string {
-  return t.builtin ? "Built in" : t.owner_group ? `${t.owner_group} builders` : "Admins";
+export function madeBy(t: { builtin: boolean; owner?: string | null }): string {
+  return t.builtin ? "Built in" : t.owner ?? "Admins";
 }
 
 function fieldOf(read: unknown): CredentialField {
@@ -671,6 +673,8 @@ function withData<T extends CredentialTypeDraft & { isNew: boolean }>(draft: T, 
 /** Settings → Credentials → Types and the Builder's Credentials (D158): one
  * editor, in both places. `intro` is the line beside the list's switcher. */
 export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; intro?: string }) {
+  // Making a new one is a Builder's (D161); changing one, its owner's and members'.
+  const maker = !!useAuth().user?.builder_enabled;
   const [types, setTypes] = useState<CredentialType[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -692,6 +696,8 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
   const [yamlKey, setYamlKey] = useState(0);
   const drafts = useDraftList("credential", opened * 2 + (draft ? 1 : 0));
   const keeper = useRef<DraftState | null>(null);
+  // The open editor's draft id: a new one's members are kept on it (D161).
+  const [keptId, setKeptId] = useState<number | null>(null);
   const namespace = useStoreNamespace();
 
   async function refresh() {
@@ -909,6 +915,7 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
               setNotice(`The agent's version is in the editor, unsaved: ${summary}`);
             }}
             keeper={keeper}
+            onDraftId={setKeptId}
           />
         )}
 
@@ -1187,6 +1194,10 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
             {locked ? "Close" : "Cancel"}
           </button>
         </div>
+        {/* Who changes it (D161): its owner, the members they add, admins. */}
+        {!locked && (
+          <BuildMembers kind="credential" target={draft.isNew ? (keptId !== null ? `draft:${keptId}` : null) : draft.id} />
+        )}
       </div>
     );
   }
@@ -1217,7 +1228,7 @@ export function CredentialTypesView({ switcher, intro }: { switcher: ReactNode; 
       <div className="credential-list-head">
         {switcher}
         <span className="muted">{intro ?? "The fields a kind of credential has, and which are secret."}</span>
-        <button onClick={() => start()}>New type</button>
+        {maker && <button onClick={() => start()}>New type</button>}
       </div>
       {messages}
       {loaded && (

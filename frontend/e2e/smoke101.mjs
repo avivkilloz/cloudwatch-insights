@@ -160,7 +160,7 @@ const run = async () => {
 
     // ---- 2. created: the chat stays with it; a later change is a Draft beside it
     await page.click('.builder-view button:text-is("Create")');
-    await page.waitForSelector('.builder-notice:has-text("your group can use it now")', { timeout: 10000 });
+    await page.waitForSelector('.builder-notice:has-text("everyone can use it now")', { timeout: 10000 });
     const paneId = (await api(page, "GET", "/builder/panes")).body.find((t) => t.id.endsWith(PANE)).id;
     made.push(["pane", paneId]);
     // The created one's editor reads its chat back from the draft it became.

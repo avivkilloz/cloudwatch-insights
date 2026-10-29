@@ -24,6 +24,9 @@ class DraftIn(BaseModel):
     source: Optional[str] = None
     files: Optional[dict[str, str]] = None
     chat: Optional[list[Any]] = None
+    # The editor thinks it's making the saved one's draft (D161): one made by
+    # someone else meanwhile is a 409, which it merges into.
+    expect_new: bool = False
 
 
 class DraftChange(BaseModel):
@@ -90,7 +93,8 @@ def get_draft(draft_id: int, db: Session = Depends(get_db), user: models.User = 
 def save_draft(payload: DraftIn, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user),
                origin: Optional[str] = Header(default=None, alias="X-Sync-Origin", max_length=64)):
     row = _guard(lambda: build_drafts.save(db, user, payload.kind, payload.target_id, payload.source, payload.new_id,
-                                           payload.chat, payload.files, origin=origin))
+                                           payload.chat, payload.files, origin=origin,
+                                           expect_new=payload.expect_new))
     return build_drafts.out(db, row)
 
 

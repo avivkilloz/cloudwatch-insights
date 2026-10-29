@@ -92,7 +92,7 @@ const run = async () => {
     // ---- 3. made, opened, both lists fetched
     await page.fill("#builder-id", NAME);
     await page.click('.builder-view button:text-is("Create")');
-    await page.waitForSelector('.builder-notice:has-text("your group can use it now")', { timeout: 10000 }).catch(async (e) => {
+    await page.waitForSelector('.builder-notice:has-text("everyone can use it now")', { timeout: 10000 }).catch(async (e) => {
       console.log("EDITOR SAID:", await page.locator(".builder-view").innerText());
       throw e;
     });

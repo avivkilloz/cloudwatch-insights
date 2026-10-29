@@ -1,15 +1,14 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, ApiError, ConnectionType, Credential, EnvironmentRecord, GroupIdentity, readableError, UserGroup } from "../../api";
-import { manifests } from "../../panes/manifest";
-import { useCatalogue } from "../../sessions/catalogue";
 import { CardRow } from "../SessionCard";
 import { accepts } from "./EnvironmentsSettings";
 import { rowProps, Section, TagPicker, ViewHead } from "./settingsLayout";
 
 /*
  * Settings → User groups (PLATFORM_PLAN.md §14.8). A group is the unit of
- * access: which pages it has, which environments it sees, and -- new in
- * Phase 2 -- who it is on each kind of connection (D31). The IAM role used
+ * access: which environments it sees and who it is on each kind of
+ * connection (D31) -- every pane type is everyone's (D160), so a group is
+ * never given a list of panes. The IAM role used
  * to be a field on the group; it is the group's AWS identity now, an "AWS
  * role" credential, so a group can be a different role in one account, and
  * the same mechanism serves any other kind of connection.
@@ -18,12 +17,11 @@ import { rowProps, Section, TagPicker, ViewHead } from "./settingsLayout";
 type Draft = {
   id: number | null;
   name: string;
-  /** The pane types it may use (D65): one grant each, no longer one switch per page. */
-  pane_types: string[];
   /** Not a pane but the same kind of yes/no: the agent acts with everything
    * else this group has, so it is its own switch, and off for a new group. */
   agent_enabled: boolean;
-  /** Makes pane types (the Builder, §24): what it builds is its group's at once, others' when granted. */
+  /** Makes new pane types, steps, workflows and types (the Builder, §24): everyone's to use at once,
+   * changed by their maker and the members they add (D161). */
   builder_enabled: boolean;
   environment_ids: number[];
   /** Identities as they will be saved; a new AWS role is created on Save (credential_id < 0, newRole set). */
@@ -40,7 +38,6 @@ function usableBy(group: { id: number | null; is_admin?: boolean }, c: Credentia
 }
 
 export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode }) {
-  const catalogue = useCatalogue();
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [envs, setEnvs] = useState<EnvironmentRecord[]>([]);
   const [types, setTypes] = useState<ConnectionType[]>([]);
@@ -86,9 +83,6 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
     const base: Draft = {
       id: g?.id ?? null,
       name: g?.name ?? "",
-      // A new group starts with every pane type, as it started with every
-      // page switched on -- in the form, so nothing is granted unseen.
-      pane_types: g?.pane_types ?? manifests().map((m) => m.id),
       agent_enabled: g?.agent_enabled ?? false,
       builder_enabled: g?.builder_enabled ?? false,
       environment_ids: g?.environment_ids ?? [],
@@ -169,7 +163,6 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
       const payload = {
         name: draft.name.trim(),
         environment_ids: draft.environment_ids,
-        pane_types: draft.pane_types,
         agent_enabled: draft.agent_enabled,
         builder_enabled: draft.builder_enabled,
       };
@@ -241,59 +234,7 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
           </CardRow>
         </Section>
 
-        <Section title="Panes">
-          {isAdminGroup ? (
-            <CardRow label="Can use">
-              <span className="credential-static">Every pane</span>
-            </CardRow>
-          ) : (
-            // Under the catalogue's categories (D66), hidden ones too: the
-            // admin's catalogue holds every pane type, so this is all of them.
-            catalogue
-              .groups({ withHidden: true, withFavourites: false })
-              .map(({ name: group, types }) => ({ group, panes: types.map((t) => ({ id: t.type as string, label: t.label })) }))
-              .map(({ group, panes }) => {
-              const ids = new Set(panes.map((p) => p.id));
-              const rest = draft.pane_types.filter((t) => !ids.has(t));
-              return (
-                <CardRow key={group} label={group}>
-                  {/* One grant per pane type (D65): "Tools" used to be one
-                      switch for all six. An even grid, so a row of them reads
-                      as a list to tick rather than a sentence that wraps. */}
-                  <div className="group-panes">
-                    <div className="group-panes-grid group-flags" role="group" aria-label={`${group} this group can use`}>
-                      {panes.map((p) => (
-                        <label className="checkbox-item" key={p.id}>
-                          <input
-                            type="checkbox"
-                            checked={draft.pane_types.includes(p.id)}
-                            onChange={(e) =>
-                              setDraft({
-                                ...draft,
-                                pane_types: e.target.checked
-                                  ? [...draft.pane_types, p.id]
-                                  : draft.pane_types.filter((t) => t !== p.id),
-                              })
-                            }
-                          />
-                          {p.label}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="group-panes-toggle">
-                      <button type="button" className="link-button" onClick={() => setDraft({ ...draft, pane_types: [...rest, ...ids] })}>
-                        All
-                      </button>
-                      <span className="muted">·</span>
-                      <button type="button" className="link-button" onClick={() => setDraft({ ...draft, pane_types: rest })}>
-                        None
-                      </button>
-                    </div>
-                  </div>
-                </CardRow>
-              );
-            })
-          )}
+        <Section title="Features">
           <CardRow label="Agent">
             <label className="checkbox-item">
               <input
@@ -311,7 +252,7 @@ export default function UserGroupsSettings({ switcher }: { switcher?: ReactNode 
                 checked={draft.builder_enabled}
                 onChange={(e) => setDraft({ ...draft, builder_enabled: e.target.checked })}
               />
-              Builds panes, workflows and steps
+              Makes new panes, workflows, steps and types
             </label>
           </CardRow>
         </Section>

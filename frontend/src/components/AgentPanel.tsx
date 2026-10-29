@@ -5,7 +5,9 @@ import AgentChat from "./AgentChat";
 /**
  * The agent's two conversations, whichever way the panel is laid out: a tab
  * for the global chat (the platform: start sessions, look across them) and
- * one for the session on screen (change it, ask about what's checked in it).
+ * one for what's on screen -- a session, a draft in the Builder, a run --
+ * named by what it is (D163). Each is that thing's own chat: shared, it's
+ * people talking, an agent answering when it's mentioned.
  * The header switches between docking the panel beside the page and floating
  * it over the page; floating, a ✕ puts it away (docked, that's the strip's
  * toggle).
@@ -50,13 +52,13 @@ export default function AgentPanel({ account }: { account?: ReactNode }) {
               onClick={() => setTab("session")}
               title={
                 viewingBuild
-                  ? `Building ${viewingBuild.title}: ask for a change, and the agent drafts it into the editor`
+                  ? `${viewingBuild.title}'s draft: ask the Builder for a change, and it drafts it into the editor`
                   : viewingRun
                     ? `This run: ${viewingRun.title} -- what it ran, what it found, why a stage failed`
                     : "This session: change it, ask about what's checked in it"
               }
             >
-              {viewingBuild ? "Building" : viewingRun ? "This run" : "Session"}
+              {viewingBuild ? "Draft" : viewingRun ? "Run" : "Session"}
               {busy(second)}
             </button>
           )}

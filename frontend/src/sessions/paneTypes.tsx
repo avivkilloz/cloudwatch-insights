@@ -69,8 +69,9 @@ function fromManifest(m: PaneManifest): SessionTypeDef {
     description: m.description,
     help: m.help,
     render: () => <ManifestPane type={m.id} />,
-    // The group's grants (D65); /api/pane-types is filtered by them too.
-    enabledFor: (u) => !!u?.pane_types?.includes(m.id),
+    // Every pane type is everyone's (D160): what a group is given is its
+    // environments, which every run checks.
+    enabledFor: () => true,
     savedPage: LEGACY_SAVED_PAGES[m.id],
     paneable: true,
   };

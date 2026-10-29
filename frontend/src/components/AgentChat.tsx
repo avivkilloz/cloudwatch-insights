@@ -12,6 +12,8 @@ import MarkdownLite from "./MarkdownLite";
  * is on the session, even one with no other members, since @mentioning it is
  * always a valid thing to type (it's just never *required* until shared). */
 const AGENT_HANDLE = "platform-agent";
+// The Builder's own handle in a shared draft's chat (D163): it changes the draft.
+const BUILDER_HANDLE = "builder";
 
 /**
  * One conversation with the platform agent -- the global one, or the chat of
@@ -351,6 +353,10 @@ const SHARED_INTRO =
   "This session's shared, so this is a chat: whoever's on it can talk here too. The agent only joins in when a " +
   "message mentions @platform-agent.";
 
+const SHARED_BUILD_INTRO =
+  "Others work on this too, so this is a chat: everyone changing it talks here, and sees the editor change as " +
+  "each of you types. Mention @builder to have the Builder change the draft, or @platform-agent to ask about it.";
+
 export default function AgentChat({ scope }: { scope: AgentScope }) {
   const {
     status,
@@ -406,7 +412,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   }, [scope, sessionId, authorKey]);
   const me: Asker | null = user ? { username: user.username, avatarUrl: user.avatar_url } : null;
   const askerOf = (t: AgentTurn): Asker | null => {
-    if (scope !== "session" && scope !== "run") return null;
+    if (scope !== "session" && scope !== "run" && !(scope === "build" && t.author)) return null;
     if (!t.author || t.author.id === user?.id) return me;
     return pictures.get(t.author.id) ?? { username: t.author.name };
   };
@@ -423,8 +429,8 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   const [participants, setParticipants] = useState<{ username: string }[]>([]);
   const mentionCandidates = useMemo(() => {
     const names = participants.map((p) => p.username).filter((name) => name !== user?.username);
-    return [...new Set([...names, AGENT_HANDLE])];
-  }, [participants, user?.username]);
+    return [...new Set([...names, ...(scope === "build" ? [BUILDER_HANDLE] : []), AGENT_HANDLE])];
+  }, [participants, user?.username, scope]);
 
   // The "@word" just before the caret, if any -- `start` is where the "@"
   // itself sits, so a pick can splice the mention in over exactly that span.
@@ -446,6 +452,17 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
         api
           .listSessionParticipants(sessionId)
           .then(setParticipants)
+          .catch(() => setParticipants([]));
+      }
+      setMention({ start: caret - match[1].length - 1, query: match[1] });
+      setMentionHighlighted(-1);
+    } else if (match && sharedBuild && viewingBuild) {
+      // A draft's people: its owner and members (D161), fetched as a mention starts.
+      const target = viewingBuild.id ?? (viewingBuild.draft?.id != null ? `draft:${viewingBuild.draft.id}` : null);
+      if (mention === null && target) {
+        api
+          .buildMembers(viewingBuild.kind, target)
+          .then((m) => setParticipants([...(m.owner ? [m.owner] : []), ...m.members]))
           .catch(() => setParticipants([]));
       }
       setMention({ start: caret - match[1].length - 1, query: match[1] });
@@ -506,7 +523,9 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
   }, [turns.length, last?.answer.length, last?.steps.length, scope, sessionId]);
 
   const sessionTitle = sessionId ? sessions.find((s) => s.id === sessionId)?.title : undefined;
-  const shared = scope === "session" && viewingSessionShared;
+  // A shared draft's chat is people talking too (D161, D163), with two agents to call on.
+  const sharedBuild = scope === "build" && !!viewingBuild?.draft?.shared;
+  const shared = (scope === "session" && viewingSessionShared) || sharedBuild;
 
   const unavailable =
     status === null
@@ -541,7 +560,7 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             {scope === "session" && sessionTitle ? <strong>{sessionTitle}. </strong> : null}
             {scope === "run" && viewingRun ? <strong>{viewingRun.title}. </strong> : null}
             {scope === "build" && viewingBuild ? <strong>{viewingBuild.title}. </strong> : null}
-            {shared ? SHARED_INTRO : INTRO[scope]}
+            {sharedBuild ? SHARED_BUILD_INTRO : shared ? SHARED_INTRO : INTRO[scope]}
           </p>
         )}
         {turns.map((t, i) => (
@@ -634,7 +653,9 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
             }}
             onBlur={() => setMention(null)}
             placeholder={
-              shared
+              sharedBuild
+                ? "Chat, or mention @builder or @platform-agent…"
+                : shared
                 ? "Chat, or mention @platform-agent…"
                 : scope === "session"
                   ? "Ask about this session…"
@@ -682,7 +703,8 @@ export default function AgentChat({ scope }: { scope: AgentScope }) {
               <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
             </label>
           )}
-          {turns.length > 0 && !running && scope !== "run" && (
+          {/* A run's chat and a shared draft's are everyone's in it: not one person's to clear. */}
+          {turns.length > 0 && !running && scope !== "run" && !sharedBuild && (
             <button className="secondary" onClick={() => clear(scope)}>
               Clear
             </button>
