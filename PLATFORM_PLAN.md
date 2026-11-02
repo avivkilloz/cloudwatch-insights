@@ -1159,6 +1159,9 @@ foundation the next one needs.
 - [ ] **Later:** pluggable secret backends (Vault, AWS Secrets Manager), personal
   credentials, workflow triggers (cron, webhook), graph workflows, dashboards (saved
   views), more providers as first-party plugins (Kubernetes, GCP, GitHub…).
+- [ ] **Parked, not planned:** selling the platform, and other front doors onto it
+  (an Atlassian edition through Forge and Rovo) -- the options and what each would
+  take are in §26. Nothing to build now; one thing to keep in mind meanwhile.
 
 ## 10. Open questions (to discuss)
 
@@ -4962,6 +4965,49 @@ runs it. Four PRs (D130), each with something to try:
   (`poll`), per-group limits, and a jobs view in Settings.
 - **6-4, the browser runtime** (§4.5 tier 3): the sandboxed origin, its
   postMessage SDK, custom renderers.
+
+## 26. Parked: selling it, and other front doors (2026-11-02, not planned)
+
+Asked whether the platform could be built into Atlassian with Forge (Rovo in
+place of the platform agent, Bitbucket Pipelines for workflows) to sell it --
+Forge apps keep 100% of revenue up to $1M lifetime since 2026-01-01. Decided:
+not now; the plans ahead come first. Recorded so the thinking isn't lost.
+
+**Not a port, a front door.** Forge can't hold what the platform does: an
+invocation runs ~55 s (our background runs poll for minutes and MQTT holds a
+socket), ~100 outbound requests a minute, Forge SQL 1 GiB per install, no
+Python (the runner), and Forge Containers is still early access. Rovo can call
+our MCP tools as Forge actions, but takes over the loop -- the turn's reads,
+grounding, the answer check and the Builder's code-driven loop are ours.
+Bitbucket Pipelines don't fit workflows (repository CI, billed per minute, no
+parameter forms, approvals or runs to investigate); Jira Automation calling
+Forge actions would be the native trigger, our engine still running the steps.
+
+**The shape it would take:** the platform as it is, and an optional edition
+switched on at deploy time -- Atlassian sign-in in place of ours, the frontend
+as Forge Custom UI in Jira/Confluence, the session tools as Rovo actions, JSM
+entry points ("investigate from this ticket") -- in front of our backend
+through Forge Remote. The catch: a Forge app's remote is (as far as we know) a
+fixed address in its manifest, so this means one backend we run for many
+Atlassian sites, i.e. a hosted, multi-tenant service. That, not any Forge
+limit, is the real step.
+
+**Ways to sell it, closest to what exists first:**
+1. A commercial self-hosted licence (licence key, paid features) on the Helm
+   deployment -- little new work; suits buyers who won't hand AWS access out.
+2. AWS Marketplace, as a container product (later SaaS): bought on the AWS
+   bill, often against committed spend; ~3% listing fee (to confirm). Azure
+   and GCP marketplaces as other clouds come.
+3. A hosted service of our own: tenancy, security posture (SOC 2), customers'
+   cross-account roles trusting ours. What any Atlassian, Slack or Teams front
+   door would sit on.
+4. Atlassian Forge as a channel once 3 exists; check with Atlassian that a
+   Forge Remote app qualifies for the 0% share.
+
+**Keep in mind meanwhile:** keep identity and the UI host replaceable -- no
+feature tied to our own login or `users` table where it can be avoided. The
+MCP tools as the agent's API, panes as manifests and access by environment
+(D160) already point that way.
 
 ## 12. Research sources
 
